@@ -1,7 +1,7 @@
 """
 CLI entry point for the Agentic Orchestrator.
 
-Provides commands: init, step, loop, status
+Provides commands for both legacy pipeline and new backlog-based workflow.
 """
 
 import sys
@@ -16,7 +16,8 @@ from rich import print as rprint
 
 from . import __version__
 from .orchestrator import Orchestrator
-from .utils.config import get_env_bool
+from .backlog import BacklogOrchestrator
+from .utils.config import get_env_bool, get_env_int
 
 console = Console()
 
@@ -300,6 +301,200 @@ def push(dry_run: bool):
         else:
             console.print("[red]Push failed[/red]")
             sys.exit(1)
+
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+        sys.exit(1)
+
+
+# =============================================================================
+# Backlog-based workflow commands
+# =============================================================================
+
+@main.group()
+def backlog():
+    """
+    Backlog-based workflow commands.
+
+    This is the recommended workflow where:
+    - Ideas are generated and stored as GitHub Issues
+    - Humans promote ideas to plans via labels
+    - Humans promote plans to development via labels
+    """
+    pass
+
+
+@backlog.command("run")
+@click.option("--ideas", "-i", type=int, default=1, help="Number of ideas to generate")
+@click.option("--no-ideas", is_flag=True, help="Skip idea generation")
+@click.option("--max-promotions", "-m", type=int, default=5, help="Max promotions to process")
+@click.option("--dry-run", is_flag=True, help="Run without making changes")
+def backlog_run(ideas: int, no_ideas: bool, max_promotions: int, dry_run: bool):
+    """
+    Run one orchestration cycle.
+
+    Generates ideas, processes promotions, and starts development
+    for promoted items.
+    """
+    console.print("[bold blue]Running backlog orchestration cycle[/bold blue]")
+
+    if dry_run:
+        console.print("[yellow](Dry run mode)[/yellow]")
+
+    orchestrator = BacklogOrchestrator(dry_run=dry_run)
+
+    try:
+        with console.status("[bold green]Processing...[/bold green]"):
+            results = orchestrator.run_cycle(
+                generate_ideas=not no_ideas,
+                idea_count=ideas,
+                max_promotions=max_promotions,
+            )
+
+        if "error" in results:
+            console.print(f"[bold red]Error: {results['error']}[/bold red]")
+            sys.exit(1)
+
+        # Show results
+        console.print("\n[bold]Cycle Results:[/bold]")
+        console.print(f"  Ideas generated: {results['ideas_generated']}")
+        console.print(f"  Plans generated: {results['plans_generated']}")
+        console.print(f"  Dev projects started: {results['devs_started']}")
+
+        if results.get("errors"):
+            console.print("\n[yellow]Warnings:[/yellow]")
+            for error in results["errors"]:
+                console.print(f"  - {error}")
+
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+        sys.exit(1)
+
+
+@backlog.command("generate")
+@click.option("--count", "-c", type=int, default=1, help="Number of ideas to generate")
+@click.option("--dry-run", is_flag=True, help="Run without making changes")
+def backlog_generate(count: int, dry_run: bool):
+    """Generate new idea issues."""
+    console.print(f"[bold blue]Generating {count} idea(s)...[/bold blue]")
+
+    if dry_run:
+        console.print("[yellow](Dry run mode)[/yellow]")
+
+    orchestrator = BacklogOrchestrator(dry_run=dry_run)
+
+    try:
+        with console.status("[bold green]Generating ideas...[/bold green]"):
+            ideas = orchestrator.idea_generator.generate_ideas(count=count)
+
+        console.print(f"\n[green]Created {len(ideas)} idea issue(s)[/green]")
+        for idea in ideas:
+            console.print(f"  #{idea.number}: {idea.title}")
+            console.print(f"    {idea.html_url}")
+
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+        sys.exit(1)
+
+
+@backlog.command("process")
+@click.option("--max", "-m", type=int, default=5, help="Max items to process")
+@click.option("--dry-run", is_flag=True, help="Run without making changes")
+def backlog_process(max: int, dry_run: bool):
+    """Process pending promotions only (no idea generation)."""
+    console.print("[bold blue]Processing pending promotions...[/bold blue]")
+
+    if dry_run:
+        console.print("[yellow](Dry run mode)[/yellow]")
+
+    orchestrator = BacklogOrchestrator(dry_run=dry_run)
+
+    try:
+        with console.status("[bold green]Processing...[/bold green]"):
+            results = orchestrator.run_cycle(
+                generate_ideas=False,
+                max_promotions=max,
+            )
+
+        if "error" in results:
+            console.print(f"[bold red]Error: {results['error']}[/bold red]")
+            sys.exit(1)
+
+        console.print("\n[bold]Results:[/bold]")
+        console.print(f"  Plans generated: {results['plans_generated']}")
+        console.print(f"  Dev projects started: {results['devs_started']}")
+
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+        sys.exit(1)
+
+
+@backlog.command("status")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def backlog_status(as_json: bool):
+    """Show backlog status."""
+    orchestrator = BacklogOrchestrator()
+
+    try:
+        status_data = orchestrator.get_status()
+
+        if as_json:
+            import json
+            click.echo(json.dumps(status_data, indent=2))
+            return
+
+        if "error" in status_data:
+            console.print(f"[bold red]Error: {status_data['error']}[/bold red]")
+            sys.exit(1)
+
+        # Backlog summary
+        backlog = status_data["backlog"]
+        pending = status_data["pending_promotion"]
+
+        console.print(Panel(
+            f"[bold]Backlog Ideas:[/bold] {backlog['ideas']}\n"
+            f"[bold]Backlog Plans:[/bold] {backlog['plans']}\n\n"
+            f"[bold]Pending Promotions:[/bold]\n"
+            f"  Ideas → Plan: {pending['ideas_to_plan']}\n"
+            f"  Plans → Dev: {pending['plans_to_dev']}",
+            title="Backlog Status",
+            border_style="blue",
+        ))
+
+        # Recent ideas
+        if status_data.get("issues", {}).get("ideas"):
+            console.print("\n[bold]Recent Ideas:[/bold]")
+            for idea in status_data["issues"]["ideas"][:5]:
+                console.print(f"  #{idea['number']}: {idea['title']}")
+
+        # Recent plans
+        if status_data.get("issues", {}).get("plans"):
+            console.print("\n[bold]Recent Plans:[/bold]")
+            for plan in status_data["issues"]["plans"][:5]:
+                console.print(f"  #{plan['number']}: {plan['title']}")
+
+        console.print("\n[dim]To promote an idea: Add 'promote:to-plan' label[/dim]")
+        console.print("[dim]To start development: Add 'promote:to-dev' label[/dim]")
+
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+        sys.exit(1)
+
+
+@backlog.command("setup")
+def backlog_setup():
+    """Set up required labels in the repository."""
+    console.print("[bold blue]Setting up labels...[/bold blue]")
+
+    orchestrator = BacklogOrchestrator()
+
+    try:
+        orchestrator.setup_labels()
+        console.print("[green]Labels created successfully![/green]")
+        console.print("\nCreated labels:")
+        from .github_client import Labels
+        for label in Labels.ALL_LABELS.keys():
+            console.print(f"  - {label}")
 
     except Exception as e:
         console.print(f"[bold red]Error: {e}[/bold red]")

@@ -1,0 +1,114 @@
+name: Backlog Orchestrator
+
+# This workflow runs the backlog orchestrator on a schedule
+# It generates ideas and processes promotions
+
+on:
+  # Scheduled runs - every 6 hours
+  schedule:
+    - cron: '0 */6 * * *'
+
+  # Manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'Command to run'
+        required: true
+        default: 'run'
+        type: choice
+        options:
+          - run
+          - generate
+          - process
+          - status
+          - setup
+      idea_count:
+        description: 'Number of ideas to generate'
+        required: false
+        default: '1'
+        type: string
+      dry_run:
+        description: 'Run in dry-run mode'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  run-backlog:
+    runs-on: ubuntu-latest
+
+    # Only run if secrets are configured
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Configure Git
+        run: |
+          git config user.name "Agentic Orchestrator"
+          git config user.email "orchestrator@mossland.org"
+
+      - name: Run Backlog Orchestrator
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: |
+          COMMAND="${{ inputs.command || 'run' }}"
+          IDEA_COUNT="${{ inputs.idea_count || '1' }}"
+
+          case "$COMMAND" in
+            run)
+              ao backlog run --ideas $IDEA_COUNT
+              ;;
+            generate)
+              ao backlog generate --count $IDEA_COUNT
+              ;;
+            process)
+              ao backlog process
+              ;;
+            status)
+              ao backlog status --json
+              ;;
+            setup)
+              ao backlog setup
+              ;;
+          esac
+
+      - name: Push changes
+        if: inputs.dry_run != true && inputs.command != 'status'
+        run: |
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "[orchestrator] Backlog cycle - $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git push
+          fi
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backlog-logs
+          path: |
+            logs/
+            alerts/
+          retention-days: 7

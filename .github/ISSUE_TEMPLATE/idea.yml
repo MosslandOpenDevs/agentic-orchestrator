@@ -1,0 +1,93 @@
+name: "Idea Submission"
+description: "Submit a new micro Web3 service idea for Mossland"
+title: "[IDEA] "
+labels: ["type:idea", "status:backlog"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Submit Your Idea
+
+        Share your idea for a micro Web3 service that benefits the Mossland ecosystem.
+        Focus on small, achievable projects that can be built as an MVP in 1-2 weeks.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What specific problem does this solve?
+      placeholder: "Describe the problem in 2-3 sentences..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: target-user
+    attributes:
+      label: Target User
+      description: Who will use this? What's their main need?
+      placeholder: "Describe the target user..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: why-mossland
+    attributes:
+      label: Why Mossland
+      description: How does this benefit the Mossland ecosystem and MOC token?
+      placeholder: "Explain the connection to Mossland..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: mvp-scope
+    attributes:
+      label: MVP Scope
+      description: What's the minimum viable product? List 3-5 core features.
+      placeholder: |
+        - Feature 1
+        - Feature 2
+        - Feature 3
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical-approach
+    attributes:
+      label: Technical Approach
+      description: Brief technical overview (technologies, architecture)
+      placeholder: "Describe the technical approach..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks and Challenges
+      description: Top 2-3 risks or challenges
+      placeholder: |
+        - Risk 1
+        - Risk 2
+    validations:
+      required: false
+
+  - type: textarea
+    id: success-metrics
+    attributes:
+      label: Success Metrics
+      description: How do we measure success?
+      placeholder: |
+        - Metric 1: Description
+        - Metric 2: Description
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+
+        **What happens next?**
+
+        1. Your idea will be reviewed by the team
+        2. If selected, add the `promote:to-plan` label to start planning
+        3. A detailed plan will be automatically generated

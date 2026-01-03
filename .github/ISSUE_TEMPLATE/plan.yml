@@ -1,0 +1,96 @@
+name: "Planning Document"
+description: "Create a planning document for a project (usually auto-generated)"
+title: "[PLAN] "
+labels: ["type:plan", "status:backlog"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Planning Document
+
+        This template is for creating detailed planning documents.
+        Most plans are auto-generated from promoted ideas, but you can also create one manually.
+
+  - type: input
+    id: source-idea
+    attributes:
+      label: Source Idea
+      description: Link to the original idea issue (if applicable)
+      placeholder: "#123"
+    validations:
+      required: false
+
+  - type: textarea
+    id: prd
+    attributes:
+      label: Product Requirements Document (PRD)
+      description: Goals, user stories, requirements
+      placeholder: |
+        ## Executive Summary
+        ...
+
+        ## Goals
+        ...
+
+        ## User Stories
+        ...
+
+        ## Requirements
+        ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: architecture
+    attributes:
+      label: Architecture
+      description: Technical architecture and design
+      placeholder: |
+        ## System Overview
+        ...
+
+        ## Technology Stack
+        ...
+
+        ## Component Design
+        ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Task Breakdown
+      description: List of tasks with effort estimates
+      placeholder: |
+        ## Phase 1: Setup
+        - [ ] Task 1 (S)
+        - [ ] Task 2 (M)
+
+        ## Phase 2: Development
+        - [ ] Task 3 (L)
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: How we know it's done
+      placeholder: |
+        ## Feature 1
+        - [ ] Criterion 1
+        - [ ] Criterion 2
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+
+        **What happens next?**
+
+        1. Review and refine the plan
+        2. When ready, add the `promote:to-dev` label to start development
+        3. A project scaffold will be automatically created

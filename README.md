@@ -1,282 +1,305 @@
 # Mossland Agentic Orchestrator
 
-An autonomous orchestration system that performs the complete software development lifecycle without human intervention:
-**Idea Discovery → Detailed Planning → Development → Testing/Evaluation → Feedback Integration**
+An autonomous orchestration system for discovering, planning, and implementing micro Web3 services for the Mossland ecosystem.
 
-## Overview
+## Key Features
 
-This orchestrator automatically discovers, plans, implements, and validates micro Web3 services that benefit the Mossland ecosystem. It operates as a state machine that progresses through defined stages, using multiple AI models for different tasks:
+- **Backlog-Based Workflow**: Ideas and plans are stored as GitHub Issues
+- **Human-in-the-Loop**: Humans select which ideas to develop via label promotion
+- **Autonomous Generation**: Orchestrator continuously generates ideas and processes promotions
+- **No Auto-Progression**: Stages don't advance automatically - humans decide what to build
 
-- **Claude (Opus/Sonnet)**: Primary development and planning tasks
-- **OpenAI GPT**: Independent code review and evaluation
-- **Google Gemini**: Fast agentic tasks and secondary review
-
-## Architecture
+## How It Works
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Agentic Orchestrator                         │
+│                    IDEA BACKLOG (GitHub Issues)                 │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  Orchestrator generates ideas → stored as Issues         │  │
+│  │  Labels: type:idea, status:backlog                       │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                             │                                   │
+│              Human adds label: promote:to-plan                  │
+│                             ▼                                   │
 ├─────────────────────────────────────────────────────────────────┤
-│  State Machine (.agent/state.yaml)                              │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────┐  ┌────┐      │
-│  │ IDEATION │→ │ PLANNING │→ │   DEV    │→ │ QA │→ │DONE│      │
-│  └──────────┘  └──────────┘  └──────────┘  └────┘  └────┘      │
-│       ↑              ↓              ↓         ↓                 │
-│       └──────────────┴──────────────┴─────────┘                 │
-│                    (iteration loops)                            │
+│                    PLAN BACKLOG (GitHub Issues)                 │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  Orchestrator generates detailed plan from promoted idea │  │
+│  │  Labels: type:plan, status:backlog                       │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                             │                                   │
+│              Human adds label: promote:to-dev                   │
+│                             ▼                                   │
 ├─────────────────────────────────────────────────────────────────┤
-│  LLM Providers                                                  │
-│  ┌────────────┐  ┌──────────┐  ┌────────────┐                  │
-│  │   Claude   │  │  OpenAI  │  │   Gemini   │                  │
-│  │ (Dev/Plan) │  │ (Review) │  │  (Review)  │                  │
-│  └────────────┘  └──────────┘  └────────────┘                  │
-├─────────────────────────────────────────────────────────────────┤
-│  Output: projects/<id>/                                         │
-│  ├── 01_ideation/   (idea documents)                           │
-│  ├── 02_planning/   (PRD, architecture, tasks)                 │
-│  ├── 03_implementation/ (source code)                          │
-│  └── 04_quality/    (reviews, test results)                    │
+│                    DEVELOPMENT (Repository)                     │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  Orchestrator creates project scaffold                   │  │
+│  │  Directory: projects/<project_id>/                       │  │
+│  └──────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Stage Flow
+## Quick Start
 
-| Stage | Description | Output |
-|-------|-------------|--------|
-| `IDEATION` | Generate micro Web3 service ideas for Mossland | `01_ideation/*.md` |
-| `PLANNING_DRAFT` | Create detailed PRD, architecture, task breakdown | `02_planning/*.md` |
-| `PLANNING_REVIEW` | External review (GPT/Gemini), iterate if needed | `02_planning/review_*.md` |
-| `DEV` | Implement the planned features using Claude Code | `03_implementation/*` |
-| `QA` | Run tests, external code review, quality checks | `04_quality/*.md` |
-| `DONE` | Project complete, ready for next idea | Final commit |
-| `PAUSED_QUOTA` | Paused due to API quota issues | `alerts/quota.md` |
-
-## Installation
-
-### Prerequisites
-
-- Python 3.10+
-- [Claude Code](https://claude.ai/code) installed and authenticated
-- API keys for OpenAI and Google Gemini (optional, for review features)
-
-### Setup
+### 1. Installation
 
 ```bash
-# Clone the repository
+# Clone and install
 git clone https://github.com/mossland/agentic-orchestrator.git
 cd agentic-orchestrator
-
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
+source venv/bin/activate
 pip install -e .
 
-# Copy and configure environment variables
+# Configure environment
 cp .env.example .env
 # Edit .env with your API keys
 ```
 
-### Keep Claude Code Updated
+### 2. Set Up Labels
 
 ```bash
-# Update Claude Code to the latest version
-claude update
+ao backlog setup
 ```
 
-## Usage
+This creates all required labels in your GitHub repository.
 
-### CLI Commands
+### 3. Generate Ideas
 
 ```bash
-# Initialize a new project
-ao init
-
-# Run a single step (advances state machine by one stage)
-ao step
-
-# Run in loop mode (continuous execution with guardrails)
-ao loop
-
-# Check current status
-ao status
-
-# Dry run mode (no API calls, for testing)
-ao step --dry-run
+# Generate 2 new ideas
+ao backlog generate --count 2
 ```
 
-### Running Options
+Ideas will appear as GitHub Issues with labels `type:idea` and `status:backlog`.
 
-#### 1. Manual Execution
+### 4. Promote an Idea (Human Action)
+
+On GitHub:
+1. Go to the idea issue
+2. Add the `promote:to-plan` label
+
+### 5. Process Promotions
+
 ```bash
-# Run one step at a time
-ao step
+ao backlog process
 ```
 
-#### 2. Continuous Loop
+The orchestrator will:
+- Find issues with `promote:to-plan` label
+- Generate detailed planning documents
+- Create new `type:plan` issues
+- Update original idea with `status:planned`
+
+### 6. Start Development (Human Action)
+
+On GitHub:
+1. Go to the plan issue
+2. Add the `promote:to-dev` label
+
+Then run:
 ```bash
-# Run until completion or limit reached
-ao loop --max-steps 50
+ao backlog process
 ```
 
-#### 3. Cron Job (Unattended)
+The orchestrator will create a project scaffold in `projects/<id>/`.
+
+## CLI Commands
+
+### Backlog Commands (Recommended)
+
 ```bash
-# Add to crontab (runs every hour)
-0 * * * * cd /path/to/agentic-orchestrator && /path/to/venv/bin/ao step >> logs/cron.log 2>&1
+# Run full cycle: generate ideas + process promotions
+ao backlog run
+
+# Generate ideas only
+ao backlog generate --count 2
+
+# Process promotions only (no idea generation)
+ao backlog process
+
+# Check backlog status
+ao backlog status
+
+# Set up labels in repository
+ao backlog setup
 ```
 
-#### 4. GitHub Actions Schedule
-See `.github/workflows/orchestrator.yml` for scheduled execution setup.
+### Options
 
-## Configuration
+```bash
+# Dry run (no actual changes)
+ao backlog run --dry-run
 
-### Model Configuration
+# Generate specific number of ideas
+ao backlog run --ideas 3
 
-Models can be configured via environment variables or `config.yaml`:
+# Skip idea generation
+ao backlog run --no-ideas
+
+# Limit promotions processed
+ao backlog run --max-promotions 3
+```
+
+## Promotion Workflow
+
+### Promoting an Idea to Planning
+
+1. **Find an idea** you want to develop in GitHub Issues
+2. **Add the label** `promote:to-plan`
+3. **Wait for orchestrator** to run (or run `ao backlog process`)
+4. **Result**: A new `[PLAN]` issue is created with detailed PRD, architecture, and tasks
+
+### Promoting a Plan to Development
+
+1. **Review the plan** issue and ensure it's ready
+2. **Add the label** `promote:to-dev`
+3. **Wait for orchestrator** to run (or run `ao backlog process`)
+4. **Result**: Project scaffold created in `projects/<id>/`
+
+## Labels
+
+| Label | Purpose | Added By |
+|-------|---------|----------|
+| `promote:to-plan` | **Promote idea to planning** | Human |
+| `promote:to-dev` | **Start development** | Human |
+| `type:idea` | Marks an idea issue | Orchestrator |
+| `type:plan` | Marks a planning issue | Orchestrator |
+| `status:backlog` | In backlog | Orchestrator |
+| `status:planned` | Idea was planned | Orchestrator |
+| `status:in-dev` | In development | Orchestrator |
+
+See [docs/labels.md](docs/labels.md) for complete label documentation.
+
+## Scheduled Operation
+
+### GitHub Actions (Recommended)
+
+The included workflow runs the orchestrator on a schedule:
 
 ```yaml
-# config.yaml
-models:
-  claude:
-    default: opus
-    fallback: sonnet
-  openai:
-    default: gpt-5.2-chat-latest
-    fallback: gpt-5.2
-    pinned: null  # Set for reproducibility
-  gemini:
-    default: gemini-3-flash-preview
-    fallback: gemini-3-pro-preview
-    pinned: null
-
-limits:
-  planning_max_iterations: 3
-  dev_max_iterations: 5
-  rate_limit_max_retries: 5
-  rate_limit_max_wait_seconds: 3600
+# .github/workflows/orchestrator.yml
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
 ```
 
-### State File Structure
+### Cron Job
 
-`.agent/state.yaml`:
-```yaml
-stage: PLANNING_DRAFT
-project_id: web3-token-tracker
-iteration:
-  planning: 1
-  dev: 0
-limits:
-  planning_max: 3
-  dev_max: 5
-quality:
-  review_score: null
-  tests_passed: null
-  required_score: 7.0
-last_updated: 2025-01-03T10:00:00Z
+```bash
+# Run every 6 hours
+0 */6 * * * cd /path/to/repo && /path/to/venv/bin/ao backlog run >> logs/cron.log 2>&1
 ```
+
+### Idea Generation Frequency
+
+Default: **1-2 ideas per run** (configurable)
+
+Recommended schedules:
+- Every 6 hours with 1 idea = ~4 ideas/day
+- Every 12 hours with 2 ideas = ~4 ideas/day
+- Daily with 3 ideas = 3 ideas/day
 
 ## Environment Variables
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `ANTHROPIC_API_KEY` | Anthropic API key for Claude | For API mode |
-| `OPENAI_API_KEY` | OpenAI API key for GPT review | Optional |
-| `GEMINI_API_KEY` | Google Gemini API key | Optional |
-| `GITHUB_TOKEN` | GitHub PAT for pushing commits | For auto-push |
-| `CLAUDE_MODEL` | Default Claude model (opus/sonnet) | No |
-| `DRY_RUN` | Run without API calls | No |
+| `GITHUB_TOKEN` | GitHub PAT (Issues, Labels) | **Yes** |
+| `GITHUB_OWNER` | Repository owner | **Yes** |
+| `GITHUB_REPO` | Repository name | **Yes** |
+| `ANTHROPIC_API_KEY` | Claude API key | For API mode |
+| `OPENAI_API_KEY` | OpenAI API key | For reviews |
+| `GEMINI_API_KEY` | Gemini API key | For reviews |
+| `DRY_RUN` | Run without changes | No |
 
-See `.env.example` for full list.
+### GitHub Token Permissions
+
+Required scopes:
+- `repo` - Full repository access (for Issues and Labels)
 
 ## Error Handling
 
-### Rate Limiting (Claude/Anthropic)
+### Rate Limiting (Claude)
+
 - Automatically waits for rate limit reset
-- Logs wait time and retries
-- Maximum retry limit prevents infinite loops
+- Configurable max retries and wait time
+- Logs all retry attempts
 
 ### Quota Exhaustion (OpenAI/Gemini)
-- Creates detailed alert in `alerts/quota.md`
-- Sets state to `PAUSED_QUOTA`
-- Documents required actions for resolution
-- Does NOT loop infinitely - exits gracefully
 
-## Commit Convention
+- Creates alert in `alerts/quota.md`
+- Logs provider, model, stage, and error
+- Provides resolution steps
+- Does NOT loop infinitely
 
-All commits follow this format:
+### Concurrency Control
 
-```
-[stage] brief description
-
-- Detailed change 1
-- Detailed change 2
-
-Generated by: Agentic Orchestrator
-Stage: PLANNING_DRAFT
-Project: web3-token-tracker
-Iteration: planning=2, dev=0
-```
-
-Prefixes:
-- `[ideation]` - Idea generation outputs
-- `[planning]` - Planning documents
-- `[review]` - Review results
-- `[dev]` - Implementation code
-- `[qa]` - Quality assurance results
-- `[system]` - Orchestrator system changes
+- Lock file prevents multiple simultaneous runs
+- Safe for cron/scheduled execution
 
 ## Project Structure
 
 ```
 agentic-orchestrator/
 ├── .agent/
-│   ├── state.yaml         # Current state machine state
-│   └── prompts/           # Stage-specific prompts
+│   └── orchestrator.lock    # Concurrency lock
+├── .github/
+│   ├── ISSUE_TEMPLATE/      # Idea and Plan templates
+│   └── workflows/           # CI and scheduler
+├── alerts/                  # Error/quota alerts
+├── docs/
+│   └── labels.md            # Label documentation
 ├── projects/
-│   └── <project_id>/
+│   └── <project_id>/        # Generated projects
 │       ├── 01_ideation/
 │       ├── 02_planning/
 │       ├── 03_implementation/
 │       └── 04_quality/
-├── prompts/                # Prompt templates
+├── prompts/                 # Prompt templates
 ├── src/
 │   └── agentic_orchestrator/
-│       ├── __init__.py
-│       ├── cli.py          # CLI entry points
-│       ├── orchestrator.py # Main orchestrator logic
-│       ├── stages/         # Stage implementations
-│       ├── providers/      # LLM provider adapters
-│       └── utils/          # Utilities
-├── tests/                  # Unit tests
-├── alerts/                 # Quota/error alerts
-├── .env.example
-├── config.yaml
-├── pyproject.toml
-└── README.md
+│       ├── backlog.py       # Backlog workflow
+│       ├── cli.py           # CLI commands
+│       ├── github_client.py # GitHub API
+│       ├── orchestrator.py  # Legacy orchestrator
+│       ├── providers/       # LLM adapters
+│       └── utils/           # Utilities
+└── tests/
 ```
+
+## Mossland Focus
+
+Ideas are generated with focus on:
+- **Micro Web3 services** - Small, achievable in 1-2 weeks
+- **MOC token utility** - Enhance token value and usage
+- **Ecosystem benefits** - Help Mossland community
+- **Practical scope** - Avoid large platform development
+
+Examples:
+- Token analytics dashboards
+- Community governance tools
+- NFT utility extensions
+- Reward distribution systems
+- Content verification tools
 
 ## Development
 
 ### Running Tests
+
 ```bash
 pytest tests/ -v
 ```
 
-### Adding a New Stage
-1. Create handler in `src/agentic_orchestrator/stages/`
-2. Register in stage registry
-3. Update state machine transitions
-4. Add corresponding prompts
+### Adding New Features
+
+1. Modify `src/agentic_orchestrator/backlog.py` for workflow changes
+2. Update CLI in `src/agentic_orchestrator/cli.py`
+3. Add tests in `tests/`
 
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-## Contributing
-
-This project is designed for autonomous operation, but contributions to improve the orchestrator itself are welcome. Please submit issues and pull requests to the GitHub repository.
-
 ---
 
-*Built for the Mossland ecosystem - autonomous innovation through AI orchestration.*
+*Built for the Mossland ecosystem - human-guided, AI-powered innovation.*
