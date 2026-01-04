@@ -35,38 +35,34 @@ Usage:
     discussion_comment = result.format_discussion_record()
 """
 
-from .roles import (
-    Role,
-    RoleConfig,
-    get_role_config,
-    get_all_roles,
-    get_feedback_roles,
-    ROLE_CONFIGS,
+from .debate_session import (
+    DebateResult,
+    DebateSession,
+    create_debate_session,
 )
-
+from .discussion_record import (
+    DebateRecord,
+    DiscussionRecordFormatter,
+    FeedbackEntry,
+    FounderDecision,
+    RoundData,
+    create_feedback_entry,
+    create_founder_decision,
+    create_record,
+    create_round_data,
+)
 from .moderator import (
     DebateModerator,
     RoundAssignment,
 )
-
-from .discussion_record import (
-    DebateRecord,
-    RoundData,
-    FeedbackEntry,
-    FounderDecision,
-    DiscussionRecordFormatter,
-    create_record,
-    create_round_data,
-    create_feedback_entry,
-    create_founder_decision,
+from .roles import (
+    ROLE_CONFIGS,
+    Role,
+    RoleConfig,
+    get_all_roles,
+    get_feedback_roles,
+    get_role_config,
 )
-
-from .debate_session import (
-    DebateSession,
-    DebateResult,
-    create_debate_session,
-)
-
 
 __all__ = [
     # Roles

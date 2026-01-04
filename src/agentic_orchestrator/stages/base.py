@@ -8,13 +8,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Any
 
-from ..state import State, Stage
-from ..providers.base import BaseProvider
-from ..utils.logging import get_logger
-from ..utils.files import write_markdown, get_stage_dir, ensure_dir
+from ..state import Stage, State
+from ..utils.files import get_stage_dir, write_markdown
 from ..utils.git import GitHelper
+from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -24,11 +22,11 @@ class StageResult:
     """Result of a stage execution."""
 
     success: bool
-    next_stage: Optional[Stage] = None
+    next_stage: Stage | None = None
     message: str = ""
-    artifacts: List[str] = None  # List of created file paths
+    artifacts: list[str] = None  # List of created file paths
     should_iterate: bool = False
-    error: Optional[str] = None
+    error: str | None = None
 
     def __post_init__(self):
         if self.artifacts is None:
@@ -52,7 +50,7 @@ class BaseStage(ABC):
     def __init__(
         self,
         state: State,
-        base_path: Optional[Path] = None,
+        base_path: Path | None = None,
         dry_run: bool = False,
     ):
         """
@@ -66,7 +64,7 @@ class BaseStage(ABC):
         self.state = state
         self.base_path = base_path or Path.cwd()
         self.dry_run = dry_run
-        self._git: Optional[GitHelper] = None
+        self._git: GitHelper | None = None
 
     @property
     def git(self) -> GitHelper:
@@ -105,8 +103,8 @@ class BaseStage(ABC):
         self,
         filename: str,
         content: str,
-        title: Optional[str] = None,
-        metadata: Optional[dict] = None,
+        title: str | None = None,
+        metadata: dict | None = None,
     ) -> Path:
         """
         Save a markdown artifact for this stage.
@@ -136,7 +134,7 @@ class BaseStage(ABC):
         filepath = self.stage_dir / filename
         return write_markdown(filepath, content, title=title, metadata=full_metadata)
 
-    def commit_changes(self, message: str, details: Optional[str] = None) -> bool:
+    def commit_changes(self, message: str, details: str | None = None) -> bool:
         """
         Commit changes for this stage.
 
@@ -193,7 +191,7 @@ class BaseStage(ABC):
 
         raise FileNotFoundError(f"Prompt not found: {prompt_file}")
 
-    def get_previous_artifacts(self, stage: str) -> List[Path]:
+    def get_previous_artifacts(self, stage: str) -> list[Path]:
         """
         Get artifacts from a previous stage.
 
@@ -208,7 +206,7 @@ class BaseStage(ABC):
             return []
         return list(stage_dir.glob("*.md"))
 
-    def read_artifact(self, stage: str, filename: str) -> Optional[str]:
+    def read_artifact(self, stage: str, filename: str) -> str | None:
         """
         Read an artifact from a stage.
 
@@ -241,7 +239,7 @@ class StageRegistry:
         cls,
         stage: Stage,
         state: State,
-        base_path: Optional[Path] = None,
+        base_path: Path | None = None,
         dry_run: bool = False,
     ) -> BaseStage:
         """
@@ -266,7 +264,7 @@ class StageRegistry:
         return handler_class(state=state, base_path=base_path, dry_run=dry_run)
 
     @classmethod
-    def get_all_stages(cls) -> List[Stage]:
+    def get_all_stages(cls) -> list[Stage]:
         """Get all registered stages in order."""
         stage_order = [
             Stage.IDEATION,

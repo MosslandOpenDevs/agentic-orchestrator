@@ -8,15 +8,15 @@ import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Any
 
-from .base import BaseStage, StageResult, StageRegistry
-from ..state import State, Stage
-from ..providers.openai import create_openai_provider
-from ..providers.gemini import create_gemini_provider
 from ..providers.base import QuotaExhaustedError
-from ..utils.logging import get_logger
+from ..providers.gemini import create_gemini_provider
+from ..providers.openai import create_openai_provider
+from ..state import Stage, State
 from ..utils.files import create_alert_file
+from ..utils.logging import get_logger
+from .base import BaseStage, StageRegistry, StageResult
 
 logger = get_logger(__name__)
 
@@ -39,7 +39,7 @@ class QualityStage(BaseStage):
     def __init__(
         self,
         state: State,
-        base_path: Optional[Path] = None,
+        base_path: Path | None = None,
         dry_run: bool = False,
     ):
         super().__init__(state, base_path, dry_run)
@@ -173,7 +173,7 @@ class QualityStage(BaseStage):
                 message=f"QA failed: {e}",
             )
 
-    def _run_tests(self) -> Dict[str, Any]:
+    def _run_tests(self) -> dict[str, Any]:
         """Run automated tests."""
         logger.info("Running automated tests...")
 
@@ -251,7 +251,7 @@ class QualityStage(BaseStage):
                 "details": str(e),
             }
 
-    def _perform_code_review(self) -> Dict[str, Any]:
+    def _perform_code_review(self) -> dict[str, Any]:
         """Perform code review using external models."""
         logger.info("Performing code review...")
 
@@ -357,7 +357,7 @@ Brief overall assessment
             system_message="You are an expert code reviewer. Be thorough but fair.",
         )
 
-    def _combine_reviews(self, reviews: List) -> Dict[str, Any]:
+    def _combine_reviews(self, reviews: list) -> dict[str, Any]:
         """Combine multiple code reviews."""
         scores = []
         total_issues = 0
@@ -366,12 +366,12 @@ Brief overall assessment
 
         for provider, review in reviews:
             # Extract score
-            score_match = re.search(r'(\d+(?:\.\d+)?)\s*/\s*10', review)
+            score_match = re.search(r"(\d+(?:\.\d+)?)\s*/\s*10", review)
             score = float(score_match.group(1)) if score_match else 5.0
             scores.append(score)
 
             # Count issues
-            issues = len(re.findall(r'^\d+\.', review, re.MULTILINE))
+            issues = len(re.findall(r"^\d+\.", review, re.MULTILINE))
             total_issues += issues
 
             report += f"## Review by {provider}\n\n"
@@ -379,14 +379,17 @@ Brief overall assessment
 
         avg_score = sum(scores) / len(scores) if scores else 5.0
 
-        report = f"""# Combined Code Review
+        report = (
+            f"""# Combined Code Review
 
 **Average Score**: {avg_score:.1f}/10
 **Total Issues Found**: {total_issues}
 
 ---
 
-""" + report
+"""
+            + report
+        )
 
         return {
             "score": round(avg_score, 1),
@@ -394,7 +397,7 @@ Brief overall assessment
             "issues_count": total_issues,
         }
 
-    def _security_check(self) -> Dict[str, Any]:
+    def _security_check(self) -> dict[str, Any]:
         """Perform basic security checks."""
         logger.info("Performing security check...")
 
@@ -418,36 +421,46 @@ Brief overall assessment
                         (r'api[_-]?key\s*=\s*["\'][^"\']+["\']', "Possible hardcoded API key"),
                         (r'password\s*=\s*["\'][^"\']+["\']', "Possible hardcoded password"),
                         (r'secret\s*=\s*["\'][^"\']+["\']', "Possible hardcoded secret"),
-                        (r'private[_-]?key\s*=\s*["\'][^"\']+["\']', "Possible hardcoded private key"),
+                        (
+                            r'private[_-]?key\s*=\s*["\'][^"\']+["\']',
+                            "Possible hardcoded private key",
+                        ),
                     ]
 
                     for pattern, message in secret_patterns:
                         if re.search(pattern, content, re.IGNORECASE):
-                            issues.append({
-                                "file": str(code_file.relative_to(self.base_path)),
-                                "type": "hardcoded_secret",
-                                "message": message,
-                                "severity": "HIGH",
-                            })
+                            issues.append(
+                                {
+                                    "file": str(code_file.relative_to(self.base_path)),
+                                    "type": "hardcoded_secret",
+                                    "message": message,
+                                    "severity": "HIGH",
+                                }
+                            )
 
                     # Check for SQL injection (basic)
-                    if re.search(r'execute\s*\([^)]*%s', content) or \
-                       re.search(r'f["\'].*{.*}.*SELECT', content, re.IGNORECASE):
-                        issues.append({
-                            "file": str(code_file.relative_to(self.base_path)),
-                            "type": "sql_injection",
-                            "message": "Possible SQL injection vulnerability",
-                            "severity": "HIGH",
-                        })
+                    if re.search(r"execute\s*\([^)]*%s", content) or re.search(
+                        r'f["\'].*{.*}.*SELECT', content, re.IGNORECASE
+                    ):
+                        issues.append(
+                            {
+                                "file": str(code_file.relative_to(self.base_path)),
+                                "type": "sql_injection",
+                                "message": "Possible SQL injection vulnerability",
+                                "severity": "HIGH",
+                            }
+                        )
 
                     # Check for eval usage
-                    if re.search(r'\beval\s*\(', content):
-                        issues.append({
-                            "file": str(code_file.relative_to(self.base_path)),
-                            "type": "dangerous_eval",
-                            "message": "Use of eval() is dangerous",
-                            "severity": "MEDIUM",
-                        })
+                    if re.search(r"\beval\s*\(", content):
+                        issues.append(
+                            {
+                                "file": str(code_file.relative_to(self.base_path)),
+                                "type": "dangerous_eval",
+                                "message": "Use of eval() is dangerous",
+                                "severity": "MEDIUM",
+                            }
+                        )
 
                 except Exception:
                     continue
@@ -478,7 +491,7 @@ Brief overall assessment
             "issues": issues,
         }
 
-    def _create_overall_report(self, qa_results: Dict[str, Any]) -> Dict[str, Any]:
+    def _create_overall_report(self, qa_results: dict[str, Any]) -> dict[str, Any]:
         """Create overall QA report."""
         tests_passed = qa_results["tests"]["passed"]
         review_score = qa_results["review"]["score"]
@@ -492,9 +505,7 @@ Brief overall assessment
             score = max(1, score - (security_issues * 0.5))
 
         passed = (
-            tests_passed and
-            score >= self.state.quality.required_score and
-            security_issues == 0
+            tests_passed and score >= self.state.quality.required_score and security_issues == 0
         )
 
         report = f"""# Overall QA Report

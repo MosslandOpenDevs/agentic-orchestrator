@@ -7,15 +7,15 @@ to FeedItem objects for trend analysis.
 
 import time
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
 from email.utils import parsedate_to_datetime
+from typing import Any
 
 import feedparser
 import httpx
 
-from .models import FeedItem, FeedConfig
-from ..utils.logging import get_logger
 from ..utils.config import Config, load_config
+from ..utils.logging import get_logger
+from .models import FeedConfig, FeedItem
 
 logger = get_logger(__name__)
 
@@ -36,8 +36,8 @@ class FeedFetcher:
 
     def __init__(
         self,
-        config: Optional[Config] = None,
-        client: Optional[httpx.Client] = None,
+        config: Config | None = None,
+        client: httpx.Client | None = None,
     ):
         """
         Initialize feed fetcher.
@@ -48,7 +48,7 @@ class FeedFetcher:
         """
         self.config = config or load_config()
         self._client = client
-        self._feed_configs: Optional[List[FeedConfig]] = None
+        self._feed_configs: list[FeedConfig] | None = None
 
     @property
     def client(self) -> httpx.Client:
@@ -66,13 +66,13 @@ class FeedFetcher:
         return self._client
 
     @property
-    def feed_configs(self) -> List[FeedConfig]:
+    def feed_configs(self) -> list[FeedConfig]:
         """Load and cache feed configurations."""
         if self._feed_configs is None:
             self._feed_configs = self._load_feed_configs()
         return self._feed_configs
 
-    def _load_feed_configs(self) -> List[FeedConfig]:
+    def _load_feed_configs(self) -> list[FeedConfig]:
         """Load feed configurations from config.yaml."""
         configs = []
         feeds_config = self.config.get("trends", "feeds", default={})
@@ -93,7 +93,7 @@ class FeedFetcher:
         logger.info(f"Loaded {len(configs)} feed configurations")
         return configs
 
-    def fetch_all_feeds(self) -> List[FeedItem]:
+    def fetch_all_feeds(self) -> list[FeedItem]:
         """
         Fetch all configured feeds.
 
@@ -102,24 +102,20 @@ class FeedFetcher:
         Returns:
             List of FeedItem objects from all feeds.
         """
-        all_items: List[FeedItem] = []
-        failed_feeds: List[str] = []
+        all_items: list[FeedItem] = []
+        failed_feeds: list[str] = []
 
         for feed_config in self.feed_configs:
             try:
                 items = self.fetch_feed(feed_config)
                 all_items.extend(items)
-                logger.debug(
-                    f"Fetched {len(items)} items from {feed_config.name}"
-                )
+                logger.debug(f"Fetched {len(items)} items from {feed_config.name}")
             except Exception as e:
                 logger.warning(f"Failed to fetch {feed_config.name}: {e}")
                 failed_feeds.append(feed_config.name)
 
         if failed_feeds:
-            logger.warning(
-                f"Failed to fetch {len(failed_feeds)} feeds: {', '.join(failed_feeds)}"
-            )
+            logger.warning(f"Failed to fetch {len(failed_feeds)} feeds: {', '.join(failed_feeds)}")
 
         # Remove duplicates by URL
         seen_urls = set()
@@ -136,7 +132,7 @@ class FeedFetcher:
 
         return unique_items
 
-    def fetch_feed(self, feed_config: FeedConfig) -> List[FeedItem]:
+    def fetch_feed(self, feed_config: FeedConfig) -> list[FeedItem]:
         """
         Fetch a single feed.
 
@@ -176,9 +172,9 @@ class FeedFetcher:
 
                 return items
 
-            except httpx.HTTPError as e:
+            except httpx.HTTPError:
                 if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     logger.debug(
                         f"Retry {attempt + 1}/{max_retries} for {feed_config.name} "
                         f"after {wait_time}s"
@@ -191,9 +187,9 @@ class FeedFetcher:
 
     def _parse_entry(
         self,
-        entry: Dict[str, Any],
+        entry: dict[str, Any],
         feed_config: FeedConfig,
-    ) -> Optional[FeedItem]:
+    ) -> FeedItem | None:
         """
         Parse a single feed entry into a FeedItem.
 
@@ -245,7 +241,7 @@ class FeedFetcher:
             category=feed_config.category,
         )
 
-    def _parse_date(self, entry: Dict[str, Any]) -> Optional[datetime]:
+    def _parse_date(self, entry: dict[str, Any]) -> datetime | None:
         """
         Parse date from feed entry.
 
@@ -296,9 +292,9 @@ class FeedFetcher:
 
     def filter_by_period(
         self,
-        items: List[FeedItem],
+        items: list[FeedItem],
         period: str,
-    ) -> List[FeedItem]:
+    ) -> list[FeedItem]:
         """
         Filter items by time period.
 
@@ -314,16 +310,14 @@ class FeedFetcher:
 
         filtered = [item for item in items if item.published >= cutoff]
 
-        logger.debug(
-            f"Filtered {len(items)} items to {len(filtered)} within {period}"
-        )
+        logger.debug(f"Filtered {len(items)} items to {len(filtered)} within {period}")
 
         return filtered
 
     def group_by_category(
         self,
-        items: List[FeedItem],
-    ) -> Dict[str, List[FeedItem]]:
+        items: list[FeedItem],
+    ) -> dict[str, list[FeedItem]]:
         """
         Group items by category.
 
@@ -333,7 +327,7 @@ class FeedFetcher:
         Returns:
             Dictionary mapping category to list of items.
         """
-        groups: Dict[str, List[FeedItem]] = {}
+        groups: dict[str, list[FeedItem]] = {}
         for item in items:
             if item.category not in groups:
                 groups[item.category] = []

@@ -9,10 +9,8 @@ This module handles:
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
 from .roles import Role, get_feedback_roles
-
 
 logger = logging.getLogger(__name__)
 
@@ -20,14 +18,15 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RoundAssignment:
     """Role assignments for a single round."""
+
     round_num: int
-    assignments: Dict[Role, str]  # Role -> provider name (claude, openai, gemini)
+    assignments: dict[Role, str]  # Role -> provider name (claude, openai, gemini)
 
     def get_provider_for_role(self, role: Role) -> str:
         """Get the provider name assigned to a role."""
         return self.assignments[role]
 
-    def get_roles_for_provider(self, provider_name: str) -> List[Role]:
+    def get_roles_for_provider(self, provider_name: str) -> list[Role]:
         """Get all roles assigned to a provider."""
         return [role for role, provider in self.assignments.items() if provider == provider_name]
 
@@ -47,7 +46,7 @@ class DebateModerator:
 
     # Rotation matrix: defines AI-to-role mapping for each round
     # Each round rotates the AI assignments to ensure diverse perspectives
-    ROTATION_MATRIX: List[Dict[Role, str]] = [
+    ROTATION_MATRIX: list[dict[Role, str]] = [
         # Round 1: Claude leads as Founder
         {
             Role.FOUNDER: "claude",
@@ -162,8 +161,8 @@ class DebateModerator:
         self,
         round_num: int,
         founder_response: str,
-        feedback_responses: Optional[Dict[Role, str]] = None,
-    ) -> Tuple[bool, str]:
+        feedback_responses: dict[Role, str] | None = None,
+    ) -> tuple[bool, str]:
         """
         Determine if the debate should terminate.
 
@@ -199,12 +198,9 @@ class DebateModerator:
 
     def _is_founder_satisfied(self, response: str) -> bool:
         """Check if founder explicitly marked termination with [TERMINATE]."""
-        return any(
-            marker in response
-            for marker in self.TERMINATION_MARKERS
-        )
+        return any(marker in response for marker in self.TERMINATION_MARKERS)
 
-    def _all_approved(self, feedback_responses: Dict[Role, str]) -> bool:
+    def _all_approved(self, feedback_responses: dict[Role, str]) -> bool:
         """Check if all feedback providers approved."""
         feedback_roles = get_feedback_roles()
 

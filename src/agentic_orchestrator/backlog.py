@@ -11,25 +11,24 @@ Implements the new workflow where:
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Tuple, Dict
 
-from .github_client import GitHubClient, GitHubIssue, Labels, GitHubRateLimitError
-from .trends import FeedFetcher, TrendAnalyzer, TrendStorage, Trend, TrendAnalysis, TrendIdeaLink
-from .providers.claude import create_claude_provider, ClaudeProvider
-from .providers.openai import create_openai_provider, OpenAIProvider
-from .providers.gemini import create_gemini_provider, GeminiProvider
-from .providers.base import QuotaExhaustedError, BaseProvider
-from .debate import create_debate_session, DebateResult
-from .utils.logging import get_logger
-from .utils.config import load_config, get_env_int, get_env_bool
+from .debate import DebateResult, create_debate_session
+from .github_client import GitHubClient, GitHubIssue, GitHubRateLimitError, Labels
+from .providers.base import BaseProvider, QuotaExhaustedError
+from .providers.claude import ClaudeProvider, create_claude_provider
+from .providers.gemini import GeminiProvider, create_gemini_provider
+from .providers.openai import OpenAIProvider, create_openai_provider
+from .trends import FeedFetcher, Trend, TrendAnalysis, TrendAnalyzer, TrendIdeaLink, TrendStorage
+from .utils.config import get_env_bool, load_config
 from .utils.files import (
-    ensure_dir,
-    write_markdown,
-    get_project_dir,
-    generate_project_id,
     create_alert_file,
+    ensure_dir,
+    generate_project_id,
+    get_project_dir,
+    write_markdown,
 )
 from .utils.git import GitHelper
+from .utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -45,7 +44,7 @@ class IdeaGenerator:
     def __init__(
         self,
         github: GitHubClient,
-        claude: Optional[ClaudeProvider] = None,
+        claude: ClaudeProvider | None = None,
         dry_run: bool = False,
     ):
         self.github = github
@@ -58,7 +57,7 @@ class IdeaGenerator:
             self._claude = create_claude_provider(dry_run=self.dry_run)
         return self._claude
 
-    def generate_ideas(self, count: int = 1) -> List[GitHubIssue]:
+    def generate_ideas(self, count: int = 1) -> list[GitHubIssue]:
         """
         Generate new idea issues.
 
@@ -303,7 +302,7 @@ Be specific and practical. Focus on something that can actually be built quickly
         self,
         text: str,
         section: str,
-        next_section: Optional[str],
+        next_section: str | None,
     ) -> str:
         """Extract content between two section headers."""
         if next_section:
@@ -328,8 +327,8 @@ class TrendBasedIdeaGenerator:
     def __init__(
         self,
         github: GitHubClient,
-        claude: Optional[ClaudeProvider] = None,
-        config: Optional["Config"] = None,
+        claude: ClaudeProvider | None = None,
+        config: dict | None = None,
         dry_run: bool = False,
     ):
         self.github = github
@@ -337,9 +336,9 @@ class TrendBasedIdeaGenerator:
         self.config = config or load_config()
         self.dry_run = dry_run
 
-        self._fetcher: Optional[FeedFetcher] = None
-        self._analyzer: Optional[TrendAnalyzer] = None
-        self._storage: Optional[TrendStorage] = None
+        self._fetcher: FeedFetcher | None = None
+        self._analyzer: TrendAnalyzer | None = None
+        self._storage: TrendStorage | None = None
 
     @property
     def claude(self) -> ClaudeProvider:
@@ -369,7 +368,7 @@ class TrendBasedIdeaGenerator:
             self._storage = TrendStorage(config=self.config)
         return self._storage
 
-    def run_daily_analysis(self) -> Dict[str, TrendAnalysis]:
+    def run_daily_analysis(self) -> dict[str, TrendAnalysis]:
         """
         Fetch feeds and analyze trends for all periods.
 
@@ -399,8 +398,8 @@ class TrendBasedIdeaGenerator:
     def generate_trend_based_ideas(
         self,
         count: int = 2,
-        analyses: Optional[Dict[str, TrendAnalysis]] = None,
-    ) -> List[GitHubIssue]:
+        analyses: dict[str, TrendAnalysis] | None = None,
+    ) -> list[GitHubIssue]:
         """
         Generate ideas based on top trends.
 
@@ -471,9 +470,9 @@ class TrendBasedIdeaGenerator:
 
     def _get_top_trends(
         self,
-        analyses: Dict[str, TrendAnalysis],
+        analyses: dict[str, TrendAnalysis],
         count: int,
-    ) -> List[Trend]:
+    ) -> list[Trend]:
         """
         Get top trends from analyses.
 
@@ -529,7 +528,11 @@ Focus on:
     def _get_trend_idea_prompt(self, trend: Trend) -> str:
         headlines = "\n".join(f"- {h}" for h in trend.sample_headlines[:5])
         keywords = ", ".join(trend.keywords[:8])
-        idea_seeds = "\n".join(f"- {s}" for s in trend.idea_seeds[:3]) if trend.idea_seeds else "None provided"
+        idea_seeds = (
+            "\n".join(f"- {s}" for s in trend.idea_seeds[:3])
+            if trend.idea_seeds
+            else "None provided"
+        )
 
         return f"""Based on this trending topic, generate ONE innovative micro Web3 service idea.
 
@@ -710,7 +713,7 @@ Be specific, practical, and timely. Focus on something that can be built quickly
         self,
         text: str,
         section: str,
-        next_section: Optional[str],
+        next_section: str | None,
     ) -> str:
         """Extract content between two section headers."""
         if next_section:
@@ -741,12 +744,11 @@ Be specific, practical, and timely. Focus on something that can be built quickly
             "total_ideas_from_trends": len(links),
             "recent_trends": [
                 {
-                    "date": list(analysis.values())[0].date.strftime("%Y-%m-%d")
-                    if analysis else None,
-                    "periods": list(analysis.keys()),
-                    "total_trends": sum(
-                        len(a.trends) for a in analysis.values()
+                    "date": (
+                        list(analysis.values())[0].date.strftime("%Y-%m-%d") if analysis else None
                     ),
+                    "periods": list(analysis.keys()),
+                    "total_trends": sum(len(a.trends) for a in analysis.values()),
                 }
                 for analysis in recent[:5]
             ],
@@ -776,9 +778,9 @@ class PlanGenerator:
     def __init__(
         self,
         github: GitHubClient,
-        claude: Optional[ClaudeProvider] = None,
-        openai: Optional[OpenAIProvider] = None,
-        gemini: Optional[GeminiProvider] = None,
+        claude: ClaudeProvider | None = None,
+        openai: OpenAIProvider | None = None,
+        gemini: GeminiProvider | None = None,
         dry_run: bool = False,
         enable_debate: bool = True,
         debate_max_rounds: int = 5,
@@ -798,7 +800,7 @@ class PlanGenerator:
         return self._claude
 
     @property
-    def openai(self) -> Optional[OpenAIProvider]:
+    def openai(self) -> OpenAIProvider | None:
         if self._openai is None:
             try:
                 self._openai = create_openai_provider(dry_run=self.dry_run)
@@ -808,7 +810,7 @@ class PlanGenerator:
         return self._openai
 
     @property
-    def gemini(self) -> Optional[GeminiProvider]:
+    def gemini(self) -> GeminiProvider | None:
         if self._gemini is None:
             try:
                 self._gemini = create_gemini_provider(dry_run=self.dry_run)
@@ -827,7 +829,7 @@ class PlanGenerator:
         except Exception:
             return False
 
-    def _get_providers_dict(self) -> Dict[str, BaseProvider]:
+    def _get_providers_dict(self) -> dict[str, BaseProvider]:
         """Get providers as a dictionary for debate session."""
         providers = {}
         if self.claude:
@@ -838,7 +840,7 @@ class PlanGenerator:
             providers["gemini"] = self.gemini
         return providers
 
-    def generate_plan_from_idea(self, idea_issue: GitHubIssue) -> Optional[GitHubIssue]:
+    def generate_plan_from_idea(self, idea_issue: GitHubIssue) -> GitHubIssue | None:
         """
         Generate a plan issue from an idea issue.
 
@@ -880,7 +882,7 @@ class PlanGenerator:
                 )
             return self._generate_plan_simple(idea_issue)
 
-    def _generate_plan_simple(self, idea_issue: GitHubIssue) -> Optional[GitHubIssue]:
+    def _generate_plan_simple(self, idea_issue: GitHubIssue) -> GitHubIssue | None:
         """
         Generate plan using single AI (simple mode).
 
@@ -888,7 +890,7 @@ class PlanGenerator:
         not all providers are available.
         """
         # Track created artifacts for rollback
-        created_plan: Optional[GitHubIssue] = None
+        created_plan: GitHubIssue | None = None
 
         try:
             # Generate plan content
@@ -1082,7 +1084,7 @@ Be specific and practical. Focus on MVP scope that can be built in 1-2 weeks."""
 
         return body
 
-    def _generate_plan_with_debate(self, idea_issue: GitHubIssue) -> Optional[GitHubIssue]:
+    def _generate_plan_with_debate(self, idea_issue: GitHubIssue) -> GitHubIssue | None:
         """
         Generate plan using multi-agent debate mode.
 
@@ -1090,7 +1092,7 @@ Be specific and practical. Focus on MVP scope that can be built in 1-2 weeks."""
         (Founder, VC, Accelerator, Founder Friend) and debate the plan
         through multiple rounds.
         """
-        created_plan: Optional[GitHubIssue] = None
+        created_plan: GitHubIssue | None = None
 
         try:
             # Create debate session
@@ -1112,7 +1114,9 @@ Be specific and practical. Focus on MVP scope that can be built in 1-2 weeks."""
             )
 
             if self.dry_run:
-                logger.info(f"[DRY RUN] Would create plan from debate for idea #{idea_issue.number}")
+                logger.info(
+                    f"[DRY RUN] Would create plan from debate for idea #{idea_issue.number}"
+                )
                 return None
 
             # Build plan content with debate result
@@ -1217,7 +1221,7 @@ Be specific and practical. Focus on MVP scope that can be built in 1-2 weeks."""
 """
         return body
 
-    def _find_existing_plan_for_idea(self, idea_number: int) -> List[GitHubIssue]:
+    def _find_existing_plan_for_idea(self, idea_number: int) -> list[GitHubIssue]:
         """
         Find existing OPEN plan issues that reference a specific idea.
 
@@ -1265,13 +1269,13 @@ class DevScaffolder:
     def __init__(
         self,
         github: GitHubClient,
-        base_path: Optional[Path] = None,
+        base_path: Path | None = None,
         dry_run: bool = False,
     ):
         self.github = github
         self.base_path = base_path or Path.cwd()
         self.dry_run = dry_run
-        self._git: Optional[GitHelper] = None
+        self._git: GitHelper | None = None
 
     @property
     def git(self) -> GitHelper:
@@ -1279,7 +1283,7 @@ class DevScaffolder:
             self._git = GitHelper(self.base_path)
         return self._git
 
-    def scaffold_from_plan(self, plan_issue: GitHubIssue) -> Optional[str]:
+    def scaffold_from_plan(self, plan_issue: GitHubIssue) -> str | None:
         """
         Create development scaffold from a plan issue.
 
@@ -1435,7 +1439,7 @@ See `02_planning/PLAN.md` for detailed requirements and tasks.
             "# Implementation\n\nSource code will be added here during development.",
         )
 
-    def _find_existing_project_for_plan(self, plan_number: int) -> Optional[str]:
+    def _find_existing_project_for_plan(self, plan_number: int) -> str | None:
         """
         Find existing project directory that references a specific plan.
 
@@ -1462,7 +1466,10 @@ See `02_planning/PLAN.md` for detailed requirements and tasks.
                 for check_file in [plan_md, readme_md]:
                     if check_file.exists():
                         content = check_file.read_text()
-                        if f"#{plan_number}" in content or f"source_issue: {plan_number}" in content:
+                        if (
+                            f"#{plan_number}" in content
+                            or f"source_issue: {plan_number}" in content
+                        ):
                             return project_path.name
 
             return None
@@ -1484,18 +1491,18 @@ class BacklogOrchestrator:
 
     def __init__(
         self,
-        base_path: Optional[Path] = None,
+        base_path: Path | None = None,
         dry_run: bool = False,
     ):
         self.base_path = base_path or Path.cwd()
         self.dry_run = dry_run or get_env_bool("DRY_RUN")
         self.config = load_config()
 
-        self._github: Optional[GitHubClient] = None
-        self._idea_generator: Optional[IdeaGenerator] = None
-        self._trend_generator: Optional[TrendBasedIdeaGenerator] = None
-        self._plan_generator: Optional[PlanGenerator] = None
-        self._dev_scaffolder: Optional[DevScaffolder] = None
+        self._github: GitHubClient | None = None
+        self._idea_generator: IdeaGenerator | None = None
+        self._trend_generator: TrendBasedIdeaGenerator | None = None
+        self._plan_generator: PlanGenerator | None = None
+        self._dev_scaffolder: DevScaffolder | None = None
 
         # Concurrency control
         self._lock_file = self.base_path / ".agent" / "orchestrator.lock"
@@ -1554,7 +1561,6 @@ class BacklogOrchestrator:
         """
         import fcntl
         import os
-        import signal
 
         ensure_dir(self._lock_file.parent)
 
@@ -1567,21 +1573,19 @@ class BacklogOrchestrator:
             self._lock_fd.write(f"{os.getpid()}\n{datetime.now().isoformat()}")
             self._lock_fd.flush()
             return True
-        except (IOError, OSError):
+        except OSError:
             logger.warning("Another orchestrator instance is running")
             return False
 
     def _cleanup_stale_lock(self) -> None:
         """Remove stale lock if process is dead or timeout exceeded."""
-        import os
-        import signal
 
         if not self._lock_file.exists():
             return
 
         try:
             content = self._lock_file.read_text().strip()
-            lines = content.split('\n')
+            lines = content.split("\n")
             if len(lines) < 2:
                 # Malformed lock file, remove it
                 logger.warning("Malformed lock file detected, removing")
@@ -1607,13 +1611,11 @@ class BacklogOrchestrator:
 
             # Check if process is still alive
             if not self._is_process_alive(pid):
-                logger.warning(
-                    f"Dead process lock detected: PID {pid} no longer exists, removing"
-                )
+                logger.warning(f"Dead process lock detected: PID {pid} no longer exists, removing")
                 self._lock_file.unlink()
                 return
 
-        except (ValueError, OSError, IOError) as e:
+        except (ValueError, OSError) as e:
             logger.warning(f"Error checking lock file: {e}, removing lock")
             try:
                 self._lock_file.unlink()
@@ -1623,7 +1625,6 @@ class BacklogOrchestrator:
     def _is_process_alive(self, pid: int) -> bool:
         """Check if a process with the given PID is still running."""
         import os
-        import signal
 
         try:
             # Sending signal 0 checks if process exists without actually signaling
@@ -1691,10 +1692,10 @@ class BacklogOrchestrator:
                     trend_analyses = self.trend_generator.run_daily_analysis()
                     results["trends_analyzed"] = bool(trend_analyses)
                     if trend_analyses:
-                        total_trends = sum(
-                            len(a.trends) for a in trend_analyses.values()
+                        total_trends = sum(len(a.trends) for a in trend_analyses.values())
+                        logger.info(
+                            f"Analyzed {total_trends} trends across {len(trend_analyses)} periods"
                         )
-                        logger.info(f"Analyzed {total_trends} trends across {len(trend_analyses)} periods")
                 except Exception as e:
                     logger.error(f"Trend analysis failed: {e}")
                     results["errors"].append(f"Trend analysis: {e}")
@@ -1803,10 +1804,7 @@ class BacklogOrchestrator:
             plans_to_promote = self.github.find_plans_to_promote()
 
             # Count trend-based ideas
-            trend_ideas = [
-                i for i in backlog_ideas
-                if i.has_label(Labels.SOURCE_TREND)
-            ]
+            trend_ideas = [i for i in backlog_ideas if i.has_label(Labels.SOURCE_TREND)]
 
             return {
                 "backlog": {
@@ -1819,14 +1817,8 @@ class BacklogOrchestrator:
                     "plans_to_dev": len(plans_to_promote),
                 },
                 "issues": {
-                    "ideas": [
-                        {"number": i.number, "title": i.title}
-                        for i in backlog_ideas[:10]
-                    ],
-                    "plans": [
-                        {"number": p.number, "title": p.title}
-                        for p in backlog_plans[:10]
-                    ],
+                    "ideas": [{"number": i.number, "title": i.title} for i in backlog_ideas[:10]],
+                    "plans": [{"number": p.number, "title": p.title} for p in backlog_plans[:10]],
                 },
             }
         except Exception as e:
@@ -1895,7 +1887,7 @@ class BacklogOrchestrator:
         )
         return True
 
-    def _extract_idea_number_from_plan(self, plan_issue: GitHubIssue) -> Optional[int]:
+    def _extract_idea_number_from_plan(self, plan_issue: GitHubIssue) -> int | None:
         """
         Extract the source idea number from a plan issue body.
 

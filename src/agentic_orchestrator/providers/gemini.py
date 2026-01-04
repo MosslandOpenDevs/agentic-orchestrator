@@ -5,20 +5,19 @@ Handles API calls to Google's Gemini models with proper error handling.
 """
 
 import os
-from typing import List, Optional, Any
 
+from ..utils.logging import get_logger
 from .base import (
-    BaseProvider,
-    Message,
-    CompletionResponse,
-    RetryConfig,
-    RateLimitError,
-    QuotaExhaustedError,
     AuthenticationError,
+    BaseProvider,
+    CompletionResponse,
+    Message,
     ModelNotAvailableError,
     ProviderError,
+    QuotaExhaustedError,
+    RateLimitError,
+    RetryConfig,
 )
-from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -26,6 +25,7 @@ logger = get_logger(__name__)
 try:
     import google.generativeai as genai
     from google.api_core import exceptions as google_exceptions
+
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -50,10 +50,10 @@ class GeminiProvider(BaseProvider):
 
     def __init__(
         self,
-        model: Optional[str] = None,
-        fallback_model: Optional[str] = None,
-        api_key: Optional[str] = None,
-        retry_config: Optional[RetryConfig] = None,
+        model: str | None = None,
+        fallback_model: str | None = None,
+        api_key: str | None = None,
+        retry_config: RetryConfig | None = None,
         dry_run: bool = False,
     ):
         """
@@ -102,7 +102,7 @@ class GeminiProvider(BaseProvider):
 
     def _make_request(
         self,
-        messages: List[Message],
+        messages: list[Message],
         model: str,
         **kwargs,
     ) -> CompletionResponse:
@@ -129,14 +129,13 @@ class GeminiProvider(BaseProvider):
             # If there's a system message, prepend it to first user message
             if system_instruction and chat_messages:
                 first_user_idx = next(
-                    (i for i, m in enumerate(chat_messages) if m["role"] == "user"),
-                    None
+                    (i for i, m in enumerate(chat_messages) if m["role"] == "user"), None
                 )
                 if first_user_idx is not None:
                     original_content = chat_messages[first_user_idx]["parts"][0]
-                    chat_messages[first_user_idx]["parts"][0] = (
-                        f"{system_instruction}\n\n{original_content}"
-                    )
+                    chat_messages[first_user_idx]["parts"][
+                        0
+                    ] = f"{system_instruction}\n\n{original_content}"
 
             # Start chat and send last message
             if len(chat_messages) > 1:
@@ -252,7 +251,7 @@ class GeminiProvider(BaseProvider):
 
     def complete(
         self,
-        messages: List[Message],
+        messages: list[Message],
         **kwargs,
     ) -> CompletionResponse:
         """
@@ -268,9 +267,7 @@ class GeminiProvider(BaseProvider):
         try:
             return self._complete_with_retry(messages, self.model, **kwargs)
         except (RateLimitError, ModelNotAvailableError) as e:
-            logger.warning(
-                f"{self.provider_name}: Primary model {self.model} failed: {e}"
-            )
+            logger.warning(f"{self.provider_name}: Primary model {self.model} failed: {e}")
 
             # Try primary fallback
             if self.fallback_model:
@@ -293,8 +290,8 @@ class GeminiProvider(BaseProvider):
 
 
 def create_gemini_provider(
-    model: Optional[str] = None,
-    fallback_model: Optional[str] = None,
+    model: str | None = None,
+    fallback_model: str | None = None,
     dry_run: bool = False,
 ) -> GeminiProvider:
     """

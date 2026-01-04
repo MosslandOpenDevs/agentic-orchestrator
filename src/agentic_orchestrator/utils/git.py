@@ -4,12 +4,10 @@ Git utilities for the Agentic Orchestrator.
 Provides helpers for committing, pushing, and managing Git operations.
 """
 
-import os
 import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, List
 
 from .logging import get_logger
 
@@ -41,7 +39,7 @@ class GitHelper:
     and querying repository state.
     """
 
-    def __init__(self, repo_path: Optional[Path] = None):
+    def __init__(self, repo_path: Path | None = None):
         """
         Initialize GitHelper.
 
@@ -59,7 +57,7 @@ class GitHelper:
 
     def _run(
         self,
-        args: List[str],
+        args: list[str],
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess:
@@ -87,7 +85,7 @@ class GitHelper:
             )
             return result
         except subprocess.CalledProcessError as e:
-            raise GitError(f"Git command failed: {' '.join(cmd)}\n{e.stderr}")
+            raise GitError(f"Git command failed: {' '.join(cmd)}\n{e.stderr}") from e
 
     def is_clean(self) -> bool:
         """Check if the working directory is clean."""
@@ -108,7 +106,7 @@ class GitHelper:
         result = self._run(["status", "--short"])
         return result.stdout
 
-    def add(self, paths: Optional[List[str]] = None, all: bool = False) -> None:
+    def add(self, paths: list[str] | None = None, all: bool = False) -> None:
         """
         Stage files for commit.
 
@@ -124,11 +122,11 @@ class GitHelper:
     def commit(
         self,
         message: str,
-        stage: Optional[str] = None,
-        project_id: Optional[str] = None,
+        stage: str | None = None,
+        project_id: str | None = None,
         planning_iter: int = 0,
         dev_iter: int = 0,
-    ) -> Optional[CommitInfo]:
+    ) -> CommitInfo | None:
         """
         Create a commit with the orchestrator format.
 
@@ -167,8 +165,8 @@ class GitHelper:
     def _build_commit_message(
         self,
         message: str,
-        stage: Optional[str] = None,
-        project_id: Optional[str] = None,
+        stage: str | None = None,
+        project_id: str | None = None,
         planning_iter: int = 0,
         dev_iter: int = 0,
     ) -> str:
@@ -187,9 +185,7 @@ class GitHelper:
 
     def get_last_commit(self) -> CommitInfo:
         """Get information about the last commit."""
-        result = self._run(
-            ["log", "-1", "--format=%H%n%h%n%s%n%an%n%ai"]
-        )
+        result = self._run(["log", "-1", "--format=%H%n%h%n%s%n%an%n%ai"])
         lines = result.stdout.strip().split("\n")
 
         return CommitInfo(
@@ -203,7 +199,7 @@ class GitHelper:
     def push(
         self,
         remote: str = "origin",
-        branch: Optional[str] = None,
+        branch: str | None = None,
         set_upstream: bool = False,
     ) -> bool:
         """
@@ -251,7 +247,7 @@ class GitHelper:
         """Checkout a branch."""
         self._run(["checkout", branch])
 
-    def get_remote_url(self, remote: str = "origin") -> Optional[str]:
+    def get_remote_url(self, remote: str = "origin") -> str | None:
         """Get the URL of a remote."""
         try:
             result = self._run(["remote", "get-url", remote])
@@ -261,8 +257,8 @@ class GitHelper:
 
     def configure_user(
         self,
-        name: Optional[str] = None,
-        email: Optional[str] = None,
+        name: str | None = None,
+        email: str | None = None,
     ) -> None:
         """
         Configure Git user for commits.
@@ -292,7 +288,7 @@ class GitHelper:
         result = self._run(args)
         return result.stdout
 
-    def get_changed_files(self, staged: bool = False) -> List[str]:
+    def get_changed_files(self, staged: bool = False) -> list[str]:
         """
         Get list of changed files.
 
@@ -308,12 +304,12 @@ class GitHelper:
         result = self._run(args)
         return [f for f in result.stdout.strip().split("\n") if f]
 
-    def get_untracked_files(self) -> List[str]:
+    def get_untracked_files(self) -> list[str]:
         """Get list of untracked files."""
         result = self._run(["ls-files", "--others", "--exclude-standard"])
         return [f for f in result.stdout.strip().split("\n") if f]
 
-    def stash(self, message: Optional[str] = None) -> bool:
+    def stash(self, message: str | None = None) -> bool:
         """
         Stash current changes.
 
@@ -367,8 +363,10 @@ class GitHelper:
             # Google API keys
             (r"AIza[a-zA-Z0-9_-]{35}", "AIza***MASKED***"),
             # Generic patterns
-            (r"(?i)(api[_-]?key|token|secret|password)\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{20,}['\"]?",
-             r"\1=***MASKED***"),
+            (
+                r"(?i)(api[_-]?key|token|secret|password)\s*[=:]\s*['\"]?[a-zA-Z0-9_-]{20,}['\"]?",
+                r"\1=***MASKED***",
+            ),
         ]
 
         masked = text

@@ -12,11 +12,11 @@ All prompts are in English with Korean translation appended.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Optional
 
 
 class Role(Enum):
     """Debate participant roles."""
+
     FOUNDER = "founder"
     VC = "vc"
     ACCELERATOR = "accelerator"
@@ -26,14 +26,15 @@ class Role(Enum):
 @dataclass
 class RoleConfig:
     """Configuration for a debate role."""
+
     name: str
     name_ko: str
     emoji: str
     description: str
     system_prompt: str
-    initial_prompt_template: Optional[str] = None
-    feedback_prompt_template: Optional[str] = None
-    reflection_prompt_template: Optional[str] = None
+    initial_prompt_template: str | None = None
+    feedback_prompt_template: str | None = None
+    reflection_prompt_template: str | None = None
 
 
 # =============================================================================
@@ -430,7 +431,7 @@ Please provide a Korean translation of the feedback below.
 # ROLE CONFIGURATIONS
 # =============================================================================
 
-ROLE_CONFIGS: Dict[Role, RoleConfig] = {
+ROLE_CONFIGS: dict[Role, RoleConfig] = {
     Role.FOUNDER: RoleConfig(
         name="Founder",
         name_ko="창업자",

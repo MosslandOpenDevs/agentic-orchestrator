@@ -11,28 +11,28 @@ to full Claude Code capabilities.
 
 import os
 import subprocess
-import json
-from typing import List, Optional, Any
 from pathlib import Path
+from typing import Any
 
-from .base import (
-    BaseProvider,
-    Message,
-    CompletionResponse,
-    RetryConfig,
-    RateLimitError,
-    QuotaExhaustedError,
-    AuthenticationError,
-    ProviderError,
-)
 from ..utils.logging import get_logger
+from .base import (
+    AuthenticationError,
+    BaseProvider,
+    CompletionResponse,
+    Message,
+    ProviderError,
+    QuotaExhaustedError,
+    RateLimitError,
+    RetryConfig,
+)
 
 logger = get_logger(__name__)
 
 # Try to import anthropic
 try:
-    import anthropic
-    from anthropic import Anthropic, APIError, RateLimitError as AnthropicRateLimitError
+    from anthropic import Anthropic, APIError
+    from anthropic import RateLimitError as AnthropicRateLimitError
+
     ANTHROPIC_AVAILABLE = True
 except ImportError:
     ANTHROPIC_AVAILABLE = False
@@ -52,7 +52,7 @@ class ClaudeCodeExecutor:
     def __init__(
         self,
         model: str = "opus",
-        working_dir: Optional[Path] = None,
+        working_dir: Path | None = None,
         timeout: int = 600,
     ):
         """
@@ -97,10 +97,13 @@ class ClaudeCodeExecutor:
         """
         cmd = [
             "claude",
-            "--model", self.model,
+            "--model",
+            self.model,
             "--print",  # Print mode for non-interactive use
-            "--output-format", "text",
-            "-p", prompt,
+            "--output-format",
+            "text",
+            "-p",
+            prompt,
         ]
 
         logger.debug(f"Executing Claude Code: {' '.join(cmd[:4])}...")
@@ -120,23 +123,23 @@ class ClaudeCodeExecutor:
 
             return output, result.returncode
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             logger.error(f"Claude Code timed out after {self.timeout}s")
             raise ProviderError(
                 f"Claude Code timed out after {self.timeout} seconds",
                 provider="claude-code",
-            )
+            ) from e
 
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             raise ProviderError(
                 "Claude Code CLI not found. Install it: https://claude.ai/code",
                 provider="claude-code",
-            )
+            ) from e
 
     def execute_with_context(
         self,
         prompt: str,
-        context_files: Optional[List[str]] = None,
+        context_files: list[str] | None = None,
     ) -> tuple[str, int]:
         """
         Execute a prompt with file context.
@@ -181,12 +184,12 @@ class ClaudeProvider(BaseProvider):
 
     def __init__(
         self,
-        model: Optional[str] = None,
-        fallback_model: Optional[str] = None,
-        api_key: Optional[str] = None,
+        model: str | None = None,
+        fallback_model: str | None = None,
+        api_key: str | None = None,
         prefer_cli: bool = True,
-        working_dir: Optional[Path] = None,
-        retry_config: Optional[RetryConfig] = None,
+        working_dir: Path | None = None,
+        retry_config: RetryConfig | None = None,
         dry_run: bool = False,
     ):
         """
@@ -211,9 +214,9 @@ class ClaudeProvider(BaseProvider):
         self.prefer_cli = prefer_cli
         self.working_dir = working_dir or Path.cwd()
 
-        self._cli_executor: Optional[ClaudeCodeExecutor] = None
-        self._api_client: Optional[Any] = None
-        self._mode: Optional[str] = None
+        self._cli_executor: ClaudeCodeExecutor | None = None
+        self._api_client: Any | None = None
+        self._mode: str | None = None
 
     @property
     def mode(self) -> str:
@@ -288,7 +291,7 @@ class ClaudeProvider(BaseProvider):
 
     def _make_request(
         self,
-        messages: List[Message],
+        messages: list[Message],
         model: str,
         **kwargs,
     ) -> CompletionResponse:
@@ -300,7 +303,7 @@ class ClaudeProvider(BaseProvider):
 
     def _make_cli_request(
         self,
-        messages: List[Message],
+        messages: list[Message],
         model: str,
         **kwargs,
     ) -> CompletionResponse:
@@ -359,7 +362,7 @@ class ClaudeProvider(BaseProvider):
 
     def _make_api_request(
         self,
-        messages: List[Message],
+        messages: list[Message],
         model: str,
         **kwargs,
     ) -> CompletionResponse:
@@ -376,10 +379,12 @@ class ClaudeProvider(BaseProvider):
                 if msg.role == "system":
                     system = msg.content
                 else:
-                    api_messages.append({
-                        "role": msg.role,
-                        "content": msg.content,
-                    })
+                    api_messages.append(
+                        {
+                            "role": msg.role,
+                            "content": msg.content,
+                        }
+                    )
 
             # Make request
             create_kwargs = {
@@ -404,9 +409,7 @@ class ClaudeProvider(BaseProvider):
                 usage = {
                     "prompt_tokens": response.usage.input_tokens,
                     "completion_tokens": response.usage.output_tokens,
-                    "total_tokens": (
-                        response.usage.input_tokens + response.usage.output_tokens
-                    ),
+                    "total_tokens": (response.usage.input_tokens + response.usage.output_tokens),
                 }
 
             return CompletionResponse(
@@ -474,7 +477,7 @@ class ClaudeProvider(BaseProvider):
     def execute_task(
         self,
         task: str,
-        context_files: Optional[List[str]] = None,
+        context_files: list[str] | None = None,
     ) -> str:
         """
         Execute a development task using Claude Code CLI.
@@ -498,9 +501,7 @@ class ClaudeProvider(BaseProvider):
                 provider=self.provider_name,
             )
 
-        output, return_code = self.cli_executor.execute_with_context(
-            task, context_files
-        )
+        output, return_code = self.cli_executor.execute_with_context(task, context_files)
 
         if return_code != 0:
             self._handle_cli_error(output, return_code, self.model)
@@ -509,8 +510,8 @@ class ClaudeProvider(BaseProvider):
 
 
 def create_claude_provider(
-    model: Optional[str] = None,
-    fallback_model: Optional[str] = None,
+    model: str | None = None,
+    fallback_model: str | None = None,
     prefer_cli: bool = True,
     dry_run: bool = False,
 ) -> ClaudeProvider:

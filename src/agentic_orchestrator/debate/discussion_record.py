@@ -9,7 +9,6 @@ This module handles:
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
 
 from .roles import Role, get_role_config
 
@@ -17,6 +16,7 @@ from .roles import Role, get_role_config
 @dataclass
 class FeedbackEntry:
     """Individual feedback from a role."""
+
     role: Role
     provider: str
     content: str
@@ -46,8 +46,9 @@ class FeedbackEntry:
 @dataclass
 class FounderDecision:
     """Founder's decision on feedback."""
-    reflected: List[Dict[str, str]]  # List of {source, content, reason}
-    not_reflected: List[Dict[str, str]]  # List of {source, content, reason}
+
+    reflected: list[dict[str, str]]  # List of {source, content, reason}
+    not_reflected: list[dict[str, str]]  # List of {source, content, reason}
     improvement_status: str  # "Sufficiently Improved" or "Needs Further Discussion"
     raw_response: str
 
@@ -55,11 +56,12 @@ class FounderDecision:
 @dataclass
 class RoundData:
     """Data for a single debate round."""
+
     round_num: int
-    role_assignments: Dict[Role, str]
+    role_assignments: dict[Role, str]
     initial_plan: str
-    feedbacks: List[FeedbackEntry]
-    founder_decision: Optional[FounderDecision]
+    feedbacks: list[FeedbackEntry]
+    founder_decision: FounderDecision | None
     updated_plan: str
     timestamp: datetime = field(default_factory=datetime.now)
 
@@ -67,13 +69,14 @@ class RoundData:
 @dataclass
 class DebateRecord:
     """Complete record of a debate session."""
+
     idea_issue_number: int
-    plan_issue_number: Optional[int] = None
-    rounds: List[RoundData] = field(default_factory=list)
+    plan_issue_number: int | None = None
+    rounds: list[RoundData] = field(default_factory=list)
     final_plan: str = ""
     termination_reason: str = ""
     started_at: datetime = field(default_factory=datetime.now)
-    completed_at: Optional[datetime] = None
+    completed_at: datetime | None = None
 
     @property
     def total_rounds(self) -> int:
@@ -81,7 +84,7 @@ class DebateRecord:
         return len(self.rounds)
 
     @property
-    def duration_minutes(self) -> Optional[float]:
+    def duration_minutes(self) -> float | None:
         """Get total duration in minutes."""
         if self.completed_at:
             delta = self.completed_at - self.started_at
@@ -174,7 +177,7 @@ class DiscussionRecordFormatter:
         lines = self._format_round(round_data)
         return "\n".join(lines)
 
-    def _format_round(self, round_data: RoundData) -> List[str]:
+    def _format_round(self, round_data: RoundData) -> list[str]:
         """Format a single round."""
         lines = [
             f"## Round {round_data.round_num} ({round_data.timestamp.strftime('%Y-%m-%d %H:%M')})",
@@ -182,11 +185,13 @@ class DiscussionRecordFormatter:
         ]
 
         # Role assignment table
-        lines.extend([
-            "### Role Assignments / 역할 배정",
-            "| Role | AI |",
-            "|------|-----|",
-        ])
+        lines.extend(
+            [
+                "### Role Assignments / 역할 배정",
+                "| Role | AI |",
+                "|------|-----|",
+            ]
+        )
 
         for role, provider in round_data.role_assignments.items():
             role_name = self.ROLE_NAMES_SHORT.get(role, role.value)
@@ -197,16 +202,18 @@ class DiscussionRecordFormatter:
 
         # Initial/Updated plan (collapsed)
         if round_data.round_num == 1:
-            lines.extend([
-                "### 🚀 Initial Plan (Founder) / 초기 기획서 (창업자)",
-                "<details>",
-                "<summary>Click to expand / 펼쳐보기</summary>",
-                "",
-                round_data.initial_plan,
-                "",
-                "</details>",
-                "",
-            ])
+            lines.extend(
+                [
+                    "### 🚀 Initial Plan (Founder) / 초기 기획서 (창업자)",
+                    "<details>",
+                    "<summary>Click to expand / 펼쳐보기</summary>",
+                    "",
+                    round_data.initial_plan,
+                    "",
+                    "</details>",
+                    "",
+                ]
+            )
 
         # Feedbacks
         for feedback in round_data.feedbacks:
@@ -218,20 +225,22 @@ class DiscussionRecordFormatter:
 
         # Updated plan (if not the same as initial)
         if round_data.updated_plan and round_data.updated_plan != round_data.initial_plan:
-            lines.extend([
-                "### 📝 Updated Plan / 업데이트된 기획서",
-                "<details>",
-                "<summary>Click to expand / 펼쳐보기</summary>",
-                "",
-                round_data.updated_plan,
-                "",
-                "</details>",
-                "",
-            ])
+            lines.extend(
+                [
+                    "### 📝 Updated Plan / 업데이트된 기획서",
+                    "<details>",
+                    "<summary>Click to expand / 펼쳐보기</summary>",
+                    "",
+                    round_data.updated_plan,
+                    "",
+                    "</details>",
+                    "",
+                ]
+            )
 
         return lines
 
-    def _format_feedback(self, feedback: FeedbackEntry) -> List[str]:
+    def _format_feedback(self, feedback: FeedbackEntry) -> list[str]:
         """Format a single feedback entry."""
         emoji = feedback.role_emoji
         role_name = self.ROLE_NAMES_SHORT.get(feedback.role, feedback.role_name)
@@ -248,7 +257,7 @@ class DiscussionRecordFormatter:
             "",
         ]
 
-    def _format_founder_decision(self, decision: FounderDecision) -> List[str]:
+    def _format_founder_decision(self, decision: FounderDecision) -> list[str]:
         """Format founder's decision on feedback."""
         lines = [
             "### 📋 Founder Decision / 창업자 결정",
@@ -260,7 +269,7 @@ class DiscussionRecordFormatter:
             lines.append("**Adopted Feedback / 반영한 피드백:**")
             for item in decision.reflected:
                 lines.append(f"- [{item.get('source', '')}] {item.get('content', '')}")
-                if item.get('reason'):
+                if item.get("reason"):
                     lines.append(f"  - Reason / 이유: {item['reason']}")
             lines.append("")
 
@@ -269,19 +278,21 @@ class DiscussionRecordFormatter:
             lines.append("**Rejected Feedback / 미반영한 피드백:**")
             for item in decision.not_reflected:
                 lines.append(f"- [{item.get('source', '')}] {item.get('content', '')}")
-                if item.get('reason'):
+                if item.get("reason"):
                     lines.append(f"  - Reason / 이유: {item['reason']}")
             lines.append("")
 
         # Improvement status
-        lines.extend([
-            f"**Improvement Status / 개선 상태:** {decision.improvement_status}",
-            "",
-        ])
+        lines.extend(
+            [
+                f"**Improvement Status / 개선 상태:** {decision.improvement_status}",
+                "",
+            ]
+        )
 
         return lines
 
-    def _format_summary(self, record: DebateRecord) -> List[str]:
+    def _format_summary(self, record: DebateRecord) -> list[str]:
         """Format the summary section."""
         lines = [
             "## Final Result / 최종 결과",
@@ -289,21 +300,24 @@ class DiscussionRecordFormatter:
         ]
 
         if record.completed_at:
-            lines.append(f"**Debate Completed / 토론 완료:** {record.completed_at.strftime('%Y-%m-%d %H:%M')}")
+            lines.append(
+                f"**Debate Completed / 토론 완료:** {record.completed_at.strftime('%Y-%m-%d %H:%M')}"
+            )
 
         if record.duration_minutes:
             lines.append(f"**Total Duration / 총 소요시간:** {record.duration_minutes:.1f} min")
 
         reason_text = self.TERMINATION_REASONS.get(
-            record.termination_reason,
-            record.termination_reason
+            record.termination_reason, record.termination_reason
         )
-        lines.extend([
-            f"**Final Verdict / 최종 판정:** {reason_text}",
-            "",
-            "---",
-            "*Generated by Agentic Orchestrator Multi-Agent Debate System*",
-        ])
+        lines.extend(
+            [
+                f"**Final Verdict / 최종 판정:** {reason_text}",
+                "",
+                "---",
+                "*Generated by Agentic Orchestrator Multi-Agent Debate System*",
+            ]
+        )
 
         return lines
 
@@ -315,7 +329,7 @@ def create_record(idea_issue_number: int) -> DebateRecord:
 
 def create_round_data(
     round_num: int,
-    role_assignments: Dict[Role, str],
+    role_assignments: dict[Role, str],
     initial_plan: str,
 ) -> RoundData:
     """Create a new round data object."""
@@ -343,8 +357,8 @@ def create_feedback_entry(
 
 
 def create_founder_decision(
-    reflected: List[Dict[str, str]],
-    not_reflected: List[Dict[str, str]],
+    reflected: list[dict[str, str]],
+    not_reflected: list[dict[str, str]],
     improvement_status: str,
     raw_response: str,
 ) -> FounderDecision:

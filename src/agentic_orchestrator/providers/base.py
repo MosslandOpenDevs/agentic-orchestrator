@@ -7,7 +7,7 @@ Defines common interfaces, exceptions, and retry logic for all providers.
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any
+from typing import Any
 
 from ..utils.logging import get_logger
 
@@ -35,8 +35,8 @@ class RateLimitError(ProviderError):
         message: str,
         provider: str = "",
         model: str = "",
-        retry_after: Optional[float] = None,
-        reset_time: Optional[float] = None,
+        retry_after: float | None = None,
+        reset_time: float | None = None,
     ):
         super().__init__(message, provider, model)
         self.retry_after = retry_after  # Seconds to wait
@@ -88,9 +88,9 @@ class CompletionResponse:
     content: str
     model: str
     provider: str
-    usage: Optional[Dict[str, int]] = None
-    finish_reason: Optional[str] = None
-    raw_response: Optional[Any] = None
+    usage: dict[str, int] | None = None
+    finish_reason: str | None = None
+    raw_response: Any | None = None
 
 
 class RetryConfig:
@@ -122,8 +122,8 @@ class BaseProvider(ABC):
     def __init__(
         self,
         model: str,
-        fallback_model: Optional[str] = None,
-        retry_config: Optional[RetryConfig] = None,
+        fallback_model: str | None = None,
+        retry_config: RetryConfig | None = None,
         dry_run: bool = False,
     ):
         """
@@ -144,7 +144,7 @@ class BaseProvider(ABC):
     @abstractmethod
     def _make_request(
         self,
-        messages: List[Message],
+        messages: list[Message],
         model: str,
         **kwargs,
     ) -> CompletionResponse:
@@ -180,7 +180,7 @@ class BaseProvider(ABC):
 
     def complete(
         self,
-        messages: List[Message],
+        messages: list[Message],
         **kwargs,
     ) -> CompletionResponse:
         """
@@ -215,7 +215,7 @@ class BaseProvider(ABC):
 
     def _complete_with_retry(
         self,
-        messages: List[Message],
+        messages: list[Message],
         model: str,
         **kwargs,
     ) -> CompletionResponse:
@@ -259,9 +259,7 @@ class BaseProvider(ABC):
                     time.sleep(wait_time)
                     backoff *= self.retry_config.backoff_multiplier
                 else:
-                    logger.error(
-                        f"{self.provider_name}: Max retries exceeded for rate limit"
-                    )
+                    logger.error(f"{self.provider_name}: Max retries exceeded for rate limit")
                     raise
 
             except QuotaExhaustedError:
@@ -294,7 +292,7 @@ class BaseProvider(ABC):
             return max(0, wait)
         return default_backoff
 
-    def _dry_run_response(self, messages: List[Message]) -> CompletionResponse:
+    def _dry_run_response(self, messages: list[Message]) -> CompletionResponse:
         """Generate a dry-run response for testing."""
         return CompletionResponse(
             content=f"[DRY RUN] {self.provider_name} response for {len(messages)} messages",
@@ -304,7 +302,7 @@ class BaseProvider(ABC):
             finish_reason="dry_run",
         )
 
-    def chat(self, user_message: str, system_message: Optional[str] = None) -> str:
+    def chat(self, user_message: str, system_message: str | None = None) -> str:
         """
         Simple chat interface.
 

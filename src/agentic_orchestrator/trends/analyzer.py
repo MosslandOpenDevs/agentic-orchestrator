@@ -7,12 +7,11 @@ Analyzes feed items to identify trending topics using Claude.
 import json
 import re
 from datetime import datetime
-from typing import List, Optional, Dict, Any
 
-from .models import FeedItem, Trend, TrendAnalysis
-from ..providers.claude import create_claude_provider, ClaudeProvider
-from ..utils.logging import get_logger
+from ..providers.claude import ClaudeProvider, create_claude_provider
 from ..utils.config import Config, load_config
+from ..utils.logging import get_logger
+from .models import FeedItem, Trend, TrendAnalysis
 
 logger = get_logger(__name__)
 
@@ -47,8 +46,8 @@ Prioritize trends with:
 
     def __init__(
         self,
-        claude: Optional[ClaudeProvider] = None,
-        config: Optional[Config] = None,
+        claude: ClaudeProvider | None = None,
+        config: Config | None = None,
         dry_run: bool = False,
     ):
         """
@@ -72,7 +71,7 @@ Prioritize trends with:
 
     def analyze_trends(
         self,
-        items: List[FeedItem],
+        items: list[FeedItem],
         period: str,
         max_trends: int = 10,
     ) -> TrendAnalysis:
@@ -98,11 +97,11 @@ Prioritize trends with:
             )
 
         # Limit articles for analysis
-        analysis_items = items[:self.MAX_ARTICLES_PER_ANALYSIS]
+        analysis_items = items[: self.MAX_ARTICLES_PER_ANALYSIS]
 
         # Get unique sources and categories
-        sources = list(set(item.source for item in analysis_items))
-        categories = list(set(item.category for item in analysis_items))
+        sources = list({item.source for item in analysis_items})
+        categories = list({item.category for item in analysis_items})
 
         if self.dry_run:
             logger.info(f"[DRY RUN] Would analyze {len(analysis_items)} items for {period}")
@@ -112,7 +111,9 @@ Prioritize trends with:
         prompt = self._build_analysis_prompt(analysis_items, period, max_trends)
 
         logger.debug(f"Sending analysis prompt ({len(prompt)} chars) for period {period}")
-        logger.debug(f"Prompt preview: {prompt[:300]}..." if len(prompt) > 300 else f"Prompt: {prompt}")
+        logger.debug(
+            f"Prompt preview: {prompt[:300]}..." if len(prompt) > 300 else f"Prompt: {prompt}"
+        )
 
         try:
             response = self.claude.chat(
@@ -120,7 +121,9 @@ Prioritize trends with:
                 system_message=self.SYSTEM_MESSAGE,
             )
 
-            logger.debug(f"Received response from Claude: {type(response)}, length: {len(response) if response else 0}")
+            logger.debug(
+                f"Received response from Claude: {type(response)}, length: {len(response) if response else 0}"
+            )
 
             # Check for empty response
             if not response or not response.strip():
@@ -163,7 +166,7 @@ Prioritize trends with:
 
     def _build_analysis_prompt(
         self,
-        items: List[FeedItem],
+        items: list[FeedItem],
         period: str,
         max_trends: int,
     ) -> str:
@@ -179,7 +182,7 @@ Prioritize trends with:
             Formatted prompt string.
         """
         # Group items by category
-        grouped: Dict[str, List[FeedItem]] = {}
+        grouped: dict[str, list[FeedItem]] = {}
         for item in items:
             if item.category not in grouped:
                 grouped[item.category] = []
@@ -190,10 +193,10 @@ Prioritize trends with:
         for category, category_items in grouped.items():
             headlines_parts.append(f"\n### {category.upper()}")
             for item in category_items[:20]:  # Limit per category
-                summary_preview = item.summary[:100] + "..." if len(item.summary) > 100 else item.summary
-                headlines_parts.append(
-                    f"- [{item.source}] {item.title}\n  {summary_preview}"
+                summary_preview = (
+                    item.summary[:100] + "..." if len(item.summary) > 100 else item.summary
                 )
+                headlines_parts.append(f"- [{item.source}] {item.title}\n  {summary_preview}")
 
         headlines_text = "\n".join(headlines_parts)
 
@@ -244,7 +247,7 @@ Focus on actionable insights and Web3 opportunities."""
         self,
         response: str,
         period: str,
-    ) -> List[Trend]:
+    ) -> list[Trend]:
         """
         Parse Claude's response into Trend objects.
 
@@ -311,7 +314,7 @@ Focus on actionable insights and Web3 opportunities."""
             logger.error(f"Failed to parse trends JSON: {e}")
             logger.error(f"JSON parse error at position {e.pos}: {e.msg}")
             # Show context around the error position
-            if hasattr(e, 'doc') and e.doc:
+            if hasattr(e, "doc") and e.doc:
                 start = max(0, e.pos - 50)
                 end = min(len(e.doc), e.pos + 50)
                 logger.error(f"Context around error: ...{e.doc[start:end]}...")
@@ -325,7 +328,7 @@ Focus on actionable insights and Web3 opportunities."""
         self,
         response: str,
         period: str,
-    ) -> List[Trend]:
+    ) -> list[Trend]:
         """
         Fallback parsing when JSON parsing fails.
 
@@ -360,10 +363,10 @@ Focus on actionable insights and Web3 opportunities."""
 
     def _create_mock_analysis(
         self,
-        items: List[FeedItem],
+        items: list[FeedItem],
         period: str,
-        sources: List[str],
-        categories: List[str],
+        sources: list[str],
+        categories: list[str],
     ) -> TrendAnalysis:
         """Create mock analysis for dry run mode."""
         mock_trends = [
@@ -406,8 +409,8 @@ Focus on actionable insights and Web3 opportunities."""
 
     def analyze_all_periods(
         self,
-        items: List[FeedItem],
-    ) -> Dict[str, TrendAnalysis]:
+        items: list[FeedItem],
+    ) -> dict[str, TrendAnalysis]:
         """
         Analyze trends across all configured time periods.
 
@@ -420,7 +423,7 @@ Focus on actionable insights and Web3 opportunities."""
         from .feeds import FeedFetcher
 
         fetcher = FeedFetcher(self.config)
-        results: Dict[str, TrendAnalysis] = {}
+        results: dict[str, TrendAnalysis] = {}
 
         periods = self.config.get("trends", "periods", default=["24h", "1w", "1m"])
 

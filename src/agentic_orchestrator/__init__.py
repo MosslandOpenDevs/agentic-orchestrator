@@ -9,6 +9,6 @@ __version__ = "0.3.0"
 __author__ = "Mossland"
 
 from .orchestrator import Orchestrator
-from .state import State, Stage
+from .state import Stage, State
 
 __all__ = ["Orchestrator", "State", "Stage", "__version__"]

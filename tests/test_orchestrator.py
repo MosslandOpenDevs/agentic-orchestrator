@@ -3,10 +3,8 @@
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from agentic_orchestrator.orchestrator import Orchestrator
-from agentic_orchestrator.state import State, Stage
+from agentic_orchestrator.state import Stage
 
 
 class TestOrchestrator:
@@ -19,17 +17,12 @@ class TestOrchestrator:
 
             # Create a git repo for testing
             import subprocess
+
             subprocess.run(["git", "init"], cwd=base, capture_output=True)
             subprocess.run(
-                ["git", "config", "user.email", "test@test.com"],
-                cwd=base,
-                capture_output=True
+                ["git", "config", "user.email", "test@test.com"], cwd=base, capture_output=True
             )
-            subprocess.run(
-                ["git", "config", "user.name", "Test"],
-                cwd=base,
-                capture_output=True
-            )
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=base, capture_output=True)
 
             orchestrator = Orchestrator(base_path=base, dry_run=True)
 

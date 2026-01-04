@@ -7,24 +7,21 @@ Provides commands for both legacy pipeline and new backlog-based workflow.
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 import click
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
-from rich import print as rprint
+from rich.table import Table
 
 from . import __version__
-from .utils.logging import setup_logging
-from .orchestrator import Orchestrator
 from .backlog import BacklogOrchestrator
+from .orchestrator import Orchestrator
 from .utils.config import (
-    get_env_bool,
-    get_env_int,
-    validate_backlog_environment,
     EnvironmentValidationError,
+    get_env_bool,
+    validate_backlog_environment,
 )
+from .utils.logging import setup_logging
 
 console = Console()
 
@@ -34,13 +31,15 @@ def validate_backlog_env_or_exit() -> None:
     try:
         validate_backlog_environment()
     except EnvironmentValidationError as e:
-        console.print(Panel(
-            f"[bold red]Environment Configuration Error[/bold red]\n\n"
-            f"{e.message}\n\n"
-            f"[dim]Tip: Copy .env.example to .env and configure your API keys.[/dim]",
-            title="Configuration Required",
-            border_style="red",
-        ))
+        console.print(
+            Panel(
+                f"[bold red]Environment Configuration Error[/bold red]\n\n"
+                f"{e.message}\n\n"
+                f"[dim]Tip: Copy .env.example to .env and configure your API keys.[/dim]",
+                title="Configuration Required",
+                border_style="red",
+            )
+        )
         sys.exit(1)
 
 
@@ -67,7 +66,7 @@ def main():
 @main.command()
 @click.option("--project-id", "-p", help="Custom project ID")
 @click.option("--dry-run", is_flag=True, help="Run without making changes")
-def init(project_id: Optional[str], dry_run: bool):
+def init(project_id: str | None, dry_run: bool):
     """Initialize a new project."""
     console.print("[bold blue]Initializing new project...[/bold blue]")
 
@@ -76,7 +75,7 @@ def init(project_id: Optional[str], dry_run: bool):
     try:
         pid = orchestrator.init_project(project_id)
         console.print(f"[bold green]Project initialized: {pid}[/bold green]")
-        console.print(f"\nNext step: Run [bold]ao step[/bold] to start ideation")
+        console.print("\nNext step: Run [bold]ao step[/bold] to start ideation")
     except Exception as e:
         console.print(f"[bold red]Error: {e}[/bold red]")
         sys.exit(1)
@@ -105,7 +104,7 @@ def step(dry_run: bool):
             result = orchestrator.step()
 
         if result.success:
-            console.print(f"[bold green]Stage completed successfully[/bold green]")
+            console.print("[bold green]Stage completed successfully[/bold green]")
             console.print(f"  Message: {result.message}")
 
             if result.next_stage:
@@ -116,7 +115,7 @@ def step(dry_run: bool):
                 for artifact in result.artifacts[:5]:  # Show first 5
                     console.print(f"    - {artifact}")
         else:
-            console.print(f"[bold red]Stage failed[/bold red]")
+            console.print("[bold red]Stage failed[/bold red]")
             console.print(f"  Error: {result.error}")
             console.print(f"  Message: {result.message}")
             sys.exit(1)
@@ -130,7 +129,7 @@ def step(dry_run: bool):
 @click.option("--max-steps", "-m", type=int, help="Maximum steps to execute")
 @click.option("--delay", "-d", type=int, help="Delay between steps (seconds)")
 @click.option("--dry-run", is_flag=True, help="Run without making changes")
-def loop(max_steps: Optional[int], delay: Optional[int], dry_run: bool):
+def loop(max_steps: int | None, delay: int | None, dry_run: bool):
     """Run in continuous loop mode."""
     orchestrator = create_orchestrator(dry_run)
 
@@ -162,7 +161,9 @@ def loop(max_steps: Optional[int], delay: Optional[int], dry_run: bool):
         if orchestrator.state.is_complete():
             console.print("\n[bold green]Project completed successfully![/bold green]")
         elif orchestrator.state.is_paused():
-            console.print(f"\n[bold yellow]Paused: {orchestrator.state.errors.paused_reason}[/bold yellow]")
+            console.print(
+                f"\n[bold yellow]Paused: {orchestrator.state.errors.paused_reason}[/bold yellow]"
+            )
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Loop interrupted by user[/yellow]")
@@ -181,6 +182,7 @@ def status(as_json: bool):
 
     if as_json:
         import json
+
         click.echo(json.dumps(status_data, indent=2, default=str))
         return
 
@@ -191,12 +193,13 @@ def status(as_json: bool):
     project_id = status_data["project_id"] or "(none)"
     stage = status_data["stage"]
 
-    console.print(Panel(
-        f"[bold]Project:[/bold] {project_id}\n"
-        f"[bold]Stage:[/bold] {stage}",
-        title="Orchestrator Status",
-        border_style="blue",
-    ))
+    console.print(
+        Panel(
+            f"[bold]Project:[/bold] {project_id}\n" f"[bold]Stage:[/bold] {stage}",
+            title="Orchestrator Status",
+            border_style="blue",
+        )
+    )
 
     # Flags
     flags = status_data["flags"]
@@ -230,8 +233,12 @@ def status(as_json: bool):
     if quality["review_score"] is not None or quality["tests_passed"] is not None:
         console.print("\n[bold]Quality Metrics:[/bold]")
         if quality["review_score"] is not None:
-            score_color = "green" if quality["review_score"] >= quality["required_score"] else "yellow"
-            console.print(f"  Review Score: [{score_color}]{quality['review_score']}/{quality['required_score']}[/{score_color}]")
+            score_color = (
+                "green" if quality["review_score"] >= quality["required_score"] else "yellow"
+            )
+            console.print(
+                f"  Review Score: [{score_color}]{quality['review_score']}/{quality['required_score']}[/{score_color}]"
+            )
         if quality["tests_passed"] is not None:
             test_color = "green" if quality["tests_passed"] else "red"
             test_str = "PASSED" if quality["tests_passed"] else "FAILED"
@@ -333,6 +340,7 @@ def push(dry_run: bool):
 # Backlog-based workflow commands
 # =============================================================================
 
+
 @main.group()
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose/debug logging")
 @click.pass_context
@@ -354,7 +362,9 @@ def backlog(ctx, verbose: bool):
 
 @backlog.command("run")
 @click.option("--ideas", "-i", type=int, default=1, help="Number of traditional ideas to generate")
-@click.option("--trend-ideas", "-t", type=int, default=0, help="Number of trend-based ideas to generate")
+@click.option(
+    "--trend-ideas", "-t", type=int, default=0, help="Number of trend-based ideas to generate"
+)
 @click.option("--analyze-trends", is_flag=True, help="Run trend analysis from RSS feeds")
 @click.option("--no-ideas", is_flag=True, help="Skip idea generation")
 @click.option("--max-promotions", "-m", type=int, default=5, help="Max promotions to process")
@@ -387,7 +397,7 @@ def backlog_run(
         console.print("[yellow](Dry run mode)[/yellow]")
 
     if analyze_trends or trend_ideas > 0:
-        console.print(f"[cyan]Trend analysis: enabled[/cyan]")
+        console.print("[cyan]Trend analysis: enabled[/cyan]")
         if trend_ideas > 0:
             console.print(f"[cyan]Trend-based ideas: {trend_ideas}[/cyan]")
 
@@ -411,9 +421,9 @@ def backlog_run(
         console.print("\n[bold]Cycle Results:[/bold]")
         console.print(f"  Traditional ideas: {results['ideas_generated']}")
         console.print(f"  Trend-based ideas: {results['trend_ideas_generated']}")
-        if results.get('trends_analyzed'):
-            console.print(f"  Trend analysis: [green]completed[/green]")
-        if results.get('plans_rejected', 0) > 0:
+        if results.get("trends_analyzed"):
+            console.print("  Trend analysis: [green]completed[/green]")
+        if results.get("plans_rejected", 0) > 0:
             console.print(f"  Plans rejected: {results['plans_rejected']}")
         console.print(f"  Plans generated: {results['plans_generated']}")
         console.print(f"  Dev projects started: {results['devs_started']}")
@@ -484,7 +494,7 @@ def backlog_process(max: int, dry_run: bool):
             sys.exit(1)
 
         console.print("\n[bold]Results:[/bold]")
-        if results.get('plans_rejected', 0) > 0:
+        if results.get("plans_rejected", 0) > 0:
             console.print(f"  Plans rejected: {results['plans_rejected']}")
         console.print(f"  Plans generated: {results['plans_generated']}")
         console.print(f"  Dev projects started: {results['devs_started']}")
@@ -505,6 +515,7 @@ def backlog_status(as_json: bool):
 
         if as_json:
             import json
+
             click.echo(json.dumps(status_data, indent=2))
             return
 
@@ -516,16 +527,18 @@ def backlog_status(as_json: bool):
         backlog = status_data["backlog"]
         pending = status_data["pending_promotion"]
 
-        console.print(Panel(
-            f"[bold]Backlog Ideas:[/bold] {backlog['ideas']} "
-            f"([cyan]{backlog.get('trend_ideas', 0)} from trends[/cyan])\n"
-            f"[bold]Backlog Plans:[/bold] {backlog['plans']}\n\n"
-            f"[bold]Pending Promotions:[/bold]\n"
-            f"  Ideas → Plan: {pending['ideas_to_plan']}\n"
-            f"  Plans → Dev: {pending['plans_to_dev']}",
-            title="Backlog Status",
-            border_style="blue",
-        ))
+        console.print(
+            Panel(
+                f"[bold]Backlog Ideas:[/bold] {backlog['ideas']} "
+                f"([cyan]{backlog.get('trend_ideas', 0)} from trends[/cyan])\n"
+                f"[bold]Backlog Plans:[/bold] {backlog['plans']}\n\n"
+                f"[bold]Pending Promotions:[/bold]\n"
+                f"  Ideas → Plan: {pending['ideas_to_plan']}\n"
+                f"  Plans → Dev: {pending['plans_to_dev']}",
+                title="Backlog Status",
+                border_style="blue",
+            )
+        )
 
         # Recent ideas
         if status_data.get("issues", {}).get("ideas"):
@@ -541,7 +554,9 @@ def backlog_status(as_json: bool):
 
         console.print("\n[dim]To promote an idea: Add 'promote:to-plan' label[/dim]")
         console.print("[dim]To start development: Add 'promote:to-dev' label[/dim]")
-        console.print("[dim]To reject a plan: Add 'reject:plan' label or use 'ao backlog reject'[/dim]")
+        console.print(
+            "[dim]To reject a plan: Add 'reject:plan' label or use 'ao backlog reject'[/dim]"
+        )
         console.print("[dim]To see trend analysis: Run 'ao backlog trends-status'[/dim]")
 
     except Exception as e:
@@ -584,12 +599,14 @@ def backlog_reject(plan_number: int, force: bool):
             sys.exit(1)
 
         # Show plan info
-        console.print(Panel(
-            f"[bold]#{plan_number}:[/bold] {plan_issue.title}\n"
-            f"[dim]State: {plan_issue.state}[/dim]",
-            title="Plan to Reject",
-            border_style="yellow",
-        ))
+        console.print(
+            Panel(
+                f"[bold]#{plan_number}:[/bold] {plan_issue.title}\n"
+                f"[dim]State: {plan_issue.state}[/dim]",
+                title="Plan to Reject",
+                border_style="yellow",
+            )
+        )
 
         # Confirm
         if not force:
@@ -606,7 +623,9 @@ def backlog_reject(plan_number: int, force: bool):
             sys.exit(1)
 
         console.print(f"[bold green]Success![/bold green] {result['message']}")
-        console.print("\n[dim]The idea has been reset and will be re-planned in the next cycle.[/dim]")
+        console.print(
+            "\n[dim]The idea has been reset and will be re-planned in the next cycle.[/dim]"
+        )
         console.print("[dim]Run 'ao backlog process' to generate a new plan immediately.[/dim]")
 
     except Exception as e:
@@ -713,15 +732,18 @@ def backlog_trends_status(days: int, as_json: bool):
 
         if as_json:
             import json
+
             click.echo(json.dumps(status_data, indent=2, default=str))
             return
 
-        console.print(Panel(
-            f"[bold]Analyses Available:[/bold] {status_data['analyses_available']} (last {days} days)\n"
-            f"[bold]Ideas from Trends:[/bold] {status_data['total_ideas_from_trends']}",
-            title="Trend Analysis Status",
-            border_style="cyan",
-        ))
+        console.print(
+            Panel(
+                f"[bold]Analyses Available:[/bold] {status_data['analyses_available']} (last {days} days)\n"
+                f"[bold]Ideas from Trends:[/bold] {status_data['total_ideas_from_trends']}",
+                title="Trend Analysis Status",
+                border_style="cyan",
+            )
+        )
 
         # Recent analyses
         if status_data.get("recent_trends"):
@@ -737,9 +759,7 @@ def backlog_trends_status(days: int, as_json: bool):
         if status_data.get("idea_links"):
             console.print("\n[bold]Recent Trend-Based Ideas:[/bold]")
             for link in status_data["idea_links"]:
-                console.print(
-                    f"  #{link['issue']}: {link['trend']} [{link['category']}]"
-                )
+                console.print(f"  #{link['issue']}: {link['trend']} [{link['category']}]")
 
         console.print("\n[dim]Run 'ao backlog analyze-trends' to run new analysis[/dim]")
         console.print("[dim]Run 'ao backlog generate-trends' to generate trend ideas[/dim]")
@@ -761,6 +781,7 @@ def backlog_setup():
         console.print("[green]Labels created successfully![/green]")
         console.print("\nCreated labels:")
         from .github_client import Labels
+
         for label in Labels.ALL_LABELS.keys():
             console.print(f"  - {label}")
 

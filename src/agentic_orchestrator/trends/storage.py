@@ -10,14 +10,13 @@ import re
 import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import yaml
 
-from .models import Trend, TrendAnalysis, TrendIdeaLink
-from ..utils.logging import get_logger
 from ..utils.config import Config, load_config
 from ..utils.files import ensure_dir
+from ..utils.logging import get_logger
+from .models import Trend, TrendAnalysis, TrendIdeaLink
 
 logger = get_logger(__name__)
 
@@ -35,8 +34,8 @@ class TrendStorage:
 
     def __init__(
         self,
-        base_path: Optional[Path] = None,
-        config: Optional[Config] = None,
+        base_path: Path | None = None,
+        config: Config | None = None,
     ):
         """
         Initialize trend storage.
@@ -67,8 +66,8 @@ class TrendStorage:
 
     def save_analysis(
         self,
-        analyses: Dict[str, TrendAnalysis],
-        date: Optional[datetime] = None,
+        analyses: dict[str, TrendAnalysis],
+        date: datetime | None = None,
     ) -> Path:
         """
         Save trend analysis to Markdown file.
@@ -183,7 +182,7 @@ class TrendStorage:
     def load_analysis(
         self,
         date: datetime,
-    ) -> Optional[Dict[str, TrendAnalysis]]:
+    ) -> dict[str, TrendAnalysis] | None:
         """
         Load trend analysis for a specific date.
 
@@ -210,7 +209,7 @@ class TrendStorage:
         self,
         content: str,
         date: datetime,
-    ) -> Dict[str, TrendAnalysis]:
+    ) -> dict[str, TrendAnalysis]:
         """
         Parse a trend analysis Markdown file.
 
@@ -221,7 +220,7 @@ class TrendStorage:
         Returns:
             Dictionary mapping period to TrendAnalysis.
         """
-        analyses: Dict[str, TrendAnalysis] = {}
+        analyses: dict[str, TrendAnalysis] = {}
 
         # Parse frontmatter
         frontmatter_match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
@@ -267,7 +266,7 @@ class TrendStorage:
         self,
         section: str,
         period: str,
-    ) -> List[Trend]:
+    ) -> list[Trend]:
         """
         Parse trends from a period section.
 
@@ -300,14 +299,14 @@ class TrendStorage:
 
         return trends
 
-    def _extract_field(self, text: str, field: str) -> List[str]:
+    def _extract_field(self, text: str, field: str) -> list[str]:
         """Extract a comma-separated field value."""
         match = re.search(rf"\*\*{field}:\*\* (.*?)(?:\n|$)", text)
         if match:
             return [x.strip() for x in match.group(1).split(",")]
         return []
 
-    def _extract_single(self, text: str, field: str) -> Optional[str]:
+    def _extract_single(self, text: str, field: str) -> str | None:
         """Extract a single field value."""
         match = re.search(rf"\*\*{field}:\*\* (.*?)(?:\n|$)", text)
         return match.group(1).strip() if match else None
@@ -320,7 +319,7 @@ class TrendStorage:
     def get_recent_analyses(
         self,
         days: int = 7,
-    ) -> List[Dict[str, TrendAnalysis]]:
+    ) -> list[dict[str, TrendAnalysis]]:
         """
         Get trend analyses from recent days.
 
@@ -358,7 +357,7 @@ class TrendStorage:
         if index_path.exists():
             try:
                 links = json.loads(index_path.read_text())
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 links = []
 
         # Add new link
@@ -366,14 +365,12 @@ class TrendStorage:
 
         # Save
         index_path.write_text(json.dumps(links, indent=2))
-        logger.debug(
-            f"Linked idea #{link.idea_issue_number} to trend '{link.trend_topic}'"
-        )
+        logger.debug(f"Linked idea #{link.idea_issue_number} to trend '{link.trend_topic}'")
 
     def get_ideas_for_trend(
         self,
         topic: str,
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Get idea issue numbers generated from a specific trend.
 
@@ -390,15 +387,11 @@ class TrendStorage:
 
         try:
             links = json.loads(index_path.read_text())
-            return [
-                link["idea_issue_number"]
-                for link in links
-                if link.get("trend_topic") == topic
-            ]
-        except (json.JSONDecodeError, IOError):
+            return [link["idea_issue_number"] for link in links if link.get("trend_topic") == topic]
+        except (OSError, json.JSONDecodeError):
             return []
 
-    def get_all_idea_links(self) -> List[TrendIdeaLink]:
+    def get_all_idea_links(self) -> list[TrendIdeaLink]:
         """
         Get all idea-trend links.
 
@@ -413,13 +406,13 @@ class TrendStorage:
         try:
             links_data = json.loads(index_path.read_text())
             return [TrendIdeaLink.from_dict(data) for data in links_data]
-        except (json.JSONDecodeError, IOError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             logger.error(f"Failed to load idea links: {e}")
             return []
 
     def cleanup_old_data(
         self,
-        retention_days: Optional[int] = None,
+        retention_days: int | None = None,
     ) -> int:
         """
         Remove trend data older than retention period.
@@ -431,9 +424,7 @@ class TrendStorage:
             Number of files deleted.
         """
         if retention_days is None:
-            retention_days = self.config.get(
-                "trends", "storage", "retention_days", default=90
-            )
+            retention_days = self.config.get("trends", "storage", "retention_days", default=90)
 
         cutoff = datetime.utcnow() - timedelta(days=retention_days)
         deleted = 0

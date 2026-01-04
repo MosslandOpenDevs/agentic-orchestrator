@@ -5,27 +5,28 @@ Handles API calls to OpenAI's GPT models with proper error handling.
 """
 
 import os
-from typing import List, Optional, Any
+from typing import Any
 
+from ..utils.logging import get_logger
 from .base import (
-    BaseProvider,
-    Message,
-    CompletionResponse,
-    RetryConfig,
-    RateLimitError,
-    QuotaExhaustedError,
     AuthenticationError,
+    BaseProvider,
+    CompletionResponse,
+    Message,
     ModelNotAvailableError,
     ProviderError,
+    QuotaExhaustedError,
+    RateLimitError,
+    RetryConfig,
 )
-from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 # Try to import openai
 try:
-    import openai
-    from openai import OpenAI, APIError, RateLimitError as OpenAIRateLimitError
+    from openai import APIError, OpenAI
+    from openai import RateLimitError as OpenAIRateLimitError
+
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
@@ -50,10 +51,10 @@ class OpenAIProvider(BaseProvider):
 
     def __init__(
         self,
-        model: Optional[str] = None,
-        fallback_model: Optional[str] = None,
-        api_key: Optional[str] = None,
-        retry_config: Optional[RetryConfig] = None,
+        model: str | None = None,
+        fallback_model: str | None = None,
+        api_key: str | None = None,
+        retry_config: RetryConfig | None = None,
         dry_run: bool = False,
     ):
         """
@@ -73,7 +74,7 @@ class OpenAIProvider(BaseProvider):
             dry_run=dry_run,
         )
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
-        self._client: Optional[Any] = None
+        self._client: Any | None = None
 
     @property
     def client(self):
@@ -98,17 +99,14 @@ class OpenAIProvider(BaseProvider):
 
     def _make_request(
         self,
-        messages: List[Message],
+        messages: list[Message],
         model: str,
         **kwargs,
     ) -> CompletionResponse:
         """Make request to OpenAI API."""
         try:
             # Convert messages to OpenAI format
-            openai_messages = [
-                {"role": msg.role, "content": msg.content}
-                for msg in messages
-            ]
+            openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
             # Make request
             response = self.client.chat.completions.create(
@@ -197,8 +195,8 @@ class OpenAIProvider(BaseProvider):
 
 
 def create_openai_provider(
-    model: Optional[str] = None,
-    fallback_model: Optional[str] = None,
+    model: str | None = None,
+    fallback_model: str | None = None,
     dry_run: bool = False,
 ) -> OpenAIProvider:
     """

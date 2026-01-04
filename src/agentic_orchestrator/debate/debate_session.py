@@ -11,29 +11,23 @@ This module orchestrates the entire debate flow:
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Dict, List, Optional, Any
 
-from ..providers.base import BaseProvider, Message
-from .roles import (
-    Role,
-    get_role_config,
-    get_feedback_roles,
-    ROLE_CONFIGS,
-)
-from .moderator import DebateModerator
+from ..providers.base import BaseProvider
 from .discussion_record import (
     DebateRecord,
-    RoundData,
-    FeedbackEntry,
-    FounderDecision,
     DiscussionRecordFormatter,
-    create_record,
-    create_round_data,
+    FounderDecision,
     create_feedback_entry,
     create_founder_decision,
+    create_record,
+    create_round_data,
 )
-
+from .moderator import DebateModerator
+from .roles import (
+    Role,
+    get_feedback_roles,
+    get_role_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +35,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DebateResult:
     """Result of a completed debate session."""
+
     final_plan: str
     record: DebateRecord
     termination_reason: str
@@ -72,7 +67,7 @@ class DebateSession:
         idea_title: str,
         idea_content: str,
         idea_issue_number: int,
-        providers: Dict[str, BaseProvider],
+        providers: dict[str, BaseProvider],
         max_rounds: int = 5,
         min_rounds: int = 1,
         dry_run: bool = False,
@@ -115,7 +110,7 @@ class DebateSession:
 
         round_num = 0
         termination_reason = ""
-        feedback_responses: Dict[Role, str] = {}
+        feedback_responses: dict[Role, str] = {}
 
         while True:
             round_num += 1
@@ -146,11 +141,13 @@ class DebateSession:
                 feedback_responses[role] = feedback
 
                 # Add to round data
-                round_data.feedbacks.append(create_feedback_entry(
-                    role=role,
-                    provider=assignment.get_provider_for_role(role),
-                    content=feedback,
-                ))
+                round_data.feedbacks.append(
+                    create_feedback_entry(
+                        role=role,
+                        provider=assignment.get_provider_for_role(role),
+                        content=feedback,
+                    )
+                )
 
             # Phase 3: Founder reflects on feedback
             founder_response = self._run_founder_reflection(
@@ -250,7 +247,7 @@ class DebateSession:
     def _run_founder_reflection(
         self,
         assignment,
-        feedback_responses: Dict[Role, str],
+        feedback_responses: dict[Role, str],
     ) -> str:
         """Run founder's reflection on feedback."""
         role = Role.FOUNDER
@@ -307,7 +304,11 @@ class DebateSession:
             line_lower = line.lower()
 
             # Detect section (English first, then Korean)
-            if "adopted feedback" in line_lower or "반영할 피드백" in line or "반영한 피드백" in line:
+            if (
+                "adopted feedback" in line_lower
+                or "반영할 피드백" in line
+                or "반영한 피드백" in line
+            ):
                 in_reflected_section = True
                 in_not_reflected_section = False
             elif "rejected feedback" in line_lower or "미반영" in line:
@@ -346,7 +347,7 @@ class DebateSession:
             raw_response=response,
         )
 
-    def _extract_updated_plan(self, response: str) -> Optional[str]:
+    def _extract_updated_plan(self, response: str) -> str | None:
         """Extract the updated plan from founder's reflection response."""
         # Priority 1: Look for [PLAN_START] and [PLAN_END] markers (most reliable)
         plan_marker_pattern = r"\[PLAN_START\]\s*(.*?)\s*\[PLAN_END\]"
@@ -369,7 +370,7 @@ class DebateSession:
             if match:
                 plan_content = match.group(1).strip()
                 if plan_content:
-                    logger.info(f"Extracted plan using section pattern")
+                    logger.info("Extracted plan using section pattern")
                     return plan_content
 
         # If no explicit section found, return None (keep current plan)
@@ -381,7 +382,7 @@ def create_debate_session(
     idea_title: str,
     idea_content: str,
     idea_issue_number: int,
-    providers: Dict[str, BaseProvider],
+    providers: dict[str, BaseProvider],
     max_rounds: int = 5,
     dry_run: bool = False,
 ) -> DebateSession:

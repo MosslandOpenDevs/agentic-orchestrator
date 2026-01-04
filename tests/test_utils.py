@@ -5,25 +5,25 @@ from pathlib import Path
 
 import pytest
 
-from agentic_orchestrator.utils.files import (
-    ensure_dir,
-    ensure_parent,
-    write_markdown,
-    read_markdown,
-    generate_project_id,
-    get_project_dir,
-    get_stage_dir,
-    sanitize_filename,
-)
-from agentic_orchestrator.utils.git import GitHelper
 from agentic_orchestrator.utils.config import (
+    EnvironmentValidationError,
     get_env,
     get_env_bool,
     get_env_int,
     validate_backlog_environment,
     validate_environment_for_command,
-    EnvironmentValidationError,
 )
+from agentic_orchestrator.utils.files import (
+    ensure_dir,
+    ensure_parent,
+    generate_project_id,
+    get_project_dir,
+    get_stage_dir,
+    read_markdown,
+    sanitize_filename,
+    write_markdown,
+)
+from agentic_orchestrator.utils.git import GitHelper
 
 
 class TestFileUtils:
@@ -72,7 +72,8 @@ class TestFileUtils:
         """Test reading markdown files with frontmatter."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file_path = Path(tmpdir) / "test.md"
-            file_path.write_text("""---
+            file_path.write_text(
+                """---
 title: Test
 author: me
 ---
@@ -80,7 +81,8 @@ author: me
 # Content
 
 Body text here.
-""")
+"""
+            )
 
             content, metadata = read_markdown(file_path)
 
@@ -378,8 +380,7 @@ class TestEnvironmentValidation:
     def test_environment_validation_error_attributes(self):
         """Test EnvironmentValidationError has correct attributes."""
         error = EnvironmentValidationError(
-            missing=["GITHUB_TOKEN", "ANTHROPIC_API_KEY"],
-            message="Test error message"
+            missing=["GITHUB_TOKEN", "ANTHROPIC_API_KEY"], message="Test error message"
         )
 
         assert error.missing == ["GITHUB_TOKEN", "ANTHROPIC_API_KEY"]

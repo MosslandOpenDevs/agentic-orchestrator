@@ -6,17 +6,16 @@ Handles loading configuration from YAML files and environment variables.
 
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
 import yaml
-
 from dotenv import load_dotenv
-
 
 # Load .env file if present
 load_dotenv()
 
 
-def get_env(key: str, default: Optional[str] = None, required: bool = False) -> Optional[str]:
+def get_env(key: str, default: str | None = None, required: bool = False) -> str | None:
     """
     Get an environment variable.
 
@@ -84,7 +83,7 @@ class Config:
     Environment variables take precedence over file configuration.
     """
 
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         """
         Initialize configuration.
 
@@ -99,7 +98,7 @@ class Config:
         if not self.config_path.exists():
             return {}
 
-        with open(self.config_path, "r") as f:
+        with open(self.config_path) as f:
             return yaml.safe_load(f) or {}
 
     def get(self, *keys: str, default: Any = None) -> Any:
@@ -202,9 +201,7 @@ class Config:
     @property
     def loop_max_steps(self) -> int:
         """Get maximum steps in loop mode."""
-        return get_env_int("LOOP_MAX_STEPS") or self.get(
-            "limits", "loop", "max_steps", default=100
-        )
+        return get_env_int("LOOP_MAX_STEPS") or self.get("limits", "loop", "max_steps", default=100)
 
     @property
     def loop_delay(self) -> int:
@@ -224,16 +221,12 @@ class Config:
     @property
     def debate_max_rounds(self) -> int:
         """Get maximum number of debate rounds."""
-        return get_env_int("DEBATE_MAX_ROUNDS") or self.get(
-            "debate", "max_rounds", default=5
-        )
+        return get_env_int("DEBATE_MAX_ROUNDS") or self.get("debate", "max_rounds", default=5)
 
     @property
     def debate_min_rounds(self) -> int:
         """Get minimum debate rounds before early termination allowed."""
-        return get_env_int("DEBATE_MIN_ROUNDS") or self.get(
-            "debate", "min_rounds", default=1
-        )
+        return get_env_int("DEBATE_MIN_ROUNDS") or self.get("debate", "min_rounds", default=1)
 
     @property
     def debate_require_all_approval(self) -> bool:
@@ -276,7 +269,7 @@ class Config:
         return get_env("GIT_USER_EMAIL") or "orchestrator@mossland.org"
 
 
-def load_config(config_path: Optional[Path] = None) -> Config:
+def load_config(config_path: Path | None = None) -> Config:
     """
     Load and return configuration.
 
@@ -355,9 +348,7 @@ def validate_backlog_environment() -> dict:
 
         error_parts = []
         if result["github"]["missing"]:
-            error_parts.append(
-                f"GitHub: {', '.join(result['github']['missing'])}"
-            )
+            error_parts.append(f"GitHub: {', '.join(result['github']['missing'])}")
         if not result["llm"]["available"]:
             error_parts.append(
                 "LLM: At least one of ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY"

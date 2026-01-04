@@ -1,18 +1,16 @@
 """Tests for LLM provider adapters."""
 
-import pytest
-
 from agentic_orchestrator.providers.base import (
-    Message,
     CompletionResponse,
-    RetryConfig,
-    RateLimitError,
-    QuotaExhaustedError,
+    Message,
     ProviderError,
+    QuotaExhaustedError,
+    RateLimitError,
+    RetryConfig,
 )
-from agentic_orchestrator.providers.openai import OpenAIProvider
-from agentic_orchestrator.providers.gemini import GeminiProvider
 from agentic_orchestrator.providers.claude import ClaudeProvider
+from agentic_orchestrator.providers.gemini import GeminiProvider
+from agentic_orchestrator.providers.openai import OpenAIProvider
 
 
 class TestMessage:

@@ -7,13 +7,12 @@ Implements the planned features using Claude Code.
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
 
-from .base import BaseStage, StageResult, StageRegistry
-from ..state import State, Stage
-from ..providers.claude import create_claude_provider, ClaudeProvider
-from ..utils.logging import get_logger
+from ..providers.claude import ClaudeProvider, create_claude_provider
+from ..state import Stage, State
 from ..utils.files import ensure_dir
+from ..utils.logging import get_logger
+from .base import BaseStage, StageRegistry, StageResult
 
 logger = get_logger(__name__)
 
@@ -35,11 +34,11 @@ class DevelopmentStage(BaseStage):
     def __init__(
         self,
         state: State,
-        base_path: Optional[Path] = None,
+        base_path: Path | None = None,
         dry_run: bool = False,
     ):
         super().__init__(state, base_path, dry_run)
-        self._claude: Optional[ClaudeProvider] = None
+        self._claude: ClaudeProvider | None = None
 
     @property
     def claude(self) -> ClaudeProvider:
@@ -185,38 +184,42 @@ class DevelopmentStage(BaseStage):
                 message=f"Development failed: {e}",
             )
 
-    def _parse_tasks(self, tasks_md: str) -> List[dict]:
+    def _parse_tasks(self, tasks_md: str) -> list[dict]:
         """Parse tasks from markdown."""
         task_list = []
 
         # Pattern to match task items
         # - [ ] **Task 1.1**: Description (Effort: S/M/L)
-        pattern = r'-\s*\[[ x]\]\s*\*?\*?([^:*]+)\*?\*?:\s*(.+?)(?:\(Effort:\s*([SML])\))?$'
+        pattern = r"-\s*\[[ x]\]\s*\*?\*?([^:*]+)\*?\*?:\s*(.+?)(?:\(Effort:\s*([SML])\))?$"
 
         for match in re.finditer(pattern, tasks_md, re.MULTILINE):
             task_id = match.group(1).strip()
             description = match.group(2).strip()
             effort = match.group(3) or "M"
 
-            task_list.append({
-                "id": task_id.replace(" ", "_").lower(),
-                "name": task_id,
-                "description": description,
-                "effort": effort,
-            })
+            task_list.append(
+                {
+                    "id": task_id.replace(" ", "_").lower(),
+                    "name": task_id,
+                    "description": description,
+                    "effort": effort,
+                }
+            )
 
         # If no tasks found with pattern, try simpler extraction
         if not task_list:
             # Look for any checkbox items
-            simple_pattern = r'-\s*\[[ x]\]\s*(.+)$'
+            simple_pattern = r"-\s*\[[ x]\]\s*(.+)$"
             for i, match in enumerate(re.finditer(simple_pattern, tasks_md, re.MULTILINE)):
                 task_text = match.group(1).strip()
-                task_list.append({
-                    "id": f"task_{i+1}",
-                    "name": f"Task {i+1}",
-                    "description": task_text,
-                    "effort": "M",
-                })
+                task_list.append(
+                    {
+                        "id": f"task_{i+1}",
+                        "name": f"Task {i+1}",
+                        "description": task_text,
+                        "effort": "M",
+                    }
+                )
 
         return task_list
 
@@ -262,7 +265,9 @@ Be concise but complete. Focus on working code.""",
             )
 
         # Parse response for summary
-        summary_match = re.search(r'(?:Summary|What was created):?\s*(.+?)(?:\n\n|$)', response, re.IGNORECASE | re.DOTALL)
+        summary_match = re.search(
+            r"(?:Summary|What was created):?\s*(.+?)(?:\n\n|$)", response, re.IGNORECASE | re.DOTALL
+        )
         summary = summary_match.group(1).strip() if summary_match else f"Implemented {task['name']}"
 
         return {
@@ -275,6 +280,7 @@ Be concise but complete. Focus on working code.""",
         progress_file = self.implementation_dir / "progress.json"
         if progress_file.exists():
             import json
+
             with open(progress_file) as f:
                 return json.load(f)
         return {"completed": []}
@@ -282,6 +288,7 @@ Be concise but complete. Focus on working code.""",
     def _save_progress(self, progress: dict):
         """Save development progress."""
         import json
+
         progress_file = self.implementation_dir / "progress.json"
         with open(progress_file, "w") as f:
             json.dump(progress, f, indent=2)
@@ -311,7 +318,7 @@ Be concise but complete. Focus on working code.""",
                 status = "Completed (this iteration)"
             content += f"| {task['name']} | {status} |\n"
 
-        content += f"""
+        content += """
 ## Implemented This Iteration
 
 """

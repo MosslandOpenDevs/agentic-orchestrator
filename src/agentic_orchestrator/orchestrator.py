@@ -7,21 +7,20 @@ Coordinates the execution of stages and manages the overall pipeline.
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
-from .state import State, Stage
-from .stages.base import StageRegistry, StageResult
 from .stages import (  # noqa: F401 - Import to register handlers
+    DevelopmentStage,
     IdeationStage,
     PlanningDraftStage,
     PlanningReviewStage,
-    DevelopmentStage,
     QualityStage,
 )
-from .utils.config import load_config, Config
-from .utils.logging import setup_logging, get_logger
-from .utils.git import GitHelper
+from .stages.base import StageRegistry, StageResult
+from .state import Stage, State
+from .utils.config import Config, load_config
 from .utils.files import generate_project_id
+from .utils.git import GitHelper
+from .utils.logging import get_logger, setup_logging
 
 logger = get_logger(__name__)
 
@@ -39,8 +38,8 @@ class Orchestrator:
 
     def __init__(
         self,
-        base_path: Optional[Path] = None,
-        config: Optional[Config] = None,
+        base_path: Path | None = None,
+        config: Config | None = None,
         dry_run: bool = False,
     ):
         """
@@ -54,13 +53,11 @@ class Orchestrator:
         self.base_path = Path(base_path) if base_path else Path.cwd()
         self.config = config or load_config(self.base_path / "config.yaml")
         self.dry_run = dry_run or self.config.dry_run
-        self._state: Optional[State] = None
-        self._git: Optional[GitHelper] = None
+        self._state: State | None = None
+        self._git: GitHelper | None = None
 
         # Setup logging
-        setup_logging(
-            log_file=self.base_path / "logs" / "orchestrator.log"
-        )
+        setup_logging(log_file=self.base_path / "logs" / "orchestrator.log")
 
     @property
     def state(self) -> State:
@@ -80,7 +77,7 @@ class Orchestrator:
         """Save the current state."""
         self.state.save(self.base_path)
 
-    def init_project(self, project_id: Optional[str] = None) -> str:
+    def init_project(self, project_id: str | None = None) -> str:
         """
         Initialize a new project.
 
@@ -163,8 +160,8 @@ class Orchestrator:
 
     def loop(
         self,
-        max_steps: Optional[int] = None,
-        delay_seconds: Optional[int] = None,
+        max_steps: int | None = None,
+        delay_seconds: int | None = None,
     ) -> list[StageResult]:
         """
         Run in loop mode until completion or limit.
@@ -236,8 +233,14 @@ class Orchestrator:
                 "required_score": self.state.quality.required_score,
             },
             "timestamps": {
-                "created": str(self.state.timestamps.created) if self.state.timestamps.created else None,
-                "last_updated": str(self.state.timestamps.last_updated) if self.state.timestamps.last_updated else None,
+                "created": (
+                    str(self.state.timestamps.created) if self.state.timestamps.created else None
+                ),
+                "last_updated": (
+                    str(self.state.timestamps.last_updated)
+                    if self.state.timestamps.last_updated
+                    else None
+                ),
             },
             "errors": {
                 "last_error": self.state.errors.last_error,

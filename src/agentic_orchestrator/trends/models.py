@@ -6,7 +6,6 @@ Defines dataclasses for feed items, trends, and analysis results.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional
 
 
 @dataclass
@@ -45,16 +44,16 @@ class Trend:
     """
 
     topic: str  # Main topic/theme (3-5 words)
-    keywords: List[str]  # Related keywords
+    keywords: list[str]  # Related keywords
     score: float  # Relevance/heat score (0-10)
     time_period: str  # Analysis period: 24h, 1w, 1m
-    sources: List[str]  # Which feeds mentioned this trend
+    sources: list[str]  # Which feeds mentioned this trend
     article_count: int  # Number of articles about this trend
-    sample_headlines: List[str]  # Sample headlines for context
+    sample_headlines: list[str]  # Sample headlines for context
     category: str  # Primary category (ai, crypto, etc.)
     summary: str  # Why this is trending
     web3_relevance: str = ""  # How it relates to Web3/blockchain
-    idea_seeds: List[str] = field(default_factory=list)  # Potential project ideas
+    idea_seeds: list[str] = field(default_factory=list)  # Potential project ideas
 
     def __post_init__(self):
         """Ensure lists are properly initialized."""
@@ -78,10 +77,10 @@ class TrendAnalysis:
 
     date: datetime  # When analysis was performed
     period: str  # Time period analyzed: 24h, 1w, 1m
-    trends: List[Trend]  # Identified trends, sorted by score
+    trends: list[Trend]  # Identified trends, sorted by score
     raw_article_count: int  # Total articles analyzed
-    sources_analyzed: List[str]  # List of feed sources used
-    categories_analyzed: List[str] = field(default_factory=list)  # Categories covered
+    sources_analyzed: list[str]  # List of feed sources used
+    categories_analyzed: list[str] = field(default_factory=list)  # Categories covered
 
     def __post_init__(self):
         """Sort trends by score and ensure lists are initialized."""
@@ -91,11 +90,11 @@ class TrendAnalysis:
             self.categories_analyzed = []
 
     @property
-    def top_trends(self) -> List[Trend]:
+    def top_trends(self) -> list[Trend]:
         """Get top 5 trends by score."""
         return self.trends[:5] if self.trends else []
 
-    def get_trends_by_category(self, category: str) -> List[Trend]:
+    def get_trends_by_category(self, category: str) -> list[Trend]:
         """Filter trends by category."""
         return [t for t in self.trends if t.category == category]
 
@@ -132,7 +131,9 @@ class TrendIdeaLink:
             trend_topic=data["trend_topic"],
             trend_category=data["trend_category"],
             analysis_date=datetime.fromisoformat(data["analysis_date"]),
-            created_at=datetime.fromisoformat(data.get("created_at", datetime.utcnow().isoformat())),
+            created_at=datetime.fromisoformat(
+                data.get("created_at", datetime.utcnow().isoformat())
+            ),
         )
 
 

@@ -8,7 +8,6 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from .logging import get_logger
 
@@ -48,8 +47,8 @@ def ensure_parent(path: Path) -> Path:
 def write_markdown(
     path: Path,
     content: str,
-    title: Optional[str] = None,
-    metadata: Optional[dict] = None,
+    title: str | None = None,
+    metadata: dict | None = None,
     append: bool = False,
 ) -> Path:
     """
@@ -110,7 +109,7 @@ def read_markdown(path: Path) -> tuple[str, dict]:
     if not path.exists():
         return "", {}
 
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         text = f.read()
 
     # Parse frontmatter
@@ -144,7 +143,7 @@ def generate_project_id() -> str:
     return f"{timestamp}-{random_suffix}"
 
 
-def get_project_dir(project_id: str, base_path: Optional[Path] = None) -> Path:
+def get_project_dir(project_id: str, base_path: Path | None = None) -> Path:
     """
     Get the directory for a project.
 
@@ -160,7 +159,7 @@ def get_project_dir(project_id: str, base_path: Optional[Path] = None) -> Path:
     return base_path / "projects" / project_id
 
 
-def get_stage_dir(project_id: str, stage: str, base_path: Optional[Path] = None) -> Path:
+def get_stage_dir(project_id: str, stage: str, base_path: Path | None = None) -> Path:
     """
     Get the directory for a specific stage output.
 
@@ -220,8 +219,8 @@ def create_alert_file(
     stage: str,
     error: str,
     resolution: str,
-    base_path: Optional[Path] = None,
-    project_id: Optional[str] = None,
+    base_path: Path | None = None,
+    project_id: str | None = None,
 ) -> Path:
     """
     Create an alert file for quota/error issues.

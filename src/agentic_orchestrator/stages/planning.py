@@ -6,18 +6,17 @@ Handles PLANNING_DRAFT and PLANNING_REVIEW stages.
 
 import json
 import re
-from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any
 
-from .base import BaseStage, StageResult, StageRegistry
-from ..state import State, Stage
-from ..providers.claude import create_claude_provider
-from ..providers.openai import create_openai_provider
-from ..providers.gemini import create_gemini_provider
 from ..providers.base import QuotaExhaustedError
-from ..utils.logging import get_logger
+from ..providers.claude import create_claude_provider
+from ..providers.gemini import create_gemini_provider
+from ..providers.openai import create_openai_provider
+from ..state import Stage, State
 from ..utils.files import create_alert_file
+from ..utils.logging import get_logger
+from .base import BaseStage, StageRegistry, StageResult
 
 logger = get_logger(__name__)
 
@@ -39,7 +38,7 @@ class PlanningDraftStage(BaseStage):
     def __init__(
         self,
         state: State,
-        base_path: Optional[Path] = None,
+        base_path: Path | None = None,
         dry_run: bool = False,
     ):
         super().__init__(state, base_path, dry_run)
@@ -73,13 +72,17 @@ class PlanningDraftStage(BaseStage):
 
             # 1. PRD
             prd_content = self._generate_prd(selected_idea)
-            prd_file = self.save_artifact("PRD.md", prd_content, title="Product Requirements Document")
+            prd_file = self.save_artifact(
+                "PRD.md", prd_content, title="Product Requirements Document"
+            )
             artifacts.append(str(prd_file))
             logger.info("Generated PRD")
 
             # 2. Architecture
             arch_content = self._generate_architecture(selected_idea, prd_content)
-            arch_file = self.save_artifact("ARCHITECTURE.md", arch_content, title="Architecture Document")
+            arch_file = self.save_artifact(
+                "ARCHITECTURE.md", arch_content, title="Architecture Document"
+            )
             artifacts.append(str(arch_file))
             logger.info("Generated Architecture document")
 
@@ -92,9 +95,7 @@ class PlanningDraftStage(BaseStage):
             # 4. Acceptance Criteria
             acceptance_content = self._generate_acceptance_criteria(prd_content)
             acceptance_file = self.save_artifact(
-                "ACCEPTANCE_CRITERIA.md",
-                acceptance_content,
-                title="Acceptance Criteria"
+                "ACCEPTANCE_CRITERIA.md", acceptance_content, title="Acceptance Criteria"
             )
             artifacts.append(str(acceptance_file))
             logger.info("Generated Acceptance Criteria")
@@ -102,7 +103,7 @@ class PlanningDraftStage(BaseStage):
             # Commit
             self.commit_changes(
                 f"Draft planning documents (iteration {self.state.iteration.planning})",
-                f"Created PRD, Architecture, Tasks, and Acceptance Criteria",
+                "Created PRD, Architecture, Tasks, and Acceptance Criteria",
             )
 
             return StageResult(
@@ -392,7 +393,7 @@ class PlanningReviewStage(BaseStage):
     def __init__(
         self,
         state: State,
-        base_path: Optional[Path] = None,
+        base_path: Path | None = None,
         dry_run: bool = False,
     ):
         super().__init__(state, base_path, dry_run)
@@ -624,7 +625,7 @@ Be thorough but practical. Focus on catching real issues that could cause proble
     def _extract_score(self, review: str) -> float:
         """Extract score from review text."""
         # Try to find JSON summary
-        json_match = re.search(r'```json\s*({.*?})\s*```', review, re.DOTALL)
+        json_match = re.search(r"```json\s*({.*?})\s*```", review, re.DOTALL)
         if json_match:
             try:
                 data = json.loads(json_match.group(1))
@@ -633,23 +634,23 @@ Be thorough but practical. Focus on catching real issues that could cause proble
                 pass
 
         # Try to find "OVERALL SCORE: X/10" pattern
-        score_match = re.search(r'OVERALL SCORE:\s*(\d+(?:\.\d+)?)\s*/\s*10', review, re.IGNORECASE)
+        score_match = re.search(r"OVERALL SCORE:\s*(\d+(?:\.\d+)?)\s*/\s*10", review, re.IGNORECASE)
         if score_match:
             return float(score_match.group(1))
 
         # Try to find just "X/10" pattern
-        score_match = re.search(r'(\d+(?:\.\d+)?)\s*/\s*10', review)
+        score_match = re.search(r"(\d+(?:\.\d+)?)\s*/\s*10", review)
         if score_match:
             return float(score_match.group(1))
 
         return 5.0  # Default middle score if not found
 
-    def _analyze_reviews(self, reviews: list) -> Dict[str, Any]:
+    def _analyze_reviews(self, reviews: list) -> dict[str, Any]:
         """Analyze all reviews and determine overall result."""
         scores = []
         verdicts = []
 
-        for provider, review in reviews:
+        for _provider, review in reviews:
             score = self._extract_score(review)
             scores.append(score)
 
@@ -663,7 +664,7 @@ Be thorough but practical. Focus on catching real issues that could cause proble
         avg_score = sum(scores) / len(scores) if scores else 0
         passed = avg_score >= self.state.quality.required_score
 
-        content = f"""# Review Analysis
+        content = """# Review Analysis
 
 ## Summary
 

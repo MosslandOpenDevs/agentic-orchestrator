@@ -9,6 +9,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Optional
+
 import yaml
 
 
@@ -30,7 +31,9 @@ class Stage(Enum):
         try:
             return cls(value.upper())
         except ValueError:
-            raise ValueError(f"Invalid stage: {value}. Valid stages: {[s.value for s in cls]}")
+            raise ValueError(
+                f"Invalid stage: {value}. Valid stages: {[s.value for s in cls]}"
+            ) from None
 
     def next_stage(self) -> Optional["Stage"]:
         """Get the next stage in the normal flow."""
@@ -71,8 +74,8 @@ class Limits:
 class Quality:
     """Quality metrics and thresholds."""
 
-    review_score: Optional[float] = None
-    tests_passed: Optional[bool] = None
+    review_score: float | None = None
+    tests_passed: bool | None = None
     required_score: float = 7.0
     review_approvals: int = 0
 
@@ -81,18 +84,18 @@ class Quality:
 class Timestamps:
     """Timestamp tracking for the state."""
 
-    created: Optional[datetime] = None
-    last_updated: Optional[datetime] = None
-    stage_started: Optional[datetime] = None
+    created: datetime | None = None
+    last_updated: datetime | None = None
+    stage_started: datetime | None = None
 
 
 @dataclass
 class ErrorInfo:
     """Error tracking information."""
 
-    last_error: Optional[str] = None
+    last_error: str | None = None
     error_count: int = 0
-    paused_reason: Optional[str] = None
+    paused_reason: str | None = None
 
 
 @dataclass
@@ -104,7 +107,7 @@ class State:
     """
 
     stage: Stage = Stage.IDEATION
-    project_id: Optional[str] = None
+    project_id: str | None = None
     iteration: Iteration = field(default_factory=Iteration)
     limits: Limits = field(default_factory=Limits)
     quality: Quality = field(default_factory=Quality)
@@ -121,7 +124,7 @@ class State:
         return cls._state_dir / cls._state_file
 
     @classmethod
-    def load(cls, base_path: Optional[Path] = None) -> "State":
+    def load(cls, base_path: Path | None = None) -> "State":
         """
         Load state from YAML file.
 
@@ -143,12 +146,12 @@ class State:
             state.timestamps.created = datetime.now()
             return state
 
-        with open(state_path, "r") as f:
+        with open(state_path) as f:
             data = yaml.safe_load(f) or {}
 
         return cls._from_dict(data)
 
-    def save(self, base_path: Optional[Path] = None) -> Path:
+    def save(self, base_path: Path | None = None) -> Path:
         """
         Save state to YAML file.
 
@@ -265,7 +268,7 @@ class State:
         }
 
     @staticmethod
-    def _parse_datetime(value) -> Optional[datetime]:
+    def _parse_datetime(value) -> datetime | None:
         """Parse datetime from various formats."""
         if value is None:
             return None
@@ -279,7 +282,7 @@ class State:
         return None
 
     @staticmethod
-    def _format_datetime(dt: Optional[datetime]) -> Optional[str]:
+    def _format_datetime(dt: datetime | None) -> str | None:
         """Format datetime to ISO string."""
         if dt is None:
             return None

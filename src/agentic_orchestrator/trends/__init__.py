@@ -8,9 +8,9 @@ This module provides functionality to:
 - Store trend analysis history for reference
 """
 
-from .models import FeedItem, Trend, TrendAnalysis, TrendIdeaLink
-from .feeds import FeedFetcher
 from .analyzer import TrendAnalyzer
+from .feeds import FeedFetcher
+from .models import FeedItem, Trend, TrendAnalysis, TrendIdeaLink
 from .storage import TrendStorage
 
 __all__ = [

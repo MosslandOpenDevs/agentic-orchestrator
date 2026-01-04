@@ -1,14 +1,14 @@
 """Tests for the backlog workflow module."""
-import json
+
 import os
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agentic_orchestrator.github_client import GitHubClient, GitHubIssue, Labels, GitHubAPIError
+from agentic_orchestrator.github_client import GitHubAPIError, GitHubClient, GitHubIssue, Labels
 
 
 class TestLabels:
@@ -60,7 +60,7 @@ class TestGitHubIssue:
             state="open",
             html_url="https://github.com/test/repo/issues/1",
             created_at="2024-01-01T00:00:00Z",
-            updated_at="2024-01-01T00:00:00Z"
+            updated_at="2024-01-01T00:00:00Z",
         )
         assert issue.number == 1
         assert issue.title == "Test Issue"
@@ -76,7 +76,7 @@ class TestGitHubIssue:
             state="open",
             html_url="",
             created_at="2024-01-01T00:00:00Z",
-            updated_at="2024-01-01T00:00:00Z"
+            updated_at="2024-01-01T00:00:00Z",
         )
         assert issue.has_label("type:idea") is True
         assert issue.has_label("type:plan") is False
@@ -91,7 +91,7 @@ class TestGitHubIssue:
             state="open",
             html_url="",
             created_at="2024-01-01T00:00:00Z",
-            updated_at="2024-01-01T00:00:00Z"
+            updated_at="2024-01-01T00:00:00Z",
         )
         assert issue.has_any_label(["type:idea", "type:plan"]) is True
         assert issue.has_any_label(["type:plan", "status:done"]) is False
@@ -108,7 +108,7 @@ class TestGitHubIssue:
             "created_at": "2024-01-01T00:00:00Z",
             "updated_at": "2024-01-02T00:00:00Z",
             "user": {"login": "testuser"},
-            "assignees": []
+            "assignees": [],
         }
         issue = GitHubIssue.from_api_response(api_response)
         assert issue.number == 42
@@ -122,11 +122,14 @@ class TestGitHubClient:
 
     def test_init_with_env_vars(self):
         """Test initialization with environment variables."""
-        with patch.dict(os.environ, {
-            "GITHUB_TOKEN": "test-token",
-            "GITHUB_OWNER": "test-owner",
-            "GITHUB_REPO": "test-repo"
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "GITHUB_TOKEN": "test-token",
+                "GITHUB_OWNER": "test-owner",
+                "GITHUB_REPO": "test-repo",
+            },
+        ):
             client = GitHubClient()
             assert client.token == "test-token"
             assert client.owner == "test-owner"
@@ -135,11 +138,7 @@ class TestGitHubClient:
 
     def test_init_with_params(self):
         """Test initialization with parameters."""
-        client = GitHubClient(
-            token="param-token",
-            owner="param-owner",
-            repo="param-repo"
-        )
+        client = GitHubClient(token="param-token", owner="param-owner", repo="param-repo")
         assert client.token == "param-token"
         assert client.owner == "param-owner"
         assert client.repo == "param-repo"
@@ -156,11 +155,7 @@ class TestGitHubClient:
 
     def test_repo_path(self):
         """Test repo_path property."""
-        client = GitHubClient(
-            token="test",
-            owner="testowner",
-            repo="testrepo"
-        )
+        client = GitHubClient(token="test", owner="testowner", repo="testrepo")
         assert client.repo_path == "testowner/testrepo"
         client.close()
 
@@ -173,12 +168,15 @@ class TestGitHubClient:
 class TestBacklogOrchestrator:
     """Test BacklogOrchestrator class."""
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-        "DRY_RUN": "true"
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+            "DRY_RUN": "true",
+        },
+    )
     def test_init(self):
         """Test BacklogOrchestrator initialization."""
         from agentic_orchestrator.backlog import BacklogOrchestrator
@@ -187,12 +185,15 @@ class TestBacklogOrchestrator:
         assert orchestrator.github is not None
         assert orchestrator.dry_run is True
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-        "DRY_RUN": "true"
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+            "DRY_RUN": "true",
+        },
+    )
     def test_get_status(self):
         """Test getting backlog status."""
         from agentic_orchestrator.backlog import BacklogOrchestrator
@@ -202,7 +203,9 @@ class TestBacklogOrchestrator:
         with patch.object(orchestrator.github, "find_backlog_ideas", return_value=[]):
             with patch.object(orchestrator.github, "find_backlog_plans", return_value=[]):
                 with patch.object(orchestrator.github, "find_ideas_to_promote", return_value=[]):
-                    with patch.object(orchestrator.github, "find_plans_to_promote", return_value=[]):
+                    with patch.object(
+                        orchestrator.github, "find_plans_to_promote", return_value=[]
+                    ):
                         status = orchestrator.get_status()
 
                         assert "backlog" in status
@@ -215,12 +218,15 @@ class TestBacklogOrchestrator:
 class TestIdeaGenerator:
     """Test IdeaGenerator class."""
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-        "DRY_RUN": "true"
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+            "DRY_RUN": "true",
+        },
+    )
     def test_init(self):
         """Test IdeaGenerator initialization."""
         from agentic_orchestrator.backlog import IdeaGenerator
@@ -235,12 +241,15 @@ class TestIdeaGenerator:
 class TestPlanGenerator:
     """Test PlanGenerator class."""
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-        "DRY_RUN": "true"
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+            "DRY_RUN": "true",
+        },
+    )
     def test_init(self):
         """Test PlanGenerator initialization."""
         from agentic_orchestrator.backlog import PlanGenerator
@@ -255,12 +264,15 @@ class TestPlanGenerator:
 class TestDevScaffolder:
     """Test DevScaffolder class."""
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-        "DRY_RUN": "true"
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+            "DRY_RUN": "true",
+        },
+    )
     def test_init(self):
         """Test DevScaffolder initialization."""
         from agentic_orchestrator.backlog import DevScaffolder
@@ -280,11 +292,14 @@ class TestDevScaffolder:
 class TestPlanGeneratorIdempotency:
     """Test PlanGenerator idempotency protection."""
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+        },
+    )
     def test_skip_already_processed_idea(self):
         """Test that already processed ideas are skipped."""
         from agentic_orchestrator.backlog import PlanGenerator
@@ -301,18 +316,21 @@ class TestPlanGeneratorIdempotency:
             state="open",
             html_url="",
             created_at="2024-01-01T00:00:00Z",
-            updated_at="2024-01-01T00:00:00Z"
+            updated_at="2024-01-01T00:00:00Z",
         )
 
         result = generator.generate_plan_from_idea(idea)
         assert result is None
         github.close()
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+        },
+    )
     def test_skip_already_planned_idea(self):
         """Test that already planned ideas are skipped."""
         from agentic_orchestrator.backlog import PlanGenerator
@@ -329,18 +347,21 @@ class TestPlanGeneratorIdempotency:
             state="open",
             html_url="",
             created_at="2024-01-01T00:00:00Z",
-            updated_at="2024-01-01T00:00:00Z"
+            updated_at="2024-01-01T00:00:00Z",
         )
 
         result = generator.generate_plan_from_idea(idea)
         assert result is None
         github.close()
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+        },
+    )
     def test_skip_idea_with_existing_plan(self):
         """Test that ideas with existing plans are skipped."""
         from agentic_orchestrator.backlog import PlanGenerator
@@ -357,7 +378,7 @@ class TestPlanGeneratorIdempotency:
             state="open",
             html_url="",
             created_at="2024-01-01T00:00:00Z",
-            updated_at="2024-01-01T00:00:00Z"
+            updated_at="2024-01-01T00:00:00Z",
         )
 
         # Mock existing plan search
@@ -369,7 +390,7 @@ class TestPlanGeneratorIdempotency:
             state="open",
             html_url="",
             created_at="2024-01-01T00:00:00Z",
-            updated_at="2024-01-01T00:00:00Z"
+            updated_at="2024-01-01T00:00:00Z",
         )
 
         with patch.object(generator, "_find_existing_plan_for_idea", return_value=[existing_plan]):
@@ -382,11 +403,14 @@ class TestPlanGeneratorIdempotency:
 class TestDevScaffolderIdempotency:
     """Test DevScaffolder idempotency protection."""
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+        },
+    )
     def test_skip_already_processed_plan(self):
         """Test that already processed plans are skipped."""
         from agentic_orchestrator.backlog import DevScaffolder
@@ -403,18 +427,21 @@ class TestDevScaffolderIdempotency:
             state="open",
             html_url="",
             created_at="2024-01-01T00:00:00Z",
-            updated_at="2024-01-01T00:00:00Z"
+            updated_at="2024-01-01T00:00:00Z",
         )
 
         result = scaffolder.scaffold_from_plan(plan)
         assert result is None
         github.close()
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+        },
+    )
     def test_skip_plan_already_in_dev(self):
         """Test that plans already in dev are skipped."""
         from agentic_orchestrator.backlog import DevScaffolder
@@ -431,18 +458,21 @@ class TestDevScaffolderIdempotency:
             state="open",
             html_url="",
             created_at="2024-01-01T00:00:00Z",
-            updated_at="2024-01-01T00:00:00Z"
+            updated_at="2024-01-01T00:00:00Z",
         )
 
         result = scaffolder.scaffold_from_plan(plan)
         assert result is None
         github.close()
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+        },
+    )
     def test_skip_plan_with_existing_project(self):
         """Test that plans with existing projects are skipped."""
         from agentic_orchestrator.backlog import DevScaffolder
@@ -462,11 +492,13 @@ class TestDevScaffolderIdempotency:
                 state="open",
                 html_url="",
                 created_at="2024-01-01T00:00:00Z",
-                updated_at="2024-01-01T00:00:00Z"
+                updated_at="2024-01-01T00:00:00Z",
             )
 
             # Mock existing project found
-            with patch.object(scaffolder, "_find_existing_project_for_plan", return_value="existing-project-123"):
+            with patch.object(
+                scaffolder, "_find_existing_project_for_plan", return_value="existing-project-123"
+            ):
                 result = scaffolder.scaffold_from_plan(plan)
                 assert result is None
 
@@ -476,12 +508,15 @@ class TestDevScaffolderIdempotency:
 class TestBacklogOrchestratorLockTimeout:
     """Test BacklogOrchestrator lock timeout mechanism."""
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-        "DRY_RUN": "true"
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+            "DRY_RUN": "true",
+        },
+    )
     def test_cleanup_stale_lock_by_timeout(self):
         """Test that stale locks are cleaned up after timeout."""
         from agentic_orchestrator.backlog import BacklogOrchestrator
@@ -510,16 +545,20 @@ class TestBacklogOrchestratorLockTimeout:
             # Lock should be removed
             assert not lock_path.exists()
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-        "DRY_RUN": "true"
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+            "DRY_RUN": "true",
+        },
+    )
     def test_cleanup_dead_process_lock(self):
         """Test that locks from dead processes are cleaned up."""
-        from agentic_orchestrator.backlog import BacklogOrchestrator
         from datetime import datetime
+
+        from agentic_orchestrator.backlog import BacklogOrchestrator
 
         with tempfile.TemporaryDirectory() as tmpdir:
             base_path = Path(tmpdir)
@@ -539,17 +578,21 @@ class TestBacklogOrchestratorLockTimeout:
             # Lock should be removed
             assert not lock_path.exists()
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-        "DRY_RUN": "true"
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+            "DRY_RUN": "true",
+        },
+    )
     def test_keep_valid_lock(self):
         """Test that valid locks are not removed."""
-        from agentic_orchestrator.backlog import BacklogOrchestrator
-        from datetime import datetime
         import os
+        from datetime import datetime
+
+        from agentic_orchestrator.backlog import BacklogOrchestrator
 
         with tempfile.TemporaryDirectory() as tmpdir:
             base_path = Path(tmpdir)
@@ -567,12 +610,15 @@ class TestBacklogOrchestratorLockTimeout:
             # Lock should still exist
             assert lock_path.exists()
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-        "DRY_RUN": "true"
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+            "DRY_RUN": "true",
+        },
+    )
     def test_cleanup_malformed_lock(self):
         """Test that malformed lock files are cleaned up."""
         from agentic_orchestrator.backlog import BacklogOrchestrator
@@ -593,16 +639,20 @@ class TestBacklogOrchestratorLockTimeout:
             # Lock should be removed
             assert not lock_path.exists()
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-        "DRY_RUN": "true"
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+            "DRY_RUN": "true",
+        },
+    )
     def test_is_process_alive_current_process(self):
         """Test _is_process_alive returns True for current process."""
-        from agentic_orchestrator.backlog import BacklogOrchestrator
         import os
+
+        from agentic_orchestrator.backlog import BacklogOrchestrator
 
         with tempfile.TemporaryDirectory() as tmpdir:
             base_path = Path(tmpdir)
@@ -611,12 +661,15 @@ class TestBacklogOrchestratorLockTimeout:
             # Current process should be alive
             assert orchestrator._is_process_alive(os.getpid()) is True
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-        "DRY_RUN": "true"
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+            "DRY_RUN": "true",
+        },
+    )
     def test_is_process_alive_dead_process(self):
         """Test _is_process_alive returns False for non-existent PID."""
         from agentic_orchestrator.backlog import BacklogOrchestrator
@@ -632,11 +685,14 @@ class TestBacklogOrchestratorLockTimeout:
 class TestPlanGeneratorRollback:
     """Test PlanGenerator rollback on failure."""
 
-    @patch.dict(os.environ, {
-        "GITHUB_TOKEN": "test-token",
-        "GITHUB_OWNER": "test-owner",
-        "GITHUB_REPO": "test-repo",
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "GITHUB_TOKEN": "test-token",
+            "GITHUB_OWNER": "test-owner",
+            "GITHUB_REPO": "test-repo",
+        },
+    )
     def test_rollback_on_label_update_failure(self):
         """Test that created plan is closed when label update fails."""
         from agentic_orchestrator.backlog import PlanGenerator
@@ -652,7 +708,7 @@ class TestPlanGeneratorRollback:
             state="open",
             html_url="",
             created_at="2024-01-01T00:00:00Z",
-            updated_at="2024-01-01T00:00:00Z"
+            updated_at="2024-01-01T00:00:00Z",
         )
         github.create_issue.return_value = created_plan
         github.mark_idea_as_planned.side_effect = Exception("Label update failed")
@@ -669,7 +725,7 @@ class TestPlanGeneratorRollback:
             state="open",
             html_url="",
             created_at="2024-01-01T00:00:00Z",
-            updated_at="2024-01-01T00:00:00Z"
+            updated_at="2024-01-01T00:00:00Z",
         )
 
         # Mock claude

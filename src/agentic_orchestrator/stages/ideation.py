@@ -4,15 +4,13 @@ Ideation stage handler.
 Generates micro Web3 service ideas for the Mossland ecosystem.
 """
 
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
-from .base import BaseStage, StageResult, StageRegistry
-from ..state import State, Stage
 from ..providers.claude import create_claude_provider
-from ..utils.logging import get_logger
+from ..state import Stage, State
 from ..utils.files import generate_project_id
+from ..utils.logging import get_logger
+from .base import BaseStage, StageRegistry, StageResult
 
 logger = get_logger(__name__)
 
@@ -34,7 +32,7 @@ class IdeationStage(BaseStage):
     def __init__(
         self,
         state: State,
-        base_path: Optional[Path] = None,
+        base_path: Path | None = None,
         dry_run: bool = False,
     ):
         super().__init__(state, base_path, dry_run)
