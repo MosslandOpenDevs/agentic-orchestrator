@@ -12,5 +12,19 @@
     "trend_category": "crypto",
     "analysis_date": "2026-01-04T04:50:22.102346",
     "created_at": "2026-01-04T04:50:22.102383"
+  },
+  {
+    "idea_issue_number": 6,
+    "trend_topic": "GPT-5.2 and Advanced Reasoning",
+    "trend_category": "general",
+    "analysis_date": "2026-01-04T05:08:44.778893",
+    "created_at": "2026-01-04T05:08:44.778919"
+  },
+  {
+    "idea_issue_number": 7,
+    "trend_topic": "Bitcoin ETF Institutional Adoption",
+    "trend_category": "crypto",
+    "analysis_date": "2026-01-04T05:09:18.368492",
+    "created_at": "2026-01-04T05:09:18.368509"
   }
 ]
