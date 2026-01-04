@@ -225,6 +225,46 @@
 
 ---
 
+## Phase 7: 대시보드 웹사이트 (v0.5.0) ✅
+
+### 완료 항목
+
+#### Next.js 프로젝트 설정 (`website/`)
+- [x] Next.js 14 App Router + TypeScript
+- [x] Tailwind CSS + PostCSS 설정
+- [x] Framer Motion 애니메이션
+- [x] pnpm workspace 지원
+- [x] ESLint 설정
+
+#### 페이지 구현
+- [x] `/` - 대시보드 (파이프라인, 활동 피드, 통계)
+- [x] `/trends` - 트렌드 분석 결과
+- [x] `/backlog` - 아이디어/계획 백로그
+- [x] `/system` - 시스템 아키텍처
+
+#### 컴포넌트 구현
+- [x] `Navigation.tsx` - 상단 네비게이션 + LIVE 표시 + 언어 전환
+- [x] `Footer.tsx` - Mossland 브랜딩 + 소셜 링크
+- [x] `Pipeline.tsx` - Ideas → Plans → Dev 파이프라인 시각화
+- [x] `ActivityFeed.tsx` - 터미널 스타일 활동 로그
+- [x] `Stats.tsx` - 애니메이션 통계 카드
+- [x] `TrendCard.tsx` - 확장 가능 트렌드 카드 + GitHub 링크
+- [x] `IdeaCard.tsx` - GitHub 이슈 연결 아이디어 카드
+- [x] `DebateVisualization.tsx` - 4역할 × 3AI 토론 시각화
+- [x] `SystemStatus.tsx` - 시스템 상태 표시
+
+#### 다국어 지원
+- [x] i18n Context Provider (`src/lib/i18n.tsx`)
+- [x] 영어/한국어 전환 토글
+- [x] 기본 언어: 영어
+
+#### 빌드 및 배포
+- [x] Next.js 16.1.1 빌드 성공
+- [x] 모든 4개 페이지 정적 렌더링
+- [x] https://ao.moss.land 도메인 준비
+
+---
+
 ## 커밋 히스토리
 
 ```
@@ -277,7 +317,7 @@ agentic-orchestrator/
 │   │   ├── feeds.py            # RSS 피드 파싱
 │   │   ├── analyzer.py         # 트렌드 분석
 │   │   └── storage.py          # 저장소
-│   ├── debate/                 # 멀티 에이전트 토론 모듈 ⭐ NEW
+│   ├── debate/                 # 멀티 에이전트 토론 모듈
 │   │   ├── __init__.py
 │   │   ├── roles.py            # 역할 정의 + 이중 언어 프롬프트
 │   │   ├── moderator.py        # 라운드 순환 로직
@@ -290,6 +330,17 @@ agentic-orchestrator/
 │   ├── test_providers.py
 │   ├── test_state.py
 │   └── test_utils.py
+├── website/                    # 대시보드 웹사이트 ⭐ NEW
+│   ├── src/
+│   │   ├── app/                # Next.js App Router 페이지
+│   │   │   ├── page.tsx        # 대시보드
+│   │   │   ├── trends/page.tsx # 트렌드
+│   │   │   ├── backlog/page.tsx # 백로그
+│   │   │   └── system/page.tsx # 시스템
+│   │   ├── components/         # React 컴포넌트
+│   │   └── data/mock.ts        # Mock 데이터
+│   ├── package.json
+│   └── tsconfig.json
 ├── .env.example
 ├── CHANGELOG.ko.md             # 한국어 변경 이력
 ├── CHANGELOG.md
@@ -297,8 +348,8 @@ agentic-orchestrator/
 ├── PROGRESS.md                 # 이 파일
 ├── README.ko.md                # 한국어 README
 ├── README.md
-├── config.yaml                 # trends 섹션 추가 ⭐
-└── pyproject.toml              # feedparser 의존성 ⭐
+├── config.yaml                 # trends 섹션 추가
+└── pyproject.toml              # feedparser 의존성
 ```
 
 ---
@@ -306,14 +357,15 @@ agentic-orchestrator/
 ## 다음 단계 (예정)
 
 ### 단기
+- [ ] 대시보드 웹사이트 배포 (https://ao.moss.land)
+- [ ] 실제 데이터 연동 (Mock → GitHub API)
 - [ ] 원격 저장소 푸시 (인증 설정 필요)
 - [ ] 실제 환경에서 `ao backlog run` 테스트
-- [ ] Gemini SDK 마이그레이션 (`google.generativeai` → `google.genai`)
 
 ### 중기
 - [ ] 스마트 컨트랙트 개발 지원 강화
 - [ ] 멀티 프로젝트 오케스트레이션
-- [ ] 웹 대시보드
+- [ ] Gemini SDK 마이그레이션 (`google.generativeai` → `google.genai`)
 
 ### 장기
 - [ ] Slack/Discord 알림
@@ -364,4 +416,4 @@ ao backlog run
 
 ---
 
-*마지막 업데이트: 2026-01-04 (v0.4.0)*
+*마지막 업데이트: 2026-01-05 (v0.5.0)*

@@ -12,6 +12,39 @@
 - **트렌드 기반 아이디어**: RSS 피드를 통해 현재 뉴스 트렌드에서 아이디어 생성
 - **자율 생성**: 오케스트레이터가 지속적으로 아이디어를 생성하고 프로모션을 처리
 - **자동 진행 없음**: 단계가 자동으로 진행되지 않음 - 무엇을 만들지 사람이 결정
+- **대시보드 웹사이트**: https://ao.moss.land 에서 실시간 모니터링
+
+## 대시보드
+
+오케스트레이터를 실시간으로 모니터링하는 Next.js 기반 대시보드입니다.
+
+**URL**: https://ao.moss.land
+
+### 페이지
+
+| 페이지 | 설명 |
+|--------|------|
+| `/` | 파이프라인, 활동 피드, 통계가 있는 대시보드 |
+| `/trends` | RSS 피드에서 수집한 트렌드 분석 결과 |
+| `/backlog` | GitHub 링크가 있는 아이디어 및 계획 백로그 |
+| `/system` | 시스템 아키텍처 및 멀티 에이전트 토론 시각화 |
+
+### 로컬 실행
+
+```bash
+cd website
+pnpm install
+pnpm dev
+```
+
+http://localhost:3000 에서 대시보드를 확인할 수 있습니다.
+
+### 빌드
+
+```bash
+cd website
+pnpm build
+```
 
 ## 작동 방식
 
@@ -339,7 +372,13 @@ agentic-orchestrator/
 │       ├── trends/          # 트렌드 분석 모듈
 │       ├── debate/          # 멀티 에이전트 토론 시스템
 │       └── utils/           # 유틸리티
-└── tests/
+├── tests/
+└── website/                 # 대시보드 웹사이트
+    ├── src/
+    │   ├── app/             # Next.js App Router 페이지
+    │   ├── components/      # React 컴포넌트
+    │   └── data/            # Mock 데이터
+    └── public/              # 정적 파일
 ```
 
 ## 아이디어 생성

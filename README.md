@@ -10,6 +10,39 @@ An autonomous orchestration system for discovering, planning, and implementing m
 - **Trend-Based Ideas**: Generates ideas from current news trends via RSS feeds
 - **Autonomous Generation**: Orchestrator continuously generates ideas and processes promotions
 - **No Auto-Progression**: Stages don't advance automatically - humans decide what to build
+- **Dashboard Website**: Real-time monitoring dashboard at https://ao.moss.land
+
+## Dashboard
+
+A Next.js-based dashboard for monitoring the orchestrator in real-time.
+
+**URL**: https://ao.moss.land
+
+### Pages
+
+| Page | Description |
+|------|-------------|
+| `/` | Dashboard with pipeline, activity feed, and statistics |
+| `/trends` | Trend analysis results from RSS feeds |
+| `/backlog` | Ideas and plans backlog with GitHub links |
+| `/system` | System architecture and multi-agent debate visualization |
+
+### Running Locally
+
+```bash
+cd website
+pnpm install
+pnpm dev
+```
+
+Open http://localhost:3000 to view the dashboard.
+
+### Building
+
+```bash
+cd website
+pnpm build
+```
 
 ## How It Works
 
@@ -337,7 +370,13 @@ agentic-orchestrator/
 │       ├── trends/          # Trend analysis module
 │       ├── debate/          # Multi-agent debate system
 │       └── utils/           # Utilities
-└── tests/
+├── tests/
+└── website/                 # Dashboard website
+    ├── src/
+    │   ├── app/             # Next.js App Router pages
+    │   ├── components/      # React components
+    │   └── data/            # Mock data
+    └── public/              # Static assets
 ```
 
 ## Idea Generation
