@@ -7,6 +7,69 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-01-04
+
+### Added
+
+#### Trend-Based Idea Generation
+- **RSS Feed Integration**: Fetches articles from 17 RSS feeds across 5 categories (AI, Crypto, Finance, Security, Dev)
+- **Trend Analysis**: Uses Claude to identify trending topics from news articles
+- **Multi-Period Analysis**: Analyzes trends over 24 hours, 1 week, and 1 month periods
+- **Trend-Based Ideas**: Generates Web3 micro-service ideas based on current trends
+- **Trend Storage**: Stores trend analysis results as Markdown files with YAML frontmatter
+
+#### New Trends Module
+- `FeedFetcher` - RSS/Atom feed parsing with feedparser
+- `TrendAnalyzer` - LLM-based trend extraction using Claude
+- `TrendStorage` - Markdown file storage in `data/trends/YYYY/MM/`
+- `TrendBasedIdeaGenerator` - Generates ideas from trending topics
+
+#### New Labels
+- `source:trend` - Tags ideas generated from trend analysis
+
+#### New CLI Commands
+- `ao backlog analyze-trends` - Fetch and analyze RSS feeds
+- `ao backlog generate-trends` - Generate trend-based ideas
+- `ao backlog trends-status` - Show trend analysis history
+
+#### Updated CLI
+- `ao backlog run` now supports `--trend-ideas` and `--analyze-trends` options
+- `ao backlog status` shows trend-based idea count
+
+#### GitHub Actions
+- Schedule changed to 8 AM KST (23:00 UTC) daily
+- New `run-with-trends` command (default daily run)
+- Added `generate-trends`, `analyze-trends`, `trends-status` commands
+
+### Changed
+
+- Default daily run: 1 traditional idea + 2 trend-based ideas with trend analysis
+- Trend data stored in `data/trends/` directory (90-day retention)
+
+### Configuration
+
+New `trends` section in `config.yaml`:
+```yaml
+trends:
+  ideas:
+    traditional_count: 1
+    trend_based_count: 2
+  periods: [24h, 1w, 1m]
+  storage:
+    directory: data/trends
+    retention_days: 90
+  feeds:
+    ai: [OpenAI News, Google Blog, arXiv AI, TechCrunch, Hacker News]
+    crypto: [CoinDesk, Cointelegraph, Decrypt, The Defiant, CryptoSlate]
+    finance: [CNBC Finance]
+    security: [The Hacker News, Krebs on Security]
+    dev: [The Verge, Ars Technica, Stack Overflow Blog]
+```
+
+### Dependencies
+
+- Added `feedparser>=6.0.0` for RSS/Atom parsing
+
 ## [0.2.1] - 2025-01-04
 
 ### Added

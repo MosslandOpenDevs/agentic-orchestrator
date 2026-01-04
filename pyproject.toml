@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentic-orchestrator"
-version = "0.2.1"
+version = "0.3.0"
 description = "Autonomous orchestration system for Mossland micro Web3 service development"
 readme = "README.md"
 license = {text = "MIT"}
@@ -32,6 +32,7 @@ dependencies = [
     "google-generativeai>=0.3.0",
     "anthropic>=0.18.0",
     "rich>=13.0.0",
+    "feedparser>=6.0.0",
 ]
 
 [project.optional-dependencies]

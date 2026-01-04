@@ -6,6 +6,7 @@ An autonomous orchestration system for discovering, planning, and implementing m
 
 - **Backlog-Based Workflow**: Ideas and plans are stored as GitHub Issues
 - **Human-in-the-Loop**: Humans select which ideas to develop via label promotion
+- **Trend-Based Ideas**: Generates ideas from current news trends via RSS feeds
 - **Autonomous Generation**: Orchestrator continuously generates ideas and processes promotions
 - **No Auto-Progression**: Stages don't advance automatically - humans decide what to build
 
@@ -112,14 +113,26 @@ The orchestrator will create a project scaffold in `projects/<id>/`.
 # Run full cycle: generate ideas + process promotions
 ao backlog run
 
-# Generate ideas only
+# Run with trend analysis (1 traditional + 2 trend-based ideas)
+ao backlog run --ideas 1 --trend-ideas 2 --analyze-trends
+
+# Generate traditional ideas only
 ao backlog generate --count 2
+
+# Generate trend-based ideas
+ao backlog generate-trends --count 2
+
+# Analyze trends only (no idea generation)
+ao backlog analyze-trends
 
 # Process promotions only (no idea generation)
 ao backlog process
 
 # Check backlog status
 ao backlog status
+
+# Check trend analysis history
+ao backlog trends-status
 
 # Set up labels in repository
 ao backlog setup
@@ -131,8 +144,11 @@ ao backlog setup
 # Dry run (no actual changes)
 ao backlog run --dry-run
 
-# Generate specific number of ideas
+# Generate specific number of traditional ideas
 ao backlog run --ideas 3
+
+# Generate trend-based ideas
+ao backlog run --trend-ideas 2 --analyze-trends
 
 # Skip idea generation
 ao backlog run --no-ideas
@@ -168,6 +184,7 @@ ao backlog run --max-promotions 3
 | `status:backlog` | In backlog | Orchestrator |
 | `status:planned` | Idea was planned | Orchestrator |
 | `status:in-dev` | In development | Orchestrator |
+| `source:trend` | Idea from trend analysis | Orchestrator |
 
 See [docs/labels.md](docs/labels.md) for complete label documentation.
 
@@ -175,30 +192,36 @@ See [docs/labels.md](docs/labels.md) for complete label documentation.
 
 ### GitHub Actions (Recommended)
 
-The included workflow runs the orchestrator on a schedule:
+The included workflow runs the orchestrator daily at 8 AM KST:
 
 ```yaml
-# .github/workflows/orchestrator.yml
+# .github/workflows/backlog.yml
 on:
   schedule:
-    - cron: '0 */6 * * *'  # Every 6 hours
+    - cron: '0 23 * * *'  # Daily at 8 AM KST (23:00 UTC)
 ```
+
+Default daily run generates:
+- 1 traditional Mossland-focused idea
+- 2 trend-based ideas from RSS feeds
 
 ### Cron Job
 
 ```bash
-# Run every 6 hours
-0 */6 * * * cd /path/to/repo && /path/to/venv/bin/ao backlog run >> logs/cron.log 2>&1
+# Run daily at 8 AM KST (23:00 UTC)
+0 23 * * * cd /path/to/repo && /path/to/venv/bin/ao backlog run --ideas 1 --trend-ideas 2 --analyze-trends >> logs/cron.log 2>&1
 ```
 
-### Idea Generation Frequency
+### Trend-Based Idea Generation
 
-Default: **1-2 ideas per run** (configurable)
+The orchestrator fetches articles from 17 RSS feeds across 5 categories:
+- **AI**: OpenAI News, Google Blog, arXiv AI, TechCrunch, Hacker News
+- **Crypto**: CoinDesk, Cointelegraph, Decrypt, The Defiant, CryptoSlate
+- **Finance**: CNBC Finance
+- **Security**: The Hacker News, Krebs on Security
+- **Dev**: The Verge, Ars Technica, Stack Overflow Blog
 
-Recommended schedules:
-- Every 6 hours with 1 idea = ~4 ideas/day
-- Every 12 hours with 2 ideas = ~4 ideas/day
-- Daily with 3 ideas = 3 ideas/day
+Trend analysis results are stored in `data/trends/YYYY/MM/YYYY-MM-DD.md`.
 
 ## Environment Variables
 
@@ -247,6 +270,9 @@ agentic-orchestrator/
 │   ├── ISSUE_TEMPLATE/      # Idea and Plan templates
 │   └── workflows/           # CI and scheduler
 ├── alerts/                  # Error/quota alerts
+├── data/
+│   └── trends/              # Trend analysis storage
+│       └── YYYY/MM/         # Daily analysis files
 ├── docs/
 │   └── labels.md            # Label documentation
 ├── projects/
@@ -263,24 +289,31 @@ agentic-orchestrator/
 │       ├── github_client.py # GitHub API
 │       ├── orchestrator.py  # Legacy orchestrator
 │       ├── providers/       # LLM adapters
+│       ├── trends/          # Trend analysis module
 │       └── utils/           # Utilities
 └── tests/
 ```
 
-## Mossland Focus
+## Idea Generation
 
-Ideas are generated with focus on:
+### Traditional Ideas (Mossland-focused)
 - **Micro Web3 services** - Small, achievable in 1-2 weeks
 - **MOC token utility** - Enhance token value and usage
 - **Ecosystem benefits** - Help Mossland community
 - **Practical scope** - Avoid large platform development
 
+### Trend-Based Ideas
+- **Current trends** - Based on real-time news from RSS feeds
+- **Web3 opportunities** - Identifies blockchain applications for trending topics
+- **Timely relevance** - Capitalizes on hot topics while they're relevant
+- **Cross-industry** - AI, crypto, security, dev trends
+
 Examples:
 - Token analytics dashboards
 - Community governance tools
 - NFT utility extensions
-- Reward distribution systems
-- Content verification tools
+- AI agent integrations (from AI trends)
+- DeFi protocol tools (from crypto trends)
 
 ## Development
 

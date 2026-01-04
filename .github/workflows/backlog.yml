@@ -1,12 +1,12 @@
 name: Backlog Orchestrator
 
 # This workflow runs the backlog orchestrator on a schedule
-# It generates ideas and processes promotions
+# It generates ideas (traditional and trend-based) and processes promotions
 
 on:
-  # Scheduled runs - every 6 hours
+  # Scheduled runs - Daily at 8 AM KST (23:00 UTC previous day)
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 23 * * *'
 
   # Manual trigger for testing
   workflow_dispatch:
@@ -14,18 +14,27 @@ on:
       command:
         description: 'Command to run'
         required: true
-        default: 'run'
+        default: 'run-with-trends'
         type: choice
         options:
           - run
+          - run-with-trends
           - generate
+          - generate-trends
+          - analyze-trends
           - process
           - status
+          - trends-status
           - setup
       idea_count:
-        description: 'Number of ideas to generate'
+        description: 'Number of traditional ideas to generate'
         required: false
         default: '1'
+        type: string
+      trend_idea_count:
+        description: 'Number of trend-based ideas to generate'
+        required: false
+        default: '2'
         type: string
       dry_run:
         description: 'Run in dry-run mode'
@@ -71,15 +80,26 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
         run: |
-          COMMAND="${{ inputs.command || 'run' }}"
+          COMMAND="${{ inputs.command || 'run-with-trends' }}"
           IDEA_COUNT="${{ inputs.idea_count || '1' }}"
+          TREND_IDEA_COUNT="${{ inputs.trend_idea_count || '2' }}"
 
           case "$COMMAND" in
             run)
               ao backlog run --ideas $IDEA_COUNT
               ;;
+            run-with-trends)
+              # Default daily run: 1 traditional + 2 trend-based ideas with trend analysis
+              ao backlog run --ideas $IDEA_COUNT --trend-ideas $TREND_IDEA_COUNT --analyze-trends
+              ;;
             generate)
               ao backlog generate --count $IDEA_COUNT
+              ;;
+            generate-trends)
+              ao backlog generate-trends --count $TREND_IDEA_COUNT
+              ;;
+            analyze-trends)
+              ao backlog analyze-trends
               ;;
             process)
               ao backlog process
@@ -87,13 +107,16 @@ jobs:
             status)
               ao backlog status --json
               ;;
+            trends-status)
+              ao backlog trends-status --json
+              ;;
             setup)
               ao backlog setup
               ;;
           esac
 
       - name: Push changes
-        if: inputs.dry_run != true && inputs.command != 'status'
+        if: inputs.dry_run != true && inputs.command != 'status' && inputs.command != 'trends-status'
         run: |
           git add -A
           if git diff --staged --quiet; then
@@ -111,4 +134,5 @@ jobs:
           path: |
             logs/
             alerts/
+            data/trends/
           retention-days: 7

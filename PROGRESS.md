@@ -142,6 +142,47 @@
 
 ---
 
+## Phase 5: 트렌드 기반 아이디어 생성 (v0.3.0) ✅
+
+### 완료 항목
+
+#### 트렌드 분석 모듈 (`src/agentic_orchestrator/trends/`)
+- [x] `models.py` - FeedItem, Trend, TrendAnalysis, TrendIdeaLink 데이터 클래스
+- [x] `feeds.py` - FeedFetcher: RSS/Atom 피드 파싱 (feedparser 사용)
+- [x] `analyzer.py` - TrendAnalyzer: Claude 기반 트렌드 추출
+- [x] `storage.py` - TrendStorage: Markdown 파일 저장 (YAML frontmatter)
+
+#### 트렌드 기반 아이디어 생성
+- [x] TrendBasedIdeaGenerator 클래스 (`backlog.py`)
+- [x] 트렌드에서 아이디어 생성 프롬프트
+- [x] 아이디어-트렌드 연결 추적
+- [x] `source:trend` 라벨 자동 추가
+
+#### RSS 피드 설정 (17개 피드)
+- [x] AI 카테고리: OpenAI News, Google Blog, arXiv AI, TechCrunch, Hacker News
+- [x] Crypto 카테고리: CoinDesk, Cointelegraph, Decrypt, The Defiant, CryptoSlate
+- [x] Finance 카테고리: CNBC Finance
+- [x] Security 카테고리: The Hacker News, Krebs on Security
+- [x] Dev 카테고리: The Verge, Ars Technica, Stack Overflow Blog
+
+#### CLI 명령어
+- [x] `ao backlog run --trend-ideas N --analyze-trends` - 트렌드 포함 실행
+- [x] `ao backlog analyze-trends` - 트렌드 분석만 실행
+- [x] `ao backlog generate-trends` - 트렌드 기반 아이디어 생성
+- [x] `ao backlog trends-status` - 트렌드 분석 이력 확인
+
+#### GitHub Actions
+- [x] 스케줄 변경: 매일 8 AM KST (23:00 UTC)
+- [x] `run-with-trends` 커맨드 추가 (기본 일일 실행)
+- [x] 새 커맨드 옵션: `generate-trends`, `analyze-trends`, `trends-status`
+
+#### 저장 구조
+- [x] 트렌드 분석: `data/trends/YYYY/MM/YYYY-MM-DD.md`
+- [x] 아이디어 링크: `data/trends/idea_links.json`
+- [x] 90일 보존 정책
+
+---
+
 ## 커밋 히스토리
 
 ```
@@ -169,37 +210,47 @@ agentic-orchestrator/
 │   │   ├── idea.yml
 │   │   └── plan.yml
 │   └── workflows/
-│       ├── backlog.yml         # 백로그 스케줄러
+│       ├── backlog.yml         # 백로그 스케줄러 (8 AM KST) ⭐
 │       ├── ci.yml              # CI 파이프라인
 │       └── orchestrator.yml    # 레거시 오케스트레이터
+├── data/
+│   └── trends/                 # 트렌드 분석 저장소 ⭐
+│       ├── YYYY/MM/YYYY-MM-DD.md
+│       └── idea_links.json
 ├── docs/
 │   └── labels.md               # 라벨 문서
 ├── prompts/                    # 프롬프트 템플릿
 ├── src/agentic_orchestrator/
 │   ├── __init__.py
-│   ├── backlog.py              # 백로그 워크플로우 ⭐
-│   ├── cli.py                  # CLI 명령어
-│   ├── github_client.py        # GitHub API ⭐
+│   ├── backlog.py              # 백로그 워크플로우 + TrendBasedIdeaGenerator ⭐
+│   ├── cli.py                  # CLI 명령어 (트렌드 명령어 추가) ⭐
+│   ├── github_client.py        # GitHub API (source:trend 라벨) ⭐
 │   ├── orchestrator.py         # 레거시 오케스트레이터
 │   ├── state.py                # 상태 관리
 │   ├── handlers/               # 스테이지 핸들러
 │   ├── providers/              # LLM 어댑터
+│   ├── trends/                 # 트렌드 분석 모듈 ⭐ NEW
+│   │   ├── __init__.py
+│   │   ├── models.py           # 데이터 모델
+│   │   ├── feeds.py            # RSS 피드 파싱
+│   │   ├── analyzer.py         # 트렌드 분석
+│   │   └── storage.py          # 저장소
 │   └── utils/                  # 유틸리티
 ├── tests/
-│   ├── test_backlog.py         # 백로그 테스트 ⭐
+│   ├── test_backlog.py         # 백로그 테스트
 │   ├── test_orchestrator.py
 │   ├── test_providers.py
 │   ├── test_state.py
 │   └── test_utils.py
 ├── .env.example
-├── CHANGELOG.ko.md             # 한국어 변경 이력 ⭐
+├── CHANGELOG.ko.md             # 한국어 변경 이력
 ├── CHANGELOG.md
 ├── LICENSE
 ├── PROGRESS.md                 # 이 파일
-├── README.ko.md                # 한국어 README ⭐
+├── README.ko.md                # 한국어 README
 ├── README.md
-├── config.yaml
-└── pyproject.toml
+├── config.yaml                 # trends 섹션 추가 ⭐
+└── pyproject.toml              # feedparser 의존성 ⭐
 ```
 
 ---
@@ -265,4 +316,4 @@ ao backlog run
 
 ---
 
-*마지막 업데이트: 2025-01-04*
+*마지막 업데이트: 2026-01-04*

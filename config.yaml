@@ -109,3 +109,78 @@ logging:
   level: INFO
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
   file: logs/orchestrator.log
+
+# =============================================================================
+# Trend Analysis Configuration
+# =============================================================================
+trends:
+  # Idea generation mix
+  ideas:
+    traditional_count: 1  # Mossland-focused ideas
+    trend_based_count: 2  # Trend-based ideas
+
+  # Time periods to analyze
+  periods:
+    - 24h
+    - 1w
+    - 1m
+
+  # Feed fetching settings
+  fetch:
+    timeout_seconds: 30
+    max_retries: 3
+    user_agent: "Agentic-Orchestrator/1.0"
+
+  # Storage settings
+  storage:
+    directory: data/trends
+    retention_days: 90
+
+  # RSS Feed Sources by Category
+  feeds:
+    # AI / Research / Big Tech
+    ai:
+      - name: "OpenAI News"
+        url: "https://openai.com/news/rss.xml"
+      - name: "Google Blog"
+        url: "https://blog.google/rss/"
+      - name: "arXiv AI"
+        url: "https://rss.arxiv.org/rss/cs.AI"
+      - name: "TechCrunch"
+        url: "https://techcrunch.com/feed/"
+      - name: "Hacker News"
+        url: "https://hnrss.org/frontpage"
+
+    # Crypto / Web3
+    crypto:
+      - name: "CoinDesk"
+        url: "https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml"
+      - name: "Cointelegraph"
+        url: "https://cointelegraph.com/rss"
+      - name: "Decrypt"
+        url: "https://decrypt.co/feed"
+      - name: "The Defiant"
+        url: "https://thedefiant.io/feed/"
+      - name: "CryptoSlate"
+        url: "https://cryptoslate.com/feed/"
+
+    # Finance / Macro
+    finance:
+      - name: "CNBC Finance"
+        url: "https://www.cnbc.com/id/10000664/device/rss/rss.html"
+
+    # Security
+    security:
+      - name: "The Hacker News"
+        url: "https://feeds.feedburner.com/TheHackersNews?format=xml"
+      - name: "Krebs on Security"
+        url: "https://krebsonsecurity.com/feed/"
+
+    # Dev / Tech Trends
+    dev:
+      - name: "The Verge"
+        url: "https://www.theverge.com/rss/index.xml"
+      - name: "Ars Technica"
+        url: "https://feeds.arstechnica.com/arstechnica/index"
+      - name: "Stack Overflow Blog"
+        url: "https://stackoverflow.blog/feed"

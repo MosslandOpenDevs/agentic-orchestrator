@@ -11,9 +11,10 @@ Implements the new workflow where:
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 
 from .github_client import GitHubClient, GitHubIssue, Labels, GitHubRateLimitError
+from .trends import FeedFetcher, TrendAnalyzer, TrendStorage, Trend, TrendAnalysis, TrendIdeaLink
 from .providers.claude import create_claude_provider, ClaudeProvider
 from .providers.openai import create_openai_provider
 from .providers.gemini import create_gemini_provider
@@ -244,6 +245,388 @@ Be specific and practical. Focus on something that can actually be built quickly
         if match:
             return match.group(1).strip()
         return "(Not provided)"
+
+
+class TrendBasedIdeaGenerator:
+    """
+    Generates ideas based on current trends from RSS feeds.
+
+    Fetches feeds, analyzes trends, and creates GitHub Issues
+    with trend-based idea content.
+    """
+
+    def __init__(
+        self,
+        github: GitHubClient,
+        claude: Optional[ClaudeProvider] = None,
+        config: Optional["Config"] = None,
+        dry_run: bool = False,
+    ):
+        self.github = github
+        self._claude = claude
+        self.config = config or load_config()
+        self.dry_run = dry_run
+
+        self._fetcher: Optional[FeedFetcher] = None
+        self._analyzer: Optional[TrendAnalyzer] = None
+        self._storage: Optional[TrendStorage] = None
+
+    @property
+    def claude(self) -> ClaudeProvider:
+        if self._claude is None:
+            self._claude = create_claude_provider(dry_run=self.dry_run)
+        return self._claude
+
+    @property
+    def fetcher(self) -> FeedFetcher:
+        if self._fetcher is None:
+            self._fetcher = FeedFetcher(self.config)
+        return self._fetcher
+
+    @property
+    def analyzer(self) -> TrendAnalyzer:
+        if self._analyzer is None:
+            self._analyzer = TrendAnalyzer(
+                claude=self.claude,
+                config=self.config,
+                dry_run=self.dry_run,
+            )
+        return self._analyzer
+
+    @property
+    def storage(self) -> TrendStorage:
+        if self._storage is None:
+            self._storage = TrendStorage(config=self.config)
+        return self._storage
+
+    def run_daily_analysis(self) -> Dict[str, TrendAnalysis]:
+        """
+        Fetch feeds and analyze trends for all periods.
+
+        Returns:
+            Dictionary mapping period to TrendAnalysis.
+        """
+        logger.info("Starting daily trend analysis")
+
+        # Fetch all feeds
+        items = self.fetcher.fetch_all_feeds()
+        logger.info(f"Fetched {len(items)} items from feeds")
+
+        if not items:
+            logger.warning("No feed items fetched, skipping analysis")
+            return {}
+
+        # Analyze trends for all periods
+        analyses = self.analyzer.analyze_all_periods(items)
+
+        # Store results
+        if not self.dry_run and analyses:
+            file_path = self.storage.save_analysis(analyses)
+            logger.info(f"Saved trend analysis to {file_path}")
+
+        return analyses
+
+    def generate_trend_based_ideas(
+        self,
+        count: int = 2,
+        analyses: Optional[Dict[str, TrendAnalysis]] = None,
+    ) -> List[GitHubIssue]:
+        """
+        Generate ideas based on top trends.
+
+        Args:
+            count: Number of trend-based ideas to generate.
+            analyses: Optional pre-computed trend analyses.
+
+        Returns:
+            List of created GitHubIssue objects.
+        """
+        created = []
+
+        # Get or run analysis
+        if analyses is None:
+            analyses = self.run_daily_analysis()
+
+        if not analyses:
+            logger.warning("No trend analyses available")
+            return created
+
+        # Get top trends across all periods (prefer 24h trends)
+        top_trends = self._get_top_trends(analyses, count)
+
+        if not top_trends:
+            logger.warning("No significant trends found")
+            return created
+
+        for i, trend in enumerate(top_trends):
+            try:
+                logger.info(f"Generating trend-based idea {i + 1}/{count} for: {trend.topic}")
+
+                # Generate idea content
+                idea = self._generate_idea_from_trend(trend)
+
+                if self.dry_run:
+                    logger.info(f"[DRY RUN] Would create trend-based idea: {idea['title']}")
+                    continue
+
+                # Create GitHub Issue with trend label
+                issue = self.github.create_issue(
+                    title=f"[IDEA] {idea['title']}",
+                    body=idea["body"],
+                    labels=[
+                        Labels.TYPE_IDEA,
+                        Labels.STATUS_BACKLOG,
+                        Labels.GENERATED_BY_ORCHESTRATOR,
+                        Labels.SOURCE_TREND,
+                    ],
+                )
+
+                created.append(issue)
+                logger.info(f"Created trend-based idea #{issue.number}: {idea['title']}")
+
+                # Link idea to trend
+                link = TrendIdeaLink(
+                    idea_issue_number=issue.number,
+                    trend_topic=trend.topic,
+                    trend_category=trend.category,
+                    analysis_date=datetime.utcnow(),
+                )
+                self.storage.link_idea_to_trend(link)
+
+            except Exception as e:
+                logger.error(f"Failed to generate trend-based idea {i + 1}: {e}")
+                continue
+
+        return created
+
+    def _get_top_trends(
+        self,
+        analyses: Dict[str, TrendAnalysis],
+        count: int,
+    ) -> List[Trend]:
+        """
+        Get top trends from analyses.
+
+        Prioritizes 24h trends, then supplements with weekly/monthly.
+        """
+        all_trends = []
+
+        # Priority order: 24h > 1w > 1m
+        for period in ["24h", "1w", "1m"]:
+            if period in analyses:
+                all_trends.extend(analyses[period].trends)
+
+        # Sort by score and deduplicate by topic
+        seen_topics = set()
+        unique_trends = []
+        for trend in sorted(all_trends, key=lambda t: t.score, reverse=True):
+            topic_lower = trend.topic.lower()
+            if topic_lower not in seen_topics:
+                seen_topics.add(topic_lower)
+                unique_trends.append(trend)
+                if len(unique_trends) >= count:
+                    break
+
+        return unique_trends
+
+    def _generate_idea_from_trend(self, trend: Trend) -> dict:
+        """Generate idea content based on a trend."""
+        prompt = self._get_trend_idea_prompt(trend)
+
+        response = self.claude.chat(
+            user_message=prompt,
+            system_message=self._get_trend_system_message(),
+        )
+
+        return self._parse_trend_idea_response(response, trend)
+
+    def _get_trend_system_message(self) -> str:
+        return """You are a creative Web3 product strategist who capitalizes on current trends.
+
+You generate SMALL, FOCUSED micro-service ideas that:
+1. Directly leverage or relate to trending topics
+2. Can be built as an MVP in 1-2 weeks
+3. Have clear value proposition tied to the trend
+4. Are technically feasible with Web3 technologies
+5. Could optionally integrate with Mossland ecosystem (MOC token) but not required
+
+Focus on:
+- Timely opportunities from the trend
+- Clear user needs emerging from the trend
+- Practical Web3 implementations
+- Quick time-to-market for trend relevance"""
+
+    def _get_trend_idea_prompt(self, trend: Trend) -> str:
+        headlines = "\n".join(f"- {h}" for h in trend.sample_headlines[:5])
+        keywords = ", ".join(trend.keywords[:8])
+        idea_seeds = "\n".join(f"- {s}" for s in trend.idea_seeds[:3]) if trend.idea_seeds else "None provided"
+
+        return f"""Based on this trending topic, generate ONE innovative micro Web3 service idea.
+
+## Trend: {trend.topic}
+**Category:** {trend.category}
+**Score:** {trend.score}/10
+**Why trending:** {trend.summary}
+**Keywords:** {keywords}
+
+**Sample Headlines:**
+{headlines}
+
+**Web3 Relevance:** {trend.web3_relevance or "To be explored"}
+
+**Potential Ideas (for inspiration):**
+{idea_seeds}
+
+---
+
+Provide a structured response with these exact sections:
+
+## Title
+A short, descriptive name (3-6 words) that reflects the trend
+
+## Trend Connection
+How does this idea capitalize on the current trend? (2-3 sentences)
+
+## Problem
+What specific problem does this solve? (2-3 sentences)
+
+## Target User
+Who will use this? What's their main need? (2-3 sentences)
+
+## MVP Scope
+What's the minimum viable product? List 3-5 core features:
+- Feature 1
+- Feature 2
+- Feature 3
+
+## Technical Approach
+Brief technical overview (2-3 sentences mentioning key Web3 technologies)
+
+## Risks
+Top 2-3 risks and challenges:
+- Risk 1
+- Risk 2
+
+## Success Metrics
+How do we measure success? List 2-3 metrics:
+- Metric 1
+- Metric 2
+
+Be specific, practical, and timely. Focus on something that can be built quickly while the trend is hot."""
+
+    def _parse_trend_idea_response(self, response: str, trend: Trend) -> dict:
+        """Parse Claude's response into structured idea."""
+        # Extract title
+        title_match = re.search(r"##\s*Title\s*\n+(.+?)(?=\n\n|\n##)", response, re.DOTALL)
+        title = title_match.group(1).strip() if title_match else f"Trend-Based: {trend.topic[:50]}"
+
+        # Clean title
+        title = title.replace("#", "").strip()
+        if len(title) > 80:
+            title = title[:77] + "..."
+
+        # Build body with trend context
+        body = f"""## Trend Source
+
+**Topic:** {trend.topic}
+**Category:** {trend.category}
+**Score:** {trend.score}/10
+**Keywords:** {", ".join(trend.keywords[:5])}
+
+---
+
+## Trend Connection
+
+{self._extract_section(response, "Trend Connection", "Problem")}
+
+## Problem
+
+{self._extract_section(response, "Problem", "Target User")}
+
+## Target User
+
+{self._extract_section(response, "Target User", "MVP Scope")}
+
+## MVP Scope
+
+{self._extract_section(response, "MVP Scope", "Technical Approach")}
+
+## Technical Approach
+
+{self._extract_section(response, "Technical Approach", "Risks")}
+
+## Risks
+
+{self._extract_section(response, "Risks", "Success Metrics")}
+
+## Success Metrics
+
+{self._extract_section(response, "Success Metrics", None)}
+
+---
+
+*Generated by Agentic Orchestrator (Trend-Based) on {datetime.now().strftime("%Y-%m-%d %H:%M")} UTC*
+
+**Source Trend:** {trend.topic} ({trend.time_period})
+
+**To promote this idea to planning:** Add the `promote:to-plan` label.
+"""
+
+        return {"title": title, "body": body}
+
+    def _extract_section(
+        self,
+        text: str,
+        section: str,
+        next_section: Optional[str],
+    ) -> str:
+        """Extract content between two section headers."""
+        if next_section:
+            pattern = rf"##\s*{section}\s*\n+(.*?)(?=##\s*{next_section})"
+        else:
+            pattern = rf"##\s*{section}\s*\n+(.*?)$"
+
+        match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        return "(Not provided)"
+
+    def get_trend_status(self, days: int = 7) -> dict:
+        """
+        Get trend analysis status for recent days.
+
+        Args:
+            days: Number of days to look back.
+
+        Returns:
+            Dictionary with trend status information.
+        """
+        recent = self.storage.get_recent_analyses(days=days)
+        links = self.storage.get_all_idea_links()
+
+        return {
+            "analyses_available": len(recent),
+            "total_ideas_from_trends": len(links),
+            "recent_trends": [
+                {
+                    "date": list(analysis.values())[0].date.strftime("%Y-%m-%d")
+                    if analysis else None,
+                    "periods": list(analysis.keys()),
+                    "total_trends": sum(
+                        len(a.trends) for a in analysis.values()
+                    ),
+                }
+                for analysis in recent[:5]
+            ],
+            "idea_links": [
+                {
+                    "issue": link.idea_issue_number,
+                    "trend": link.trend_topic,
+                    "category": link.trend_category,
+                }
+                for link in links[-10:]  # Last 10 links
+            ],
+        }
 
 
 class PlanGenerator:
@@ -768,6 +1151,7 @@ class BacklogOrchestrator:
 
         self._github: Optional[GitHubClient] = None
         self._idea_generator: Optional[IdeaGenerator] = None
+        self._trend_generator: Optional[TrendBasedIdeaGenerator] = None
         self._plan_generator: Optional[PlanGenerator] = None
         self._dev_scaffolder: Optional[DevScaffolder] = None
 
@@ -788,6 +1172,16 @@ class BacklogOrchestrator:
                 dry_run=self.dry_run,
             )
         return self._idea_generator
+
+    @property
+    def trend_generator(self) -> TrendBasedIdeaGenerator:
+        if self._trend_generator is None:
+            self._trend_generator = TrendBasedIdeaGenerator(
+                github=self.github,
+                config=self.config,
+                dry_run=self.dry_run,
+            )
+        return self._trend_generator
 
     @property
     def plan_generator(self) -> PlanGenerator:
@@ -916,6 +1310,8 @@ class BacklogOrchestrator:
         self,
         generate_ideas: bool = True,
         idea_count: int = 1,
+        trend_idea_count: int = 0,
+        run_trend_analysis: bool = False,
         max_promotions: int = 5,
     ) -> dict:
         """
@@ -923,7 +1319,9 @@ class BacklogOrchestrator:
 
         Args:
             generate_ideas: Whether to generate new ideas.
-            idea_count: Number of ideas to generate.
+            idea_count: Number of traditional ideas to generate.
+            trend_idea_count: Number of trend-based ideas to generate.
+            run_trend_analysis: Whether to run trend analysis.
             max_promotions: Maximum promotions to process.
 
         Returns:
@@ -935,10 +1333,28 @@ class BacklogOrchestrator:
         try:
             results = {
                 "ideas_generated": 0,
+                "trend_ideas_generated": 0,
+                "trends_analyzed": False,
                 "plans_generated": 0,
                 "devs_started": 0,
                 "errors": [],
             }
+
+            # 0. Run trend analysis (if enabled)
+            trend_analyses = None
+            if run_trend_analysis or trend_idea_count > 0:
+                try:
+                    logger.info("Running trend analysis...")
+                    trend_analyses = self.trend_generator.run_daily_analysis()
+                    results["trends_analyzed"] = bool(trend_analyses)
+                    if trend_analyses:
+                        total_trends = sum(
+                            len(a.trends) for a in trend_analyses.values()
+                        )
+                        logger.info(f"Analyzed {total_trends} trends across {len(trend_analyses)} periods")
+                except Exception as e:
+                    logger.error(f"Trend analysis failed: {e}")
+                    results["errors"].append(f"Trend analysis: {e}")
 
             # 1. Generate new ideas (if enabled)
             if generate_ideas:
@@ -949,7 +1365,19 @@ class BacklogOrchestrator:
                     logger.error(f"Idea generation failed: {e}")
                     results["errors"].append(f"Idea generation: {e}")
 
-            # 2. Process idea promotions
+            # 2. Generate trend-based ideas (if enabled)
+            if trend_idea_count > 0:
+                try:
+                    trend_ideas = self.trend_generator.generate_trend_based_ideas(
+                        count=trend_idea_count,
+                        analyses=trend_analyses,
+                    )
+                    results["trend_ideas_generated"] = len(trend_ideas)
+                except Exception as e:
+                    logger.error(f"Trend-based idea generation failed: {e}")
+                    results["errors"].append(f"Trend ideas: {e}")
+
+            # 3. Process idea promotions
             try:
                 promoted_ideas = self.github.find_ideas_to_promote()
                 for idea in promoted_ideas[:max_promotions]:
@@ -964,7 +1392,7 @@ class BacklogOrchestrator:
                 logger.error(f"Finding promoted ideas failed: {e}")
                 results["errors"].append(f"Find promoted ideas: {e}")
 
-            # 3. Process plan promotions
+            # 4. Process plan promotions
             try:
                 promoted_plans = self.github.find_plans_to_promote()
                 for plan in promoted_plans[:max_promotions]:
@@ -1015,9 +1443,16 @@ class BacklogOrchestrator:
             ideas_to_promote = self.github.find_ideas_to_promote()
             plans_to_promote = self.github.find_plans_to_promote()
 
+            # Count trend-based ideas
+            trend_ideas = [
+                i for i in backlog_ideas
+                if i.has_label(Labels.SOURCE_TREND)
+            ]
+
             return {
                 "backlog": {
                     "ideas": len(backlog_ideas),
+                    "trend_ideas": len(trend_ideas),
                     "plans": len(backlog_plans),
                 },
                 "pending_promotion": {
@@ -1037,3 +1472,7 @@ class BacklogOrchestrator:
             }
         except Exception as e:
             return {"error": str(e)}
+
+    def get_trend_status(self, days: int = 7) -> dict:
+        """Get trend analysis status."""
+        return self.trend_generator.get_trend_status(days=days)

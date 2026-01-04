@@ -345,16 +345,30 @@ def backlog():
 
 
 @backlog.command("run")
-@click.option("--ideas", "-i", type=int, default=1, help="Number of ideas to generate")
+@click.option("--ideas", "-i", type=int, default=1, help="Number of traditional ideas to generate")
+@click.option("--trend-ideas", "-t", type=int, default=0, help="Number of trend-based ideas to generate")
+@click.option("--analyze-trends", is_flag=True, help="Run trend analysis from RSS feeds")
 @click.option("--no-ideas", is_flag=True, help="Skip idea generation")
 @click.option("--max-promotions", "-m", type=int, default=5, help="Max promotions to process")
 @click.option("--dry-run", is_flag=True, help="Run without making changes")
-def backlog_run(ideas: int, no_ideas: bool, max_promotions: int, dry_run: bool):
+def backlog_run(
+    ideas: int,
+    trend_ideas: int,
+    analyze_trends: bool,
+    no_ideas: bool,
+    max_promotions: int,
+    dry_run: bool,
+):
     """
     Run one orchestration cycle.
 
-    Generates ideas, processes promotions, and starts development
-    for promoted items.
+    Generates ideas (traditional and/or trend-based), processes promotions,
+    and starts development for promoted items.
+
+    Examples:
+        ao backlog run                          # 1 traditional idea
+        ao backlog run -i 2 -t 2 --analyze-trends  # 2 traditional + 2 trend-based
+        ao backlog run -t 3                     # 3 trend-based ideas only
     """
     # Validate environment before proceeding
     validate_backlog_env_or_exit()
@@ -364,6 +378,11 @@ def backlog_run(ideas: int, no_ideas: bool, max_promotions: int, dry_run: bool):
     if dry_run:
         console.print("[yellow](Dry run mode)[/yellow]")
 
+    if analyze_trends or trend_ideas > 0:
+        console.print(f"[cyan]Trend analysis: enabled[/cyan]")
+        if trend_ideas > 0:
+            console.print(f"[cyan]Trend-based ideas: {trend_ideas}[/cyan]")
+
     orchestrator = BacklogOrchestrator(dry_run=dry_run)
 
     try:
@@ -371,6 +390,8 @@ def backlog_run(ideas: int, no_ideas: bool, max_promotions: int, dry_run: bool):
             results = orchestrator.run_cycle(
                 generate_ideas=not no_ideas,
                 idea_count=ideas,
+                trend_idea_count=trend_ideas,
+                run_trend_analysis=analyze_trends,
                 max_promotions=max_promotions,
             )
 
@@ -380,7 +401,10 @@ def backlog_run(ideas: int, no_ideas: bool, max_promotions: int, dry_run: bool):
 
         # Show results
         console.print("\n[bold]Cycle Results:[/bold]")
-        console.print(f"  Ideas generated: {results['ideas_generated']}")
+        console.print(f"  Traditional ideas: {results['ideas_generated']}")
+        console.print(f"  Trend-based ideas: {results['trend_ideas_generated']}")
+        if results.get('trends_analyzed'):
+            console.print(f"  Trend analysis: [green]completed[/green]")
         console.print(f"  Plans generated: {results['plans_generated']}")
         console.print(f"  Dev projects started: {results['devs_started']}")
 
@@ -481,7 +505,8 @@ def backlog_status(as_json: bool):
         pending = status_data["pending_promotion"]
 
         console.print(Panel(
-            f"[bold]Backlog Ideas:[/bold] {backlog['ideas']}\n"
+            f"[bold]Backlog Ideas:[/bold] {backlog['ideas']} "
+            f"([cyan]{backlog.get('trend_ideas', 0)} from trends[/cyan])\n"
             f"[bold]Backlog Plans:[/bold] {backlog['plans']}\n\n"
             f"[bold]Pending Promotions:[/bold]\n"
             f"  Ideas → Plan: {pending['ideas_to_plan']}\n"
@@ -504,6 +529,142 @@ def backlog_status(as_json: bool):
 
         console.print("\n[dim]To promote an idea: Add 'promote:to-plan' label[/dim]")
         console.print("[dim]To start development: Add 'promote:to-dev' label[/dim]")
+        console.print("[dim]To see trend analysis: Run 'ao backlog trends-status'[/dim]")
+
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+        sys.exit(1)
+
+
+@backlog.command("analyze-trends")
+@click.option("--dry-run", is_flag=True, help="Run without making changes")
+def backlog_analyze_trends(dry_run: bool):
+    """
+    Fetch RSS feeds and analyze current trends.
+
+    Fetches articles from configured RSS feeds and uses Claude to identify
+    trending topics. Results are stored in data/trends/ directory.
+    """
+    console.print("[bold blue]Analyzing trends from RSS feeds...[/bold blue]")
+
+    if dry_run:
+        console.print("[yellow](Dry run mode)[/yellow]")
+
+    orchestrator = BacklogOrchestrator(dry_run=dry_run)
+
+    try:
+        with console.status("[bold green]Fetching feeds and analyzing...[/bold green]"):
+            analyses = orchestrator.trend_generator.run_daily_analysis()
+
+        if not analyses:
+            console.print("[yellow]No trends analyzed (no feed items available)[/yellow]")
+            return
+
+        console.print("\n[bold]Trend Analysis Results:[/bold]")
+
+        for period, analysis in analyses.items():
+            period_label = {"24h": "24 Hours", "1w": "1 Week", "1m": "1 Month"}.get(period, period)
+            console.print(f"\n[cyan]{period_label}:[/cyan]")
+            console.print(f"  Articles analyzed: {analysis.raw_article_count}")
+            console.print(f"  Trends identified: {len(analysis.trends)}")
+
+            if analysis.trends:
+                console.print("  Top trends:")
+                for i, trend in enumerate(analysis.trends[:5], 1):
+                    console.print(f"    {i}. {trend.topic} (score: {trend.score:.1f})")
+
+        console.print("\n[green]Trend analysis saved to data/trends/[/green]")
+
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+        sys.exit(1)
+
+
+@backlog.command("generate-trends")
+@click.option("--count", "-c", type=int, default=2, help="Number of trend-based ideas to generate")
+@click.option("--dry-run", is_flag=True, help="Run without making changes")
+def backlog_generate_trends(count: int, dry_run: bool):
+    """
+    Generate ideas based on current trends.
+
+    Analyzes RSS feeds to identify trends, then generates Web3 micro-service
+    ideas based on the top trending topics.
+    """
+    # Validate environment before proceeding
+    validate_backlog_env_or_exit()
+
+    console.print(f"[bold blue]Generating {count} trend-based idea(s)...[/bold blue]")
+
+    if dry_run:
+        console.print("[yellow](Dry run mode)[/yellow]")
+
+    orchestrator = BacklogOrchestrator(dry_run=dry_run)
+
+    try:
+        with console.status("[bold green]Analyzing trends and generating ideas...[/bold green]"):
+            ideas = orchestrator.trend_generator.generate_trend_based_ideas(count=count)
+
+        if not ideas:
+            console.print("[yellow]No ideas generated (no significant trends found)[/yellow]")
+            return
+
+        console.print(f"\n[green]Created {len(ideas)} trend-based idea(s)[/green]")
+        for idea in ideas:
+            console.print(f"  #{idea.number}: {idea.title}")
+            console.print(f"    {idea.html_url}")
+
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+        sys.exit(1)
+
+
+@backlog.command("trends-status")
+@click.option("--days", "-d", type=int, default=7, help="Days of history to show")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def backlog_trends_status(days: int, as_json: bool):
+    """
+    Show trend analysis history and idea links.
+
+    Displays recent trend analyses and which ideas were generated
+    from which trends.
+    """
+    orchestrator = BacklogOrchestrator()
+
+    try:
+        status_data = orchestrator.get_trend_status(days=days)
+
+        if as_json:
+            import json
+            click.echo(json.dumps(status_data, indent=2, default=str))
+            return
+
+        console.print(Panel(
+            f"[bold]Analyses Available:[/bold] {status_data['analyses_available']} (last {days} days)\n"
+            f"[bold]Ideas from Trends:[/bold] {status_data['total_ideas_from_trends']}",
+            title="Trend Analysis Status",
+            border_style="cyan",
+        ))
+
+        # Recent analyses
+        if status_data.get("recent_trends"):
+            console.print("\n[bold]Recent Analyses:[/bold]")
+            for analysis in status_data["recent_trends"]:
+                if analysis.get("date"):
+                    console.print(
+                        f"  {analysis['date']}: {analysis['total_trends']} trends "
+                        f"({', '.join(analysis['periods'])})"
+                    )
+
+        # Idea links
+        if status_data.get("idea_links"):
+            console.print("\n[bold]Recent Trend-Based Ideas:[/bold]")
+            for link in status_data["idea_links"]:
+                console.print(
+                    f"  #{link['issue']}: {link['trend']} [{link['category']}]"
+                )
+
+        console.print("\n[dim]Run 'ao backlog analyze-trends' to run new analysis[/dim]")
+        console.print("[dim]Run 'ao backlog generate-trends' to generate trend ideas[/dim]")
 
     except Exception as e:
         console.print(f"[bold red]Error: {e}[/bold red]")

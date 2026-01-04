@@ -5,7 +5,7 @@ An autonomous orchestration system that performs the complete software developme
 Idea Discovery → Detailed Planning → Development → Testing/Evaluation → Feedback Integration
 """
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 __author__ = "Mossland"
 
 from .orchestrator import Orchestrator
