@@ -111,15 +111,21 @@ Prioritize trends with:
         # Build and send analysis prompt
         prompt = self._build_analysis_prompt(analysis_items, period, max_trends)
 
+        logger.debug(f"Sending analysis prompt ({len(prompt)} chars) for period {period}")
+        logger.debug(f"Prompt preview: {prompt[:300]}..." if len(prompt) > 300 else f"Prompt: {prompt}")
+
         try:
             response = self.claude.chat(
                 user_message=prompt,
                 system_message=self.SYSTEM_MESSAGE,
             )
 
+            logger.debug(f"Received response from Claude: {type(response)}, length: {len(response) if response else 0}")
+
             # Check for empty response
             if not response or not response.strip():
                 logger.warning(f"Empty response from Claude for period {period}")
+                logger.warning(f"Response value: repr={repr(response)}")
                 return TrendAnalysis(
                     date=datetime.utcnow(),
                     period=period,
@@ -251,14 +257,29 @@ Focus on actionable insights and Web3 opportunities."""
         """
         trends = []
 
+        # Debug: Log raw response length and preview
+        logger.debug(f"Raw response length: {len(response)} chars")
+        if len(response) < 500:
+            logger.debug(f"Full response: {response}")
+        else:
+            logger.debug(f"Response preview (first 500 chars): {response[:500]}...")
+
         try:
             # Extract JSON from response
             json_match = re.search(r"```json\s*(.*?)\s*```", response, re.DOTALL)
             if json_match:
                 json_str = json_match.group(1)
+                logger.debug(f"Found JSON in code block, length: {len(json_str)} chars")
             else:
                 # Try to find raw JSON
+                logger.debug("No JSON code block found, trying to parse raw response")
                 json_str = response
+
+            # Debug: Log JSON string preview before parsing
+            if len(json_str) < 200:
+                logger.debug(f"JSON to parse: {json_str}")
+            else:
+                logger.debug(f"JSON preview (first 200 chars): {json_str[:200]}...")
 
             data = json.loads(json_str)
 
@@ -288,7 +309,14 @@ Focus on actionable insights and Web3 opportunities."""
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse trends JSON: {e}")
+            logger.error(f"JSON parse error at position {e.pos}: {e.msg}")
+            # Show context around the error position
+            if hasattr(e, 'doc') and e.doc:
+                start = max(0, e.pos - 50)
+                end = min(len(e.doc), e.pos + 50)
+                logger.error(f"Context around error: ...{e.doc[start:end]}...")
             # Try to extract trends from plain text as fallback
+            logger.info("Attempting fallback text parsing...")
             trends = self._parse_trends_fallback(response, period)
 
         return sorted(trends, key=lambda t: t.score, reverse=True)
