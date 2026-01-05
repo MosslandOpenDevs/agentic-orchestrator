@@ -315,7 +315,6 @@ class FeedFetcher:
         """
         hours = self.PERIOD_HOURS.get(period, 24)
         cutoff = datetime.utcnow() - timedelta(hours=hours)
-        now = datetime.utcnow()
 
         filtered = [item for item in items if item.published >= cutoff]
 
