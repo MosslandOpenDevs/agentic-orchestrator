@@ -68,20 +68,40 @@ class TrendStorage:
         self,
         analyses: dict[str, TrendAnalysis],
         date: datetime | None = None,
-    ) -> Path:
+    ) -> Path | None:
         """
         Save trend analysis to Markdown file.
+
+        Skips saving if analysis is empty or existing file has more trends.
 
         Args:
             analyses: Dictionary mapping period to TrendAnalysis.
             date: Date for the file. Uses current date if not provided.
 
         Returns:
-            Path to the saved file.
+            Path to the saved file, or None if save was skipped.
         """
         date = date or datetime.utcnow()
         file_path = self._get_file_path(date)
         ensure_dir(file_path.parent)
+
+        total_trends = sum(len(a.trends) for a in analyses.values())
+        if total_trends == 0:
+            logger.warning(
+                f"Skipping save: no trends in analysis for {date.strftime('%Y-%m-%d')}"
+            )
+            return None
+
+        if file_path.exists():
+            existing = self.load_analysis(date)
+            if existing:
+                existing_trends = sum(len(a.trends) for a in existing.values())
+                if existing_trends > total_trends:
+                    logger.warning(
+                        f"Skipping save: existing file has {existing_trends} trends, "
+                        f"new analysis has only {total_trends}"
+                    )
+                    return file_path
 
         # Collect metadata from all analyses
         all_sources = set()
@@ -423,10 +443,10 @@ class TrendStorage:
         Returns:
             Number of files deleted.
         """
-        if retention_days is None:
-            retention_days = self.config.get("trends", "storage", "retention_days", default=90)
-
-        cutoff = datetime.utcnow() - timedelta(days=retention_days)
+        days_to_retain: int = retention_days if retention_days is not None else (
+            self.config.get("trends", "storage", "retention_days", default=90) or 90
+        )
+        cutoff = datetime.utcnow() - timedelta(days=days_to_retain)
         deleted = 0
 
         # Iterate through year directories
