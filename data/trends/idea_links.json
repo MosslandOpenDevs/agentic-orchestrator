@@ -33,5 +33,19 @@
     "trend_category": "general",
     "analysis_date": "2026-01-04T15:27:40.516668",
     "created_at": "2026-01-04T15:27:40.516707"
+  },
+  {
+    "idea_issue_number": 24,
+    "trend_topic": "Advanced AI Coding Models",
+    "trend_category": "ai",
+    "analysis_date": "2026-01-08T23:04:36.787995",
+    "created_at": "2026-01-08T23:04:36.788001"
+  },
+  {
+    "idea_issue_number": 25,
+    "trend_topic": "Agentic AI Systems Scale",
+    "trend_category": "ai",
+    "analysis_date": "2026-01-08T23:05:07.837457",
+    "created_at": "2026-01-08T23:05:07.837461"
   }
 ]
