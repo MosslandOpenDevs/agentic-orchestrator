@@ -61,5 +61,19 @@
     "trend_category": "ai",
     "analysis_date": "2026-01-09T23:04:49.854309",
     "created_at": "2026-01-09T23:04:49.854314"
+  },
+  {
+    "idea_issue_number": 30,
+    "trend_topic": "AI Infrastructure Power Demands",
+    "trend_category": "ai",
+    "analysis_date": "2026-01-10T23:04:27.337296",
+    "created_at": "2026-01-10T23:04:27.337302"
+  },
+  {
+    "idea_issue_number": 31,
+    "trend_topic": "Enterprise AI Agent Scaling",
+    "trend_category": "ai",
+    "analysis_date": "2026-01-10T23:04:57.014659",
+    "created_at": "2026-01-10T23:04:57.014664"
   }
 ]
