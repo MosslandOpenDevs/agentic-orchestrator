@@ -89,5 +89,19 @@
     "trend_category": "ai",
     "analysis_date": "2026-01-11T23:05:12.121180",
     "created_at": "2026-01-11T23:05:12.121184"
+  },
+  {
+    "idea_issue_number": 36,
+    "trend_topic": "Enterprise AI Agent Scaling",
+    "trend_category": "ai",
+    "analysis_date": "2026-01-12T23:04:16.896746",
+    "created_at": "2026-01-12T23:04:16.896751"
+  },
+  {
+    "idea_issue_number": 37,
+    "trend_topic": "Advanced Coding AI Models",
+    "trend_category": "ai",
+    "analysis_date": "2026-01-12T23:04:44.246869",
+    "created_at": "2026-01-12T23:04:44.246872"
   }
 ]
