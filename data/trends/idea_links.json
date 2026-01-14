@@ -117,5 +117,19 @@
     "trend_category": "ai",
     "analysis_date": "2026-01-13T23:05:04.458793",
     "created_at": "2026-01-13T23:05:04.458798"
+  },
+  {
+    "idea_issue_number": 42,
+    "trend_topic": "OpenAI Infrastructure Expansion",
+    "trend_category": "ai",
+    "analysis_date": "2026-01-14T23:04:22.197619",
+    "created_at": "2026-01-14T23:04:22.197626"
+  },
+  {
+    "idea_issue_number": 43,
+    "trend_topic": "Enterprise AI Infrastructure Scaling",
+    "trend_category": "ai",
+    "analysis_date": "2026-01-14T23:04:53.320695",
+    "created_at": "2026-01-14T23:04:53.320699"
   }
 ]
