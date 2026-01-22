@@ -7,6 +7,64 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] "Signal Storm" - 2026-01-22
+
+### Added
+
+#### Multi-Stage Debate System (34 Agents)
+- **3 Debate Phases**: Divergence (12 agents) → Convergence (12 agents) → Planning (10 agents)
+- **4-Axis Personality System**: Creativity, Analytical, Risk Tolerance, Collaboration (0-10 scale)
+- **Debate Protocol**: `debate/protocol.py` - phases, message types, configuration
+- **Multi-Stage Orchestration**: `debate/multi_stage.py` - complete debate flow management
+
+#### Diverse Signal Sources (5 Adapters)
+- **RSS Adapter**: 17 feeds across AI, Crypto, Finance, Security, Dev categories
+- **GitHub Events Adapter**: Repository activity, trending projects, issue/PR analysis
+- **On-Chain Adapter**: MOC token transactions, smart contract events, DeFi metrics
+- **Social Media Adapter**: X (Twitter) mentions, community sentiment analysis
+- **News API Adapter**: Real-time news aggregation, keyword-based filtering
+
+#### Hybrid LLM Router
+- **Local Models**: Ollama integration (Qwen 32B, Llama 3, Mistral)
+- **Cloud APIs**: Claude, GPT-4, Gemini fallback
+- **Intelligent Routing**: Automatic fallback between local and cloud
+- **Budget Management**: Cost tracking and limits
+
+#### PM2 Process Management
+- **6 Services**: signals (30min), debate (6hr), backlog (daily), web, api, health (5min)
+- **Scheduler Module**: `scheduler/tasks.py` - async task implementations
+- **CLI Entry Point**: `scheduler/__main__.py` - command line interface
+- **Ecosystem Config**: `ecosystem.config.js` - PM2 configuration
+
+#### FastAPI Backend
+- **REST API**: `/health`, `/status`, `/signals`, `/debates`, `/agents`, `/docs`
+- **API Module**: `api/main.py` - FastAPI application
+- **Port 3001**: Separate from web dashboard
+
+#### CLI-Style Web Interface
+- **Retro Terminal Theme**: JetBrains Mono font, scanlines, glow effects
+- **Terminal Components**: `TerminalWindow.tsx`, status indicators
+- **Agents Page**: `/agents` - displays all 34 agent personas
+- **Mobile Responsive**: Adapted for all screen sizes
+
+### Changed
+
+- Dashboard redesigned with CLI/terminal aesthetic
+- Navigation updated with `$` prompt style
+- Footer updated with version "Signal Storm"
+- Replaced GitHub Actions scheduling with PM2
+
+### Removed
+
+- `.github/workflows/backlog.yml` - replaced by PM2 moss-ao-backlog
+- `.github/workflows/orchestrator.yml` - replaced by PM2 moss-ao-debate
+
+### Technical Details
+
+- Python 3.12 required for API server
+- Virtual environment setup: `.venv/`
+- Service names prefixed with `moss-ao-` to avoid conflicts
+
 ## [0.5.0] - 2026-01-05
 
 ### Added

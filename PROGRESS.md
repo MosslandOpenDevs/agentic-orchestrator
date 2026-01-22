@@ -265,6 +265,61 @@
 
 ---
 
+## Phase 8: Signal Storm (v0.4.0) ✅
+
+### 완료 항목
+
+#### 멀티 스테이지 토론 시스템 (34 에이전트)
+- [x] 3단계 토론: 발산 (12) → 수렴 (12) → 기획 (10) 에이전트
+- [x] 4축 성격 시스템: 창의성, 분석력, 리스크 허용도, 협업
+- [x] `debate/protocol.py` - 토론 프로토콜 정의
+- [x] `debate/multi_stage.py` - 멀티 스테이지 오케스트레이션
+- [x] `personas/` - 34개 에이전트 정의
+
+#### 다양한 시그널 소스 (5개 어댑터)
+- [x] `adapters/rss.py` - RSS 피드 어댑터
+- [x] `adapters/github_events.py` - GitHub Events 어댑터
+- [x] `adapters/onchain.py` - 온체인 어댑터
+- [x] `adapters/social_media.py` - 소셜 미디어 어댑터
+- [x] `adapters/news_api.py` - News API 어댑터
+- [x] `signals/` - 시그널 집계 및 스코어링
+
+#### 하이브리드 LLM 라우터
+- [x] `llm/router.py` - 하이브리드 LLM 라우터
+- [x] `providers/ollama.py` - Ollama 프로바이더
+- [x] 로컬 + 클라우드 자동 폴백
+
+#### PM2 프로세스 관리
+- [x] `ecosystem.config.js` - PM2 설정 (moss-ao-* 접두사)
+- [x] `scheduler/__init__.py` - 스케줄러 모듈
+- [x] `scheduler/__main__.py` - CLI 진입점
+- [x] `scheduler/tasks.py` - 비동기 태스크 구현
+- [x] 6개 서비스: signals, debate, backlog, web, api, health
+
+#### FastAPI 백엔드
+- [x] `api/__init__.py` - API 모듈
+- [x] `api/main.py` - FastAPI 애플리케이션
+- [x] 엔드포인트: /health, /status, /signals, /debates, /agents, /docs
+- [x] 포트 3001에서 실행
+
+#### CLI 스타일 웹 인터페이스
+- [x] JetBrains Mono 폰트, 스캔라인 효과
+- [x] `globals.css` - 터미널 스타일 CSS
+- [x] `TerminalWindow.tsx` - 터미널 윈도우 컴포넌트
+- [x] `/agents` 페이지 - 34개 에이전트 표시
+- [x] 모바일 반응형 디자인
+
+#### 데이터베이스 및 캐시
+- [x] `db/` - SQLAlchemy 모델 및 레포지토리
+- [x] `cache/` - 캐싱 레이어
+
+#### 배포
+- [x] GitHub Actions 스케줄 워크플로우 제거 (PM2로 대체)
+- [x] PM2 서비스 시작 (moss-ao-web, moss-ao-api)
+- [x] ao.moss.land nginx 설정 연동
+
+---
+
 ## 커밋 히스토리
 
 ```
@@ -416,4 +471,4 @@ ao backlog run
 
 ---
 
-*마지막 업데이트: 2026-01-05 (v0.5.0)*
+*마지막 업데이트: 2026-01-22 (v0.4.0 "Signal Storm")*

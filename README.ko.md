@@ -2,21 +2,23 @@
 
 **한국어** | [English](README.md)
 
-모스랜드 생태계를 위한 마이크로 Web3 서비스를 발굴, 기획, 구현하는 자율 오케스트레이션 시스템입니다.
+모스랜드 생태계를 위한 마이크로 Web3 서비스를 발굴, 기획, 구현하는 자율 멀티 에이전트 오케스트레이션 시스템입니다.
+
+**버전**: v0.4.0 "Signal Storm"
 
 ## 주요 기능
 
-- **백로그 기반 워크플로우**: 아이디어와 계획을 GitHub Issues로 관리
+- **멀티 스테이지 토론**: 34개 AI 에이전트가 3단계(발산 → 수렴 → 기획)를 거쳐 토론
+- **다양한 시그널 소스**: RSS, GitHub Events, 온체인 데이터, 소셜 미디어, News API
+- **하이브리드 LLM 라우팅**: 로컬 Ollama 모델 + 클라우드 API 폴백 지능형 라우팅
 - **휴먼 인 더 루프**: 라벨 프로모션을 통해 개발할 아이디어를 사람이 선택
-- **멀티 에이전트 토론**: 4개 AI 역할(창업자, VC, Accelerator, 창업가 친구)간 토론으로 계획 정제
-- **트렌드 기반 아이디어**: RSS 피드를 통해 현재 뉴스 트렌드에서 아이디어 생성
-- **자율 생성**: 오케스트레이터가 지속적으로 아이디어를 생성하고 프로모션을 처리
-- **자동 진행 없음**: 단계가 자동으로 진행되지 않음 - 무엇을 만들지 사람이 결정
-- **대시보드 웹사이트**: https://ao.moss.land 에서 실시간 모니터링
+- **PM2 스케줄링**: PM2를 통한 자동화된 작업 스케줄링 (시그널, 토론, 백로그, 헬스체크)
+- **CLI 스타일 대시보드**: https://ao.moss.land 레트로 터미널 테마 웹 인터페이스
+- **REST API**: 프로그래밍 방식 접근을 위한 FastAPI 백엔드
 
 ## 대시보드
 
-오케스트레이터를 실시간으로 모니터링하는 Next.js 기반 대시보드입니다.
+오케스트레이터를 실시간으로 모니터링하는 Next.js 기반 CLI 스타일 대시보드입니다.
 
 **URL**: https://ao.moss.land
 
@@ -25,9 +27,10 @@
 | 페이지 | 설명 |
 |--------|------|
 | `/` | 파이프라인, 활동 피드, 통계가 있는 대시보드 |
-| `/trends` | RSS 피드에서 수집한 트렌드 분석 결과 |
+| `/trends` | 시그널 소스에서 수집한 트렌드 분석 결과 |
 | `/backlog` | GitHub 링크가 있는 아이디어 및 계획 백로그 |
 | `/system` | 시스템 아키텍처 및 멀티 에이전트 토론 시각화 |
+| `/agents` | 3개 토론 단계의 34개 AI 에이전트 페르소나 |
 
 ### 로컬 실행
 
@@ -39,41 +42,43 @@ pnpm dev
 
 http://localhost:3000 에서 대시보드를 확인할 수 있습니다.
 
-### 빌드
-
-```bash
-cd website
-pnpm build
-```
-
-## 작동 방식
+## 아키텍처
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    아이디어 백로그 (GitHub Issues)               │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │  오케스트레이터가 아이디어 생성 → Issues로 저장           │  │
-│  │  라벨: type:idea, status:backlog                         │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│                             │                                   │
-│              사람이 라벨 추가: promote:to-plan                  │
-│                             ▼                                   │
-├─────────────────────────────────────────────────────────────────┤
-│                    계획 백로그 (GitHub Issues)                   │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │  오케스트레이터가 프로모션된 아이디어로 상세 계획 생성    │  │
-│  │  라벨: type:plan, status:backlog                         │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│                             │                                   │
-│              사람이 라벨 추가: promote:to-dev                   │
-│                             ▼                                   │
-├─────────────────────────────────────────────────────────────────┤
-│                    개발 (Repository)                             │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │  오케스트레이터가 프로젝트 스캐폴드 생성                  │  │
-│  │  디렉토리: projects/<project_id>/                        │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           시그널 수집                                     │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐           │
+│  │   RSS   │ │ GitHub  │ │ 온체인  │ │ 소셜    │ │News API │           │
+│  │ 어댑터  │ │ Events  │ │ 어댑터  │ │ 미디어  │ │ 어댑터  │           │
+│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘           │
+│       └───────────┴───────────┼───────────┴───────────┘                 │
+│                               ▼                                          │
+│                    ┌──────────────────┐                                  │
+│                    │ 시그널 집계기     │                                  │
+│                    │   + 스코어러     │                                  │
+│                    └────────┬─────────┘                                  │
+├─────────────────────────────┼───────────────────────────────────────────┤
+│                             ▼                                            │
+│                  멀티 스테이지 토론 (34 에이전트)                          │
+│  ┌────────────────────────────────────────────────────────────────┐     │
+│  │ 1단계: 발산 (12 에이전트)                                        │     │
+│  │   혁신가, 회의론자, 실용주의자, 비전가...                         │     │
+│  ├────────────────────────────────────────────────────────────────┤     │
+│  │ 2단계: 수렴 (12 에이전트)                                        │     │
+│  │   통합자, 평가자, 우선순위 결정자, 리스크 평가자...               │     │
+│  ├────────────────────────────────────────────────────────────────┤     │
+│  │ 3단계: 기획 (10 에이전트)                                        │     │
+│  │   아키텍트, 프로젝트 매니저, 테크니컬 리드...                     │     │
+│  └────────────────────────────────────────────────────────────────┘     │
+├─────────────────────────────────────────────────────────────────────────┤
+│                        하이브리드 LLM 라우터                              │
+│  ┌─────────────────────┐     ┌─────────────────────┐                    │
+│  │   로컬 (Ollama)     │ ←→  │   클라우드 API      │                    │
+│  │   - Qwen 32B        │     │   - Claude          │                    │
+│  │   - Llama 3         │     │   - GPT-4           │                    │
+│  │   - Mistral         │     │   - Gemini          │                    │
+│  └─────────────────────┘     └─────────────────────┘                    │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## 빠른 시작
@@ -84,224 +89,142 @@ pnpm build
 # 클론 및 설치
 git clone https://github.com/mossland/agentic-orchestrator.git
 cd agentic-orchestrator
-python -m venv venv
-source venv/bin/activate
+
+# Python 가상환경 생성 (Python 3.12 필요)
+python3.12 -m venv .venv
+source .venv/bin/activate
 pip install -e .
+pip install uvicorn fastapi pyyaml
 
 # 환경 설정
 cp .env.example .env
 # .env 파일에 API 키 입력
 ```
 
-### 2. 라벨 설정
+### 2. PM2로 서비스 시작
 
 ```bash
-ao backlog setup
+# PM2 전역 설치
+npm install -g pm2
+
+# 모든 서비스 시작
+pm2 start ecosystem.config.js
+
+# 또는 특정 서비스만 시작
+pm2 start ecosystem.config.js --only moss-ao-web
+pm2 start ecosystem.config.js --only moss-ao-api
 ```
 
-GitHub 저장소에 필요한 모든 라벨을 생성합니다.
+### 3. 대시보드 접속
 
-### 3. 아이디어 생성
+- **웹 대시보드**: http://localhost:3000
+- **API 문서**: http://localhost:3001/docs
+
+## PM2 서비스
+
+| 서비스 | 스케줄 | 설명 |
+|--------|--------|------|
+| `moss-ao-signals` | 30분마다 | 모든 어댑터에서 시그널 수집 |
+| `moss-ao-debate` | 6시간마다 | 멀티 스테이지 AI 토론 실행 |
+| `moss-ao-backlog` | 매일 자정 | 대기 중인 백로그 항목 처리 |
+| `moss-ao-web` | 항시 실행 | Next.js 대시보드 (포트 3000) |
+| `moss-ao-api` | 항시 실행 | FastAPI 백엔드 (포트 3001) |
+| `moss-ao-health` | 5분마다 | 시스템 헬스 모니터링 |
+
+### PM2 명령어
 
 ```bash
-# 새 아이디어 2개 생성
-ao backlog generate --count 2
+# 모든 서비스 보기
+pm2 status
+
+# 로그 보기
+pm2 logs moss-ao-web
+pm2 logs moss-ao-api
+
+# 서비스 재시작
+pm2 restart moss-ao-web
+
+# 모든 서비스 중지
+pm2 stop all
+
+# 리소스 모니터링
+pm2 monit
 ```
 
-아이디어가 `type:idea` 및 `status:backlog` 라벨과 함께 GitHub Issues로 나타납니다.
+## API 엔드포인트
 
-### 4. 아이디어 프로모션 (사람이 수행)
+FastAPI 백엔드는 REST API 접근을 제공합니다:
 
-GitHub에서:
-1. 아이디어 이슈로 이동
-2. `promote:to-plan` 라벨 추가
+| 엔드포인트 | 메서드 | 설명 |
+|------------|--------|------|
+| `/health` | GET | 헬스 체크 |
+| `/status` | GET | 시스템 상태 |
+| `/signals` | GET | 최근 시그널 목록 |
+| `/debates` | GET | 토론 결과 목록 |
+| `/agents` | GET | 에이전트 페르소나 목록 |
+| `/docs` | GET | Swagger 문서 |
 
-### 5. 프로모션 처리
+## 멀티 스테이지 토론 시스템
 
-```bash
-ao backlog process
-```
+### 1단계: 발산 (12 에이전트)
+다양한 아이디어와 관점 생성:
+- **혁신가**: 창의적 혁신 아이디어
+- **회의론자**: 비판적 분석 및 리스크 식별
+- **실용주의자**: 실용적 구현 중심
+- **비전가**: 장기 전략적 사고
+- 외 8개 특화 에이전트...
 
-오케스트레이터가 다음을 수행합니다:
-- `promote:to-plan` 라벨이 있는 이슈 찾기
-- 상세 기획 문서 생성
-- 새로운 `type:plan` 이슈 생성
-- 원본 아이디어에 `status:planned` 업데이트
+### 2단계: 수렴 (12 에이전트)
+아이디어 통합 및 평가:
+- **통합자**: 관련 아이디어 결합
+- **평가자**: 제안 점수화 및 순위 매김
+- **우선순위 결정자**: 실행 순서 결정
+- **리스크 평가자**: 잠재적 문제 식별
+- 외 8개 특화 에이전트...
 
-### 6. 개발 시작 (사람이 수행)
+### 3단계: 기획 (10 에이전트)
+실행 가능한 구현 계획 생성:
+- **아키텍트**: 시스템 설계
+- **프로젝트 매니저**: 태스크 분해
+- **테크니컬 리드**: 기술 결정
+- **리소스 기획자**: 리소스 배분
+- 외 6개 특화 에이전트...
 
-GitHub에서:
-1. 계획 이슈로 이동
-2. `promote:to-dev` 라벨 추가
+### 에이전트 성격 시스템
 
-그런 다음 실행:
-```bash
-ao backlog process
-```
+각 에이전트는 4축 성격 프로필을 가집니다:
+- **창의성**: 혁신 vs. 관습 (0-10)
+- **분석력**: 데이터 중심 vs. 직관 (0-10)
+- **리스크 허용도**: 공격적 vs. 보수적 (0-10)
+- **협업**: 팀 중심 vs. 독립적 (0-10)
 
-오케스트레이터가 `projects/<id>/`에 프로젝트 스캐폴드를 생성합니다.
+## 시그널 소스
 
-## CLI 명령어
-
-### 백로그 명령어 (권장)
-
-```bash
-# 전체 사이클 실행: 아이디어 생성 + 프로모션 처리
-ao backlog run
-
-# 트렌드 분석 포함 실행 (전통적 1개 + 트렌드 기반 2개)
-ao backlog run --ideas 1 --trend-ideas 2 --analyze-trends
-
-# 전통적 아이디어만 생성
-ao backlog generate --count 2
-
-# 트렌드 기반 아이디어 생성
-ao backlog generate-trends --count 2
-
-# 트렌드 분석만 실행 (아이디어 생성 없음)
-ao backlog analyze-trends
-
-# 프로모션만 처리 (아이디어 생성 없음)
-ao backlog process
-
-# 백로그 상태 확인
-ao backlog status
-
-# 트렌드 분석 이력 확인
-ao backlog trends-status
-
-# 저장소에 라벨 설정
-ao backlog setup
-```
-
-### 옵션
-
-```bash
-# 드라이 런 (실제 변경 없음)
-ao backlog run --dry-run
-
-# 특정 개수의 전통적 아이디어 생성
-ao backlog run --ideas 3
-
-# 트렌드 기반 아이디어 생성
-ao backlog run --trend-ideas 2 --analyze-trends
-
-# 아이디어 생성 건너뛰기
-ao backlog run --no-ideas
-
-# 처리할 프로모션 제한
-ao backlog run --max-promotions 3
-```
-
-## 프로모션 워크플로우
-
-### 아이디어를 계획으로 프로모션
-
-1. GitHub Issues에서 개발하고 싶은 **아이디어 찾기**
-2. `promote:to-plan` **라벨 추가**
-3. 오케스트레이터 실행 **대기** (또는 `ao backlog process` 실행)
-4. **결과**: 상세 PRD, 아키텍처, 태스크가 포함된 새 `[PLAN]` 이슈 생성
-
-### 계획을 개발로 프로모션
-
-1. 계획 이슈를 **검토**하고 준비되었는지 확인
-2. `promote:to-dev` **라벨 추가**
-3. 오케스트레이터 실행 **대기** (또는 `ao backlog process` 실행)
-4. **결과**: `projects/<id>/`에 프로젝트 스캐폴드 생성
-
-### 계획 거부
-
-생성된 계획이 만족스럽지 않은 경우:
-1. 계획 이슈에 `reject:plan` **라벨 추가**
-2. 오케스트레이터 실행 **대기** (또는 `ao backlog process` 실행)
-3. **결과**: 계획이 닫히고, 원본 아이디어에 `promote:to-plan`이 복원되어 재생성
-
-또는 CLI 사용:
-```bash
-ao backlog reject 123  # 계획 이슈 #123 거부
-```
-
-## 멀티 에이전트 토론 시스템
-
-3개의 AI 프로바이더(Claude, ChatGPT, Gemini)가 모두 사용 가능할 때, 토론 과정을 통해 계획이 생성됩니다:
-
-### 토론 역할
-
-| 역할 | 관점 | 프로바이더 순환 |
-|------|------|-----------------|
-| **창업자** | 비전, 확신, 실행 | 매 라운드 순환 |
-| **VC** | 시장, 투자, 확장성 | 매 라운드 순환 |
-| **Accelerator** | 실행, 검증, MVP | 매 라운드 순환 |
-| **창업가 친구** | 동료 지원, 창의적 아이디어 | 창업자와 동일 |
-
-### 토론 흐름
-
-```
-라운드 1-5 (또는 "충분히 개선됨"까지):
-  1. 창업자가 계획 제시/업데이트
-  2. VC가 시장/투자 피드백 제공
-  3. Accelerator가 실행 피드백 제공
-  4. 창업가 친구가 동료 관점 제공
-  5. 창업자가 피드백 반영, 채택/거부 결정, 계획 업데이트
-  6. 종료 조건 확인
-```
-
-### 출력
-
-- **PLAN Issue**: 최종 정제된 계획 포함
-- **토론 기록**: 전체 토론 히스토리가 접기/펼치기 가능한 댓글로 저장
-- **이중 언어**: 모든 콘텐츠가 영어 + 한국어 번역으로 제공
-
-## 라벨
-
-| 라벨 | 용도 | 추가하는 주체 |
-|------|------|---------------|
-| `promote:to-plan` | **아이디어를 계획으로 프로모션** | 사람 |
-| `promote:to-dev` | **개발 시작** | 사람 |
-| `reject:plan` | **계획 거부 및 재생성** | 사람 |
-| `type:idea` | 아이디어 이슈 표시 | 오케스트레이터 |
-| `type:plan` | 계획 이슈 표시 | 오케스트레이터 |
-| `status:backlog` | 백로그에 있음 | 오케스트레이터 |
-| `status:planned` | 아이디어가 계획됨 | 오케스트레이터 |
-| `status:in-dev` | 개발 중 | 오케스트레이터 |
-| `source:trend` | 트렌드 분석에서 생성된 아이디어 | 오케스트레이터 |
-
-전체 라벨 문서는 [docs/labels.md](docs/labels.md)를 참조하세요.
-
-## 스케줄 실행
-
-### GitHub Actions (권장)
-
-포함된 워크플로우가 매일 오전 8시 KST에 오케스트레이터를 실행합니다:
-
-```yaml
-# .github/workflows/backlog.yml
-on:
-  schedule:
-    - cron: '0 23 * * *'  # 매일 오전 8시 KST (23:00 UTC)
-```
-
-기본 일일 실행:
-- 전통적 모스랜드 중심 아이디어 1개
-- RSS 피드 기반 트렌드 아이디어 2개
-
-### Cron Job
-
-```bash
-# 매일 오전 8시 KST (23:00 UTC) 실행
-0 23 * * * cd /path/to/repo && /path/to/venv/bin/ao backlog run --ideas 1 --trend-ideas 2 --analyze-trends >> logs/cron.log 2>&1
-```
-
-### 트렌드 기반 아이디어 생성
-
-오케스트레이터는 5개 카테고리의 17개 RSS 피드에서 기사를 수집합니다:
-- **AI**: OpenAI News, Google Blog, arXiv AI, TechCrunch, Hacker News
+### RSS 피드
+5개 카테고리의 17개 피드:
+- **AI**: OpenAI, Google AI, arXiv, TechCrunch, Hacker News
 - **Crypto**: CoinDesk, Cointelegraph, Decrypt, The Defiant, CryptoSlate
 - **Finance**: CNBC Finance
 - **Security**: The Hacker News, Krebs on Security
 - **Dev**: The Verge, Ars Technica, Stack Overflow Blog
 
-트렌드 분석 결과는 `data/trends/YYYY/MM/YYYY-MM-DD.md`에 저장됩니다.
+### GitHub Events
+- 저장소 활동 추적
+- 트렌딩 프로젝트 모니터링
+- 이슈 및 PR 분석
+
+### 온체인 데이터
+- MOC 토큰 트랜잭션
+- 스마트 컨트랙트 이벤트
+- DeFi 프로토콜 메트릭
+
+### 소셜 미디어
+- X (트위터) 멘션
+- 커뮤니티 감성 분석
+
+### News API
+- 실시간 뉴스 집계
+- 키워드 기반 필터링
 
 ## 환경 변수
 
@@ -310,97 +233,46 @@ on:
 | `GITHUB_TOKEN` | GitHub PAT (Issues, Labels) | **예** |
 | `GITHUB_OWNER` | 저장소 소유자 | **예** |
 | `GITHUB_REPO` | 저장소 이름 | **예** |
-| `ANTHROPIC_API_KEY` | Claude API 키 | API 모드용 |
-| `OPENAI_API_KEY` | OpenAI API 키 | 리뷰용 |
-| `GEMINI_API_KEY` | Gemini API 키 | 리뷰용 |
-| `DRY_RUN` | 변경 없이 실행 | 아니오 |
-
-### GitHub 토큰 권한
-
-필요한 스코프:
-- `repo` - 전체 저장소 접근 (Issues 및 Labels용)
-
-## 오류 처리
-
-### Rate Limiting (Claude)
-
-- 자동으로 rate limit 리셋 대기
-- 최대 재시도 및 대기 시간 설정 가능
-- 모든 재시도 시도 로깅
-
-### Quota Exhaustion (OpenAI/Gemini)
-
-- `alerts/quota.md`에 알림 생성
-- 프로바이더, 모델, 스테이지, 오류 로깅
-- 해결 단계 제공
-- 무한 루프 없음
-
-### 동시성 제어
-
-- 락 파일로 동시 실행 방지
-- cron/스케줄 실행에 안전
+| `ANTHROPIC_API_KEY` | Claude API 키 | 클라우드 모드용 |
+| `OPENAI_API_KEY` | OpenAI API 키 | 클라우드 모드용 |
+| `GEMINI_API_KEY` | Gemini API 키 | 클라우드 모드용 |
+| `OLLAMA_HOST` | Ollama 서버 URL | 로컬 모드용 |
 
 ## 프로젝트 구조
 
 ```
 agentic-orchestrator/
-├── .agent/
-│   └── orchestrator.lock    # 동시성 락
-├── .github/
-│   ├── ISSUE_TEMPLATE/      # 아이디어 및 계획 템플릿
-│   └── workflows/           # CI 및 스케줄러
-├── alerts/                  # 오류/할당량 알림
-├── data/
-│   └── trends/              # 트렌드 분석 저장소
-│       └── YYYY/MM/         # 일별 분석 파일
-├── docs/
-│   └── labels.md            # 라벨 문서
-├── projects/
-│   └── <project_id>/        # 생성된 프로젝트
-│       ├── 01_ideation/
-│       ├── 02_planning/
-│       ├── 03_implementation/
-│       └── 04_quality/
-├── prompts/                 # 프롬프트 템플릿
-├── src/
-│   └── agentic_orchestrator/
-│       ├── backlog.py       # 백로그 워크플로우
-│       ├── cli.py           # CLI 명령어
-│       ├── github_client.py # GitHub API
-│       ├── orchestrator.py  # 레거시 오케스트레이터
-│       ├── providers/       # LLM 어댑터
-│       ├── trends/          # 트렌드 분석 모듈
-│       ├── debate/          # 멀티 에이전트 토론 시스템
-│       └── utils/           # 유틸리티
-├── tests/
-└── website/                 # 대시보드 웹사이트
-    ├── src/
-    │   ├── app/             # Next.js App Router 페이지
-    │   ├── components/      # React 컴포넌트
-    │   └── data/            # Mock 데이터
-    └── public/              # 정적 파일
+├── ecosystem.config.js      # PM2 설정
+├── .venv/                   # Python 가상환경
+├── src/agentic_orchestrator/
+│   ├── adapters/            # 시그널 소스 어댑터
+│   │   ├── rss.py
+│   │   ├── github_events.py
+│   │   ├── onchain.py
+│   │   ├── social_media.py
+│   │   └── news_api.py
+│   ├── api/                 # FastAPI 백엔드
+│   │   └── main.py
+│   ├── cache/               # 캐싱 레이어
+│   ├── db/                  # 데이터베이스 모델 & 레포지토리
+│   ├── debate/              # 멀티 스테이지 토론 시스템
+│   │   ├── protocol.py
+│   │   └── multi_stage.py
+│   ├── llm/                 # LLM 라우팅
+│   │   └── router.py
+│   ├── personas/            # 34개 에이전트 정의
+│   ├── providers/           # LLM 프로바이더 (Ollama, APIs)
+│   ├── scheduler/           # PM2 태스크 구현
+│   │   ├── __main__.py
+│   │   └── tasks.py
+│   └── signals/             # 시그널 처리
+├── website/                 # Next.js 대시보드
+│   ├── src/
+│   │   ├── app/             # 페이지
+│   │   └── components/      # React 컴포넌트
+│   └── package.json
+└── logs/                    # PM2 로그 파일
 ```
-
-## 아이디어 생성
-
-### 전통적 아이디어 (모스랜드 중심)
-- **마이크로 Web3 서비스** - 1-2주 내 달성 가능한 작은 규모
-- **MOC 토큰 유틸리티** - 토큰 가치 및 사용성 향상
-- **생태계 이점** - 모스랜드 커뮤니티 지원
-- **실용적 범위** - 대규모 플랫폼 개발 지양
-
-### 트렌드 기반 아이디어
-- **현재 트렌드** - RSS 피드의 실시간 뉴스 기반
-- **Web3 기회** - 트렌딩 토픽에 대한 블록체인 응용 식별
-- **시의성** - 핫 토픽이 관련성 있을 때 활용
-- **크로스 산업** - AI, 암호화폐, 보안, 개발 트렌드
-
-예시:
-- 토큰 분석 대시보드
-- 커뮤니티 거버넌스 도구
-- NFT 유틸리티 확장
-- AI 에이전트 통합 (AI 트렌드 기반)
-- DeFi 프로토콜 도구 (암호화폐 트렌드 기반)
 
 ## 개발
 
@@ -410,11 +282,28 @@ agentic-orchestrator/
 pytest tests/ -v
 ```
 
-### 새 기능 추가
+### 웹사이트 빌드
 
-1. 워크플로우 변경은 `src/agentic_orchestrator/backlog.py` 수정
-2. `src/agentic_orchestrator/cli.py`에서 CLI 업데이트
-3. `tests/`에 테스트 추가
+```bash
+cd website
+pnpm build
+```
+
+### 수동 태스크 실행
+
+```bash
+# 시그널 수집
+python -m agentic_orchestrator.scheduler signal-collect
+
+# 토론 실행
+python -m agentic_orchestrator.scheduler run-debate
+
+# 백로그 처리
+python -m agentic_orchestrator.scheduler process-backlog
+
+# 헬스 체크
+python -m agentic_orchestrator.scheduler health-check
+```
 
 ## 라이선스
 
@@ -423,3 +312,5 @@ MIT License - 자세한 내용은 [LICENSE](LICENSE)를 참조하세요.
 ---
 
 *모스랜드 생태계를 위해 구축됨 - 사람이 가이드하고, AI가 구동하는 혁신.*
+
+*v0.4.0 "Signal Storm" - 다양한 시그널 소스와 멀티 에이전트 오케스트레이션*

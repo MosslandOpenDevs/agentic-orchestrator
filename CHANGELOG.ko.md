@@ -7,6 +7,64 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 이 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)를 기반으로 하며,
 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
+## [0.4.0] "Signal Storm" - 2026-01-22
+
+### 추가됨
+
+#### 멀티 스테이지 토론 시스템 (34 에이전트)
+- **3단계 토론**: 발산 (12 에이전트) → 수렴 (12 에이전트) → 기획 (10 에이전트)
+- **4축 성격 시스템**: 창의성, 분석력, 리스크 허용도, 협업 (0-10 척도)
+- **토론 프로토콜**: `debate/protocol.py` - 단계, 메시지 타입, 설정
+- **멀티 스테이지 오케스트레이션**: `debate/multi_stage.py` - 완전한 토론 흐름 관리
+
+#### 다양한 시그널 소스 (5개 어댑터)
+- **RSS 어댑터**: AI, Crypto, Finance, Security, Dev 5개 카테고리의 17개 피드
+- **GitHub Events 어댑터**: 저장소 활동, 트렌딩 프로젝트, 이슈/PR 분석
+- **온체인 어댑터**: MOC 토큰 트랜잭션, 스마트 컨트랙트 이벤트, DeFi 메트릭
+- **소셜 미디어 어댑터**: X (트위터) 멘션, 커뮤니티 감성 분석
+- **News API 어댑터**: 실시간 뉴스 집계, 키워드 기반 필터링
+
+#### 하이브리드 LLM 라우터
+- **로컬 모델**: Ollama 통합 (Qwen 32B, Llama 3, Mistral)
+- **클라우드 API**: Claude, GPT-4, Gemini 폴백
+- **지능형 라우팅**: 로컬과 클라우드 간 자동 폴백
+- **예산 관리**: 비용 추적 및 제한
+
+#### PM2 프로세스 관리
+- **6개 서비스**: signals (30분), debate (6시간), backlog (매일), web, api, health (5분)
+- **스케줄러 모듈**: `scheduler/tasks.py` - 비동기 태스크 구현
+- **CLI 진입점**: `scheduler/__main__.py` - 커맨드 라인 인터페이스
+- **생태계 설정**: `ecosystem.config.js` - PM2 설정
+
+#### FastAPI 백엔드
+- **REST API**: `/health`, `/status`, `/signals`, `/debates`, `/agents`, `/docs`
+- **API 모듈**: `api/main.py` - FastAPI 애플리케이션
+- **포트 3001**: 웹 대시보드와 분리
+
+#### CLI 스타일 웹 인터페이스
+- **레트로 터미널 테마**: JetBrains Mono 폰트, 스캔라인, 글로우 효과
+- **터미널 컴포넌트**: `TerminalWindow.tsx`, 상태 표시기
+- **에이전트 페이지**: `/agents` - 34개 에이전트 페르소나 표시
+- **모바일 반응형**: 모든 화면 크기에 적응
+
+### 변경됨
+
+- CLI/터미널 미학으로 대시보드 재설계
+- `$` 프롬프트 스타일로 네비게이션 업데이트
+- 버전 "Signal Storm"으로 푸터 업데이트
+- GitHub Actions 스케줄링을 PM2로 대체
+
+### 제거됨
+
+- `.github/workflows/backlog.yml` - PM2 moss-ao-backlog으로 대체
+- `.github/workflows/orchestrator.yml` - PM2 moss-ao-debate으로 대체
+
+### 기술 세부사항
+
+- API 서버에 Python 3.12 필요
+- 가상환경 설정: `.venv/`
+- 충돌 방지를 위해 서비스 이름에 `moss-ao-` 접두사 사용
+
 ## [0.5.0] - 2026-01-05
 
 ### 추가됨
