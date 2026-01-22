@@ -4,13 +4,13 @@
  * This configuration manages all services:
  * - Signal collector: Fetches signals every 30 minutes
  * - Debate runner: Runs debates every 6 hours
- * - Web interface: Next.js dashboard
- * - API server: FastAPI backend (optional)
+ * - Web interface: Next.js dashboard (port 3000)
+ * - API server: FastAPI backend (port 3001)
  *
  * Usage:
  *   pm2 start ecosystem.config.js
- *   pm2 start ecosystem.config.js --only moss-signals
- *   pm2 logs moss-ao
+ *   pm2 start ecosystem.config.js --only moss-ao-signals
+ *   pm2 logs moss-ao-web
  *   pm2 monit
  */
 
@@ -18,7 +18,7 @@ module.exports = {
   apps: [
     // Signal Collector - Runs every 30 minutes
     {
-      name: 'moss-signals',
+      name: 'moss-ao-signals',
       script: 'python',
       args: '-m agentic_orchestrator.scheduler signal-collect',
       cwd: './src',
@@ -42,7 +42,7 @@ module.exports = {
 
     // Debate Runner - Runs every 6 hours
     {
-      name: 'moss-debate',
+      name: 'moss-ao-debate',
       script: 'python',
       args: '-m agentic_orchestrator.scheduler run-debate',
       cwd: './src',
@@ -68,7 +68,7 @@ module.exports = {
 
     // Backlog Processor - Runs daily at midnight
     {
-      name: 'moss-backlog',
+      name: 'moss-ao-backlog',
       script: 'python',
       args: '-m agentic_orchestrator.scheduler process-backlog',
       cwd: './src',
@@ -88,7 +88,7 @@ module.exports = {
 
     // Web Interface - Next.js Dashboard
     {
-      name: 'moss-web',
+      name: 'moss-ao-web',
       script: 'npm',
       args: 'start',
       cwd: './website',
@@ -109,11 +109,11 @@ module.exports = {
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
     },
 
-    // API Server - FastAPI (Optional)
+    // API Server - FastAPI
     {
-      name: 'moss-api',
+      name: 'moss-ao-api',
       script: 'uvicorn',
-      args: 'agentic_orchestrator.api.main:app --host 0.0.0.0 --port 8000',
+      args: 'agentic_orchestrator.api.main:app --host 0.0.0.0 --port 3001',
       cwd: './src',
       instances: 1,
       autorestart: true,
@@ -130,7 +130,7 @@ module.exports = {
 
     // Health Monitor - Checks system health every 5 minutes
     {
-      name: 'moss-health',
+      name: 'moss-ao-health',
       script: 'python',
       args: '-m agentic_orchestrator.scheduler health-check',
       cwd: './src',
