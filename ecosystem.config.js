@@ -112,8 +112,8 @@ module.exports = {
     // API Server - FastAPI
     {
       name: 'moss-ao-api',
-      script: 'uvicorn',
-      args: 'agentic_orchestrator.api.main:app --host 0.0.0.0 --port 3001',
+      script: '/Users/wooramson/Documents/GitHub/agentic-orchestrator/.venv/bin/python',
+      args: '-m uvicorn agentic_orchestrator.api.main:app --host 0.0.0.0 --port 3001',
       cwd: './src',
       instances: 1,
       autorestart: true,
