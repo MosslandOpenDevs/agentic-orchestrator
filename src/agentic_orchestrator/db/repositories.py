@@ -247,6 +247,29 @@ class IdeaRepository(BaseRepository):
             .all()
         )
 
+    def count_all(self) -> int:
+        """Count all ideas."""
+        return self.session.query(func.count(Idea.id)).scalar() or 0
+
+    def count_recent(self, days: int = 30) -> int:
+        """Count recent ideas."""
+        since = datetime.utcnow() - timedelta(days=days)
+        return (
+            self.session.query(func.count(Idea.id))
+            .filter(Idea.created_at >= since)
+            .scalar() or 0
+        )
+
+    def get_all(self, limit: int = 100, offset: int = 0) -> List[Idea]:
+        """Get all ideas with pagination."""
+        return (
+            self.session.query(Idea)
+            .order_by(desc(Idea.created_at))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
 
 class DebateRepository(BaseRepository):
     """Repository for Debate operations."""
@@ -335,6 +358,53 @@ class DebateRepository(BaseRepository):
         )
         return {agent_id: count for agent_id, count in results}
 
+    def get_all_sessions(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        status: Optional[str] = None,
+        phase: Optional[str] = None,
+    ) -> List[DebateSession]:
+        """Get all debate sessions with optional filters."""
+        query = self.session.query(DebateSession)
+        if status:
+            query = query.filter(DebateSession.status == status)
+        if phase:
+            query = query.filter(DebateSession.phase == phase)
+        return (
+            query.order_by(desc(DebateSession.started_at))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+    def count_sessions(
+        self,
+        status: Optional[str] = None,
+        phase: Optional[str] = None,
+    ) -> int:
+        """Count debate sessions with optional filters."""
+        query = self.session.query(func.count(DebateSession.id))
+        if status:
+            query = query.filter(DebateSession.status == status)
+        if phase:
+            query = query.filter(DebateSession.phase == phase)
+        return query.scalar() or 0
+
+    def update_session(
+        self,
+        session_id: str,
+        **kwargs
+    ) -> Optional[DebateSession]:
+        """Update debate session fields."""
+        debate = self.get_session_by_id(session_id)
+        if debate:
+            for key, value in kwargs.items():
+                if hasattr(debate, key):
+                    setattr(debate, key, value)
+            self.session.flush()
+        return debate
+
 
 class PlanRepository(BaseRepository):
     """Repository for Plan operations."""
@@ -386,6 +456,28 @@ class PlanRepository(BaseRepository):
             plan.updated_at = datetime.utcnow()
             self.session.flush()
         return plan
+
+    def count_all(self) -> int:
+        """Count all plans."""
+        return self.session.query(func.count(Plan.id)).scalar() or 0
+
+    def count_by_status(self, status: str) -> int:
+        """Count plans by status."""
+        return (
+            self.session.query(func.count(Plan.id))
+            .filter(Plan.status == status)
+            .scalar() or 0
+        )
+
+    def get_all(self, limit: int = 100, offset: int = 0) -> List[Plan]:
+        """Get all plans with pagination."""
+        return (
+            self.session.query(Plan)
+            .order_by(desc(Plan.created_at))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
 
 
 class APIUsageRepository(BaseRepository):

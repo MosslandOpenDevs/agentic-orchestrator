@@ -12,11 +12,11 @@ export function Navigation() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const navItems = [
-    { href: '/', label: 'dashboard', cmd: 'home' },
-    { href: '/trends', label: 'trends', cmd: 'signals' },
-    { href: '/backlog', label: 'backlog', cmd: 'tasks' },
-    { href: '/agents', label: 'agents', cmd: 'agents' },
-    { href: '/system', label: 'system', cmd: 'status' },
+    { href: '/', label: 'Dashboard', icon: '⌂' },
+    { href: '/ideas', label: 'Ideas', icon: '💡' },
+    { href: '/debates', label: 'Debates', icon: '💬' },
+    { href: '/agents', label: 'Agents', icon: '🤖' },
+    { href: '/system', label: 'System', icon: '⚙' },
   ];
 
   return (
@@ -43,15 +43,15 @@ export function Navigation() {
                 key={item.href}
                 href={item.href}
                 className={`
-                  relative px-3 py-1.5 text-xs tracking-wide transition-all
+                  relative px-3 py-1.5 text-xs tracking-wide transition-all flex items-center gap-1.5
                   ${isActive
                     ? 'text-[#39ff14] bg-[#39ff14]/10 border border-[#39ff14]/30'
                     : 'text-[#6b7280] hover:text-[#c0c0c0] hover:bg-[#21262d]'
                   }
                 `}
               >
-                <span className="text-[#00ffff] mr-1">$</span>
-                {item.cmd}
+                <span className="text-sm">{item.icon}</span>
+                {item.label}
                 {isActive && (
                   <motion.span
                     layoutId="cursor"
@@ -122,15 +122,15 @@ export function Navigation() {
                   href={item.href}
                   onClick={() => setIsMobileMenuOpen(false)}
                   className={`
-                    block px-3 py-2 text-xs
+                    flex items-center gap-2 px-3 py-2 text-xs
                     ${isActive
                       ? 'text-[#39ff14] bg-[#39ff14]/10'
                       : 'text-[#6b7280]'
                     }
                   `}
                 >
-                  <span className="text-[#00ffff]">$ </span>
-                  {item.cmd}
+                  <span className="text-sm">{item.icon}</span>
+                  {item.label}
                 </Link>
               );
             })}

@@ -140,14 +140,25 @@ def migrate_ideas(data_dir: Path, session) -> int:
         if existing:
             continue
 
+        trend_topic = link.get("trend_topic", f"Idea #{issue_number}")
+
+        # Try to get score from matching trend
+        trend_score = 5.0  # Default neutral score
+        matching_trend = session.query(Trend).filter(
+            Trend.name == trend_topic
+        ).first()
+        if matching_trend:
+            trend_score = matching_trend.score
+
         idea = Idea(
-            title=link.get("trend_topic", f"Idea #{issue_number}"),
-            summary=f"Generated from trend: {link.get('trend_topic', 'Unknown')}",
+            title=trend_topic,
+            summary=f"Generated from trend: {trend_topic}",
             source_type="trend_based",
+            source_trend_id=matching_trend.id if matching_trend else None,
             status="pending",
             github_issue_id=issue_number,
             github_issue_url=f"https://github.com/MosslandOpenDevs/agentic-orchestrator/issues/{issue_number}",
-            score=0.0,
+            score=trend_score,
             created_at=datetime.fromisoformat(link.get("created_at", datetime.utcnow().isoformat()).replace('Z', '')),
         )
         session.add(idea)

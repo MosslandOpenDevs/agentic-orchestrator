@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
 import { I18nProvider } from "@/lib/i18n";
+import { ModalProvider } from "@/components/modals/ModalProvider";
 import { Navigation } from "@/components/Navigation";
 import { Footer } from "@/components/Footer";
 import "./globals.css";
@@ -54,13 +55,15 @@ export default function RootLayout({
       </head>
       <body className={`${jetbrainsMono.variable} font-mono antialiased`}>
         <I18nProvider>
-          <div className="relative min-h-screen bg-[#0a0a0a]">
-            <Navigation />
-            <main className="relative z-10">
-              {children}
-            </main>
-            <Footer />
-          </div>
+          <ModalProvider>
+            <div className="relative min-h-screen bg-[#0a0a0a]">
+              <Navigation />
+              <main className="relative z-10">
+                {children}
+              </main>
+              <Footer />
+            </div>
+          </ModalProvider>
         </I18nProvider>
       </body>
     </html>

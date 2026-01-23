@@ -216,12 +216,14 @@ class Idea(Base):
 
 
 class DebateSession(Base):
-    """Debate session for an idea."""
+    """Debate session for an idea or standalone topic."""
 
     __tablename__ = "debate_sessions"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    idea_id = Column(String(36), ForeignKey("ideas.id"), nullable=False, index=True)
+    idea_id = Column(String(36), ForeignKey("ideas.id"), nullable=True, index=True)  # nullable for standalone debates
+    topic = Column(Text)  # Topic for standalone debates (when no idea_id)
+    context = Column(Text)  # Context/background for the debate
     phase = Column(String(20), nullable=False, index=True)  # divergence, convergence, planning
     round_number = Column(Integer, default=1)
     max_rounds = Column(Integer, default=3)
@@ -229,6 +231,10 @@ class DebateSession(Base):
     participants = Column(JSON)  # List of agent IDs
     summary = Column(Text)
     outcome = Column(String(20))  # selected, rejected, needs_refinement
+    final_plan = Column(Text)  # Final plan content for standalone debates
+    ideas_generated = Column(JSON)  # List of ideas generated during debate
+    total_tokens = Column(Integer, default=0)
+    total_cost = Column(Float, default=0.0)
     extra_metadata = Column("metadata", JSON)
     started_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime)
@@ -242,14 +248,22 @@ class DebateSession(Base):
         return {
             "id": self.id,
             "idea_id": self.idea_id,
+            "topic": self.topic,
+            "context": self.context,
             "phase": self.phase,
             "round_number": self.round_number,
             "max_rounds": self.max_rounds,
             "status": self.status,
             "participants": self.participants or [],
+            "summary": self.summary,
             "outcome": self.outcome,
+            "final_plan": self.final_plan,
+            "ideas_generated": self.ideas_generated or [],
+            "total_tokens": self.total_tokens,
+            "total_cost": self.total_cost,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "message_count": len(self.messages) if self.messages else 0,
         }
 
 

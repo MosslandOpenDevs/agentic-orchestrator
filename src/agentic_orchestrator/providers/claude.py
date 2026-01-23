@@ -474,6 +474,48 @@ class ClaudeProvider(BaseProvider):
             model=model,
         )
 
+    async def generate(
+        self,
+        prompt: str,
+        model: str | None = None,
+        system: str | None = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ) -> dict:
+        """
+        Generate a completion (async interface for router compatibility).
+
+        Args:
+            prompt: The prompt to send.
+            model: Model to use (opus, sonnet).
+            system: System prompt.
+            temperature: Sampling temperature.
+            max_tokens: Maximum tokens to generate.
+
+        Returns:
+            Dict with content, input_tokens, output_tokens.
+        """
+        messages = []
+        if system:
+            messages.append(Message(role="system", content=system))
+        messages.append(Message(role="user", content=prompt))
+
+        # Use the specified model or default
+        target_model = model or self.model
+
+        response = self._make_request(
+            messages=messages,
+            model=target_model,
+            max_tokens=max_tokens,
+        )
+
+        usage = response.usage or {}
+        return {
+            "content": response.content,
+            "input_tokens": usage.get("prompt_tokens", 0),
+            "output_tokens": usage.get("completion_tokens", 0),
+        }
+
     def execute_task(
         self,
         task: str,

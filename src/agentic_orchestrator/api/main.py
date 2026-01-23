@@ -297,16 +297,17 @@ async def get_ideas(
     """Get ideas list with filtering."""
     repo = IdeaRepository(session)
 
+    # Get status counts for summary and total count
+    status_counts = repo.count_by_status()
+
     if status:
         ideas = repo.get_by_status(status, limit=limit + offset)
+        total = status_counts.get(status, 0)
     else:
-        ideas = repo.get_recent(days=30, limit=limit + offset)
+        ideas = repo.get_all(limit=limit, offset=offset)
+        total = repo.count_all()
 
-    total = len(ideas)
-    paginated = ideas[offset:offset + limit]
-
-    # Get status counts for summary
-    status_counts = repo.count_by_status()
+    paginated = ideas if status is None else ideas[offset:offset + limit]
 
     return {
         "ideas": [i.to_dict() for i in paginated],
@@ -354,19 +355,12 @@ async def get_plans(
 
     if status:
         plans = repo.get_by_status(status, limit=limit + offset)
+        total = repo.count_by_status(status)
+        paginated = plans[offset:offset + limit]
     else:
-        # Get all plans ordered by creation date
-        from ..db.models import Plan as PlanModel
-        from sqlalchemy import desc
-        plans = (
-            session.query(PlanModel)
-            .order_by(desc(PlanModel.created_at))
-            .limit(limit + offset)
-            .all()
-        )
-
-    total = len(plans)
-    paginated = plans[offset:offset + limit]
+        plans = repo.get_all(limit=limit, offset=offset)
+        total = repo.count_all()
+        paginated = plans
 
     return {
         "plans": [p.to_dict() for p in paginated],

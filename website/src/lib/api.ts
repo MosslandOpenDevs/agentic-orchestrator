@@ -131,13 +131,20 @@ export interface DebatesResponse {
 
 export interface ApiDebate {
   id: string;
-  idea_id: string;
+  idea_id: string | null;
+  topic: string | null;
+  context: string | null;
   phase: string;
   round_number: number;
   max_rounds: number;
   status: string;
   participants: string[];
+  summary: string | null;
   outcome: string | null;
+  final_plan: string | null;
+  ideas_generated: any[];
+  total_tokens: number;
+  total_cost: number;
   started_at: string | null;
   completed_at: string | null;
   message_count?: number;
@@ -191,19 +198,25 @@ export interface AgentsResponse {
   total: number;
 }
 
-// Generic fetch function with error handling
+// Generic fetch function with error handling and timeout
 async function apiFetch<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<ApiResponse<T>> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+
   try {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         ...options?.headers,
       },
     });
+
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       throw new Error(`API error: ${response.status} ${response.statusText}`);
@@ -212,8 +225,12 @@ async function apiFetch<T>(
     const data = await response.json();
     return { data, error: null, isFromCache: false };
   } catch (error) {
+    clearTimeout(timeoutId);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.warn(`API request failed for ${endpoint}:`, errorMessage);
+    // Only log if not an abort error (timeout)
+    if (error instanceof Error && error.name !== 'AbortError') {
+      console.warn(`API request failed for ${endpoint}:`, errorMessage);
+    }
     return { data: null, error: errorMessage, isFromCache: false };
   }
 }
@@ -373,29 +390,25 @@ export class ApiClient {
 // Helper functions to convert API data to frontend types with mock fallback
 
 export async function fetchSystemStats(): Promise<SystemStats> {
-  const { data, error } = await ApiClient.getStatus();
+  // Use /status endpoint which has accurate counts
+  const [statusRes, trendsRes, rejectedPlansRes] = await Promise.all([
+    ApiClient.getStatus(),
+    ApiClient.getTrends({ limit: 1 }),
+    ApiClient.getPlans({ limit: 1, status: 'rejected' }),
+  ]);
 
-  if (error || !data) {
+  if (statusRes.error || !statusRes.data) {
     console.warn('Using mock stats due to API error');
     return mockStats;
   }
 
-  // Get detailed counts from API
-  const ideasRes = await ApiClient.getIdeas({ limit: 1 });
-  const plansRes = await ApiClient.getPlans({ limit: 1 });
-  const trendsRes = await ApiClient.getTrends({ limit: 1 });
-
-  const totalIdeas = ideasRes.data?.total ?? mockStats.totalIdeas;
-  const totalPlans = plansRes.data?.total ?? mockStats.totalPlans;
+  const stats = statusRes.data.stats;
   const trendsAnalyzed = trendsRes.data?.total ?? mockStats.trendsAnalyzed;
-
-  // Count rejected plans
-  const rejectedPlansRes = await ApiClient.getPlans({ limit: 1, status: 'rejected' });
   const plansRejected = rejectedPlansRes.data?.total ?? 0;
 
   return {
-    totalIdeas,
-    totalPlans,
+    totalIdeas: stats.ideas_generated,
+    totalPlans: stats.plans_created,
     plansRejected,
     inDevelopment: 0,
     trendsAnalyzed,
@@ -434,6 +447,7 @@ export async function fetchTrends(): Promise<Trend[]> {
     articles: t.signal_count,
     summary: t.description || undefined,
     ideaSeeds: t.keywords?.slice(0, 3),
+    analyzedAt: t.analyzed_at || undefined,
   }));
 }
 
@@ -475,32 +489,45 @@ export async function fetchPlans(): Promise<Plan[]> {
 }
 
 export async function fetchPipeline(): Promise<PipelineStage[]> {
-  const ideasRes = await ApiClient.getIdeas({ limit: 1 });
-  const plansRes = await ApiClient.getPlans({ limit: 1 });
+  // Use /status endpoint for accurate counts
+  const [statusRes, debatesRes] = await Promise.all([
+    ApiClient.getStatus(),
+    ApiClient.getDebates({ status: 'active', limit: 1 }),
+  ]);
 
-  if (ideasRes.error || plansRes.error) {
+  if (statusRes.error || !statusRes.data) {
     console.warn('Using mock pipeline due to API error');
     return mockPipeline;
   }
+
+  const stats = statusRes.data.stats;
+  const hasActiveDebate = (debatesRes.data?.total || 0) > 0;
+
+  // Determine status based on actual state
+  // If there are ideas and active debates, ideas are still being processed
+  // If there are plans, show plans as active
+  const ideasStatus = stats.ideas_generated > 0 ? (hasActiveDebate ? 'active' : 'completed') : 'idle';
+  const plansStatus = stats.plans_created > 0 ? 'active' : (stats.ideas_generated > 0 ? 'idle' : 'idle');
+  const devStatus = 'idle'; // No dev tracking yet
 
   return [
     {
       id: 'ideas',
       name: 'Ideas',
-      count: ideasRes.data?.total || 0,
-      status: 'completed',
+      count: stats.ideas_generated,
+      status: ideasStatus,
     },
     {
       id: 'plans',
       name: 'Plans',
-      count: plansRes.data?.total || 0,
-      status: 'active',
+      count: stats.plans_created,
+      status: plansStatus,
     },
     {
       id: 'dev',
       name: 'In Dev',
       count: 0,
-      status: 'idle',
+      status: devStatus,
     },
   ];
 }

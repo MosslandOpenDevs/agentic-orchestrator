@@ -2,11 +2,13 @@
 
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
+import { useModal } from '@/components/modals/useModal';
 import type { Idea } from '@/lib/types';
 
 interface IdeaCardProps {
   idea: Idea;
   index: number;
+  ideaId?: string;
 }
 
 const statusStyles: Record<string, { bg: string; text: string; label: string }> = {
@@ -16,9 +18,19 @@ const statusStyles: Record<string, { bg: string; text: string; label: string }> 
   done: { bg: 'bg-blue-500/20', text: 'text-blue-400', label: 'Done' },
 };
 
-export function IdeaCard({ idea, index }: IdeaCardProps) {
+export function IdeaCard({ idea, index, ideaId }: IdeaCardProps) {
   const { t } = useI18n();
+  const { openModal } = useModal();
   const style = statusStyles[idea.status] || statusStyles.backlog;
+
+  const handleViewDetails = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openModal('idea', {
+      id: ideaId || String(idea.id),
+      title: idea.title,
+    });
+  };
 
   const CardContent = (
     <>
@@ -39,11 +51,20 @@ export function IdeaCard({ idea, index }: IdeaCardProps) {
         </div>
         <div className="flex flex-col items-end gap-1">
           <div className="font-mono text-xs text-zinc-500">{idea.created}</div>
-          {idea.issueUrl && (
-            <span className="text-xs text-zinc-600 group-hover:text-green-400 transition-colors">
-              GitHub →
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleViewDetails}
+              className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
+              title={t('transparency.viewDetails')}
+            >
+              🔍
+            </button>
+            {idea.issueUrl && (
+              <span className="text-xs text-zinc-600 group-hover:text-green-400 transition-colors">
+                GitHub →
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </>

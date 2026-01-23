@@ -17,7 +17,7 @@ from typing import Optional, Dict, Any, List, AsyncIterator
 
 import httpx
 
-from .base import BaseProvider, ProviderError
+from .base import ProviderError
 
 
 def load_throttle_config() -> Dict[str, Any]:
@@ -95,7 +95,7 @@ class OllamaResponse:
         return 0.0
 
 
-class OllamaProvider(BaseProvider):
+class OllamaProvider:
     """
     Ollama Local LLM Provider.
 

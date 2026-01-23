@@ -3,6 +3,7 @@
 import { motion, useMotionValue, useTransform, animate } from 'framer-motion';
 import { useEffect } from 'react';
 import { useI18n } from '@/lib/i18n';
+import { useModal } from '@/components/modals/useModal';
 
 interface StatCardProps {
   label: string;
@@ -10,6 +11,7 @@ interface StatCardProps {
   subValue?: { label: string; value: number };
   color?: 'green' | 'cyan' | 'orange' | 'purple';
   delay?: number;
+  onClick?: () => void;
 }
 
 function AnimatedNumber({ value, delay = 0 }: { value: number; delay?: number }) {
@@ -31,7 +33,7 @@ function AnimatedNumber({ value, delay = 0 }: { value: number; delay?: number })
   return <motion.span>{rounded}</motion.span>;
 }
 
-function StatCard({ label, value, subValue, color = 'green', delay = 0 }: StatCardProps) {
+function StatCard({ label, value, subValue, color = 'green', delay = 0, onClick }: StatCardProps) {
   const colorClasses = {
     green: 'text-[#39ff14] border-[#39ff14]/30',
     cyan: 'text-[#00ffff] border-[#00ffff]/30',
@@ -52,8 +54,9 @@ function StatCard({ label, value, subValue, color = 'green', delay = 0 }: StatCa
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: delay * 0.1 }}
       whileHover={{ y: -2 }}
+      onClick={onClick}
       className={`
-        card-cli p-4 border
+        card-cli p-4 border cursor-pointer
         ${colorClasses[color]}
         ${glowClasses[color]}
         transition-all duration-200
@@ -97,6 +100,18 @@ interface StatsGridProps {
 
 export function StatsGrid({ stats }: StatsGridProps) {
   const { t } = useI18n();
+  const { openModal } = useModal();
+
+  const handleStatClick = (statType: string, label: string, value: number, rejected?: number) => {
+    openModal('stats', {
+      id: `stat-${statType}`,
+      title: label,
+      statType,
+      label,
+      value,
+      rejected,
+    });
+  };
 
   return (
     <div className="space-y-3">
@@ -113,6 +128,7 @@ export function StatsGrid({ stats }: StatsGridProps) {
           value={stats.totalIdeas}
           color="cyan"
           delay={0}
+          onClick={() => handleStatClick('ideas', t('stats.totalIdeas'), stats.totalIdeas)}
         />
         <StatCard
           label={t('stats.plansGenerated')}
@@ -120,18 +136,21 @@ export function StatsGrid({ stats }: StatsGridProps) {
           subValue={stats.plansRejected ? { label: 'rejected', value: stats.plansRejected } : undefined}
           color="green"
           delay={1}
+          onClick={() => handleStatClick('plans', t('stats.plansGenerated'), stats.totalPlans, stats.plansRejected)}
         />
         <StatCard
           label={t('stats.inDevelopment')}
           value={stats.inDevelopment}
           color="orange"
           delay={2}
+          onClick={() => handleStatClick('development', t('stats.inDevelopment'), stats.inDevelopment)}
         />
         <StatCard
           label={t('stats.trendsAnalyzed')}
           value={stats.trendsAnalyzed}
           color="purple"
           delay={3}
+          onClick={() => handleStatClick('trends', t('stats.trendsAnalyzed'), stats.trendsAnalyzed)}
         />
       </div>
     </div>

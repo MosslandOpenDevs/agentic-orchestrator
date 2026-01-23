@@ -71,17 +71,20 @@ async def _run_debate_async(topic: Optional[str] = None):
     logger.info("=" * 60)
 
     start_time = datetime.utcnow()
+    debate_session = None
+    db = None
 
     try:
         # Initialize components
         db = get_database()
-        signal_repo = SignalRepository(db.get_session())
-        debate_repo = DebateRepository(db.get_session())
+        session = db.get_session()
+        signal_repo = SignalRepository(session)
+        debate_repo = DebateRepository(session)
 
         # Get topic from high-relevance signals if not provided
         if not topic:
             logger.info("Selecting topic from recent high-relevance signals...")
-            signals = await signal_repo.get_recent_high_relevance(limit=10)
+            signals = signal_repo.get_recent(limit=10, min_score=0.7)
             if signals:
                 # Create topic from top signals
                 topics = [s.title for s in signals[:3]]
@@ -92,21 +95,67 @@ async def _run_debate_async(topic: Optional[str] = None):
         logger.info(f"Debate topic: {topic}")
 
         # Get context from recent signals
-        context_signals = await signal_repo.get_recent(limit=20)
+        context_signals = signal_repo.get_recent(limit=20)
         context = "\n".join([
             f"- [{s.source}] {s.title}: {s.summary[:200] if s.summary else 'No summary'}"
             for s in context_signals
         ])
 
+        # Create debate session in database BEFORE starting
+        import uuid
+        session_id = str(uuid.uuid4())[:8]
+        debate_session = debate_repo.create_session({
+            'id': session_id,
+            'topic': topic,
+            'context': context,
+            'phase': 'divergence',
+            'round_number': 1,
+            'max_rounds': 3,
+            'status': 'active',
+            'participants': [],
+            'started_at': start_time,
+        })
+        session.commit()
+        logger.info(f"Created debate session: {session_id}")
+
         # Initialize LLM router
         router = HybridLLMRouter()
 
-        # Callback for progress logging
+        # Collect participants during debate
+        all_participants = set()
+
+        # Callback for progress logging and saving messages
         def on_message(msg):
             logger.info(f"[{msg.phase.value}] {msg.agent_name}: {msg.message_type.value}")
+            all_participants.add(msg.agent_name)
+            # Save message to database
+            try:
+                debate_repo.add_message({
+                    'session_id': session_id,
+                    'agent_id': msg.agent_id,
+                    'agent_name': msg.agent_name,
+                    'agent_handle': getattr(msg, 'agent_handle', None),
+                    'message_type': msg.message_type.value,
+                    'content': msg.content if hasattr(msg, 'content') else '',
+                    'token_count': getattr(msg, 'token_count', 0),
+                    'model_used': getattr(msg, 'model', None),
+                })
+            except Exception as e:
+                logger.warning(f"Failed to save message: {e}")
 
         def on_phase_complete(result):
             logger.info(f"Phase {result.phase.value} completed: {result.duration_seconds:.1f}s, ${result.total_cost:.4f}")
+            # Update session phase
+            try:
+                debate_repo.update_session(
+                    session_id,
+                    phase=result.phase.value,
+                    round_number=result.round_number if hasattr(result, 'round_number') else 1,
+                    participants=list(all_participants),
+                )
+                session.commit()
+            except Exception as e:
+                logger.warning(f"Failed to update session phase: {e}")
 
         # Run debate
         logger.info("Starting multi-stage debate...")
@@ -118,9 +167,32 @@ async def _run_debate_async(topic: Optional[str] = None):
             on_phase_complete=on_phase_complete,
         )
 
-        # Store results
-        logger.info("Storing debate results...")
-        await debate_repo.create_from_result(result)
+        # Save final results to database
+        try:
+            ideas_data = [idea.to_dict() for idea in result.all_ideas] if result.all_ideas else []
+            debate_repo.update_session(
+                session_id,
+                status='completed',
+                phase='planning',
+                outcome='completed',
+                final_plan=result.final_plan,
+                ideas_generated=ideas_data,
+                summary=f"Generated {len(result.all_ideas)} ideas, selected {len(result.selected_ideas)}",
+                total_tokens=result.total_tokens,
+                total_cost=result.total_cost,
+                completed_at=datetime.utcnow(),
+                participants=list(all_participants),
+            )
+            session.commit()
+            logger.info(f"Saved debate results to database: {session_id}")
+        except Exception as e:
+            logger.error(f"Failed to save debate results: {e}", exc_info=True)
+
+        # Log results
+        logger.info("Debate results summary:")
+        logger.info(f"  Session ID: {result.session_id}")
+        logger.info(f"  Topic: {result.topic}")
+        logger.info(f"  Final plan length: {len(result.final_plan) if result.final_plan else 0} chars")
 
         duration = (datetime.utcnow() - start_time).total_seconds()
         logger.info(f"Debate completed in {duration:.1f}s")
@@ -135,6 +207,21 @@ async def _run_debate_async(topic: Optional[str] = None):
 
     except Exception as e:
         logger.error(f"Debate execution failed: {e}", exc_info=True)
+        # Mark session as failed if it was created
+        if debate_session and db:
+            try:
+                session = db.get_session()
+                debate_repo = DebateRepository(session)
+                debate_repo.update_session(
+                    debate_session.id,
+                    status='cancelled',
+                    outcome='error',
+                    summary=f"Error: {str(e)}",
+                    completed_at=datetime.utcnow(),
+                )
+                session.commit()
+            except Exception:
+                pass
         raise
 
 
@@ -143,8 +230,8 @@ def run_debate(topic: Optional[str] = None):
     asyncio.run(_run_debate_async(topic))
 
 
-async def _process_backlog_async():
-    """Async implementation of backlog processing."""
+def _process_backlog():
+    """Implementation of backlog processing."""
     from ..db import get_database, IdeaRepository, PlanRepository
 
     logger.info("=" * 60)
@@ -159,22 +246,22 @@ async def _process_backlog_async():
         plan_repo = PlanRepository(db.get_session())
 
         # Get pending ideas
-        pending_ideas = await idea_repo.get_by_status('pending')
+        pending_ideas = idea_repo.get_by_status('pending')
         logger.info(f"Found {len(pending_ideas)} pending ideas")
 
         # Get approved plans awaiting implementation
-        approved_plans = await plan_repo.get_by_status('approved')
+        approved_plans = plan_repo.get_by_status('approved')
         logger.info(f"Found {len(approved_plans)} approved plans")
 
-        # Update stale items
-        stale_count = await idea_repo.mark_stale(days=30)
-        logger.info(f"Marked {stale_count} stale ideas")
+        # Get ideas by status for summary
+        idea_counts = idea_repo.count_by_status()
+        logger.info(f"Idea status summary: {idea_counts}")
 
         # Generate report
         stats = {
             'pending_ideas': len(pending_ideas),
             'approved_plans': len(approved_plans),
-            'stale_items': stale_count,
+            'idea_counts': idea_counts,
         }
 
         duration = (datetime.utcnow() - start_time).total_seconds()
@@ -188,7 +275,7 @@ async def _process_backlog_async():
 
 def process_backlog():
     """Process pending backlog items."""
-    asyncio.run(_process_backlog_async())
+    _process_backlog()
 
 
 async def _health_check_async():
@@ -221,11 +308,15 @@ async def _health_check_async():
         # Check cache
         try:
             cache = get_cache()
-            await cache.set('health_check', 'ok', ttl=60)
-            result = await cache.get('health_check')
+            cache.set('health_check', 'ok', ttl=60)
+            result = cache.get('health_check')
+            cache_health = cache.health_check()
             if result == 'ok':
-                health_status['components']['cache'] = {'status': 'healthy'}
-                logger.info("Cache: healthy")
+                health_status['components']['cache'] = {
+                    'status': 'healthy',
+                    'type': cache_health.get('type', 'unknown'),
+                }
+                logger.info(f"Cache: healthy ({cache_health.get('type', 'unknown')})")
             else:
                 health_status['components']['cache'] = {'status': 'degraded'}
                 logger.warning("Cache: degraded")
@@ -271,7 +362,7 @@ async def _health_check_async():
         # Store health status in cache
         try:
             cache = get_cache()
-            await cache.set('system_health', health_status, ttl=300)
+            cache.set('system_health', health_status, ttl=300)
         except Exception:
             pass
 

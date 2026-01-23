@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { IdeaCard } from '@/components/IdeaCard';
@@ -8,12 +8,20 @@ import { mockIdeas, mockPlans } from '@/data/mock';
 import { fetchIdeas, fetchPlans } from '@/lib/api';
 import type { Idea, Plan } from '@/lib/types';
 
+type SortOption = 'newest' | 'oldest' | 'score-high' | 'score-low';
+
 export default function BacklogPage() {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<'ideas' | 'plans' | 'in-dev'>('ideas');
   const [ideas, setIdeas] = useState<Idea[]>(mockIdeas);
   const [plans, setPlans] = useState<Plan[]>(mockPlans);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Filter states
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [sourceFilter, setSourceFilter] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<SortOption>('newest');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     async function loadData() {
@@ -34,17 +42,69 @@ export default function BacklogPage() {
     loadData();
   }, []);
 
+  // Get unique statuses and sources for filter options
+  const { uniqueStatuses, uniqueSources } = useMemo(() => {
+    const statuses = new Set(ideas.map(i => i.status));
+    const sources = new Set(ideas.map(i => i.source));
+    return {
+      uniqueStatuses: Array.from(statuses).sort(),
+      uniqueSources: Array.from(sources).sort(),
+    };
+  }, [ideas]);
+
   const tabs = [
     { id: 'ideas' as const, label: t('backlog.ideas'), count: ideas.length },
     { id: 'plans' as const, label: t('backlog.plans'), count: plans.length },
     { id: 'in-dev' as const, label: t('backlog.inDevelopment'), count: ideas.filter(i => i.status === 'in-dev').length },
   ];
 
-  const filteredIdeas = activeTab === 'in-dev'
-    ? ideas.filter(i => i.status === 'in-dev')
-    : activeTab === 'plans'
-    ? ideas.filter(i => i.status === 'planned')
-    : ideas;
+  const filteredIdeas = useMemo(() => {
+    let result = ideas;
+
+    // Tab filter
+    if (activeTab === 'in-dev') {
+      result = result.filter(i => i.status === 'in-dev');
+    } else if (activeTab === 'plans') {
+      result = result.filter(i => i.status === 'planned');
+    }
+
+    // Status filter
+    if (statusFilter !== 'all') {
+      result = result.filter(i => i.status === statusFilter);
+    }
+
+    // Source filter
+    if (sourceFilter !== 'all') {
+      result = result.filter(i => i.source === sourceFilter);
+    }
+
+    // Search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(i =>
+        i.title.toLowerCase().includes(query) ||
+        i.status.toLowerCase().includes(query)
+      );
+    }
+
+    // Sorting
+    result = [...result].sort((a, b) => {
+      switch (sortBy) {
+        case 'newest':
+          return (b.created || '').localeCompare(a.created || '');
+        case 'oldest':
+          return (a.created || '').localeCompare(b.created || '');
+        case 'score-high':
+          return (b.id || 0) - (a.id || 0); // Use id as proxy for score
+        case 'score-low':
+          return (a.id || 0) - (b.id || 0);
+        default:
+          return 0;
+      }
+    });
+
+    return result;
+  }, [ideas, activeTab, statusFilter, sourceFilter, sortBy, searchQuery]);
 
   return (
     <div className="min-h-screen bg-zinc-950 pt-14">
@@ -83,6 +143,79 @@ export default function BacklogPage() {
             </button>
           ))}
         </motion.div>
+
+        {/* Filter Section */}
+        {activeTab === 'ideas' && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+            className="mb-6 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4"
+          >
+            <div className="flex flex-wrap items-center gap-4">
+              {/* Search */}
+              <div className="flex-1 min-w-[200px]">
+                <input
+                  type="text"
+                  placeholder="Search ideas..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-white placeholder-zinc-500 focus:border-zinc-600 focus:outline-none"
+                />
+              </div>
+
+              {/* Status Filter */}
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-zinc-500">Status:</label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-white focus:border-zinc-600 focus:outline-none"
+                >
+                  <option value="all">All</option>
+                  {uniqueStatuses.map(status => (
+                    <option key={status} value={status}>{status}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Source Filter */}
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-zinc-500">Source:</label>
+                <select
+                  value={sourceFilter}
+                  onChange={(e) => setSourceFilter(e.target.value)}
+                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-white focus:border-zinc-600 focus:outline-none"
+                >
+                  <option value="all">All</option>
+                  {uniqueSources.map(source => (
+                    <option key={source} value={source}>{source}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Sort */}
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-zinc-500">Sort:</label>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as SortOption)}
+                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-white focus:border-zinc-600 focus:outline-none"
+                >
+                  <option value="newest">Newest First</option>
+                  <option value="oldest">Oldest First</option>
+                  <option value="score-high">ID (High to Low)</option>
+                  <option value="score-low">ID (Low to High)</option>
+                </select>
+              </div>
+
+              {/* Results count */}
+              <div className="text-xs text-zinc-500">
+                Showing {filteredIdeas.length} of {ideas.length}
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         <div className="grid gap-4">
           {isLoading ? (

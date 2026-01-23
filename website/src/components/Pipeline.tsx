@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
+import { useModal } from '@/components/modals/useModal';
 import type { PipelineStage } from '@/lib/types';
 
 interface PipelineProps {
@@ -10,6 +11,18 @@ interface PipelineProps {
 
 export function Pipeline({ stages }: PipelineProps) {
   const { t } = useI18n();
+  const { openModal } = useModal();
+
+  const handleStageClick = (stage: PipelineStage) => {
+    openModal('pipeline', {
+      id: `pipeline-${stage.id}`,
+      title: `${stage.name} Pipeline`,
+      stageId: stage.id,
+      stageName: stage.name,
+      count: stage.count,
+      status: stage.status,
+    });
+  };
 
   const statusColors = {
     active: {
@@ -55,11 +68,13 @@ export function Pipeline({ stages }: PipelineProps) {
                   initial={{ scale: 0.8, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
                   transition={{ delay: index * 0.1 }}
+                  onClick={() => handleStageClick(stage)}
                   className={`
                     relative flex flex-col items-center justify-center
                     w-20 h-20 sm:w-24 sm:h-24
                     border ${colors.border} ${colors.bg}
-                    transition-all duration-300
+                    transition-all duration-300 cursor-pointer
+                    hover:border-[#39ff14]/50
                     ${stage.status === 'active' ? colors.glow : ''}
                   `}
                 >

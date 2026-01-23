@@ -548,8 +548,9 @@ class MultiStageDebate:
 
         system_prompt = f"""당신은 {agent.name}입니다.
 역할: {agent.role}
-전문분야: {agent.expertise}
-{agent.backstory}
+전문분야: {', '.join(agent.expertise)}
+
+{agent.system_prompt_template}
 
 성향: {agent.personality.get_trait_description()}
 
