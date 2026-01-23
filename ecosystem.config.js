@@ -2,8 +2,10 @@
  * PM2 Ecosystem Configuration for Mossland Agentic Orchestrator
  *
  * This configuration manages all services:
- * - Signal collector: Fetches signals every 30 minutes
- * - Debate runner: Runs debates every 6 hours
+ * - Signal collector: Fetches signals every 10 minutes (TEST) / 30 minutes (PROD)
+ * - Trend analyzer: Analyzes trends every 30 minutes (TEST) / 2 hours (PROD)
+ * - Debate runner: Runs debates every 1 hour (TEST) / 6 hours (PROD)
+ * - Backlog processor: Processes every 30 minutes (TEST) / 4 hours (PROD)
  * - Web interface: Next.js dashboard (port 3000)
  * - API server: FastAPI backend (port 3001)
  *
@@ -12,11 +14,45 @@
  *   pm2 start ecosystem.config.js --only moss-ao-signals
  *   pm2 logs moss-ao-web
  *   pm2 monit
+ *
+ * TEST MODE SCHEDULE:
+ *   Signals:  every 10 minutes
+ *   Trends:   every 30 minutes
+ *   Debate:   every 1 hour
+ *   Backlog:  every 30 minutes
+ *
+ * PRODUCTION SCHEDULE:
+ *   Signals:  every 30 minutes
+ *   Trends:   every 2 hours
+ *   Debate:   every 6 hours
+ *   Backlog:  every 4 hours
  */
+
+// Toggle between TEST and PRODUCTION schedules
+const TEST_MODE = true;  // Set to false for production schedules
+
+const SCHEDULES = {
+  test: {
+    signals: '*/10 * * * *',    // Every 10 minutes
+    trends: '*/30 * * * *',     // Every 30 minutes
+    debate: '0 * * * *',        // Every hour
+    backlog: '*/30 * * * *',    // Every 30 minutes
+    health: '*/5 * * * *',      // Every 5 minutes
+  },
+  production: {
+    signals: '*/30 * * * *',    // Every 30 minutes
+    trends: '0 */2 * * *',      // Every 2 hours
+    debate: '0 */6 * * *',      // Every 6 hours
+    backlog: '0 */4 * * *',     // Every 4 hours
+    health: '*/5 * * * *',      // Every 5 minutes
+  },
+};
+
+const schedule = TEST_MODE ? SCHEDULES.test : SCHEDULES.production;
 
 module.exports = {
   apps: [
-    // Signal Collector - Runs every 30 minutes
+    // Signal Collector
     // Note: Uses cron_restart for scheduled execution (runs once, waits for next cron trigger)
     {
       name: 'moss-ao-signals',
@@ -27,7 +63,7 @@ module.exports = {
       autorestart: false,  // Don't auto-restart, wait for cron
       watch: false,
       max_memory_restart: '500M',
-      cron_restart: '*/30 * * * *', // Every 30 minutes
+      cron_restart: schedule.signals,
       env: {
         NODE_ENV: 'production',
         PYTHONPATH: './src',
@@ -37,7 +73,7 @@ module.exports = {
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
     },
 
-    // Trend Analyzer - Runs every 2 hours
+    // Trend Analyzer
     // Analyzes signals to identify trends using local LLM (Ollama)
     {
       name: 'moss-ao-trends',
@@ -48,7 +84,7 @@ module.exports = {
       autorestart: false,  // Don't auto-restart, wait for cron
       watch: false,
       max_memory_restart: '1G',
-      cron_restart: '0 */2 * * *', // Every 2 hours
+      cron_restart: schedule.trends,
       env: {
         NODE_ENV: 'production',
         PYTHONPATH: './src',
@@ -59,7 +95,7 @@ module.exports = {
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
     },
 
-    // Debate Runner - Runs every 6 hours
+    // Debate Runner
     {
       name: 'moss-ao-debate',
       script: '.venv/bin/python',
@@ -69,7 +105,7 @@ module.exports = {
       autorestart: false,  // Don't auto-restart, wait for cron
       watch: false,
       max_memory_restart: '2G',
-      cron_restart: '0 */6 * * *', // Every 6 hours
+      cron_restart: schedule.debate,
       env: {
         NODE_ENV: 'production',
         PYTHONPATH: './src',
@@ -80,7 +116,7 @@ module.exports = {
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
     },
 
-    // Backlog Processor - Runs every 4 hours
+    // Backlog Processor
     // Processes idea queue, generates status reports
     {
       name: 'moss-ao-backlog',
@@ -91,7 +127,7 @@ module.exports = {
       autorestart: false,  // Don't auto-restart, wait for cron
       watch: false,
       max_memory_restart: '1G',
-      cron_restart: '0 */4 * * *', // Every 4 hours
+      cron_restart: schedule.backlog,
       env: {
         NODE_ENV: 'production',
         PYTHONPATH: './src',
@@ -153,7 +189,7 @@ module.exports = {
       autorestart: false,  // Don't auto-restart, wait for cron
       watch: false,
       max_memory_restart: '200M',
-      cron_restart: '*/5 * * * *', // Every 5 minutes
+      cron_restart: schedule.health,
       env: {
         NODE_ENV: 'production',
         PYTHONPATH: './src',
