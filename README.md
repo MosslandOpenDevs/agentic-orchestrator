@@ -87,7 +87,7 @@ Open http://localhost:3000 to view the dashboard.
 
 ```bash
 # Clone and install
-git clone https://github.com/mossland/agentic-orchestrator.git
+git clone https://github.com/MosslandOpenDevs/agentic-orchestrator.git
 cd agentic-orchestrator
 
 # Create Python virtual environment (Python 3.12 required)

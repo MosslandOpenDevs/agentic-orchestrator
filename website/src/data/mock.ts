@@ -81,7 +81,7 @@ export const mockTrends: Trend[] = [
   },
 ];
 
-const GITHUB_REPO = 'https://github.com/mossland/agentic-orchestrator';
+const GITHUB_REPO = 'https://github.com/MosslandOpenDevs/agentic-orchestrator';
 
 export const mockIdeas: Idea[] = [
   { id: 8, title: 'DeFi Protocol Risk Monitor', status: 'backlog', source: 'trend', created: '2026-01-05', issueUrl: `${GITHUB_REPO}/issues/8` },

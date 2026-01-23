@@ -144,7 +144,7 @@ export default function SystemPage() {
           className="mt-8 text-center"
         >
           <a
-            href="https://github.com/mossland/agentic-orchestrator"
+            href="https://github.com/MosslandOpenDevs/agentic-orchestrator"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-300"

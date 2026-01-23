@@ -146,7 +146,7 @@ def migrate_ideas(data_dir: Path, session) -> int:
             source_type="trend_based",
             status="pending",
             github_issue_id=issue_number,
-            github_issue_url=f"https://github.com/mossland/agentic-orchestrator/issues/{issue_number}",
+            github_issue_url=f"https://github.com/MosslandOpenDevs/agentic-orchestrator/issues/{issue_number}",
             score=0.0,
             created_at=datetime.fromisoformat(link.get("created_at", datetime.utcnow().isoformat()).replace('Z', '')),
         )

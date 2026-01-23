@@ -48,9 +48,9 @@ dev = [
 ao = "agentic_orchestrator.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/mossland/agentic-orchestrator"
-Repository = "https://github.com/mossland/agentic-orchestrator"
-Issues = "https://github.com/mossland/agentic-orchestrator/issues"
+Homepage = "https://github.com/MosslandOpenDevs/agentic-orchestrator"
+Repository = "https://github.com/MosslandOpenDevs/agentic-orchestrator"
+Issues = "https://github.com/MosslandOpenDevs/agentic-orchestrator/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

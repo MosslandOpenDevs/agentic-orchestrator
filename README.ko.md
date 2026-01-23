@@ -87,7 +87,7 @@ http://localhost:3000 에서 대시보드를 확인할 수 있습니다.
 
 ```bash
 # 클론 및 설치
-git clone https://github.com/mossland/agentic-orchestrator.git
+git clone https://github.com/MosslandOpenDevs/agentic-orchestrator.git
 cd agentic-orchestrator
 
 # Python 가상환경 생성 (Python 3.12 필요)

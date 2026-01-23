@@ -101,7 +101,7 @@ export function TrendCard({ trend, index }: TrendCardProps) {
 
               <div className="flex gap-2">
                 <a
-                  href="https://github.com/mossland/agentic-orchestrator/tree/main/data/trends"
+                  href="https://github.com/MosslandOpenDevs/agentic-orchestrator/tree/main/data/trends"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:bg-zinc-700"

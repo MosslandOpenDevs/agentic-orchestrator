@@ -226,7 +226,7 @@ export default function Dashboard() {
           className="mt-8 text-center"
         >
           <a
-            href="https://github.com/mossland/agentic-orchestrator"
+            href="https://github.com/MosslandOpenDevs/agentic-orchestrator"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 text-xs text-[#6b7280] hover:text-[#39ff14] transition-colors"
