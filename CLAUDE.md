@@ -148,10 +148,11 @@ pm2 status
 # 주요 프로세스
 moss-ao-web      # Next.js 프론트엔드 (포트 3000) - 상시 실행
 moss-ao-api      # FastAPI 백엔드 (포트 3001) - 상시 실행
-moss-ao-debate   # 토론 스케줄러 (6시간마다, cron)
-moss-ao-signals  # 신호 수집기 (30분마다, cron)
-moss-ao-health   # 헬스체크 (5분마다, cron)
-moss-ao-backlog  # 백로그 처리 (매일 자정, cron)
+moss-ao-signals  # 신호 수집기 (TEST: 10분, PROD: 30분)
+moss-ao-trends   # 트렌드 분석 (TEST: 30분, PROD: 2시간)
+moss-ao-debate   # 토론 스케줄러 (TEST: 1시간, PROD: 6시간)
+moss-ao-backlog  # 백로그 처리 (TEST: 30분, PROD: 4시간)
+moss-ao-health   # 헬스체크 (5분마다)
 
 # 재시작 (환경변수 갱신 포함)
 pm2 restart moss-ao-web --update-env
@@ -167,6 +168,21 @@ pm2 logs moss-ao-debate --lines 100
 # 설정 저장
 pm2 save
 ```
+
+### TEST 모드 설정
+
+`ecosystem.config.js`의 `TEST_MODE`를 `true`로 설정하면 빠른 테스트용 스케줄이 적용됩니다:
+
+| 작업 | TEST | PRODUCTION |
+|------|------|------------|
+| Signals | 10분 | 30분 |
+| Trends | 30분 | 2시간 |
+| Debate | 1시간 | 6시간 |
+| Backlog | 30분 | 4시간 |
+
+토론 에이전트 수도 `config.yaml`의 `debate.test_mode`로 조절됩니다:
+- TEST: 2 에이전트/라운드 (약 7분 소요)
+- PRODUCTION: 8 에이전트/라운드 (약 30분+ 소요)
 
 ## 개발 워크플로우
 
@@ -306,6 +322,31 @@ kill <PID>
 cd website
 npm run build 2>&1 | head -50  # 오류 확인
 # 타입 오류 수정 후 재빌드
+```
+
+### 6. Ollama 타임아웃 오류
+
+**증상:** "Ollama timeout after 300s" 에러 발생
+
+**원인:** 여러 에이전트가 동시에 Ollama 요청, 쓰로틀링 큐 대기 중 타임아웃
+
+**해결:**
+- `config.yaml`의 `throttling.ollama` 설정 조정:
+  - `request_timeout: 600` (600초로 증가)
+  - `requests_before_cooling: 10` (쿨링 전 더 많은 요청 허용)
+  - `cooling_period_seconds: 60` (쿨링 시간 단축)
+- `config.yaml`의 `debate.test_mode: true`로 에이전트 수 감소
+- 사용 중인 Ollama 모델 확인: `curl http://localhost:11434/api/ps`
+
+### 7. Ollama 모델 VRAM 메모리 부족
+
+**증상:** 응답이 매우 느리거나 멈춤
+
+**해결:**
+```bash
+# 사용하지 않는 모델 언로드
+curl -s http://localhost:11434/api/generate -d '{"model": "phi4:14b", "keep_alive": 0}'
+curl -s http://localhost:11434/api/generate -d '{"model": "qwen2.5:32b", "keep_alive": 0}'
 ```
 
 ## 아이디어 생성 파이프라인

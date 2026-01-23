@@ -100,15 +100,29 @@ RSS 피드 → 트렌드 분석 → Claude로 아이디어 생성 → GitHub Iss
 ```
 토픽 입력 → 3단계 토론 → 아이디어 리스트 생성
           │
-          ├─ Divergence (16 에이전트): 다양한 아이디어 생성
-          ├─ Convergence (8 에이전트): 평가/병합/필터링
-          └─ Planning (10 에이전트): 실행 계획 작성
+          ├─ Divergence: 다양한 아이디어 생성
+          ├─ Convergence: 평가/병합/필터링
+          └─ Planning: 실행 계획 작성
 ```
 
-- **스케줄**: PM2 6시간마다
-- **LLM**: Ollama (로컬) + Claude (API)
+- **스케줄**: PM2 (TEST: 1시간마다, PROD: 6시간마다)
+- **LLM**: Ollama (로컬) - qwen2.5:14b, llama3.2:3b
 - **출력**: `Idea` 객체 리스트
-- **특징**: 34명의 다양한 페르소나가 토론
+- **특징**: 다양한 페르소나가 토론
+
+#### TEST 모드 vs PRODUCTION 모드
+
+| 설정 | TEST 모드 | PRODUCTION 모드 |
+|------|-----------|-----------------|
+| Divergence 에이전트/라운드 | 2 | 8 |
+| Divergence 라운드 | 2 | 3 |
+| Convergence 에이전트/라운드 | 2 | 4 |
+| Convergence 라운드 | 1 | 2 |
+| Planning 에이전트/라운드 | 2 | 5 |
+| Planning 라운드 | 1 | 2 |
+| **예상 시간** | ~7분 | ~30분+ |
+
+`config.yaml`의 `debate.test_mode`로 전환 (기본값: `true`)
 
 ### 4. Auto-Scoring System (자동 점수화)
 
@@ -162,6 +176,20 @@ Auto-Scorer는 4가지 차원으로 아이디어를 평가합니다:
 | 4.0 미만 | `archived` | 아카이브, `archived` 라벨 |
 
 ## 스케줄링
+
+`ecosystem.config.js`의 `TEST_MODE`로 TEST/PRODUCTION 스케줄 전환
+
+### TEST 모드 (빠른 테스트용)
+
+| 작업 | 주기 | Cron | 설명 |
+|------|------|------|------|
+| Signal Collection | 10분마다 | `*/10 * * * *` | RSS/API에서 신호 수집 |
+| Trend Analysis | 30분마다 | `*/30 * * * *` | 신호 분석 → 트렌드 생성 |
+| Debate | 1시간마다 | `0 * * * *` | 트렌드 기반 토론 → 아이디어 생성 |
+| Backlog | 30분마다 | `*/30 * * * *` | 상태 집계/리포트 |
+| Health Check | 5분마다 | `*/5 * * * *` | 시스템 상태 확인 |
+
+### PRODUCTION 모드
 
 | 작업 | 주기 | Cron | 설명 |
 |------|------|------|------|

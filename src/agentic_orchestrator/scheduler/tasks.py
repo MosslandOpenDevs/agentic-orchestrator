@@ -458,6 +458,39 @@ def _generate_debate_topic_from_trend(trend) -> tuple[str, str]:
     return topic, context
 
 
+def _load_debate_config():
+    """Load debate configuration from config.yaml."""
+    from ..debate.protocol import DebateProtocolConfig
+    import yaml
+    from pathlib import Path
+
+    config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+            debate_config = config.get("debate", {})
+            test_mode = debate_config.get("test_mode", False)
+
+            if test_mode:
+                logger.info("Using TEST MODE debate configuration (reduced agents)")
+                settings = debate_config.get("test", {})
+            else:
+                logger.info("Using NORMAL debate configuration")
+                settings = debate_config.get("normal", {})
+
+            return DebateProtocolConfig(
+                divergence_rounds=settings.get("divergence_rounds", 3),
+                divergence_agents_per_round=settings.get("divergence_agents_per_round", 8),
+                convergence_rounds=settings.get("convergence_rounds", 2),
+                convergence_agents_per_round=settings.get("convergence_agents_per_round", 4),
+                planning_rounds=settings.get("planning_rounds", 2),
+                planning_agents_per_round=settings.get("planning_agents_per_round", 5),
+            )
+    except Exception as e:
+        logger.warning(f"Failed to load debate config, using defaults: {e}")
+        return DebateProtocolConfig()
+
+
 async def _run_debate_async(topic: Optional[str] = None):
     """Async implementation of debate execution."""
     from ..llm import HybridLLMRouter
@@ -468,6 +501,11 @@ async def _run_debate_async(topic: Optional[str] = None):
     logger.info("=" * 60)
     logger.info("Starting multi-stage debate cycle")
     logger.info("=" * 60)
+
+    # Load debate configuration
+    debate_config = _load_debate_config()
+    logger.info(f"Debate config: {debate_config.divergence_agents_per_round} divergence agents/round, "
+                f"{debate_config.divergence_rounds} rounds")
 
     start_time = datetime.utcnow()
     debate_session = None
@@ -579,6 +617,7 @@ async def _run_debate_async(topic: Optional[str] = None):
             router=router,
             topic=topic,
             context=context,
+            config=debate_config,
             on_message=on_message,
             on_phase_complete=on_phase_complete,
         )

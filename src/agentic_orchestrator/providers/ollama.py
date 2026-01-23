@@ -244,7 +244,7 @@ class OllamaProvider:
                 )
 
         except httpx.TimeoutException:
-            raise ProviderError(f"Ollama timeout after {self.config.timeout}s")
+            raise ProviderError(f"Ollama timeout after {timeout}s")
         except httpx.HTTPStatusError as e:
             raise ProviderError(f"Ollama HTTP error: {e.response.status_code}")
         except Exception as e:

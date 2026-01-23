@@ -142,20 +142,21 @@ class LLMHierarchy:
     }
 
     # Task to model mapping
+    # Note: For test mode, smaller models are prioritized for faster execution
     TASK_MODEL_MAP: Dict[str, List[str]] = {
-        # Divergence phase - use local models
-        "idea_generation": ["phi4:14b", "qwen2.5:14b"],
-        "brainstorming": ["phi4:14b", "qwen2.5:14b"],
-        "discussion": ["phi4:14b", "qwen2.5:14b"],
+        # Divergence phase - use fast local models (prioritize speed for testing)
+        "idea_generation": ["qwen2.5:14b", "llama3.2:3b"],
+        "brainstorming": ["qwen2.5:14b", "llama3.2:3b"],
+        "discussion": ["qwen2.5:14b", "llama3.2:3b"],
 
-        # Convergence phase - use better local models
-        "evaluation": ["qwen2.5:32b"],
-        "scoring": ["qwen2.5:32b"],
+        # Convergence phase - use medium local models (with fast fallback)
+        "evaluation": ["qwen2.5:14b", "llama3.2:3b"],
+        "scoring": ["qwen2.5:14b", "llama3.2:3b"],
         "filtering": ["llama3.2:3b"],
 
-        # Moderation - use best local model
-        "moderation": ["llama3.3:70b"],
-        "final_decision": ["llama3.3:70b"],
+        # Moderation - use medium model (70b is too slow)
+        "moderation": ["qwen2.5:32b", "qwen2.5:14b"],
+        "final_decision": ["qwen2.5:32b", "qwen2.5:14b"],
 
         # Fast tasks - use smallest model
         "summary": ["llama3.2:3b"],
@@ -163,13 +164,13 @@ class LLMHierarchy:
         "translation": ["qwen2.5:14b"],
 
         # Trend analysis - use good local models
-        "trend_analysis": ["qwen2.5:32b", "phi4:14b"],
+        "trend_analysis": ["qwen2.5:14b", "llama3.2:3b"],
 
-        # Critical outputs - use API models
-        "final_plan": ["claude-opus-4-5", "llama3.3:70b"],  # Fallback to local
-        "quality_check": ["claude-opus-4-5", "qwen2.5:32b"],
-        "technical_review": ["gpt-5.2", "qwen2.5:32b"],
-        "public_output": ["claude-opus-4-5", "llama3.3:70b"],
+        # Critical outputs - use API models (with local fallback)
+        "final_plan": ["claude-opus-4-5", "qwen2.5:32b"],  # Fallback to local
+        "quality_check": ["claude-opus-4-5", "qwen2.5:14b"],
+        "technical_review": ["gpt-5.2", "qwen2.5:14b"],
+        "public_output": ["claude-opus-4-5", "qwen2.5:32b"],
     }
 
     def __init__(self):

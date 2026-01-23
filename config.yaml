@@ -52,21 +52,23 @@ limits:
 throttling:
   # Global settings
   enabled: true
+  # Test mode: Less aggressive throttling for faster testing
+  test_mode: true
 
-  # Local LLM (Ollama) specific - Very aggressive throttling for cooling
+  # Local LLM (Ollama) specific - Production settings
   ollama:
-    # Minimum seconds between requests (increased for better cooling)
-    min_request_interval: 15
+    # Minimum seconds between requests
+    min_request_interval: 5
     # Maximum concurrent requests (1 = sequential only)
     max_concurrent_requests: 1
-    # Cooling period after N requests (seconds) - longer cooling
-    cooling_period_seconds: 120
-    # Number of requests before cooling (reduced)
-    requests_before_cooling: 3
-    # Request timeout (seconds)
-    request_timeout: 180
+    # Cooling period after N requests (seconds)
+    cooling_period_seconds: 60
+    # Number of requests before cooling
+    requests_before_cooling: 10
+    # Request timeout (seconds) - increased for queued requests
+    request_timeout: 600
     # Batch delay between multiple generations
-    batch_delay_seconds: 30
+    batch_delay_seconds: 10
 
   # Cloud API throttling (cost-conscious limits)
   cloud:
@@ -87,6 +89,29 @@ budget:
   warning_threshold: 0.7
   # Critical alert at this percentage (prefer local models)
   critical_threshold: 0.9
+
+# Debate Configuration
+debate:
+  # Test mode: Reduced agents for faster testing
+  test_mode: true
+
+  # Normal mode settings (when test_mode: false)
+  normal:
+    divergence_agents_per_round: 8
+    convergence_agents_per_round: 4
+    planning_agents_per_round: 5
+    divergence_rounds: 3
+    convergence_rounds: 2
+    planning_rounds: 2
+
+  # Test mode settings (when test_mode: true)
+  test:
+    divergence_agents_per_round: 2
+    convergence_agents_per_round: 2
+    planning_agents_per_round: 2
+    divergence_rounds: 2
+    convergence_rounds: 1
+    planning_rounds: 1
 
 # Quality Thresholds
 quality:
