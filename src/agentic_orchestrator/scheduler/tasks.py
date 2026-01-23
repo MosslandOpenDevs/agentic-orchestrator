@@ -59,6 +59,59 @@ def signal_collect():
     asyncio.run(_signal_collect_async())
 
 
+def _generate_debate_topic(signals: list) -> str:
+    """Generate a focused debate topic from signal themes.
+
+    Analyzes signal titles and sources to create a specific, readable topic.
+    """
+    if not signals:
+        return "Mossland 생태계의 다음 분기 전략 방향"
+
+    # Category keywords for topic generation
+    category_themes = {
+        'defi': ('DeFi', ['tvl', 'yield', 'liquidity', 'swap', 'lending', 'aave', 'uniswap', 'compound', 'curve']),
+        'nft': ('NFT/메타버스', ['nft', 'metaverse', 'opensea', 'blur', 'collection', 'mint']),
+        'market': ('시장 동향', ['price', 'bitcoin', 'btc', 'eth', 'market', 'trading', 'volume']),
+        'regulation': ('규제/정책', ['regulation', 'sec', 'law', 'policy', 'government', 'ban']),
+        'gaming': ('게임/P2E', ['game', 'gaming', 'play', 'p2e', 'earn']),
+        'ai': ('AI/기술', ['ai', 'artificial', 'machine', 'learning', 'gpt', 'llm']),
+        'dao': ('DAO/거버넌스', ['dao', 'governance', 'vote', 'proposal', 'treasury']),
+    }
+
+    # Collect all text for analysis
+    all_text = ' '.join([s.title.lower() for s in signals if s.title])
+
+    # Find dominant theme
+    theme_scores = {}
+    for theme_key, (theme_name, keywords) in category_themes.items():
+        score = sum(1 for kw in keywords if kw in all_text)
+        if score > 0:
+            theme_scores[theme_key] = (theme_name, score)
+
+    # Get top theme
+    if theme_scores:
+        top_theme = max(theme_scores.items(), key=lambda x: x[1][1])
+        theme_name = top_theme[1][0]
+
+        # Extract key entity from highest scored signal
+        top_signal = signals[0]
+        # Extract first meaningful phrase (before ':' or '-')
+        title_parts = top_signal.title.replace(':', ' - ').split(' - ')
+        key_entity = title_parts[0].strip()[:50] if title_parts else ''
+
+        if key_entity:
+            return f"[{theme_name}] {key_entity} - Mossland 전략적 대응 방안"
+        else:
+            return f"[{theme_name}] 최근 동향 분석과 Mossland 전략"
+
+    # Fallback: use top signal's source and title
+    top_signal = signals[0]
+    source = top_signal.source.upper() if hasattr(top_signal, 'source') and top_signal.source else 'MARKET'
+    title_short = top_signal.title[:40] if top_signal.title else '시장 동향'
+
+    return f"[{source}] {title_short} - Mossland 대응 전략"
+
+
 async def _run_debate_async(topic: Optional[str] = None):
     """Async implementation of debate execution."""
     from ..llm import HybridLLMRouter
@@ -86,9 +139,8 @@ async def _run_debate_async(topic: Optional[str] = None):
             logger.info("Selecting topic from recent high-relevance signals...")
             signals = signal_repo.get_recent(limit=10, min_score=0.7)
             if signals:
-                # Create topic from top signals
-                topics = [s.title for s in signals[:3]]
-                topic = f"Mossland 생태계 전략 토론: {', '.join(topics)}"
+                # Generate a focused topic from signal themes
+                topic = _generate_debate_topic(signals[:5])
             else:
                 topic = "Mossland 생태계의 다음 분기 전략 방향"
 

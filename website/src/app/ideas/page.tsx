@@ -162,6 +162,16 @@ export default function IdeasPage() {
                           </div>
                           <div className="text-[10px] text-[#6b7280] mt-1">
                             {trend.signal_count} signals
+                            {trend.analyzed_at && (
+                              <span className="ml-2">
+                                | {new Date(trend.analyzed_at).toLocaleDateString('ko-KR', {
+                                  month: '2-digit',
+                                  day: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -188,6 +198,16 @@ export default function IdeasPage() {
                           </div>
                           <div className="text-[10px] text-[#6b7280] mt-1">
                             {idea.source_type} | Score: {idea.score.toFixed(1)}
+                            {idea.created_at && (
+                              <span className="ml-2">
+                                | {new Date(idea.created_at).toLocaleDateString('ko-KR', {
+                                  month: '2-digit',
+                                  day: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -231,6 +251,17 @@ export default function IdeasPage() {
                         <div className="text-right">
                           <div className="text-sm font-bold text-[#00ffff]">{trend.signal_count}</div>
                           <div className="text-[10px] text-[#6b7280]">signals</div>
+                          {trend.analyzed_at && (
+                            <div className="text-[10px] text-[#6b7280] mt-1">
+                              {new Date(trend.analyzed_at).toLocaleDateString('ko-KR', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </motion.div>
@@ -266,6 +297,17 @@ export default function IdeasPage() {
                           </div>
                           <h3 className="text-sm font-medium text-[#c0c0c0]">{idea.title}</h3>
                           <p className="text-xs text-[#6b7280] mt-1 line-clamp-2">{idea.summary}</p>
+                          {idea.created_at && (
+                            <div className="text-[10px] text-[#6b7280] mt-2">
+                              {new Date(idea.created_at).toLocaleDateString('ko-KR', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </div>
+                          )}
                         </div>
                         {idea.github_issue_url && (
                           <a
@@ -312,9 +354,17 @@ export default function IdeasPage() {
                             </TerminalBadge>
                           </div>
                           <h3 className="text-sm font-medium text-[#c0c0c0]">{plan.title}</h3>
-                          <div className="text-[10px] text-[#6b7280] mt-1">
-                            Created: {plan.created_at?.split('T')[0] || 'N/A'}
-                          </div>
+                          {plan.created_at && (
+                            <div className="text-[10px] text-[#6b7280] mt-1">
+                              {new Date(plan.created_at).toLocaleDateString('ko-KR', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </div>
+                          )}
                         </div>
                         {plan.github_issue_url && (
                           <a
