@@ -79,6 +79,42 @@ class SignalStorage:
             deleted = repo.delete_older_than(days)
             return deleted
 
+    async def store_batch(self, signals_data: List[Dict[str, Any]]) -> int:
+        """Store multiple signals in database.
+
+        Args:
+            signals_data: List of signal dictionaries
+
+        Returns:
+            Number of signals stored
+        """
+        stored = 0
+        with db.session() as session:
+            repo = SignalRepository(session)
+            for data in signals_data:
+                try:
+                    # Ensure required fields
+                    if not data.get("source") or not data.get("title"):
+                        continue
+
+                    repo.create({
+                        "source": data.get("source", "unknown"),
+                        "category": data.get("category", "other"),
+                        "title": data.get("title", ""),
+                        "summary": data.get("summary"),
+                        "url": data.get("url"),
+                        "score": data.get("score", 0.0),
+                        "sentiment": data.get("sentiment"),
+                        "topics": data.get("topics", []),
+                        "entities": data.get("entities", []),
+                        "raw_data": data.get("raw_data"),
+                    })
+                    stored += 1
+                except Exception:
+                    continue
+
+        return stored
+
     def backup_signals(
         self,
         hours: int = 24,

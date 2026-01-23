@@ -21,16 +21,7 @@ logger = logging.getLogger(__name__)
 
 async def _signal_collect_async():
     """Async implementation of signal collection."""
-    from ..adapters import (
-        RSSAdapter,
-        GitHubEventsAdapter,
-        OnChainAdapter,
-        SocialMediaAdapter,
-        NewsAPIAdapter,
-    )
-    from ..signals import SignalAggregator, SignalScorer, SignalStorage
-    from ..db import get_database, SignalRepository
-    from ..cache import get_cache
+    from ..signals import SignalAggregator, SignalStorage
 
     logger.info("=" * 60)
     logger.info("Starting signal collection cycle")
@@ -39,49 +30,24 @@ async def _signal_collect_async():
     start_time = datetime.utcnow()
 
     try:
-        # Initialize components
-        db = get_database()
-        cache = get_cache()
-        repo = SignalRepository(db.get_session())
+        # Initialize aggregator (uses default adapters internally)
+        aggregator = SignalAggregator()
+        storage = SignalStorage()
 
-        # Initialize adapters
-        adapters = [
-            RSSAdapter(),
-            GitHubEventsAdapter(),
-            OnChainAdapter(),
-            SocialMediaAdapter(),
-            NewsAPIAdapter(),
-        ]
-
-        # Create aggregator
-        aggregator = SignalAggregator(adapters=adapters)
-        scorer = SignalScorer()
-        storage = SignalStorage(repo, cache)
-
-        # Fetch signals
+        # Fetch and score signals from all adapters
+        # Note: collect_all() handles fetching, scoring, and saving to DB
         logger.info("Fetching signals from all adapters...")
-        signals = await aggregator.fetch_all()
-        logger.info(f"Fetched {len(signals)} raw signals")
-
-        # Score signals
-        logger.info("Scoring signals for Mossland relevance...")
-        scored_signals = scorer.score_batch(signals)
-        high_relevance = [s for s in scored_signals if s.get('score', 0) >= 7.0]
-        logger.info(f"Found {len(high_relevance)} high-relevance signals")
-
-        # Store signals
-        logger.info("Storing signals in database...")
-        stored_count = await storage.store_batch(scored_signals)
-        logger.info(f"Stored {stored_count} new signals")
+        signals = await aggregator.collect_all(save_to_db=True, deduplicate=True)
+        logger.info(f"Collected {len(signals)} signals")
 
         # Cleanup old signals
         logger.info("Cleaning up old signals...")
-        deleted_count = await storage.cleanup_old_signals(days=30)
+        deleted_count = storage.cleanup_old_signals(days=30)
         logger.info(f"Deleted {deleted_count} old signals")
 
         duration = (datetime.utcnow() - start_time).total_seconds()
         logger.info(f"Signal collection completed in {duration:.1f}s")
-        logger.info(f"Summary: {len(signals)} fetched, {stored_count} stored, {deleted_count} deleted")
+        logger.info(f"Summary: {len(signals)} collected, {deleted_count} old signals deleted")
 
     except Exception as e:
         logger.error(f"Signal collection failed: {e}", exc_info=True)
