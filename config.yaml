@@ -48,6 +48,35 @@ limits:
     delay_seconds: 10
     lock_timeout_seconds: 300
 
+# LLM Throttling Configuration (Prevents Local LLM Overheating)
+throttling:
+  # Global settings
+  enabled: true
+
+  # Local LLM (Ollama) specific - Aggressive throttling for cooling
+  ollama:
+    # Minimum seconds between requests
+    min_request_interval: 5
+    # Maximum concurrent requests (1 = sequential only)
+    max_concurrent_requests: 1
+    # Cooling period after N requests (seconds)
+    cooling_period_seconds: 30
+    # Number of requests before cooling
+    requests_before_cooling: 5
+    # Request timeout (seconds)
+    request_timeout: 120
+    # Batch delay between multiple generations
+    batch_delay_seconds: 10
+
+  # Cloud API throttling (lighter limits)
+  cloud:
+    # Minimum seconds between requests
+    min_request_interval: 1
+    # Maximum concurrent requests
+    max_concurrent_requests: 3
+    # Request timeout (seconds)
+    request_timeout: 60
+
 # Quality Thresholds
 quality:
   # Minimum review score to pass (1-10 scale)

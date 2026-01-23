@@ -168,6 +168,19 @@ class TrendRepository(BaseRepository):
             .all()
         )
 
+    def get_all(self, limit: int = 100) -> List[Trend]:
+        """Get all trends regardless of period."""
+        return (
+            self.session.query(Trend)
+            .order_by(desc(Trend.analyzed_at), desc(Trend.score))
+            .limit(limit)
+            .all()
+        )
+
+    def count_all(self) -> int:
+        """Get total count of all trends."""
+        return self.session.query(func.count(Trend.id)).scalar() or 0
+
 
 class IdeaRepository(BaseRepository):
     """Repository for Idea operations."""

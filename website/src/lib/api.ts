@@ -254,7 +254,7 @@ export class ApiClient {
   static async getTrends(params?: {
     limit?: number;
     offset?: number;
-    period?: '24h' | '7d' | '30d';
+    period?: 'all' | '24h' | '7d' | '30d';
     category?: string;
   }): Promise<ApiResponse<TrendsResponse>> {
     const searchParams = new URLSearchParams();
@@ -380,19 +380,25 @@ export async function fetchSystemStats(): Promise<SystemStats> {
     return mockStats;
   }
 
-  // Try to get ideas/plans counts
+  // Get detailed counts from API
   const ideasRes = await ApiClient.getIdeas({ limit: 1 });
   const plansRes = await ApiClient.getPlans({ limit: 1 });
+  const trendsRes = await ApiClient.getTrends({ limit: 1 });
 
   const totalIdeas = ideasRes.data?.total ?? mockStats.totalIdeas;
   const totalPlans = plansRes.data?.total ?? mockStats.totalPlans;
+  const trendsAnalyzed = trendsRes.data?.total ?? mockStats.trendsAnalyzed;
+
+  // Count rejected plans
+  const rejectedPlansRes = await ApiClient.getPlans({ limit: 1, status: 'rejected' });
+  const plansRejected = rejectedPlansRes.data?.total ?? 0;
 
   return {
     totalIdeas,
     totalPlans,
-    plansRejected: 0, // Would need status filter
+    plansRejected,
     inDevelopment: 0,
-    trendsAnalyzed: data.stats.signals_today,
+    trendsAnalyzed,
     lastRun: new Date().toISOString(),
     nextRun: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
   };

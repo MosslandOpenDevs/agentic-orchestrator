@@ -2,18 +2,56 @@
 Ollama Local LLM provider.
 
 Provides interface to Ollama for running local LLMs.
+Includes throttling and cooling support to prevent overheating.
 """
 
 import asyncio
 import json
 import os
-from dataclasses import dataclass
+import time
+import yaml
+from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Dict, Any, List, AsyncIterator
 
 import httpx
 
 from .base import BaseProvider, ProviderError
+
+
+def load_throttle_config() -> Dict[str, Any]:
+    """Load throttling configuration from config.yaml."""
+    config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
+    default_config = {
+        "min_request_interval": 5,
+        "max_concurrent_requests": 1,
+        "cooling_period_seconds": 30,
+        "requests_before_cooling": 5,
+        "request_timeout": 120,
+        "batch_delay_seconds": 10,
+    }
+
+    try:
+        if config_path.exists():
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+                throttle = config.get("throttling", {}).get("ollama", {})
+                return {**default_config, **throttle}
+    except Exception:
+        pass
+
+    return default_config
+
+
+@dataclass
+class ThrottleState:
+    """State for request throttling."""
+    request_count: int = 0
+    last_request_time: float = 0.0
+    is_cooling: bool = False
+    cooling_until: float = 0.0
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 @dataclass
@@ -23,6 +61,8 @@ class OllamaConfig:
     default_model: str = "qwen2.5:14b"
     timeout: int = 300  # 5 minutes for large models
     max_retries: int = 3
+    # Throttling settings (loaded from config.yaml)
+    throttle: Dict[str, Any] = field(default_factory=load_throttle_config)
 
 
 @dataclass
@@ -92,6 +132,47 @@ class OllamaProvider(BaseProvider):
         )
         self._available_models: List[str] = []
         self._last_health_check: Optional[datetime] = None
+        self._throttle_state = ThrottleState()
+        self._throttle_enabled = os.getenv("OLLAMA_THROTTLE", "true").lower() == "true"
+
+    async def _wait_for_throttle(self) -> None:
+        """Wait for throttling conditions to be met."""
+        if not self._throttle_enabled:
+            return
+
+        throttle_config = self.config.throttle
+        state = self._throttle_state
+
+        async with state._lock:
+            now = time.time()
+
+            # Check if we're in cooling period
+            if state.is_cooling and now < state.cooling_until:
+                wait_time = state.cooling_until - now
+                print(f"[Ollama] Cooling period: waiting {wait_time:.1f}s for GPU to cool down...")
+                await asyncio.sleep(wait_time)
+                state.is_cooling = False
+                state.request_count = 0
+
+            # Enforce minimum interval between requests
+            min_interval = throttle_config.get("min_request_interval", 5)
+            elapsed = now - state.last_request_time
+            if elapsed < min_interval and state.last_request_time > 0:
+                wait_time = min_interval - elapsed
+                print(f"[Ollama] Throttling: waiting {wait_time:.1f}s before next request...")
+                await asyncio.sleep(wait_time)
+
+            # Update state
+            state.last_request_time = time.time()
+            state.request_count += 1
+
+            # Check if cooling period is needed
+            requests_before_cooling = throttle_config.get("requests_before_cooling", 5)
+            if state.request_count >= requests_before_cooling:
+                cooling_seconds = throttle_config.get("cooling_period_seconds", 30)
+                state.is_cooling = True
+                state.cooling_until = time.time() + cooling_seconds
+                print(f"[Ollama] Scheduling cooling period after {requests_before_cooling} requests ({cooling_seconds}s)")
 
     @property
     def name(self) -> str:
@@ -121,6 +202,9 @@ class OllamaProvider(BaseProvider):
         Returns:
             OllamaResponse with generated text
         """
+        # Wait for throttle/cooling period
+        await self._wait_for_throttle()
+
         model = model or self.config.default_model
 
         payload = {
@@ -138,8 +222,10 @@ class OllamaProvider(BaseProvider):
         if max_tokens:
             payload["options"]["num_predict"] = max_tokens
 
+        timeout = self.config.throttle.get("request_timeout", self.config.timeout)
+
         try:
-            async with httpx.AsyncClient(timeout=self.config.timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(
                     f"{self.config.base_url}/api/generate",
                     json=payload
@@ -234,6 +320,9 @@ class OllamaProvider(BaseProvider):
         Returns:
             OllamaResponse with generated text
         """
+        # Wait for throttle/cooling period
+        await self._wait_for_throttle()
+
         model = model or self.config.default_model
 
         # Add system message if provided
@@ -251,8 +340,10 @@ class OllamaProvider(BaseProvider):
             }
         }
 
+        timeout = self.config.throttle.get("request_timeout", self.config.timeout)
+
         try:
-            async with httpx.AsyncClient(timeout=self.config.timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(
                     f"{self.config.base_url}/api/chat",
                     json=payload
@@ -310,12 +401,21 @@ class OllamaProvider(BaseProvider):
             models = await self.get_available_models()
             self._last_health_check = datetime.utcnow()
 
+            state = self._throttle_state
+            throttle_status = {
+                "enabled": self._throttle_enabled,
+                "request_count": state.request_count,
+                "is_cooling": state.is_cooling,
+                "config": self.config.throttle,
+            }
+
             return {
                 "status": "healthy",
                 "base_url": self.config.base_url,
                 "available_models": models,
                 "default_model": self.config.default_model,
                 "last_check": self._last_health_check.isoformat(),
+                "throttle": throttle_status,
             }
 
         except Exception as e:

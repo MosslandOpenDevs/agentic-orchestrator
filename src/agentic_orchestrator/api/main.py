@@ -256,9 +256,9 @@ async def get_debate_detail(
 
 @app.get("/trends")
 async def get_trends(
-    limit: int = Query(default=10, le=50),
+    limit: int = Query(default=10, le=100),
     offset: int = Query(default=0, ge=0),
-    period: Optional[str] = Query(default="24h", regex="^(24h|7d|30d)$"),
+    period: Optional[str] = Query(default="all", pattern="^(all|24h|7d|30d)$"),
     category: Optional[str] = None,
     session: Session = Depends(get_session),
 ):
@@ -267,11 +267,15 @@ async def get_trends(
 
     if category:
         trends = repo.get_by_category(category, limit=limit + offset)
+        total = len(trends)
+    elif period == "all":
+        trends = repo.get_all(limit=limit + offset)
+        total = repo.count_all()
     else:
         trends = repo.get_latest(period=period, limit=limit + offset)
+        total = len(trends)
 
     # Apply offset
-    total = len(trends)
     paginated = trends[offset:offset + limit]
 
     return {

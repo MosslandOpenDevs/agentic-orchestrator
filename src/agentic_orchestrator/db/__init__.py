@@ -5,7 +5,10 @@ Provides SQLAlchemy models, connection management, and repositories
 for long-term data persistence.
 """
 
-from .connection import Database, db
+from .connection import Database, db, init_database, get_db
+
+# Aliases for backward compatibility
+get_database = get_db
 from .models import (
     Base,
     Signal,
@@ -32,6 +35,9 @@ __all__ = [
     # Connection
     "Database",
     "db",
+    "init_database",
+    "get_db",
+    "get_database",
     # Models
     "Base",
     "Signal",

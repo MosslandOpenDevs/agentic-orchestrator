@@ -17,22 +17,19 @@
 module.exports = {
   apps: [
     // Signal Collector - Runs every 30 minutes
+    // Note: Uses cron_restart for scheduled execution (runs once, waits for next cron trigger)
     {
       name: 'moss-ao-signals',
-      script: 'python',
+      script: '.venv/bin/python',
       args: '-m agentic_orchestrator.scheduler signal-collect',
-      cwd: './src',
+      cwd: __dirname,
       instances: 1,
-      autorestart: true,
+      autorestart: false,  // Don't auto-restart, wait for cron
       watch: false,
       max_memory_restart: '500M',
       cron_restart: '*/30 * * * *', // Every 30 minutes
       env: {
         NODE_ENV: 'production',
-        PYTHONPATH: './src',
-      },
-      env_development: {
-        NODE_ENV: 'development',
         PYTHONPATH: './src',
       },
       error_file: './logs/signals-error.log',
@@ -43,21 +40,16 @@ module.exports = {
     // Debate Runner - Runs every 6 hours
     {
       name: 'moss-ao-debate',
-      script: 'python',
+      script: '.venv/bin/python',
       args: '-m agentic_orchestrator.scheduler run-debate',
-      cwd: './src',
+      cwd: __dirname,
       instances: 1,
-      autorestart: true,
+      autorestart: false,  // Don't auto-restart, wait for cron
       watch: false,
       max_memory_restart: '2G',
       cron_restart: '0 */6 * * *', // Every 6 hours
       env: {
         NODE_ENV: 'production',
-        PYTHONPATH: './src',
-        OLLAMA_HOST: 'http://localhost:11434',
-      },
-      env_development: {
-        NODE_ENV: 'development',
         PYTHONPATH: './src',
         OLLAMA_HOST: 'http://localhost:11434',
       },
@@ -69,11 +61,11 @@ module.exports = {
     // Backlog Processor - Runs daily at midnight
     {
       name: 'moss-ao-backlog',
-      script: 'python',
+      script: '.venv/bin/python',
       args: '-m agentic_orchestrator.scheduler process-backlog',
-      cwd: './src',
+      cwd: __dirname,
       instances: 1,
-      autorestart: true,
+      autorestart: false,  // Don't auto-restart, wait for cron
       watch: false,
       max_memory_restart: '1G',
       cron_restart: '0 0 * * *', // Daily at midnight
@@ -109,14 +101,14 @@ module.exports = {
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
     },
 
-    // API Server - FastAPI
+    // API Server - FastAPI (long-running service)
     {
       name: 'moss-ao-api',
-      script: '/Users/wooramson/Documents/GitHub/agentic-orchestrator/.venv/bin/python',
+      script: '.venv/bin/python',
       args: '-m uvicorn agentic_orchestrator.api.main:app --host 0.0.0.0 --port 3001',
-      cwd: './src',
+      cwd: __dirname,
       instances: 1,
-      autorestart: true,
+      autorestart: true,  // Keep running
       watch: false,
       max_memory_restart: '500M',
       env: {
@@ -131,11 +123,11 @@ module.exports = {
     // Health Monitor - Checks system health every 5 minutes
     {
       name: 'moss-ao-health',
-      script: 'python',
+      script: '.venv/bin/python',
       args: '-m agentic_orchestrator.scheduler health-check',
-      cwd: './src',
+      cwd: __dirname,
       instances: 1,
-      autorestart: true,
+      autorestart: false,  // Don't auto-restart, wait for cron
       watch: false,
       max_memory_restart: '200M',
       cron_restart: '*/5 * * * *', // Every 5 minutes
