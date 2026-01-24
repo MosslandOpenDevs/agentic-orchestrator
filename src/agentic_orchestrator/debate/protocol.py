@@ -340,6 +340,39 @@ class DebateProtocol:
 
 당신의 전문성이 드러나는 깊이 있는 분석과 제안을 해주세요.
 라운드 {round_num}의 발언입니다.
+
+---
+
+### 📝 출력 형식 (아래 JSON 구조를 반드시 사용하세요)
+
+```json
+{{
+  "idea_title": "30자 이상의 구체적인 제목 (기술명, 프로젝트명, 수치 포함 필수)",
+  "core_analysis": "현재 시장/기술 상황 분석 (100자 이상)",
+  "opportunity_risk": {{
+    "opportunities": "기회 요인 (100자 이상, 정량적 데이터 포함)",
+    "risks": "리스크 요인 (50자 이상)",
+    "differentiators": "경쟁 서비스 대비 차별점"
+  }},
+  "proposal": {{
+    "description": "구체적 제안 설명 (200자 이상)",
+    "core_features": ["핵심 기능 1", "핵심 기능 2", "핵심 기능 3"],
+    "tech_stack": ["React/Next.js", "Python/FastAPI", "Solidity"],
+    "mvp_scope": "MVP 범위 정의"
+  }},
+  "roadmap": {{
+    "week1": "1주차 계획",
+    "week2": "2주차 계획",
+    "resources": "필요 리소스 (개발자 수, 예상 비용)"
+  }},
+  "kpis": [
+    {{"metric": "DAU", "target": "500명", "measurement": "Analytics 대시보드"}},
+    {{"metric": "거래량", "target": "$10,000/일", "measurement": "On-chain 데이터"}}
+  ]
+}}
+```
+
+⚠️ **중요**: 위 JSON 형식을 정확히 따라야 합니다. 형식이 맞지 않으면 아이디어가 저장되지 않습니다.
 """
 
     def create_convergence_prompt(

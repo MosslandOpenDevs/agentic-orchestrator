@@ -24,8 +24,10 @@ class OnChainAdapter(BaseAdapter):
     OnChain data adapter.
 
     Fetches blockchain data from various sources:
-    - DefiLlama (TVL data)
+    - DefiLlama (TVL data, DEX volume)
     - Etherscan (Ethereum activity)
+    - Whale Alert (large transactions)
+    - DEX aggregators (volume, liquidity)
     - Public RPC endpoints
     """
 
@@ -53,19 +55,55 @@ class OnChainAdapter(BaseAdapter):
         "solana",
     ]
 
+    # DEXes to track for volume
+    TRACKED_DEXES: List[str] = [
+        "uniswap",
+        "curve",
+        "pancakeswap",
+        "sushiswap",
+        "balancer",
+        "trader-joe",
+        "camelot",
+        "velodrome",
+        "aerodrome",
+    ]
+
+    # Tokens to track for whale movements (symbol: address)
+    TRACKED_TOKENS: Dict[str, str] = {
+        "ETH": "ethereum",
+        "BTC": "bitcoin",
+        "USDT": "tether",
+        "USDC": "usd-coin",
+        "LINK": "chainlink",
+        "UNI": "uniswap",
+        "AAVE": "aave",
+    }
+
+    # Minimum transaction values for whale alerts (in USD)
+    WHALE_THRESHOLDS: Dict[str, int] = {
+        "ETH": 1_000_000,
+        "BTC": 1_000_000,
+        "USDT": 5_000_000,
+        "USDC": 5_000_000,
+        "default": 500_000,
+    }
+
     def __init__(
         self,
         config: Optional[AdapterConfig] = None,
         etherscan_api_key: Optional[str] = None,
         alchemy_api_key: Optional[str] = None,
+        whale_alert_api_key: Optional[str] = None,
     ):
         super().__init__(config or AdapterConfig(timeout=60))
         self.etherscan_api_key = etherscan_api_key or os.getenv("ETHERSCAN_API_KEY")
         self.alchemy_api_key = alchemy_api_key or os.getenv("ALCHEMY_API_KEY")
+        self.whale_alert_api_key = whale_alert_api_key or os.getenv("WHALE_ALERT_API_KEY")
 
         # API endpoints
         self.defillama_api = "https://api.llama.fi"
         self.etherscan_api = "https://api.etherscan.io/api"
+        self.whale_alert_api = "https://api.whale-alert.io/v1"
 
     @property
     def name(self) -> str:
@@ -82,6 +120,9 @@ class OnChainAdapter(BaseAdapter):
             self._fetch_defi_tvl(),
             self._fetch_chain_stats(),
             self._fetch_protocol_updates(),
+            self._fetch_dex_volume(),
+            self._fetch_whale_transactions(),
+            self._fetch_stablecoin_flows(),
         ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -103,6 +144,8 @@ class OnChainAdapter(BaseAdapter):
             metadata={
                 "protocols_tracked": len(self.TRACKED_PROTOCOLS),
                 "chains_tracked": len(self.TRACKED_CHAINS),
+                "dexes_tracked": len(self.TRACKED_DEXES),
+                "has_whale_alert": bool(self.whale_alert_api_key),
             }
         )
 
@@ -236,6 +279,241 @@ class OnChainAdapter(BaseAdapter):
 
         return signals
 
+    async def _fetch_dex_volume(self) -> List[SignalData]:
+        """Fetch DEX volume data from DefiLlama."""
+        signals: List[SignalData] = []
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                # Get DEX overview
+                response = await client.get(f"{self.defillama_api}/overview/dexs")
+                response.raise_for_status()
+                data = response.json()
+
+                protocols = data.get("protocols", [])
+
+                for protocol in protocols:
+                    name = protocol.get("name", "").lower()
+                    slug = protocol.get("slug", "").lower()
+
+                    if slug not in self.TRACKED_DEXES:
+                        continue
+
+                    volume_24h = protocol.get("total24h", 0)
+                    volume_7d = protocol.get("total7d", 0)
+                    change_1d = protocol.get("change_1d", 0)
+                    change_7d = protocol.get("change_7d", 0)
+
+                    # Only report significant volume or changes
+                    if volume_24h > 50_000_000 or abs(change_1d or 0) > 20:
+                        direction = "increased" if (change_1d or 0) > 0 else "decreased"
+
+                        signal = SignalData(
+                            source=self.name,
+                            category="crypto",
+                            title=f"DEX Volume: {protocol.get('name')} {direction} {abs(change_1d or 0):.1f}% (${volume_24h/1e6:.1f}M)",
+                            summary=f"24h volume: ${volume_24h/1e6:.1f}M, 7d volume: ${volume_7d/1e6:.1f}M, 24h change: {change_1d:.1f}%",
+                            url=f"https://defillama.com/dex/{slug}",
+                            raw_data={
+                                "type": "dex_volume",
+                                "dex": protocol.get("name"),
+                                "slug": slug,
+                                "volume_24h": volume_24h,
+                                "volume_7d": volume_7d,
+                                "change_1d": change_1d,
+                                "change_7d": change_7d,
+                                "chains": protocol.get("chains", []),
+                            },
+                            metadata={"subtype": "dex_volume"}
+                        )
+                        signals.append(signal)
+
+        except Exception as e:
+            print(f"Error fetching DEX volume: {e}")
+
+        return signals
+
+    async def _fetch_whale_transactions(self) -> List[SignalData]:
+        """Fetch large transactions from Whale Alert API."""
+        signals: List[SignalData] = []
+
+        if not self.whale_alert_api_key:
+            # Fallback: Use public blockchain explorers
+            return await self._fetch_whale_from_explorers()
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                # Get recent transactions
+                response = await client.get(
+                    f"{self.whale_alert_api}/transactions",
+                    params={
+                        "api_key": self.whale_alert_api_key,
+                        "min_value": 500000,  # Minimum $500K
+                        "limit": 20,
+                    }
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    transactions = data.get("transactions", [])
+
+                    for tx in transactions:
+                        amount_usd = tx.get("amount_usd", 0)
+                        symbol = tx.get("symbol", "").upper()
+                        from_owner = tx.get("from", {}).get("owner_type", "unknown")
+                        to_owner = tx.get("to", {}).get("owner_type", "unknown")
+
+                        # Determine if this is exchange flow
+                        flow_type = self._determine_flow_type(from_owner, to_owner)
+
+                        signal = SignalData(
+                            source=self.name,
+                            category="crypto",
+                            title=f"🐋 Whale Alert: {tx.get('amount', 0):,.0f} {symbol} (${amount_usd/1e6:.1f}M) - {flow_type}",
+                            summary=f"From: {from_owner} → To: {to_owner}. Hash: {tx.get('hash', '')[:16]}...",
+                            url=f"https://whale-alert.io/transaction/{tx.get('blockchain')}/{tx.get('hash')}",
+                            raw_data={
+                                "type": "whale_transaction",
+                                "blockchain": tx.get("blockchain"),
+                                "symbol": symbol,
+                                "amount": tx.get("amount"),
+                                "amount_usd": amount_usd,
+                                "from_owner": from_owner,
+                                "to_owner": to_owner,
+                                "hash": tx.get("hash"),
+                                "timestamp": tx.get("timestamp"),
+                            },
+                            metadata={
+                                "subtype": "whale",
+                                "flow_type": flow_type,
+                            }
+                        )
+                        signals.append(signal)
+
+        except Exception as e:
+            print(f"Error fetching whale transactions: {e}")
+
+        return signals
+
+    async def _fetch_whale_from_explorers(self) -> List[SignalData]:
+        """Fallback: Fetch whale transactions from public explorers."""
+        signals: List[SignalData] = []
+
+        if not self.etherscan_api_key:
+            return signals
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                # Get large ETH transactions (internal transactions)
+                response = await client.get(
+                    self.etherscan_api,
+                    params={
+                        "module": "account",
+                        "action": "txlist",
+                        "address": "0x0000000000000000000000000000000000000000",  # Placeholder
+                        "sort": "desc",
+                        "apikey": self.etherscan_api_key,
+                    }
+                )
+
+                # Note: This is a simplified version. Real implementation would
+                # track specific whale addresses or use a service that aggregates this.
+
+        except Exception as e:
+            print(f"Error fetching from explorers: {e}")
+
+        return signals
+
+    def _determine_flow_type(self, from_owner: str, to_owner: str) -> str:
+        """Determine the type of token flow."""
+        from_is_exchange = from_owner in ["exchange", "binance", "coinbase", "kraken", "ftx", "okx"]
+        to_is_exchange = to_owner in ["exchange", "binance", "coinbase", "kraken", "ftx", "okx"]
+
+        if from_is_exchange and not to_is_exchange:
+            return "Exchange Outflow (Bullish)"
+        elif not from_is_exchange and to_is_exchange:
+            return "Exchange Inflow (Bearish)"
+        elif from_is_exchange and to_is_exchange:
+            return "Inter-Exchange Transfer"
+        else:
+            return "Whale Transfer"
+
+    async def _fetch_stablecoin_flows(self) -> List[SignalData]:
+        """Fetch stablecoin supply and flow data."""
+        signals: List[SignalData] = []
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                # Get stablecoin market cap data
+                response = await client.get(f"{self.defillama_api}/stablecoins")
+                response.raise_for_status()
+                data = response.json()
+
+                stablecoins = data.get("peggedAssets", [])[:10]  # Top 10
+
+                for stable in stablecoins:
+                    name = stable.get("name", "")
+                    symbol = stable.get("symbol", "")
+                    circulating = stable.get("circulating", {})
+                    total_circulating = circulating.get("peggedUSD", 0)
+
+                    # Get price data to detect depegs
+                    price = stable.get("price", 1.0)
+
+                    # Alert on significant depeg (>1%)
+                    if abs(price - 1.0) > 0.01:
+                        depeg_pct = (price - 1.0) * 100
+                        direction = "above" if depeg_pct > 0 else "below"
+
+                        signal = SignalData(
+                            source=self.name,
+                            category="crypto",
+                            title=f"⚠️ Stablecoin Alert: {symbol} trading {abs(depeg_pct):.2f}% {direction} peg (${price:.4f})",
+                            summary=f"{name} ({symbol}) circulating: ${total_circulating/1e9:.2f}B. Current price: ${price:.4f}",
+                            url=f"https://defillama.com/stablecoin/{stable.get('gecko_id', '')}",
+                            raw_data={
+                                "type": "stablecoin_depeg",
+                                "name": name,
+                                "symbol": symbol,
+                                "price": price,
+                                "depeg_pct": depeg_pct,
+                                "circulating": total_circulating,
+                            },
+                            metadata={"subtype": "stablecoin_alert"}
+                        )
+                        signals.append(signal)
+
+                # Get stablecoin chain distribution for significant changes
+                chains_response = await client.get(f"{self.defillama_api}/stablecoins/chains")
+                if chains_response.status_code == 200:
+                    chains_data = chains_response.json()
+
+                    for chain_data in chains_data[:5]:  # Top 5 chains
+                        chain_name = chain_data.get("name", "")
+                        total_usd = chain_data.get("totalCirculatingUSD", {}).get("peggedUSD", 0)
+
+                        # Report major stablecoin concentrations
+                        if total_usd > 10_000_000_000:  # >$10B
+                            signal = SignalData(
+                                source=self.name,
+                                category="crypto",
+                                title=f"Stablecoin Liquidity: ${total_usd/1e9:.1f}B on {chain_name}",
+                                summary=f"Total stablecoin supply on {chain_name} chain",
+                                url=f"https://defillama.com/stablecoins/{chain_name}",
+                                raw_data={
+                                    "type": "stablecoin_chain",
+                                    "chain": chain_name,
+                                    "total_usd": total_usd,
+                                },
+                                metadata={"subtype": "stablecoin_liquidity"}
+                            )
+                            signals.append(signal)
+
+        except Exception as e:
+            print(f"Error fetching stablecoin data: {e}")
+
+        return signals
+
     async def _fetch_gas_prices(self) -> List[SignalData]:
         """Fetch current gas prices (if Etherscan API key available)."""
         signals: List[SignalData] = []
@@ -298,7 +576,21 @@ class OnChainAdapter(BaseAdapter):
         except Exception as e:
             base_health["defillama_status"] = f"error: {e}"
 
+        # Check Whale Alert API
+        if self.whale_alert_api_key:
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    response = await client.get(
+                        f"{self.whale_alert_api}/status",
+                        params={"api_key": self.whale_alert_api_key}
+                    )
+                    base_health["whale_alert_status"] = "connected" if response.status_code == 200 else "error"
+            except Exception as e:
+                base_health["whale_alert_status"] = f"error: {e}"
+
         base_health["etherscan_api_key"] = bool(self.etherscan_api_key)
         base_health["alchemy_api_key"] = bool(self.alchemy_api_key)
+        base_health["whale_alert_api_key"] = bool(self.whale_alert_api_key)
+        base_health["tracked_dexes"] = len(self.TRACKED_DEXES)
 
         return base_health

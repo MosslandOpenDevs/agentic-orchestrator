@@ -14,6 +14,10 @@ from ..adapters.github_events import GitHubEventsAdapter
 from ..adapters.onchain import OnChainAdapter
 from ..adapters.social import SocialMediaAdapter
 from ..adapters.news import NewsAPIAdapter
+from ..adapters.twitter import TwitterAdapter
+from ..adapters.discord import DiscordAdapter
+from ..adapters.lens import LensAdapter
+from ..adapters.farcaster import FarcasterAdapter
 from ..db.connection import db
 from ..db.models import Signal
 from ..db.repositories import SignalRepository
@@ -45,11 +49,17 @@ class SignalAggregator:
     def _default_adapters(self) -> List[BaseAdapter]:
         """Create default adapters."""
         return [
+            # Core adapters
             RSSAdapter(),
             GitHubEventsAdapter(),
-            OnChainAdapter(),
-            SocialMediaAdapter(),
+            OnChainAdapter(),  # Now includes DEX volume and whale alerts
+            SocialMediaAdapter(),  # Reddit + basic Twitter
             NewsAPIAdapter(),
+            # Web3 social adapters (new in v0.5.0)
+            TwitterAdapter(),  # Enhanced Twitter/X with Nitter pool
+            DiscordAdapter(),  # Discord announcements
+            LensAdapter(),  # Lens Protocol
+            FarcasterAdapter(),  # Farcaster/Warpcast
         ]
 
     async def collect_all(

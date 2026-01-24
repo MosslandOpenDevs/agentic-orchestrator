@@ -763,6 +763,147 @@ class MultiStageDebate:
             logger.error(f"Planning review agent {agent.id} failed: {e}")
             raise
 
+    def _validate_idea_content(self, content: str) -> tuple[bool, list[str]]:
+        """
+        Validate idea content against quality requirements.
+
+        Checks for:
+        - Required sections presence
+        - Minimum character counts per section
+        - JSON structure if present
+
+        Returns:
+            (is_valid, list of validation errors)
+        """
+        import json
+        import re
+
+        errors = []
+
+        # Try to extract JSON content first
+        json_match = re.search(r'```json\s*([\s\S]*?)\s*```', content)
+        if json_match:
+            try:
+                idea_json = json.loads(json_match.group(1))
+
+                # Validate JSON structure
+                required_fields = ['idea_title', 'core_analysis', 'proposal']
+                for field in required_fields:
+                    if field not in idea_json:
+                        errors.append(f"JSON 필드 '{field}' 누락")
+
+                # Validate title length
+                title = idea_json.get('idea_title', '')
+                if len(title) < 30:
+                    errors.append(f"제목이 너무 짧음 ({len(title)}자 < 30자)")
+
+                # Validate core_analysis length
+                core = idea_json.get('core_analysis', '')
+                if len(core) < 100:
+                    errors.append(f"핵심 분석이 너무 짧음 ({len(core)}자 < 100자)")
+
+                # Validate proposal description
+                proposal = idea_json.get('proposal', {})
+                if isinstance(proposal, dict):
+                    desc = proposal.get('description', '')
+                    if len(desc) < 150:
+                        errors.append(f"제안 설명이 너무 짧음 ({len(desc)}자 < 150자)")
+
+                    features = proposal.get('core_features', [])
+                    if len(features) < 3:
+                        errors.append(f"핵심 기능이 부족함 ({len(features)}개 < 3개)")
+
+                return len(errors) == 0, errors
+
+            except json.JSONDecodeError:
+                # JSON parsing failed, fall through to text validation
+                pass
+
+        # Text-based validation (fallback)
+        required_sections = [
+            ("핵심 분석", 80),
+            ("기회", 80),
+            ("제안", 120),
+            ("로드맵", 60),
+        ]
+
+        for section_name, min_chars in required_sections:
+            # Look for section header patterns
+            patterns = [
+                rf'\*\*{section_name}\*\*[:\s]*([\s\S]*?)(?=\n\*\*|\n##|\n\d+\.|$)',
+                rf'##\s*{section_name}[:\s]*([\s\S]*?)(?=\n##|\n\*\*|\n\d+\.|$)',
+                rf'\d+\.\s*{section_name}[:\s]*([\s\S]*?)(?=\n\d+\.|\n##|\n\*\*|$)',
+            ]
+
+            found = False
+            for pattern in patterns:
+                match = re.search(pattern, content, re.IGNORECASE)
+                if match:
+                    section_content = match.group(1).strip()
+                    if len(section_content) >= min_chars:
+                        found = True
+                        break
+                    else:
+                        errors.append(f"'{section_name}' 섹션이 너무 짧음 ({len(section_content)}자 < {min_chars}자)")
+                        found = True
+                        break
+
+            if not found and section_name not in content:
+                errors.append(f"'{section_name}' 섹션 누락")
+
+        return len(errors) == 0, errors
+
+    def _score_title_quality(self, title: str) -> float:
+        """
+        Score title quality on a scale of 0-10.
+
+        Scoring criteria:
+        - Length (30-80 chars optimal): up to 3 points
+        - Contains tech keywords: up to 3 points
+        - Contains numbers/metrics: up to 2 points
+        - Mossland relevance: up to 2 points
+
+        Returns:
+            Quality score (0.0 - 10.0)
+        """
+        import re
+
+        score = 0.0
+
+        # Length score (30-80 characters optimal)
+        title_len = len(title)
+        if 30 <= title_len <= 80:
+            score += 3.0
+        elif title_len > 80:
+            score += 2.0
+        elif title_len >= 20:
+            score += 1.0
+
+        # Tech keywords score
+        tech_keywords = [
+            'AI', 'DeFi', 'NFT', 'DAO', 'Web3', 'GPT', 'LLM', 'SDK', 'API',
+            'DEX', 'CEX', 'AMM', 'TVL', 'APY', 'APR', 'L2', 'ZK', 'EVM',
+            'Solidity', 'React', 'Python', 'TypeScript', 'Rust',
+            'Uniswap', 'Aave', 'OpenAI', 'Claude', 'Anthropic',
+            '블록체인', '메타버스', '스마트컨트랙트', '토큰', '지갑',
+            '에이전트', '자동화', '분석', '트래킹', '대시보드', '플랫폼'
+        ]
+        tech_matches = sum(1 for kw in tech_keywords if kw.lower() in title.lower())
+        score += min(tech_matches * 1.0, 3.0)
+
+        # Numbers/metrics score
+        if re.search(r'\d+', title):
+            score += 1.0
+        if re.search(r'%|\$|USD|KRW|ETH|BTC', title, re.IGNORECASE):
+            score += 1.0
+
+        # Mossland relevance score
+        mossland_keywords = ['mossland', 'moc', 'moss', '모스', '모스랜드', 'ar', 'metaverse', '메타버스']
+        if any(kw in title.lower() for kw in mossland_keywords):
+            score += 2.0
+
+        return min(score, 10.0)
+
     def _extract_idea_from_response(
         self,
         content: str,
@@ -775,8 +916,52 @@ class MultiStageDebate:
         - Minimum 30 characters for specificity
         - Must not be a generic section header
         - Should contain specific keywords (tech names, project names, numbers)
+
+        Supports both JSON and text formats.
         """
         import re
+        import json
+
+        # First, try to extract from JSON format
+        json_match = re.search(r'```json\s*([\s\S]*?)\s*```', content)
+        if json_match:
+            try:
+                idea_json = json.loads(json_match.group(1))
+                title = idea_json.get('idea_title', '')
+
+                # Validate JSON-based idea
+                is_valid, errors = self._validate_idea_content(content)
+                if not is_valid:
+                    logger.warning(f"Idea validation failed for {agent.name}: {errors}")
+                    # Continue anyway but log the issues
+
+                # Score title quality
+                title_score = self._score_title_quality(title)
+                logger.info(f"Title quality score for '{title[:50]}...': {title_score}/10")
+
+                if len(title) >= 30 and title_score >= 4.0:
+                    return Idea(
+                        id=f"idea-{self.session_id}-{round_num}-{agent.id}",
+                        title=title[:200],
+                        content=content,
+                        agent_id=agent.id,
+                        agent_name=agent.name,
+                        round_num=round_num,
+                        metadata={
+                            "format": "json",
+                            "title_score": title_score,
+                            "validation_errors": errors if not is_valid else [],
+                            "proposal": idea_json.get('proposal', {}),
+                            "kpis": idea_json.get('kpis', []),
+                        }
+                    )
+                else:
+                    logger.warning(f"Title too short or low quality: '{title}' (score: {title_score})")
+
+            except json.JSONDecodeError as e:
+                logger.debug(f"JSON parsing failed, falling back to text extraction: {e}")
+
+        # Fallback to text-based extraction
         lines = content.strip().split("\n")
 
         # Generic section headers to skip (expanded list)
@@ -900,6 +1085,15 @@ class MultiStageDebate:
             if len(title) < 30:
                 title = f"{agent.name}의 Mossland 생태계 혁신 아이디어 - {agent.role} 전문가 제안"
 
+        # Validate content and score title
+        is_valid, validation_errors = self._validate_idea_content(content)
+        title_score = self._score_title_quality(title)
+
+        if not is_valid:
+            logger.warning(f"Text-based idea validation issues for {agent.name}: {validation_errors}")
+
+        logger.info(f"Title quality score (text): '{title[:50]}...': {title_score}/10")
+
         return Idea(
             id=f"idea-{self.session_id}-{round_num}-{agent.id}",
             title=title[:200],  # Allow longer titles (up to 200 chars)
@@ -907,6 +1101,11 @@ class MultiStageDebate:
             agent_id=agent.id,
             agent_name=agent.name,
             round_num=round_num,
+            metadata={
+                "format": "text",
+                "title_score": title_score,
+                "validation_errors": validation_errors if not is_valid else [],
+            }
         )
 
     def _extract_scores_from_response(
