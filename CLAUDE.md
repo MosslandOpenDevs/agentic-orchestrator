@@ -60,6 +60,10 @@ agentic-orchestrator/
 │   ├── scheduler/               # PM2 스케줄 작업
 │   │   ├── __main__.py          # CLI 엔트리포인트
 │   │   └── tasks.py             # 작업 구현 (signal, debate, backlog)
+│   ├── translation/             # 양방향 번역 모듈
+│   │   └── translator.py        # ContentTranslator (EN↔KO)
+│   ├── scripts/                 # 유틸리티 스크립트
+│   │   └── migrate_bilingual.py # 기존 데이터 번역 마이그레이션
 │   └── signals/                 # 신호 수집기
 │       ├── aggregator.py        # 신호 수집 조율
 │       └── adapters/            # 시그널 어댑터 (10개)
@@ -152,18 +156,19 @@ agentic-orchestrator/
 
 | 테이블 | 설명 | 주요 컬럼 |
 |--------|------|-----------|
-| `signals` | 수집된 신호 | source, category, title, score, sentiment |
-| `trends` | 분석된 트렌드 | name, score, period, keywords |
-| `ideas` | 생성된 아이디어 | title, summary, status, score |
+| `signals` | 수집된 신호 | source, category, title, title_ko, score, sentiment |
+| `trends` | 분석된 트렌드 | name, name_ko, description, description_ko, score |
+| `ideas` | 생성된 아이디어 | title, title_ko, summary, summary_ko, status, score |
 | `debate_sessions` | 토론 세션 | topic, phase, status, participants |
-| `debate_messages` | 토론 메시지 | agent_id, agent_name, message_type, content |
-| `plans` | 기획 문서 | title, status, prd_content, final_plan |
+| `debate_messages` | 토론 메시지 | agent_id, agent_name, message_type, content, content_ko |
+| `plans` | 기획 문서 | title, title_ko, final_plan, final_plan_ko, status |
 | `api_usage` | API 사용량 | provider, model, cost_usd, request_count |
 
 ### 중요 스키마 노트
 
 - **`debate_sessions.idea_id`**: `nullable=True` (독립 토론 지원)
 - **`ideas.score`**: 토론 중 에이전트들이 부여한 평균 점수
+- **`*_ko` 필드**: 한글 번역 필드 (양방향 번역 지원)
 
 ## 환경 변수
 
@@ -304,12 +309,25 @@ type ModalType = 'signal' | 'trend' | 'idea' | 'debate' | 'plan' | 'agent' | 'st
 ### 다국어 지원 (i18n)
 
 ```typescript
-// 사용법
-const { t, language, setLanguage } = useI18n();
+// UI 라벨 번역
+const { t, locale, setLanguage } = useI18n();
 <span>{t('dashboard')}</span>
+
+// 콘텐츠 로컬라이제이션 (아이디어, 트렌드, 플랜 등)
+const getLocalizedText = (en: string | null, ko: string | null): string => {
+  if (locale === 'ko' && ko) return ko;
+  return en || '';
+};
+<h3>{getLocalizedText(idea.title, idea.title_ko)}</h3>
 
 // 지원 언어: 'en', 'ko'
 ```
+
+**양방향 번역 (ContentTranslator):**
+- 콘텐츠 언어 자동 감지 (한글/영어)
+- 한글 원본 → 영어 번역 (main field) + 한글 유지 (`*_ko` field)
+- 영어 원본 → 영어 유지 (main field) + 한글 번역 (`*_ko` field)
+- LLM: `llama3.3:70b` (로컬, 무료)
 
 ## 자주 발생하는 문제와 해결책
 

@@ -200,8 +200,11 @@ class Idea(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     title = Column(String(500), nullable=False)
+    title_ko = Column(Text)  # Korean translation
     summary = Column(Text, nullable=False)
+    summary_ko = Column(Text)  # Korean translation
     description = Column(Text)
+    description_ko = Column(Text)  # Korean translation
     source_type = Column(String(20), nullable=False)  # traditional, trend_based
     source_trend_id = Column(String(36), ForeignKey("trends.id"))
     source_signals = Column(JSON)  # List of signal IDs
@@ -224,8 +227,11 @@ class Idea(Base):
         return {
             "id": self.id,
             "title": self.title,
+            "title_ko": self.title_ko,
             "summary": self.summary,
+            "summary_ko": self.summary_ko,
             "description": self.description,
+            "description_ko": self.description_ko,
             "source_type": self.source_type,
             "status": self.status,
             "score": self.score,
@@ -331,6 +337,7 @@ class Plan(Base):
     idea_id = Column(String(36), ForeignKey("ideas.id"), nullable=False, index=True)
     debate_session_id = Column(String(36), ForeignKey("debate_sessions.id"))
     title = Column(String(500), nullable=False)
+    title_ko = Column(Text)  # Korean translation
     version = Column(Integer, default=1)
     status = Column(String(20), default="draft", index=True)
 
@@ -341,6 +348,7 @@ class Plan(Base):
     business_model_content = Column(Text)
     project_plan_content = Column(Text)
     final_plan = Column(Text)
+    final_plan_ko = Column(Text)  # Korean translation
 
     # GitHub integration
     github_issue_id = Column(Integer)
@@ -358,8 +366,11 @@ class Plan(Base):
             "id": self.id,
             "idea_id": self.idea_id,
             "title": self.title,
+            "title_ko": self.title_ko,
             "version": self.version,
             "status": self.status,
+            "final_plan": self.final_plan,
+            "final_plan_ko": self.final_plan_ko,
             "github_issue_url": self.github_issue_url,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

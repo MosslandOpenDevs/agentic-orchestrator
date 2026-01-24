@@ -391,6 +391,7 @@ async def _auto_score_and_save_ideas(
     Auto-score debate ideas and save them to the ideas table.
 
     Also creates GitHub Issues for tracking.
+    Includes Korean translation for all saved ideas and plans.
 
     Args:
         router: HybridLLMRouter for scoring
@@ -406,6 +407,7 @@ async def _auto_score_and_save_ideas(
     import uuid
     from ..scoring import IdeaScorer
     from ..db import IdeaRepository, PlanRepository
+    from ..translation import ContentTranslator
 
     logger.info("=" * 40)
     logger.info("Starting auto-scoring for debate ideas")
@@ -418,6 +420,7 @@ async def _auto_score_and_save_ideas(
     )
     idea_repo = IdeaRepository(db_session)
     plan_repo = PlanRepository(db_session)
+    translator = ContentTranslator(router=router)
 
     # Initialize GitHub client (optional - won't fail if not configured)
     github_client = None
@@ -508,12 +511,32 @@ async def _auto_score_and_save_ideas(
                 except Exception as e:
                     logger.warning(f"Failed to create GitHub Issue for idea: {e}")
 
-            # Save idea to database
+            # Translate idea fields (bilingual: detect language, provide both EN and KO)
+            try:
+                logger.info(f"Processing bilingual translation for idea: {idea_title[:50]}...")
+                # ensure_bilingual returns (english, korean) tuple
+                title_en, title_ko = await translator.ensure_bilingual(idea_title[:500])
+                summary_en, summary_ko = await translator.ensure_bilingual(idea_summary)
+                if idea_content:
+                    desc_en, desc_ko = await translator.ensure_bilingual(idea_content)
+                else:
+                    desc_en, desc_ko = None, None
+            except Exception as e:
+                logger.warning(f"Bilingual translation failed for idea: {e}")
+                # Fallback: use original content for both fields
+                title_en, title_ko = idea_title[:500], idea_title[:500]
+                summary_en, summary_ko = idea_summary, idea_summary
+                desc_en, desc_ko = idea_content, idea_content
+
+            # Save idea to database (main fields: English, *_ko fields: Korean)
             db_idea = idea_repo.create({
                 'id': idea_id,
-                'title': idea_title[:500],
-                'summary': idea_summary,
-                'description': idea_content,
+                'title': title_en or idea_title[:500],
+                'title_ko': title_ko or idea_title[:500],
+                'summary': summary_en or idea_summary,
+                'summary_ko': summary_ko or idea_summary,
+                'description': desc_en or idea_content,
+                'description_ko': desc_ko or idea_content,
                 'source_type': 'debate',
                 'debate_session_id': debate_session_id,
                 'status': status,
@@ -562,11 +585,20 @@ async def _auto_score_and_save_ideas(
                         logger.warning(f"Failed to create GitHub Issue for plan: {e}")
 
                 try:
+                    # Translate plan title (bilingual)
+                    plan_title_original = f"Plan: {idea_title[:200]}"
+                    try:
+                        plan_title_en, plan_title_ko = await translator.ensure_bilingual(plan_title_original)
+                    except Exception as e:
+                        logger.warning(f"Plan title translation failed: {e}")
+                        plan_title_en, plan_title_ko = plan_title_original, plan_title_original
+
                     plan_repo.create({
                         'id': str(uuid.uuid4())[:8],
                         'idea_id': idea_id,
                         'debate_session_id': debate_session_id,
-                        'title': f"Plan: {idea_title[:200]}",
+                        'title': plan_title_en or plan_title_original,
+                        'title_ko': plan_title_ko or plan_title_original,
                         'version': 1,
                         'status': 'draft',
                         'github_issue_id': plan_github_id,

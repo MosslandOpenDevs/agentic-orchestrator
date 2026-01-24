@@ -18,7 +18,6 @@ interface PlanWithContent extends ApiPlan {
   user_research_content: string | null;
   business_model_content: string | null;
   project_plan_content: string | null;
-  final_plan: string | null;
   updated_at: string | null;
 }
 
@@ -34,11 +33,17 @@ const TABS: { key: TabKey; label: string; contentKey: keyof PlanWithContent }[] 
 ];
 
 export function PlanDetail({ data }: PlanDetailProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [plan, setPlan] = useState<PlanWithContent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('prd');
+
+  // Helper function for localized text display
+  const getLocalizedText = (en: string | null | undefined, ko: string | null | undefined): string => {
+    if (locale === 'ko' && ko) return ko;
+    return en || '';
+  };
 
   useEffect(() => {
     async function fetchPlan() {
@@ -93,7 +98,22 @@ export function PlanDetail({ data }: PlanDetailProps) {
     'in-review': 'purple',
   };
 
-  const activeContent = plan[TABS.find(tab => tab.key === activeTab)?.contentKey || 'prd_content'] as string | null;
+  // Get active content with Korean fallback for final_plan
+  const getActiveContent = (): string | null => {
+    const tab = TABS.find(tab => tab.key === activeTab);
+    if (!tab) return null;
+
+    const content = plan[tab.contentKey] as string | null;
+
+    // For final_plan, use Korean version if available and locale is 'ko'
+    if (tab.key === 'final' && locale === 'ko' && plan.final_plan_ko) {
+      return plan.final_plan_ko;
+    }
+
+    return content;
+  };
+
+  const activeContent = getActiveContent();
 
   return (
     <motion.div
@@ -109,7 +129,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
           </TerminalBadge>
           <TerminalBadge variant="purple">v{plan.version}</TerminalBadge>
         </div>
-        <h3 className="text-lg font-bold text-[#c0c0c0]">{plan.title}</h3>
+        <h3 className="text-lg font-bold text-[#c0c0c0]">{getLocalizedText(plan.title, plan.title_ko)}</h3>
       </div>
 
       {/* Tabs */}

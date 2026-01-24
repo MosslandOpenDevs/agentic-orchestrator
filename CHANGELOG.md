@@ -7,6 +7,34 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-01-24
+
+### Added
+
+#### Bilingual Content Support (EN/KO)
+- **Bidirectional Translation**: ContentTranslator now detects source language and translates accordingly
+  - Korean content → English (main field) + Korean (`*_ko` field)
+  - English content → English (main field) + Korean translation (`*_ko` field)
+- **Database Schema**: Added Korean fields to Ideas and Plans
+  - `Idea`: `title_ko`, `summary_ko`, `description_ko`
+  - `Plan`: `title_ko`, `final_plan_ko`
+- **Frontend Localization**: UI respects EN/KO toggle for all content display
+  - Ideas list, detail modal
+  - Plans list, detail modal
+  - Trends list, detail modal
+- **Migration Script**: `migrate_bilingual.py` to backfill existing data with translations
+
+### Fixed
+- **TrendHeatmap Size**: Reduced cell height from `aspect-square` to `h-6` for better fit
+
+### Technical
+- Added `ContentTranslator` class with `ensure_bilingual()`, `translate_to_english()`, `translate_to_korean()` methods
+- Added `_detect_language()` helper for Korean/English detection
+- Updated `_auto_score_and_save_ideas()` to use bilingual translation
+- Added `getLocalizedText()` helper to frontend components
+
+---
+
 ## [0.5.0] - 2026-01-24
 
 ### Added

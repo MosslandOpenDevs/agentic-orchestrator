@@ -83,7 +83,11 @@ export interface IdeaJourney {
   idea: {
     id: string;
     title: string;
+    title_ko: string | null;
     summary: string;
+    summary_ko: string | null;
+    description: string | null;
+    description_ko: string | null;
     source_type: string;
     status: string;
     score: number;
@@ -134,8 +138,11 @@ export interface PlanVersion {
   id: string;
   idea_id: string;
   title: string;
+  title_ko: string | null;
   version: number;
   status: string;
+  final_plan: string | null;
+  final_plan_ko: string | null;
   created_at: string | null;
 }
 

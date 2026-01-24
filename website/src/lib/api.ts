@@ -107,8 +107,11 @@ export interface IdeasResponse {
 export interface ApiIdea {
   id: string;
   title: string;
+  title_ko: string | null;
   summary: string;
+  summary_ko: string | null;
   description: string | null;
+  description_ko: string | null;
   source_type: string;
   status: string;
   score: number;
@@ -139,8 +142,11 @@ export interface ApiPlan {
   id: string;
   idea_id: string;
   title: string;
+  title_ko: string | null;
   version: number;
   status: string;
+  final_plan: string | null;
+  final_plan_ko: string | null;
   github_issue_url: string | null;
   created_at: string | null;
 }
@@ -428,7 +434,6 @@ export class ApiClient {
       user_research_content: string | null;
       business_model_content: string | null;
       project_plan_content: string | null;
-      final_plan: string | null;
       updated_at: string | null;
     }>(`/plans/${planId}`);
   }

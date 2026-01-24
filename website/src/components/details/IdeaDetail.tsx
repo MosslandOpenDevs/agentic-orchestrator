@@ -82,6 +82,12 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
 
   const { idea, debates, plans } = ideaData;
 
+  // Helper function for localized text display
+  const getLocalizedText = (en: string | null | undefined, ko: string | null | undefined): string => {
+    if (locale === 'ko' && ko) return ko;
+    return en || '';
+  };
+
   const statusColors: Record<string, 'green' | 'cyan' | 'orange' | 'purple'> = {
     backlog: 'cyan',
     planned: 'purple',
@@ -103,7 +109,7 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
           </TerminalBadge>
           <TerminalBadge variant="purple">{idea.source_type}</TerminalBadge>
         </div>
-        <h3 className="text-lg font-bold text-[#c0c0c0]">{idea.title}</h3>
+        <h3 className="text-lg font-bold text-[#c0c0c0]">{getLocalizedText(idea.title, idea.title_ko)}</h3>
       </div>
 
       {/* Score Breakdown */}
@@ -142,7 +148,9 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
           {idea.description ? t('detail.fullDescription') : t('detail.summary')}
         </div>
         <div className="text-sm text-[#c0c0c0] leading-relaxed whitespace-pre-wrap max-h-96 overflow-y-auto">
-          {idea.description || idea.summary}
+          {idea.description
+            ? getLocalizedText(idea.description, idea.description_ko)
+            : getLocalizedText(idea.summary, idea.summary_ko)}
         </div>
       </div>
 

@@ -7,6 +7,9 @@ import { ApiClient, type ApiTrend, type ApiIdea, type ApiPlan } from '@/lib/api'
 import { formatLocalDateTime } from '@/lib/date';
 import { useModal } from '@/components/modals/useModal';
 import { TerminalWindow, TerminalBadge } from '@/components/TerminalWindow';
+import { IdeaComparison } from '@/components/visualization/IdeaComparison';
+import { TrendHeatmap } from '@/components/visualization/TrendHeatmap';
+import { IdeaNetwork } from '@/components/visualization/IdeaNetwork';
 
 type ViewMode = 'pipeline' | 'trends' | 'ideas' | 'plans';
 
@@ -102,13 +105,19 @@ function ListSkeleton({ count = 6 }: { count?: number }) {
 }
 
 export default function IdeasPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { openModal } = useModal();
   const [viewMode, setViewMode] = useState<ViewMode>('pipeline');
   const [trends, setTrends] = useState<ApiTrend[]>([]);
   const [ideas, setIdeas] = useState<ApiIdea[]>([]);
   const [plans, setPlans] = useState<ApiPlan[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Helper function for localized text display
+  const getLocalizedText = (en: string | null | undefined, ko: string | null | undefined): string => {
+    if (locale === 'ko' && ko) return ko;
+    return en || '';
+  };
 
   useEffect(() => {
     async function fetchData() {
@@ -129,10 +138,10 @@ export default function IdeasPage() {
   }, []);
 
   const tabs = [
-    { id: 'pipeline' as const, label: 'Pipeline', count: null },
-    { id: 'trends' as const, label: 'Trends', count: trends.length },
-    { id: 'ideas' as const, label: 'Ideas', count: ideas.length },
-    { id: 'plans' as const, label: 'Plans', count: plans.length },
+    { id: 'pipeline' as const, labelKey: 'ideas.tab.pipeline', count: null },
+    { id: 'trends' as const, labelKey: 'ideas.tab.trends', count: trends.length },
+    { id: 'ideas' as const, labelKey: 'ideas.tab.ideas', count: ideas.length },
+    { id: 'plans' as const, labelKey: 'ideas.tab.plans', count: plans.length },
   ];
 
   const statusColors: Record<string, string> = {
@@ -153,10 +162,10 @@ export default function IdeasPage() {
           className="mb-8"
         >
           <h1 className="text-2xl font-bold text-[#39ff14] mb-2">
-            Ideas & Pipeline
+            {t('ideas.pageTitle')}
           </h1>
           <p className="text-sm text-[#6b7280]">
-            From signals to trends to ideas to plans
+            {t('ideas.pageSubtitle')}
           </p>
         </motion.div>
 
@@ -174,7 +183,7 @@ export default function IdeasPage() {
                 }
               `}
             >
-              {tab.label}
+              {t(tab.labelKey)}
               {tab.count !== null && (
                 <span className={`text-xs px-1.5 py-0.5 rounded ${
                   viewMode === tab.id ? 'bg-[#39ff14]/20' : 'bg-[#21262d]'
@@ -218,12 +227,12 @@ export default function IdeasPage() {
                 <TerminalWindow title="IDEA_GENERATION_PIPELINE" className="mb-6">
                   <div className="flex flex-col md:flex-row items-center justify-center gap-4 py-6">
                     {[
-                      { stage: 'Signals', count: '1000+', color: 'cyan', desc: 'RSS/API feeds' },
-                      { stage: 'Trends', count: trends.length, color: 'purple', desc: 'Pattern analysis' },
-                      { stage: 'Ideas', count: ideas.length, color: 'green', desc: 'Generated concepts' },
-                      { stage: 'Plans', count: plans.length, color: 'orange', desc: 'Refined proposals' },
+                      { stageKey: 'ideas.stage.signals', count: '1000+', color: 'cyan', descKey: 'ideas.stage.signalsDesc' },
+                      { stageKey: 'ideas.stage.trends', count: trends.length, color: 'purple', descKey: 'ideas.stage.trendsDesc' },
+                      { stageKey: 'ideas.stage.ideas', count: ideas.length, color: 'green', descKey: 'ideas.stage.ideasDesc' },
+                      { stageKey: 'ideas.stage.plans', count: plans.length, color: 'orange', descKey: 'ideas.stage.plansDesc' },
                     ].map((item, idx) => (
-                      <div key={item.stage} className="flex items-center">
+                      <div key={item.stageKey} className="flex items-center">
                         <div className={`
                           text-center p-4 rounded border bg-black/20
                           ${item.color === 'cyan' ? 'border-[#00ffff]/30' : ''}
@@ -239,8 +248,8 @@ export default function IdeasPage() {
                           `}>
                             {item.count}
                           </div>
-                          <div className="text-sm text-[#c0c0c0]">{item.stage}</div>
-                          <div className="text-[10px] text-[#6b7280] mt-1">{item.desc}</div>
+                          <div className="text-sm text-[#c0c0c0]">{t(item.stageKey)}</div>
+                          <div className="text-[10px] text-[#6b7280] mt-1">{t(item.descKey)}</div>
                         </div>
                         {idx < 3 && (
                           <span className="text-[#21262d] mx-2 hidden md:block text-xl">→</span>
@@ -258,11 +267,11 @@ export default function IdeasPage() {
                       {trends.slice(0, 5).map((trend) => (
                         <div
                           key={trend.id}
-                          onClick={() => openModal('trend', { ...trend, title: trend.name })}
+                          onClick={() => openModal('trend', { ...trend, title: getLocalizedText(trend.name, trend.name_ko) })}
                           className="p-3 rounded bg-black/20 border border-[#21262d] hover:border-[#bd93f9] cursor-pointer transition-colors"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-sm text-[#c0c0c0] truncate">{trend.name}</span>
+                            <span className="text-sm text-[#c0c0c0] truncate">{getLocalizedText(trend.name, trend.name_ko)}</span>
                             <span className="text-xs text-[#bd93f9]">{trend.score.toFixed(1)}</span>
                           </div>
                           <div className="text-[10px] text-[#6b7280] mt-1">
@@ -276,7 +285,7 @@ export default function IdeasPage() {
                         </div>
                       ))}
                       {trends.length === 0 && (
-                        <div className="text-center py-4 text-[#6b7280] text-sm">No trends yet</div>
+                        <div className="text-center py-4 text-[#6b7280] text-sm">{t('ideas.noTrends')}</div>
                       )}
                     </div>
                   </TerminalWindow>
@@ -287,11 +296,11 @@ export default function IdeasPage() {
                       {ideas.slice(0, 5).map((idea) => (
                         <div
                           key={idea.id}
-                          onClick={() => openModal('idea', { ...idea, title: idea.title })}
+                          onClick={() => openModal('idea', { ...idea, title: getLocalizedText(idea.title, idea.title_ko) })}
                           className="p-3 rounded bg-black/20 border border-[#21262d] hover:border-[#39ff14] cursor-pointer transition-colors"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-sm text-[#c0c0c0] truncate flex-1">{idea.title}</span>
+                            <span className="text-sm text-[#c0c0c0] truncate flex-1">{getLocalizedText(idea.title, idea.title_ko)}</span>
                             <span className={`text-xs ml-2 ${statusColors[idea.status] || 'text-[#6b7280]'}`}>
                               {idea.status}
                             </span>
@@ -307,7 +316,7 @@ export default function IdeasPage() {
                         </div>
                       ))}
                       {ideas.length === 0 && (
-                        <div className="text-center py-4 text-[#6b7280] text-sm">No ideas yet</div>
+                        <div className="text-center py-4 text-[#6b7280] text-sm">{t('ideas.noIdeas')}</div>
                       )}
                     </div>
                   </TerminalWindow>
@@ -317,15 +326,28 @@ export default function IdeasPage() {
 
             {/* Trends View */}
             {viewMode === 'trends' && (
-              <TerminalWindow title={`TRENDS (${trends.length})`}>
-                <div className="space-y-3">
-                  {trends.map((trend, idx) => (
+              <div className="space-y-6">
+                {/* Trend Heatmap */}
+                {trends.length > 0 && (
+                  <TerminalWindow title="TREND_HEATMAP">
+                    <TrendHeatmap
+                      trends={trends}
+                      onCellClick={(category, day) => {
+                        console.log(`Clicked ${category} on ${day}`);
+                      }}
+                    />
+                  </TerminalWindow>
+                )}
+
+                <TerminalWindow title={`TRENDS (${trends.length})`}>
+                  <div className="space-y-3">
+                    {trends.map((trend, idx) => (
                     <motion.div
                       key={trend.id}
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.02 }}
-                      onClick={() => openModal('trend', { ...trend, title: trend.name })}
+                      onClick={() => openModal('trend', { ...trend, title: getLocalizedText(trend.name, trend.name_ko) })}
                       className="p-4 rounded border border-[#21262d] hover:border-[#bd93f9] cursor-pointer transition-colors bg-black/20"
                     >
                       <div className="flex items-start gap-4">
@@ -333,9 +355,9 @@ export default function IdeasPage() {
                           {trend.score.toFixed(1)}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <h3 className="text-sm font-medium text-[#c0c0c0]">{trend.name}</h3>
-                          {trend.description && (
-                            <p className="text-xs text-[#6b7280] mt-1 line-clamp-2">{trend.description}</p>
+                          <h3 className="text-sm font-medium text-[#c0c0c0]">{getLocalizedText(trend.name, trend.name_ko)}</h3>
+                          {(trend.description || trend.description_ko) && (
+                            <p className="text-xs text-[#6b7280] mt-1 line-clamp-2">{getLocalizedText(trend.description, trend.description_ko)}</p>
                           )}
                           <div className="flex flex-wrap gap-1 mt-2">
                             {trend.keywords?.slice(0, 3).map(kw => (
@@ -355,24 +377,54 @@ export default function IdeasPage() {
                       </div>
                     </motion.div>
                   ))}
-                  {trends.length === 0 && (
-                    <div className="text-center py-12 text-[#6b7280]">No trends found</div>
-                  )}
-                </div>
-              </TerminalWindow>
+                    {trends.length === 0 && (
+                      <div className="text-center py-12 text-[#6b7280]">{t('ideas.noTrends')}</div>
+                    )}
+                  </div>
+                </TerminalWindow>
+              </div>
             )}
 
             {/* Ideas View */}
             {viewMode === 'ideas' && (
-              <TerminalWindow title={`IDEAS (${ideas.length})`}>
-                <div className="space-y-3">
-                  {ideas.map((idea, idx) => (
+              <div className="space-y-6">
+                {/* Idea Comparison Tool */}
+                {ideas.length >= 2 && (
+                  <TerminalWindow title="COMPARE_IDEAS">
+                    <IdeaComparison
+                      ideas={ideas}
+                      onSelect={(id) => {
+                        const idea = ideas.find(i => i.id === id);
+                        if (idea) openModal('idea', { ...idea, title: getLocalizedText(idea.title, idea.title_ko) });
+                      }}
+                      maxCompare={3}
+                    />
+                  </TerminalWindow>
+                )}
+
+                {/* Idea Network */}
+                {ideas.length >= 3 && (
+                  <TerminalWindow title="IDEA_NETWORK">
+                    <IdeaNetwork
+                      ideas={ideas.slice(0, 20)}
+                      onIdeaClick={(id) => {
+                        const idea = ideas.find(i => i.id === id);
+                        if (idea) openModal('idea', { ...idea, title: getLocalizedText(idea.title, idea.title_ko) });
+                      }}
+                      showLabels={true}
+                    />
+                  </TerminalWindow>
+                )}
+
+                <TerminalWindow title={`IDEAS (${ideas.length})`}>
+                  <div className="space-y-3">
+                    {ideas.map((idea, idx) => (
                     <motion.div
                       key={idea.id}
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.02 }}
-                      onClick={() => openModal('idea', { ...idea, title: idea.title })}
+                      onClick={() => openModal('idea', { ...idea, title: getLocalizedText(idea.title, idea.title_ko) })}
                       className="p-4 rounded border border-[#21262d] hover:border-[#39ff14] cursor-pointer transition-colors bg-black/20"
                     >
                       <div className="flex items-start gap-4">
@@ -384,8 +436,8 @@ export default function IdeasPage() {
                             <TerminalBadge variant="green">{idea.status}</TerminalBadge>
                             <TerminalBadge variant="cyan">{idea.source_type}</TerminalBadge>
                           </div>
-                          <h3 className="text-sm font-medium text-[#c0c0c0]">{idea.title}</h3>
-                          <p className="text-xs text-[#6b7280] mt-1 line-clamp-2">{idea.summary}</p>
+                          <h3 className="text-sm font-medium text-[#c0c0c0]">{getLocalizedText(idea.title, idea.title_ko)}</h3>
+                          <p className="text-xs text-[#6b7280] mt-1 line-clamp-2">{getLocalizedText(idea.summary, idea.summary_ko)}</p>
                           {idea.created_at && (
                             <div className="text-[10px] text-[#6b7280] mt-2">
                               {formatLocalDateTime(idea.created_at)}
@@ -406,11 +458,12 @@ export default function IdeasPage() {
                       </div>
                     </motion.div>
                   ))}
-                  {ideas.length === 0 && (
-                    <div className="text-center py-12 text-[#6b7280]">No ideas found</div>
-                  )}
-                </div>
-              </TerminalWindow>
+                    {ideas.length === 0 && (
+                      <div className="text-center py-12 text-[#6b7280]">{t('ideas.noIdeas')}</div>
+                    )}
+                  </div>
+                </TerminalWindow>
+              </div>
             )}
 
             {/* Plans View */}
@@ -423,7 +476,7 @@ export default function IdeasPage() {
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.02 }}
-                      onClick={() => openModal('plan', { ...plan, title: plan.title })}
+                      onClick={() => openModal('plan', { ...plan, title: getLocalizedText(plan.title, plan.title_ko) })}
                       className="p-4 rounded border border-[#21262d] hover:border-[#ff6b35] cursor-pointer transition-colors bg-black/20"
                     >
                       <div className="flex items-center gap-4">
@@ -436,7 +489,7 @@ export default function IdeasPage() {
                               {plan.status}
                             </TerminalBadge>
                           </div>
-                          <h3 className="text-sm font-medium text-[#c0c0c0]">{plan.title}</h3>
+                          <h3 className="text-sm font-medium text-[#c0c0c0]">{getLocalizedText(plan.title, plan.title_ko)}</h3>
                           {plan.created_at && (
                             <div className="text-[10px] text-[#6b7280] mt-1">
                               {formatLocalDateTime(plan.created_at)}
@@ -458,7 +511,7 @@ export default function IdeasPage() {
                     </motion.div>
                   ))}
                   {plans.length === 0 && (
-                    <div className="text-center py-12 text-[#6b7280]">No plans found</div>
+                    <div className="text-center py-12 text-[#6b7280]">{t('ideas.noPlans')}</div>
                   )}
                 </div>
               </TerminalWindow>
