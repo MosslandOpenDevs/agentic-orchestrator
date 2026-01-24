@@ -60,14 +60,15 @@ export default function Dashboard() {
   }, []);
 
   // Load adapters when modal opens
-  useEffect(() => {
-    if (isAdapterModalOpen && adapters.length === 0) {
+  const handleOpenAdapterModal = () => {
+    setIsAdapterModalOpen(true);
+    if (adapters.length === 0) {
       setIsAdaptersLoading(true);
       fetchAdapters()
         .then(setAdapters)
         .finally(() => setIsAdaptersLoading(false));
     }
-  }, [isAdapterModalOpen, adapters.length]);
+  };
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] pt-12">
@@ -141,7 +142,7 @@ export default function Dashboard() {
             >
               <TerminalWindow title="signals.conf">
                 <button
-                  onClick={() => setIsAdapterModalOpen(true)}
+                  onClick={handleOpenAdapterModal}
                   className="w-full text-left hover:bg-[#21262d]/30 -m-3 p-3 rounded transition-colors"
                 >
                   <div className="space-y-2">
