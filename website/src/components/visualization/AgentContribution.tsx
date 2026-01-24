@@ -4,8 +4,14 @@ import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 
+// Helper function to detect if text is Korean
+function isKorean(text: string): boolean {
+  const koreanRegex = /[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/;
+  return koreanRegex.test(text);
+}
+
 // Helper function to extract readable text from JSON content
-function extractReadableText(content: string): string {
+function extractReadableText(content: string, preferEnglish: boolean = false): string {
   if (!content) return '';
 
   try {
@@ -15,11 +21,21 @@ function extractReadableText(content: string): string {
 
     const parsed = JSON.parse(jsonStr);
 
-    // Try to extract readable text in order of preference
-    if (parsed.core_analysis) return parsed.core_analysis;
-    if (parsed.idea_title) return parsed.idea_title;
-    if (parsed.proposal?.description) return parsed.proposal.description;
-    if (parsed.summary) return parsed.summary;
+    // Collect candidate texts
+    const candidates: string[] = [];
+    if (parsed.core_analysis) candidates.push(parsed.core_analysis);
+    if (parsed.idea_title) candidates.push(parsed.idea_title);
+    if (parsed.proposal?.description) candidates.push(parsed.proposal.description);
+    if (parsed.summary) candidates.push(parsed.summary);
+
+    // If preferEnglish, try to find non-Korean text first
+    if (preferEnglish && candidates.length > 0) {
+      const englishCandidate = candidates.find(c => !isKorean(c));
+      if (englishCandidate) return englishCandidate;
+    }
+
+    // Return first candidate
+    if (candidates.length > 0) return candidates[0];
 
     // Get first string value
     for (const value of Object.values(parsed)) {
@@ -69,7 +85,7 @@ interface AgentStats {
 }
 
 // Analyze agent contributions from messages
-function analyzeContributions(messages: DebateMessage[]): AgentStats[] {
+function analyzeContributions(messages: DebateMessage[], locale: string): AgentStats[] {
   const agentMap = new Map<string, {
     id: string;
     name: string;
@@ -117,8 +133,11 @@ function analyzeContributions(messages: DebateMessage[]): AgentStats[] {
     }
 
     // Get a key quote (first message, parsed and truncated)
+    // Use locale-aware content selection: EN shows content, KO shows content_ko if available
     const firstMsg = agent.messages[0];
-    const readableContent = extractReadableText(firstMsg.content);
+    const preferEnglish = locale !== 'ko';
+    const contentToUse = locale === 'ko' && firstMsg.content_ko ? firstMsg.content_ko : firstMsg.content;
+    const readableContent = extractReadableText(contentToUse, preferEnglish);
     const keyQuote = readableContent.slice(0, 100) + (readableContent.length > 100 ? '...' : '');
 
     // Determine phase from message type
@@ -158,9 +177,9 @@ export function AgentContribution({
   const { t, locale } = useI18n();
 
   const agentStats = useMemo(() => {
-    const stats = analyzeContributions(messages);
+    const stats = analyzeContributions(messages, locale);
     return stats.slice(0, maxAgents);
-  }, [messages, maxAgents]);
+  }, [messages, maxAgents, locale]);
 
   // Calculate summary stats
   const summary = useMemo(() => {
@@ -299,9 +318,9 @@ export function AgentContribution({
 
 // Compact version for cards
 export function AgentContributionCompact({ messages }: { messages: DebateMessage[] }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
-  const agentStats = useMemo(() => analyzeContributions(messages), [messages]);
+  const agentStats = useMemo(() => analyzeContributions(messages, locale), [messages, locale]);
 
   const summary = useMemo(() => {
     const advocates = agentStats.filter(a => a.stance === 'advocate').length;
