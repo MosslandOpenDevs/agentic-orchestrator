@@ -592,22 +592,46 @@ async def _auto_score_and_save_ideas(
                         logger.warning(f"Plan title translation failed: {e}")
                         plan_title_en, plan_title_ko = plan_title_original, plan_title_original
 
+                    plan_id = str(uuid.uuid4())[:8]
+
+                    # Determine plan status based on score
+                    # High-scoring plans (>= 8.0) are auto-approved for project generation
+                    project_config = _load_project_config()
+                    auto_gen_min_score = project_config.get("auto_generate", {}).get("min_score", 8.0)
+                    plan_status = 'approved' if score.total >= auto_gen_min_score else 'draft'
+
                     plan_repo.create({
-                        'id': str(uuid.uuid4())[:8],
+                        'id': plan_id,
                         'idea_id': idea_id,
                         'debate_session_id': debate_session_id,
                         'title': plan_title_en or plan_title_original,
                         'title_ko': plan_title_ko or plan_title_original,
                         'version': 1,
-                        'status': 'draft',
+                        'status': plan_status,
                         'github_issue_id': plan_github_id,
                         'github_issue_url': plan_github_url,
                         'extra_metadata': {
                             'auto_promoted': True,
                             'promotion_score': score.total,
+                            'auto_approved': plan_status == 'approved',
                         },
                     })
-                    logger.info(f"Created draft plan for promoted idea: {idea_id}")
+                    logger.info(f"Created {plan_status} plan for promoted idea: {idea_id} (score: {score.total:.1f})")
+
+                    # Auto-generate project for high-scoring plans
+                    if plan_status == 'approved':
+                        logger.info(f"Plan score {score.total:.1f} >= {auto_gen_min_score}, triggering auto project generation")
+                        try:
+                            await _auto_generate_project(
+                                plan_id=plan_id,
+                                plan_score=score.total,
+                                router=router,
+                                db_session=db_session,
+                            )
+                        except Exception as e:
+                            logger.warning(f"Auto project generation failed for plan {plan_id}: {e}")
+                            # Don't fail the whole process if project generation fails
+
                 except Exception as e:
                     logger.warning(f"Failed to create plan for idea {idea_id}: {e}")
 
@@ -627,6 +651,127 @@ async def _auto_score_and_save_ideas(
     logger.info(f"Auto-scoring complete: {promoted_count} promoted, {archived_count} archived, {pending_count} pending")
     if github_client:
         logger.info("GitHub Issues created for all processed ideas")
+
+
+def _load_project_config() -> dict:
+    """Load project generation configuration from config.yaml."""
+    import yaml
+    from pathlib import Path
+
+    config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
+    default_config = {
+        "auto_generate": {
+            "enabled": True,
+            "min_score": 8.0,
+            "max_concurrent": 1,
+        },
+        "llm": {
+            "parsing": "glm-4.7-flash",
+            "code_generation": "qwen2.5:32b",
+            "architecture": "llama3.3:70b",
+            "fallback": "phi4:14b",
+        },
+        "output_dir": "projects",
+    }
+
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+            project_config = config.get("project", {})
+            # Merge with defaults
+            for key, value in default_config.items():
+                if key not in project_config:
+                    project_config[key] = value
+                elif isinstance(value, dict):
+                    for sub_key, sub_value in value.items():
+                        if sub_key not in project_config[key]:
+                            project_config[key][sub_key] = sub_value
+            return project_config
+    except Exception as e:
+        logger.warning(f"Failed to load project config, using defaults: {e}")
+        return default_config
+
+
+async def _auto_generate_project(
+    plan_id: str,
+    plan_score: float,
+    router,
+    db_session,
+) -> bool:
+    """
+    Automatically generate a project from a high-scoring plan.
+
+    Args:
+        plan_id: ID of the plan
+        plan_score: Score of the plan (for logging)
+        router: HybridLLMRouter for LLM calls
+        db_session: SQLAlchemy session
+
+    Returns:
+        True if project was generated successfully
+    """
+    from ..project import ProjectScaffold
+    from ..db import ProjectRepository, PlanRepository
+
+    # Load project config
+    project_config = _load_project_config()
+    auto_config = project_config.get("auto_generate", {})
+
+    if not auto_config.get("enabled", True):
+        logger.info("Auto project generation is disabled in config")
+        return False
+
+    min_score = auto_config.get("min_score", 8.0)
+    if plan_score < min_score:
+        logger.info(f"Plan score {plan_score:.1f} below threshold {min_score}, skipping auto-generation")
+        return False
+
+    logger.info("=" * 40)
+    logger.info(f"Starting auto project generation for plan: {plan_id}")
+    logger.info(f"Plan score: {plan_score:.1f} (threshold: {min_score})")
+    logger.info("=" * 40)
+
+    try:
+        # Check if project already exists
+        project_repo = ProjectRepository(db_session)
+        existing = project_repo.get_by_plan(plan_id)
+        if existing and existing.status == "ready":
+            logger.info(f"Project already exists for plan {plan_id}, skipping")
+            return True
+
+        # Update plan status to approved for project generation
+        plan_repo = PlanRepository(db_session)
+        plan = plan_repo.get_by_id(plan_id)
+        if plan and plan.status != "approved":
+            plan_repo.update_status(plan_id, "approved")
+            db_session.flush()
+            logger.info(f"Updated plan status to 'approved' for auto-generation")
+
+        # Generate project
+        scaffold = ProjectScaffold(
+            router=router,
+            projects_dir=project_config.get("output_dir", "projects"),
+            db_session=db_session,
+        )
+
+        result = await scaffold.generate_project(
+            plan_id=plan_id,
+            force_regenerate=False,
+        )
+
+        if result.success:
+            logger.info(f"Project generated successfully: {result.project_path}")
+            logger.info(f"Files generated: {result.files_generated}")
+            logger.info(f"Tech stack: {result.tech_stack}")
+            db_session.commit()
+            return True
+        else:
+            logger.warning(f"Project generation failed: {result.error}")
+            return False
+
+    except Exception as e:
+        logger.error(f"Auto project generation failed: {e}", exc_info=True)
+        return False
 
 
 def _generate_debate_topic_from_trend(trend) -> tuple[str, str]:
