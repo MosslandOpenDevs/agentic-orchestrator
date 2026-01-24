@@ -61,18 +61,22 @@ export default function ProjectsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-[#39ff14] mb-2">
-          {locale === 'ko' ? '프로젝트' : 'Projects'}
-        </h1>
-        <p className="text-[#6b7280] text-sm">
-          {locale === 'ko'
-            ? 'Plan에서 자동 생성된 프로젝트 스캐폴드'
-            : 'Auto-generated project scaffolds from approved Plans'}
-        </p>
-      </div>
+    <div className="min-h-screen pt-14 py-8 px-4">
+      <div className="max-w-6xl mx-auto space-y-6">
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <h1 className="text-2xl font-bold text-[#39ff14] mb-2">
+            {locale === 'ko' ? '프로젝트' : 'Projects'}
+          </h1>
+          <p className="text-[#6b7280] text-sm">
+            {locale === 'ko'
+              ? 'Plan에서 자동 생성된 프로젝트 스캐폴드'
+              : 'Auto-generated project scaffolds from approved Plans'}
+          </p>
+        </motion.div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -225,6 +229,7 @@ export default function ProjectsPage() {
           </div>
         </div>
       </div>
+    </div>
     </div>
   );
 }
