@@ -132,7 +132,7 @@ class DebateProtocolConfig:
 
     # General settings
     max_tokens_per_response: int = 2000
-    temperature_divergence: float = 0.9  # Higher for creativity
+    temperature_divergence: float = 0.95  # Higher for creativity (v0.5.0: increased from 0.9)
     temperature_convergence: float = 0.5  # Lower for analysis
     temperature_planning: float = 0.7
 
@@ -170,6 +170,118 @@ class DebateProtocol:
     - Scoring and evaluation criteria
     - Termination conditions
     """
+
+    # SCAMPER creativity techniques for divergence phase
+    SCAMPER_TECHNIQUES = {
+        1: {
+            "name": "Substitute & Combine",
+            "description": "대체(Substitute)와 결합(Combine) 기법",
+            "prompt": """### 창의성 기법: 대체(Substitute) & 결합(Combine)
+
+**대체(Substitute)**: 기존 솔루션의 구성 요소를 다른 것으로 대체해보세요.
+- 기존 기술을 AI/블록체인으로 대체하면?
+- 중앙화된 요소를 탈중앙화로 대체하면?
+- 수동 프로세스를 자동화로 대체하면?
+
+**결합(Combine)**: 서로 다른 개념/기술/시장을 결합해보세요.
+- DeFi + GameFi = ?
+- NFT + 실물자산 = ?
+- AI 에이전트 + DAO 거버넌스 = ?
+
+💡 예시: "스마트 컨트랙트 + 보험 + AI 심사 = 자동 보험금 지급 시스템"
+""",
+        },
+        2: {
+            "name": "Adapt & Modify",
+            "description": "적용(Adapt)과 수정(Modify) 기법",
+            "prompt": """### 창의성 기법: 적용(Adapt) & 수정(Modify)
+
+**적용(Adapt)**: 다른 산업/분야의 성공 사례를 Web3에 적용해보세요.
+- Uber의 매칭 시스템을 DeFi에 적용하면?
+- Netflix 추천 알고리즘을 NFT 마켓에 적용하면?
+- 게임의 길드 시스템을 DAO에 적용하면?
+
+**수정(Modify)**: 기존 아이디어의 규모, 형태, 속성을 변경해보세요.
+- 마이크로 단위로 축소하면? (마이크로 대출, 마이크로 투자)
+- 글로벌 규모로 확대하면?
+- 실시간으로 변경하면?
+
+💡 예시: "Airbnb + 메타버스 = 가상 부동산 임대 플랫폼"
+""",
+        },
+        3: {
+            "name": "Put to Other Use & Eliminate & Reverse",
+            "description": "전용(Put to other use), 제거(Eliminate), 역발상(Reverse) 기법",
+            "prompt": """### 창의성 기법: 전용(Put to Other Use) & 제거(Eliminate) & 역발상(Reverse)
+
+**전용(Put to Other Use)**: 기존 기술/자산의 새로운 용도를 찾아보세요.
+- NFT를 예술품 외에 어디에 활용할 수 있을까?
+- DeFi 프로토콜을 금융 외 분야에 적용하면?
+- 토큰을 투자 외 목적으로 사용하면?
+
+**제거(Eliminate)**: 불필요한 요소를 제거해 단순화하세요.
+- 중개자를 제거하면?
+- KYC를 제거하면서 규제를 준수할 방법은?
+- 가스비를 제거하는 방법은?
+
+**역발상(Reverse)**: 반대로 생각해보세요.
+- 사용자가 플랫폼에 지불하는 대신, 플랫폼이 사용자에게 지불하면?
+- 유동성을 공급하는 대신, 유동성을 소비하면?
+- 토큰을 발행하는 대신, 소각을 장려하면?
+
+💡 예시: "역경매 + NFT = 구매자가 가격을 제시하는 NFT 마켓플레이스"
+""",
+        },
+    }
+
+    # Lateral thinking prompts for Phase 2
+    LATERAL_THINKING = {
+        1: {
+            "name": "Blue Sky Thinking",
+            "description": "제약 없는 자유로운 상상",
+            "prompt": """### 측면사고 기법: Blue Sky Thinking (제약 없는 상상)
+
+모든 제약을 잊고 자유롭게 상상해보세요:
+- 무한한 자금이 있다면 무엇을 만들겠습니까?
+- 기술적 제한이 없다면 어떤 솔루션이 가능할까요?
+- 규제가 완전히 지지하는 환경이라면?
+- 모든 사용자가 Web3에 익숙하다면?
+
+⚠️ 이번 라운드에서는 "불가능하다"는 생각을 배제하세요.
+""",
+        },
+        2: {
+            "name": "Paradox Approach",
+            "description": "역설적 접근으로 새로운 관점 발견",
+            "prompt": """### 측면사고 기법: Paradox Approach (역설적 접근)
+
+반대로 생각해서 새로운 인사이트를 얻어보세요:
+- 문제를 해결하는 대신 "문제를 악화시키려면?"이라고 물어보세요
+- 수익을 내는 대신 "어떻게 하면 돈을 잃을까?"를 생각해보세요
+- 사용자를 늘리는 대신 "어떻게 하면 사용자가 떠날까?"를 고민해보세요
+
+역설에서 얻은 인사이트를 뒤집어 실제 해결책을 도출하세요.
+""",
+        },
+        3: {
+            "name": "Cross-Domain Innovation",
+            "description": "다른 산업에서 아이디어 빌려오기",
+            "prompt": """### 측면사고 기법: Cross-Domain Innovation (교차 영역 혁신)
+
+전혀 다른 산업/분야의 성공 패턴을 Web3에 적용해보세요:
+
+**참고할 산업들:**
+- 🎮 게임: 레벨업, 퀘스트, 길드, 시즌패스
+- 🏥 헬스케어: 예방, 모니터링, 개인화
+- 🚗 모빌리티: 공유경제, 자율주행, MaaS
+- 🎵 엔터테인먼트: 스트리밍, 팬덤, 크리에이터 경제
+- 🏭 제조: 린 생산, JIT, 품질관리
+- 📚 교육: 게이미피케이션, 마이크로러닝, 인증
+
+"[산업X]의 [패턴Y]를 Mossland에 적용하면..." 형식으로 아이디어를 제시하세요.
+""",
+        },
+    }
 
     # Allowed message types per phase
     PHASE_MESSAGE_TYPES = {
@@ -272,6 +384,22 @@ class DebateProtocol:
         }
         return temps.get(phase, 0.7)
 
+    def get_creativity_technique(self, round_num: int, use_lateral: bool = False) -> str:
+        """Get creativity technique prompt for the given round.
+
+        Args:
+            round_num: Current round number (1-indexed)
+            use_lateral: Use lateral thinking instead of SCAMPER
+
+        Returns:
+            Creativity technique prompt string
+        """
+        techniques = self.LATERAL_THINKING if use_lateral else self.SCAMPER_TECHNIQUES
+        # Cycle through techniques if round_num exceeds available techniques
+        technique_key = ((round_num - 1) % len(techniques)) + 1
+        technique = techniques.get(technique_key, techniques[1])
+        return technique["prompt"]
+
     def create_divergence_prompt(
         self,
         topic: str,
@@ -280,16 +408,24 @@ class DebateProtocol:
         round_num: int,
         previous_ideas: List[str],
     ) -> str:
-        """Create prompt for divergence phase."""
+        """Create prompt for divergence phase with SCAMPER creativity techniques."""
         personality_desc = "\n".join(f"- {k}: {v}" for k, v in agent_personality.items())
+
+        # Get creativity technique for this round
+        # Use SCAMPER for odd rounds, Lateral Thinking for even rounds
+        use_lateral = (round_num % 2 == 0)
+        creativity_prompt = self.get_creativity_technique(round_num, use_lateral=use_lateral)
 
         previous_section = ""
         if previous_ideas:
+            # Calculate Jaccard similarity hints for novelty
             previous_section = f"""
 이전 라운드에서 제안된 아이디어들:
 {chr(10).join(f"- {idea}" for idea in previous_ideas[:10])}
 
-위 아이디어들과 다른 새로운 관점을 제시해주세요.
+⚠️ 위 아이디어들과 **확실히 다른** 새로운 관점을 제시해주세요.
+- 유사한 아이디어는 낮은 점수를 받습니다
+- 완전히 새로운 접근법을 시도하세요
 """
 
         return f"""당신은 다음과 같은 성향을 가진 전문가입니다:
@@ -303,8 +439,11 @@ class DebateProtocol:
 
 {previous_section}
 
+{creativity_prompt}
+
 ## 지시사항
 당신의 성향과 전문성을 바탕으로 이 주제에 대한 **구체적이고 실행 가능한 아이디어**를 제시해주세요.
+위의 창의성 기법을 활용하여 기존과 다른 참신한 아이디어를 도출하세요.
 
 ### 아이디어 작성 규칙 (반드시 준수)
 

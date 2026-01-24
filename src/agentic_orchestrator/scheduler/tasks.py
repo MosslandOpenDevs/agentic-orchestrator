@@ -7,8 +7,8 @@ These tasks are executed by PM2 on a schedule.
 import asyncio
 import logging
 import sys
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timedelta
+from typing import Optional, List
 
 # Configure logging
 logging.basicConfig(
@@ -17,6 +17,84 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
+
+def _calculate_time_decay(collected_at: datetime, now: datetime = None) -> float:
+    """
+    Calculate time decay factor for signal scoring.
+
+    Decay schedule (v0.5.0):
+    - 0-1 hours: 100% weight
+    - 1-6 hours: 90% weight
+    - 6-12 hours: 80% weight
+    - 12-24 hours: 60% weight
+    - 24-48 hours: 40% weight
+    - 48+ hours: 20% weight
+
+    Args:
+        collected_at: When the signal was collected
+        now: Current time (defaults to UTC now)
+
+    Returns:
+        Decay factor between 0.2 and 1.0
+    """
+    if now is None:
+        now = datetime.utcnow()
+
+    age_hours = (now - collected_at).total_seconds() / 3600
+
+    if age_hours <= 1:
+        return 1.0
+    elif age_hours <= 6:
+        return 0.9
+    elif age_hours <= 12:
+        return 0.8
+    elif age_hours <= 24:
+        return 0.6
+    elif age_hours <= 48:
+        return 0.4
+    else:
+        return 0.2
+
+
+def _apply_time_decay_to_signals(signals: List, now: datetime = None) -> List:
+    """
+    Apply time decay weighting to signal scores.
+
+    Modifies signals in-place by adding a 'decay_factor' attribute
+    and adjusting their effective score.
+
+    Args:
+        signals: List of signal objects with collected_at attribute
+        now: Current time (defaults to UTC now)
+
+    Returns:
+        Signals with decay factor applied
+    """
+    if now is None:
+        now = datetime.utcnow()
+
+    for signal in signals:
+        collected_at = signal.collected_at or now
+        decay = _calculate_time_decay(collected_at, now)
+
+        # Store decay factor in metadata if possible
+        if hasattr(signal, 'metadata') and isinstance(signal.metadata, dict):
+            signal.metadata['time_decay'] = decay
+        elif hasattr(signal, 'extra_metadata') and isinstance(signal.extra_metadata, dict):
+            signal.extra_metadata['time_decay'] = decay
+
+        # Apply decay to score if it exists
+        if hasattr(signal, 'score') and signal.score is not None:
+            original_score = signal.score
+            signal.score = original_score * decay
+
+            logger.debug(
+                f"Time decay applied: {signal.title[:50]}... "
+                f"(original: {original_score:.2f}, decay: {decay:.2f}, final: {signal.score:.2f})"
+            )
+
+    return signals
 
 
 async def _translate_to_korean(router, text: str) -> Optional[str]:
@@ -118,6 +196,25 @@ async def _analyze_trends_async():
         if not signals:
             logger.warning("No signals found for trend analysis")
             return
+
+        # Apply time decay weighting to signals (v0.5.0)
+        now = datetime.utcnow()
+        signals = _apply_time_decay_to_signals(signals, now)
+        logger.info(f"Applied time decay to {len(signals)} signals")
+
+        # Log decay distribution
+        decay_buckets = {'fresh': 0, 'recent': 0, 'moderate': 0, 'old': 0}
+        for s in signals:
+            decay = s.metadata.get('time_decay', 1.0) if hasattr(s, 'metadata') and isinstance(s.metadata, dict) else 1.0
+            if decay >= 0.9:
+                decay_buckets['fresh'] += 1
+            elif decay >= 0.6:
+                decay_buckets['recent'] += 1
+            elif decay >= 0.4:
+                decay_buckets['moderate'] += 1
+            else:
+                decay_buckets['old'] += 1
+        logger.info(f"Signal freshness: {decay_buckets}")
 
         # Convert signals to FeedItem format
         feed_items = []

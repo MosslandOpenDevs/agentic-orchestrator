@@ -7,6 +7,57 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-01-24
+
+### Added
+
+#### Enhanced Creativity Framework (Phase 1)
+- **SCAMPER Creativity Prompts**: Divergence phase now uses structured SCAMPER techniques
+  - Round 1: Substitute & Combine (replace components, merge concepts)
+  - Round 2: Adapt & Modify (cross-industry inspiration, scale changes)
+  - Round 3: Put to Other Use, Eliminate & Reverse (paradox thinking)
+- **Lateral Thinking Prompts**: Alternating creativity techniques per round
+  - Blue Sky Thinking (constraint-free imagination)
+  - Paradox Approach (reverse problem solving)
+  - Cross-Domain Innovation (industry pattern borrowing)
+- **Higher Temperature**: Divergence temperature increased to 0.95 (from 0.9) for more creative outputs
+
+#### Coingecko Market Adapter
+- **Trending Coins**: Real-time search trend detection
+- **Top Movers**: Top 5 gainers and losers (24h, >10% change threshold)
+- **Volume Spikes**: Unusual trading activity detection (volume >50% of market cap)
+- **Global Market Stats**: Total market cap changes, BTC dominance alerts
+- **Tracked Coins**: 16 specific coins including MOC (Mossland)
+
+#### Signal Time Decay
+- **Freshness Weighting**: Signal scores now decay based on age
+  - 0-1 hours: 100% weight
+  - 1-6 hours: 90% weight
+  - 6-12 hours: 80% weight
+  - 12-24 hours: 60% weight
+  - 24-48 hours: 40% weight
+  - 48+ hours: 20% weight
+- **Decay Logging**: Debug info shows decay distribution per analysis cycle
+
+#### Dashboard UX Improvements
+- **Skeleton Loaders**: Trends page and Ideas page now show proper loading skeletons
+  - Trend cards with score, title, keywords placeholders
+  - Pipeline view with stage indicators
+  - List items with badge and content placeholders
+
+### Changed
+- Signal aggregator now includes Coingecko adapter by default
+- Trend analysis applies time decay before processing signals
+
+### Technical
+- Added `SCAMPER_TECHNIQUES` and `LATERAL_THINKING` dictionaries to `DebateProtocol`
+- Added `get_creativity_technique()` method to `DebateProtocol`
+- Added `CoingeckoAdapter` class with trending, movers, global stats, tracked coins methods
+- Added `_calculate_time_decay()` and `_apply_time_decay_to_signals()` functions to scheduler
+- Added `TrendSkeleton`, `PipelineSkeleton`, `ListItemSkeleton`, `ListSkeleton` React components
+
+---
+
 ## [0.4.2] - 2026-01-24
 
 ### Added

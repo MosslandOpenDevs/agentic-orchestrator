@@ -20,6 +20,7 @@ from .twitter import TwitterAdapter
 from .discord import DiscordAdapter
 from .lens import LensAdapter
 from .farcaster import FarcasterAdapter
+from .coingecko import CoingeckoAdapter
 
 __all__ = [
     # Base
@@ -38,4 +39,5 @@ __all__ = [
     "DiscordAdapter",
     "LensAdapter",
     "FarcasterAdapter",
+    "CoingeckoAdapter",
 ]

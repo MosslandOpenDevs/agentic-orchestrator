@@ -10,6 +10,97 @@ import { TerminalWindow, TerminalBadge } from '@/components/TerminalWindow';
 
 type ViewMode = 'pipeline' | 'trends' | 'ideas' | 'plans';
 
+// Skeleton components for loading states
+function PipelineSkeleton() {
+  return (
+    <div>
+      {/* Pipeline Flow Skeleton */}
+      <div className="rounded border border-[#21262d] bg-[#0d1117] mb-6 p-6">
+        <div className="flex flex-col md:flex-row items-center justify-center gap-4 py-6">
+          {[1, 2, 3, 4].map((idx) => (
+            <div key={idx} className="flex items-center">
+              <div className="text-center p-4 rounded border border-[#21262d] bg-black/20 w-28">
+                <div className="h-8 w-12 mx-auto bg-[#21262d] rounded animate-pulse mb-2" />
+                <div className="h-4 w-16 mx-auto bg-[#21262d] rounded animate-pulse mb-1" />
+                <div className="h-3 w-20 mx-auto bg-[#21262d] rounded animate-pulse" />
+              </div>
+              {idx < 4 && (
+                <span className="text-[#21262d] mx-2 hidden md:block text-xl">→</span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Recent Activity Skeleton */}
+      <div className="grid md:grid-cols-2 gap-6">
+        {[1, 2].map((col) => (
+          <div key={col} className="rounded border border-[#21262d] bg-[#0d1117] p-4">
+            <div className="h-4 w-32 bg-[#21262d] rounded animate-pulse mb-4" />
+            <div className="space-y-2">
+              {[1, 2, 3, 4, 5].map((item) => (
+                <motion.div
+                  key={item}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: item * 0.05 }}
+                  className="p-3 rounded bg-black/20 border border-[#21262d]"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="h-4 bg-[#21262d] rounded animate-pulse w-2/3" />
+                    <div className="h-4 w-8 bg-[#21262d] rounded animate-pulse" />
+                  </div>
+                  <div className="h-3 w-1/3 bg-[#21262d] rounded animate-pulse" />
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ListItemSkeleton({ index }: { index: number }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: index * 0.02 }}
+      className="p-4 rounded border border-[#21262d] bg-black/20"
+    >
+      <div className="flex items-start gap-4">
+        {/* Score skeleton */}
+        <div className="w-12 h-12 bg-[#21262d] rounded animate-pulse" />
+
+        {/* Content skeleton */}
+        <div className="flex-1 min-w-0 space-y-2">
+          <div className="flex gap-2 mb-1">
+            <div className="h-5 w-16 bg-[#21262d] rounded animate-pulse" />
+            <div className="h-5 w-12 bg-[#21262d] rounded animate-pulse" />
+          </div>
+          <div className="h-4 bg-[#21262d] rounded animate-pulse w-4/5" />
+          <div className="h-3 bg-[#21262d] rounded animate-pulse w-full" />
+          <div className="h-3 bg-[#21262d] rounded animate-pulse w-1/4 mt-2" />
+        </div>
+
+        {/* Action skeleton */}
+        <div className="h-4 w-12 bg-[#21262d] rounded animate-pulse" />
+      </div>
+    </motion.div>
+  );
+}
+
+function ListSkeleton({ count = 6 }: { count?: number }) {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: count }).map((_, idx) => (
+        <ListItemSkeleton key={idx} index={idx} />
+      ))}
+    </div>
+  );
+}
+
 export default function IdeasPage() {
   const { t } = useI18n();
   const { openModal } = useModal();
@@ -96,12 +187,25 @@ export default function IdeasPage() {
         </div>
 
         {loading ? (
-          <div className="text-center py-12">
-            <div className="text-[#39ff14] animate-pulse">
-              Loading...
-              <span className="cursor-blink">_</span>
-            </div>
-          </div>
+          // Skeleton loading state based on current view mode
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            {viewMode === 'pipeline' && <PipelineSkeleton />}
+            {viewMode === 'trends' && (
+              <TerminalWindow title="TRENDS">
+                <ListSkeleton count={8} />
+              </TerminalWindow>
+            )}
+            {viewMode === 'ideas' && (
+              <TerminalWindow title="IDEAS">
+                <ListSkeleton count={8} />
+              </TerminalWindow>
+            )}
+            {viewMode === 'plans' && (
+              <TerminalWindow title="PLANS">
+                <ListSkeleton count={6} />
+              </TerminalWindow>
+            )}
+          </motion.div>
         ) : (
           <>
             {/* Pipeline View */}

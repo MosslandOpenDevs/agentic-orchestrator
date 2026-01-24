@@ -7,6 +7,57 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 이 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)를 기반으로 하며,
 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
+## [0.5.0] - 2026-01-24
+
+### 추가됨
+
+#### 창의성 프레임워크 강화 (Phase 1)
+- **SCAMPER 창의성 프롬프트**: 발산 단계에서 구조화된 SCAMPER 기법 사용
+  - 라운드 1: 대체 & 결합 (구성요소 교체, 개념 병합)
+  - 라운드 2: 적용 & 수정 (타 산업 영감, 규모 변경)
+  - 라운드 3: 전용, 제거 & 역발상 (역설적 사고)
+- **측면사고 프롬프트**: 라운드별 교차 적용되는 창의성 기법
+  - Blue Sky Thinking (제약 없는 상상)
+  - Paradox Approach (역문제 해결)
+  - Cross-Domain Innovation (타 산업 패턴 차용)
+- **온도 상향**: 발산 단계 온도를 0.95로 상향 (기존 0.9)하여 더 창의적인 출력 유도
+
+#### Coingecko 시장 어댑터
+- **트렌딩 코인**: 실시간 검색 트렌드 감지
+- **상위 변동종목**: 상위 5개 상승/하락 종목 (24시간, >10% 변동 임계값)
+- **거래량 급등**: 비정상 거래 활동 감지 (거래량 > 시가총액의 50%)
+- **글로벌 시장 통계**: 전체 시가총액 변동, BTC 도미넌스 알림
+- **추적 코인**: MOC (Mossland) 포함 16개 특정 코인
+
+#### 시그널 시간 감쇠
+- **신선도 가중치**: 시그널 점수가 경과 시간에 따라 감쇠
+  - 0-1시간: 100% 가중치
+  - 1-6시간: 90% 가중치
+  - 6-12시간: 80% 가중치
+  - 12-24시간: 60% 가중치
+  - 24-48시간: 40% 가중치
+  - 48시간+: 20% 가중치
+- **감쇠 로깅**: 분석 주기별 감쇠 분포 디버그 정보 표시
+
+#### 대시보드 UX 개선
+- **스켈레톤 로더**: 트렌드 페이지와 아이디어 페이지에 적절한 로딩 스켈레톤 적용
+  - 점수, 제목, 키워드 플레이스홀더가 있는 트렌드 카드
+  - 스테이지 인디케이터가 있는 파이프라인 뷰
+  - 배지와 콘텐츠 플레이스홀더가 있는 리스트 아이템
+
+### 변경됨
+- 시그널 애그리게이터에 Coingecko 어댑터 기본 포함
+- 트렌드 분석 시 시그널 처리 전 시간 감쇠 적용
+
+### 기술 사항
+- `DebateProtocol`에 `SCAMPER_TECHNIQUES`, `LATERAL_THINKING` 딕셔너리 추가
+- `DebateProtocol`에 `get_creativity_technique()` 메서드 추가
+- `CoingeckoAdapter` 클래스 추가 (trending, movers, global stats, tracked coins 메서드)
+- 스케줄러에 `_calculate_time_decay()`, `_apply_time_decay_to_signals()` 함수 추가
+- `TrendSkeleton`, `PipelineSkeleton`, `ListItemSkeleton`, `ListSkeleton` React 컴포넌트 추가
+
+---
+
 ## [0.4.2] - 2026-01-24
 
 ### 추가됨

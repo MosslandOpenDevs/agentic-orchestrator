@@ -10,6 +10,44 @@ import type { Trend } from '@/lib/types';
 
 const categories = ['all', 'crypto', 'defi', 'ai', 'security', 'dev', 'finance'] as const;
 
+// Skeleton component for loading state
+function TrendSkeleton({ index }: { index: number }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ delay: index * 0.05 }}
+      className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4"
+    >
+      <div className="flex items-start gap-4">
+        {/* Score skeleton */}
+        <div className="w-12 h-12 bg-zinc-800 rounded animate-pulse" />
+
+        {/* Content skeleton */}
+        <div className="flex-1 space-y-2">
+          {/* Title */}
+          <div className="h-5 bg-zinc-800 rounded animate-pulse w-3/4" />
+          {/* Description */}
+          <div className="h-4 bg-zinc-800 rounded animate-pulse w-full" />
+          <div className="h-4 bg-zinc-800 rounded animate-pulse w-2/3" />
+          {/* Keywords */}
+          <div className="flex gap-2 mt-2">
+            <div className="h-4 w-16 bg-zinc-800 rounded animate-pulse" />
+            <div className="h-4 w-12 bg-zinc-800 rounded animate-pulse" />
+            <div className="h-4 w-20 bg-zinc-800 rounded animate-pulse" />
+          </div>
+        </div>
+
+        {/* Stats skeleton */}
+        <div className="text-right space-y-1">
+          <div className="h-6 w-8 bg-zinc-800 rounded animate-pulse" />
+          <div className="h-3 w-12 bg-zinc-800 rounded animate-pulse" />
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 export default function TrendsPage() {
   const { t } = useI18n();
   const [trends, setTrends] = useState<Trend[]>(mockTrends);
@@ -94,7 +132,12 @@ export default function TrendsPage() {
 
         <div className="grid gap-4">
           {isLoading ? (
-            <div className="text-center text-zinc-500 py-8">Loading trends...</div>
+            // Skeleton loading state
+            <>
+              {Array.from({ length: 6 }).map((_, index) => (
+                <TrendSkeleton key={index} index={index} />
+              ))}
+            </>
           ) : filteredTrends.length === 0 ? (
             <div className="text-center text-zinc-500 py-8">No trends found</div>
           ) : (
