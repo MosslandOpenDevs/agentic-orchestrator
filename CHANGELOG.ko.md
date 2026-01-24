@@ -7,6 +7,36 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 이 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)를 기반으로 하며,
 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
+## [0.6.1] - 2026-01-25
+
+### 추가됨
+
+#### Projects UI 통합
+- **프로젝트 페이지**: 상태 필터링(전체/완료/생성 중/오류)이 있는 새 `/projects` 페이지
+  - 기술 스택 배지 (프론트엔드/백엔드/블록체인)
+  - 디렉토리 경로 표시
+  - 생성된 파일 수
+  - 클릭하여 프로젝트 상세 모달 열기
+- **대시보드 통합**: 최근 5개 프로젝트를 보여주는 "Recent Projects" 섹션
+  - `/projects` 페이지 직접 링크
+  - 상태 표시기 및 기술 스택 표시
+- **아이디어 페이지 프로젝트 탭**: 빠른 접근을 위해 아이디어 페이지에 프로젝트 섹션 추가
+
+### 수정됨
+- **API 클라이언트 타임아웃**: 네트워크 지연 처리를 위해 타임아웃을 3초에서 10초로 증가
+  - "Using mock stats/pipeline due to API error" 경고 해결
+  - 느린 연결에서 조기 요청 중단 방지
+- **Projects 테이블 생성**: `/projects` 엔드포인트 500 오류 수정
+  - 데이터베이스에 누락된 `projects` 테이블 생성
+  - 다른 모델과 함께 테이블 자동 생성
+
+### 기술 사항
+- 재사용 가능한 프로젝트 목록 표시를 위한 `ProjectsSection` 컴포넌트 추가
+- `ApiClient`에 10초 타임아웃 업데이트 (AbortController)
+- 데이터베이스 마이그레이션으로 `projects` 테이블 존재 보장
+
+---
+
 ## [0.6.0] "Project Generator" - 2026-01-25
 
 ### 추가됨

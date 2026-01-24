@@ -7,6 +7,36 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-01-25
+
+### Added
+
+#### Projects UI Integration
+- **Projects Page**: New `/projects` page with status filtering (all/ready/generating/error)
+  - Tech stack badges (frontend/backend/blockchain)
+  - Directory path display
+  - Files generated count
+  - Click to open project detail modal
+- **Dashboard Integration**: "Recent Projects" section showing latest 5 projects
+  - Direct link to `/projects` page
+  - Status indicators and tech stack display
+- **Ideas Page Projects Tab**: Projects section added to Ideas page for quick access
+
+### Fixed
+- **API Client Timeout**: Increased timeout from 3s to 10s to handle network latency
+  - Resolves "Using mock stats/pipeline due to API error" warnings
+  - Prevents premature request abortion on slower connections
+- **Projects Table Creation**: Fixed 500 error on `/projects` endpoint
+  - Created missing `projects` table in database
+  - Table now auto-created with other models
+
+### Technical
+- Added `ProjectsSection` component for reusable project list display
+- Updated `ApiClient` with 10-second timeout (AbortController)
+- Database migrations ensure `projects` table exists
+
+---
+
 ## [0.6.0] "Project Generator" - 2026-01-25
 
 ### Added
