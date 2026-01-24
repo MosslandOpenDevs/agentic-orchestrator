@@ -7,6 +7,40 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 이 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)를 기반으로 하며,
 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
+## [0.4.1] - 2026-01-24
+
+### 추가됨
+
+#### 시그널 어댑터 확장 (총 9개 어댑터)
+- **Twitter/X 어댑터**: 10개 Nitter 인스턴스 풀, 20개 이상 추적 계정
+- **Discord 어댑터**: Bot API 및 웹훅 지원, 7개 추적 서버
+- **Lens Protocol 어댑터**: GraphQL API, 10개 추적 프로필
+- **Farcaster 어댑터**: Neynar API, 10개 추적 사용자 및 채널
+- **온체인 확장**: DEX 거래량, 고래 알림, 스테이블코인 흐름 (DefiLlama)
+
+#### 아이디어 품질 향상
+- **JSON 출력 포맷**: 더 나은 파싱을 위한 구조화된 LLM 응답
+- **콘텐츠 검증**: 최소 글자 수 요구 필수 섹션
+- **제목 품질 점수**: 길이, 기술 키워드, Mossland 관련성 기반 0-10 점수
+
+#### 대시보드 UX 개선
+- **어댑터 상세 모달**: signals.conf 클릭 시 건강 상태 포함 상세 어댑터 정보 표시
+- **스켈레톤 로딩**: 활동 피드 로딩 중 스켈레톤 애니메이션 표시
+- **실제 활동 데이터**: `/activity` API가 목업 대신 실제 DB 데이터 반환
+
+#### 새 API 엔드포인트
+- `GET /adapters` - 상태, 소스, 건강 정보가 포함된 모든 시그널 어댑터 목록
+
+### 변경됨
+- 활동 피드가 더 이상 목업 데이터를 사용하지 않음; 실제 타임스탬프 (HH:MM:SS 형식) 표시
+- 대시보드가 스켈레톤 로딩 상태와 함께 활동 데이터 로드
+
+### 기술 사항
+- `AdapterInfo` 타입 및 `fetchAdapters()` API 클라이언트 메서드 추가
+- `ActivityFeed` 컴포넌트에 `isLoading` prop 추가
+
+---
+
 ## [0.4.0] "Signal Storm" - 2026-01-22
 
 ### 추가됨

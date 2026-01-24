@@ -31,7 +31,16 @@ agentic-orchestrator/
 │   │   └── tasks.py             # 작업 구현 (signal, debate, backlog)
 │   └── signals/                 # 신호 수집기
 │       ├── aggregator.py        # 신호 수집 조율
-│       └── adapters/            # RSS, GitHub, OnChain 어댑터
+│       └── adapters/            # 시그널 어댑터 (9개)
+│           ├── rss.py           # RSS 피드 (28개 소스)
+│           ├── github_events.py # GitHub Trending/Releases
+│           ├── onchain.py       # DefiLlama, Whale Alert, DEX
+│           ├── social.py        # Reddit, Nitter
+│           ├── news.py          # NewsAPI, Cryptopanic, HN
+│           ├── twitter.py       # Twitter/X (Nitter RSS 풀)
+│           ├── discord.py       # Discord 서버 공지
+│           ├── lens.py          # Lens Protocol (GraphQL)
+│           └── farcaster.py     # Farcaster (Neynar API)
 ├── website/                     # Next.js 프론트엔드 (포트 3000)
 │   ├── src/app/                 # App Router 페이지
 │   │   ├── page.tsx             # 대시보드 (/)
@@ -99,8 +108,9 @@ agentic-orchestrator/
 | GET | `/plans` | 기획 문서 목록 |
 | GET | `/plans/{id}` | 기획 문서 상세 |
 | GET | `/agents` | 에이전트 목록 |
+| GET | `/adapters` | 시그널 어댑터 목록 및 상태 |
 | GET | `/usage` | API 사용량 통계 |
-| GET | `/activity` | 최근 활동 로그 |
+| GET | `/activity` | 최근 활동 로그 (실제 DB 데이터 기반) |
 
 ## 데이터베이스 스키마
 
@@ -435,6 +445,32 @@ Signals (30분) → Trends (2시간) → Debate (6시간) → Ideas → Auto-Sco
 | Debate | 6시간마다 | 트렌드 기반 토론 → 아이디어/플랜 자동 생성 |
 | Backlog | 4시간마다 | 처리 상태 집계/리포트 |
 | Health Check | 5분마다 | 시스템 상태 확인 |
+
+## 개발 규칙
+
+### 문서 업데이트 규칙
+
+**중요:** 개발이 어느 정도 진척될 때마다 (기능 추가, 버그 수정, 구조 변경 등) 다음 MD 파일들을 업데이트하고 커밋해야 합니다:
+
+1. **CLAUDE.md** - 프로젝트 구조, API 엔드포인트, 새로운 기능 반영
+2. **CHANGELOG.md / CHANGELOG.ko.md** - 변경 이력 추가
+3. **docs/pipeline.md** - 파이프라인 관련 변경 시
+4. **README.md / README.ko.md** - 주요 기능 변경 시
+
+```bash
+# 문서 업데이트 후 커밋
+git add *.md docs/*.md
+git commit -m "docs: update documentation for recent changes"
+```
+
+### 커밋 컨벤션
+
+- `feat:` - 새로운 기능
+- `fix:` - 버그 수정
+- `docs:` - 문서 변경
+- `refactor:` - 코드 리팩토링
+- `style:` - UI/UX 변경
+- `chore:` - 기타 변경
 
 ## 참고 링크
 

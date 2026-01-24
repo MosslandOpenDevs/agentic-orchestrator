@@ -7,6 +7,40 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-01-24
+
+### Added
+
+#### Expanded Signal Adapters (9 Adapters Total)
+- **Twitter/X Adapter**: Nitter RSS pool with 10 instances, 20+ tracked accounts
+- **Discord Adapter**: Bot API and webhook support, 7 tracked servers
+- **Lens Protocol Adapter**: GraphQL API, 10 tracked profiles
+- **Farcaster Adapter**: Neynar API, 10 tracked users and channels
+- **OnChain Enhancements**: DEX volume, whale alerts, stablecoin flows via DefiLlama
+
+#### Idea Quality Improvements
+- **JSON Output Format**: Structured LLM responses for better parsing
+- **Content Validation**: Required sections with minimum character counts
+- **Title Quality Scoring**: 0-10 scale based on length, tech keywords, Mossland relevance
+
+#### Dashboard UX Improvements
+- **Adapter Detail Modal**: Click signals.conf to view detailed adapter info with health status
+- **Skeleton Loading**: Activity feed now shows skeleton animation while loading
+- **Real Activity Data**: `/activity` API returns actual DB data instead of mock timestamps
+
+#### New API Endpoints
+- `GET /adapters` - List all signal adapters with status, sources, and health info
+
+### Changed
+- Activity feed no longer uses mock data; displays real timestamps (HH:MM:SS format)
+- Dashboard loads activity data with skeleton loading state
+
+### Technical
+- Added `AdapterInfo` type and `fetchAdapters()` API client method
+- Added `isLoading` prop to `ActivityFeed` component
+
+---
+
 ## [0.4.0] "Signal Storm" - 2026-01-22
 
 ### Added
