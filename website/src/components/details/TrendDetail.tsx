@@ -262,7 +262,7 @@ export function TrendDetail({ data }: TrendDetailProps) {
         <div className="text-xs">
           <span className="text-[#6b7280]">{t('detail.analyzedAt')}: </span>
           <span className="text-[#c0c0c0]">
-            {formatLocalDateTime(trend.analyzed_at)}
+            {formatLocalDateTime(trend.analyzed_at, locale)}
           </span>
         </div>
       </div>

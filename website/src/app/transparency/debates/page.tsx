@@ -9,7 +9,7 @@ import { useModal } from '@/components/modals/useModal';
 import { TerminalWindow, TerminalBadge } from '@/components/TerminalWindow';
 
 export default function DebatesPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { openModal } = useModal();
   const [debates, setDebates] = useState<ApiDebate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -213,10 +213,10 @@ export default function DebatesPage() {
                   {/* Timestamps */}
                   <div className="mt-2 flex gap-4 text-[10px] text-[#3b3b3b]">
                     {debate.started_at && (
-                      <span>{t('debates.started')}: {formatLocalDate(debate.started_at)}</span>
+                      <span>{t('debates.started')}: {formatLocalDate(debate.started_at, locale)}</span>
                     )}
                     {debate.completed_at && (
-                      <span>{t('debates.completed')}: {formatLocalDate(debate.completed_at)}</span>
+                      <span>{t('debates.completed')}: {formatLocalDate(debate.completed_at, locale)}</span>
                     )}
                   </div>
                 </motion.div>

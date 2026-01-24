@@ -23,17 +23,27 @@ export function parseUTCDate(dateString: string | null | undefined): Date | null
 }
 
 /**
+ * Convert app locale to browser locale.
+ * 'ko' -> 'ko-KR', 'en' -> 'en-US'
+ */
+function toBrowserLocale(locale: string): string {
+  if (locale === 'ko') return 'ko-KR';
+  if (locale === 'en') return 'en-US';
+  return locale;
+}
+
+/**
  * Format a UTC date string to local date and time.
- * e.g., "2024년 1월 20일 오후 11:30" (Korean) or "Jan 20, 2024, 11:30 PM" (English)
+ * e.g., "Jan 20, 2024, 11:30 PM" (English) or "2024년 1월 20일 오후 11:30" (Korean)
  */
 export function formatLocalDateTime(
   dateString: string | null | undefined,
-  locale: string = 'ko-KR'
+  locale: string = 'en'
 ): string {
   const date = parseUTCDate(dateString);
   if (!date) return 'N/A';
 
-  return date.toLocaleString(locale, {
+  return date.toLocaleString(toBrowserLocale(locale), {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -44,16 +54,16 @@ export function formatLocalDateTime(
 
 /**
  * Format a UTC date string to local date only.
- * e.g., "2024년 1월 20일" (Korean) or "Jan 20, 2024" (English)
+ * e.g., "Jan 20, 2024" (English) or "2024년 1월 20일" (Korean)
  */
 export function formatLocalDate(
   dateString: string | null | undefined,
-  locale: string = 'ko-KR'
+  locale: string = 'en'
 ): string {
   const date = parseUTCDate(dateString);
   if (!date) return 'N/A';
 
-  return date.toLocaleDateString(locale, {
+  return date.toLocaleDateString(toBrowserLocale(locale), {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -62,16 +72,16 @@ export function formatLocalDate(
 
 /**
  * Format a UTC date string to local time only.
- * e.g., "오후 11:30" (Korean) or "11:30 PM" (English)
+ * e.g., "11:30 PM" (English) or "오후 11:30" (Korean)
  */
 export function formatLocalTime(
   dateString: string | null | undefined,
-  locale: string = 'ko-KR'
+  locale: string = 'en'
 ): string {
   const date = parseUTCDate(dateString);
   if (!date) return 'N/A';
 
-  return date.toLocaleTimeString(locale, {
+  return date.toLocaleTimeString(toBrowserLocale(locale), {
     hour: '2-digit',
     minute: '2-digit',
   });
@@ -79,11 +89,11 @@ export function formatLocalTime(
 
 /**
  * Format a UTC date string to relative time.
- * e.g., "5분 전", "2시간 전", "3일 전"
+ * e.g., "5 minutes ago", "2 hours ago", "3 days ago"
  */
 export function formatRelativeTime(
   dateString: string | null | undefined,
-  locale: string = 'ko-KR'
+  locale: string = 'en'
 ): string {
   const date = parseUTCDate(dateString);
   if (!date) return 'N/A';
@@ -96,7 +106,7 @@ export function formatRelativeTime(
   const diffDays = Math.floor(diffHours / 24);
 
   // Use Intl.RelativeTimeFormat for localized relative time
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+  const rtf = new Intl.RelativeTimeFormat(toBrowserLocale(locale), { numeric: 'auto' });
 
   if (diffDays > 0) {
     return rtf.format(-diffDays, 'day');
@@ -111,11 +121,11 @@ export function formatRelativeTime(
 
 /**
  * Format a UTC date string with both date and relative time.
- * e.g., "2024년 1월 20일 (2시간 전)"
+ * e.g., "Jan 20, 2024 (2 hours ago)"
  */
 export function formatDateWithRelative(
   dateString: string | null | undefined,
-  locale: string = 'ko-KR'
+  locale: string = 'en'
 ): string {
   const date = parseUTCDate(dateString);
   if (!date) return 'N/A';

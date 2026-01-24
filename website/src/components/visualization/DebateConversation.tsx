@@ -3,6 +3,60 @@
 import { motion } from 'framer-motion';
 import { formatLocalDateTime } from '@/lib/date';
 
+// Helper function to extract readable text from JSON content
+function extractReadableContent(content: string): string {
+  if (!content) return '';
+
+  try {
+    // Remove markdown code block if present
+    const codeBlockMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    const jsonStr = codeBlockMatch ? codeBlockMatch[1].trim() : content.trim();
+
+    // Try to parse as JSON
+    if (jsonStr.startsWith('{')) {
+      const parsed = JSON.parse(jsonStr);
+
+      // Build readable output from JSON fields
+      const parts: string[] = [];
+
+      if (parsed.idea_title) {
+        parts.push(`**${parsed.idea_title}**`);
+      }
+
+      if (parsed.core_analysis) {
+        parts.push(`\n${parsed.core_analysis}`);
+      }
+
+      if (parsed.proposal?.description) {
+        parts.push(`\n\n**Proposal:** ${parsed.proposal.description}`);
+      }
+
+      if (parsed.proposal?.core_features && Array.isArray(parsed.proposal.core_features)) {
+        parts.push(`\n\n**Core Features:**`);
+        parsed.proposal.core_features.forEach((feature: string) => {
+          parts.push(`\n• ${feature}`);
+        });
+      }
+
+      if (parts.length > 0) {
+        return parts.join('');
+      }
+
+      // Fallback: get first meaningful string value
+      for (const value of Object.values(parsed)) {
+        if (typeof value === 'string' && value.length > 20) {
+          return value;
+        }
+      }
+    }
+
+    return content;
+  } catch {
+    // Not valid JSON, return as is (but clean up code block markers)
+    return content.replace(/```json/g, '').replace(/```/g, '').trim();
+  }
+}
+
 interface DebateMessage {
   id: string;
   agent_id: string;
@@ -54,7 +108,8 @@ export function DebateConversation({ messages, locale }: DebateConversationProps
       {messages.map((message, idx) => {
         const colorClass = messageTypeColors[message.message_type] || messageTypeColors.default;
         const icon = messageTypeIcons[message.message_type] || messageTypeIcons.default;
-        const content = locale === 'ko' && message.content_ko ? message.content_ko : message.content;
+        const rawContent = locale === 'ko' && message.content_ko ? message.content_ko : message.content;
+        const content = extractReadableContent(rawContent);
 
         return (
           <motion.div
@@ -84,7 +139,7 @@ export function DebateConversation({ messages, locale }: DebateConversationProps
             {/* Timestamp */}
             {message.created_at && (
               <div className="mt-2 text-[10px] text-[#3b3b3b]">
-                {formatLocalDateTime(message.created_at)}
+                {formatLocalDateTime(message.created_at, locale)}
               </div>
             )}
           </motion.div>

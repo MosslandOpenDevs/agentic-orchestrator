@@ -5,6 +5,60 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import type { ApiDebate, ApiDebateMessage } from '@/lib/api';
 
+// Helper function to extract readable text from JSON content
+function extractReadableContent(content: string): string {
+  if (!content) return '';
+
+  try {
+    // Remove markdown code block if present
+    const codeBlockMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    const jsonStr = codeBlockMatch ? codeBlockMatch[1].trim() : content.trim();
+
+    // Try to parse as JSON
+    if (jsonStr.startsWith('{')) {
+      const parsed = JSON.parse(jsonStr);
+
+      // Build readable output from JSON fields
+      const parts: string[] = [];
+
+      if (parsed.idea_title) {
+        parts.push(`**${parsed.idea_title}**`);
+      }
+
+      if (parsed.core_analysis) {
+        parts.push(`\n${parsed.core_analysis}`);
+      }
+
+      if (parsed.proposal?.description) {
+        parts.push(`\n\n**Proposal:** ${parsed.proposal.description}`);
+      }
+
+      if (parsed.proposal?.core_features && Array.isArray(parsed.proposal.core_features)) {
+        parts.push(`\n\n**Core Features:**`);
+        parsed.proposal.core_features.forEach((feature: string) => {
+          parts.push(`\n• ${feature}`);
+        });
+      }
+
+      if (parts.length > 0) {
+        return parts.join('');
+      }
+
+      // Fallback: get first meaningful string value
+      for (const value of Object.values(parsed)) {
+        if (typeof value === 'string' && value.length > 20) {
+          return value;
+        }
+      }
+    }
+
+    return content;
+  } catch {
+    // Not valid JSON, return as is (but clean up code block markers)
+    return content.replace(/```json/g, '').replace(/```/g, '').trim();
+  }
+}
+
 interface LiveDebateViewerProps {
   debate: ApiDebate;
   messages: ApiDebateMessage[];
@@ -167,7 +221,8 @@ export function LiveDebateViewer({
         <AnimatePresence mode="popLayout">
           {messages.map((msg, idx) => {
             const style = getAgentStyle(msg.agent_handle);
-            const content = locale === 'ko' && msg.content_ko ? msg.content_ko : msg.content;
+            const rawContent = locale === 'ko' && msg.content_ko ? msg.content_ko : msg.content;
+            const content = extractReadableContent(rawContent);
 
             return (
               <motion.div

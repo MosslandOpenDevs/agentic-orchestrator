@@ -3,6 +3,53 @@
 import { motion } from 'framer-motion';
 import { formatLocalTime } from '@/lib/date';
 
+// Helper function to extract readable text from JSON content
+function extractReadableContent(content: string): string {
+  if (!content) return '';
+
+  try {
+    // Remove markdown code block if present
+    const codeBlockMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    const jsonStr = codeBlockMatch ? codeBlockMatch[1].trim() : content.trim();
+
+    // Try to parse as JSON
+    if (jsonStr.startsWith('{')) {
+      const parsed = JSON.parse(jsonStr);
+
+      // Build readable output from JSON fields
+      const parts: string[] = [];
+
+      if (parsed.idea_title) {
+        parts.push(`${parsed.idea_title}`);
+      }
+
+      if (parsed.core_analysis) {
+        parts.push(` - ${parsed.core_analysis}`);
+      }
+
+      if (parsed.proposal?.description) {
+        parts.push(` | ${parsed.proposal.description}`);
+      }
+
+      if (parts.length > 0) {
+        return parts.join('');
+      }
+
+      // Fallback: get first meaningful string value
+      for (const value of Object.values(parsed)) {
+        if (typeof value === 'string' && value.length > 20) {
+          return value;
+        }
+      }
+    }
+
+    return content;
+  } catch {
+    // Not valid JSON, return as is (but clean up code block markers)
+    return content.replace(/```json/g, '').replace(/```/g, '').trim();
+  }
+}
+
 interface DebateMessage {
   id: string;
   agent_id: string;
@@ -46,7 +93,8 @@ export function DebateTimeline({ messages, locale }: DebateTimelineProps) {
 
       {messages.map((message, idx) => {
         const dotColor = messageTypeDotColors[message.message_type] || messageTypeDotColors.default;
-        const content = locale === 'ko' && message.content_ko ? message.content_ko : message.content;
+        const rawContent = locale === 'ko' && message.content_ko ? message.content_ko : message.content;
+        const content = extractReadableContent(rawContent);
 
         return (
           <motion.div
@@ -82,7 +130,7 @@ export function DebateTimeline({ messages, locale }: DebateTimelineProps) {
 
               {message.created_at && (
                 <div className="mt-1 text-[9px] text-[#3b3b3b]">
-                  {formatLocalTime(message.created_at)}
+                  {formatLocalTime(message.created_at, locale)}
                 </div>
               )}
             </div>

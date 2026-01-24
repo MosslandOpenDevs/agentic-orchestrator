@@ -179,7 +179,7 @@ export function SignalDetail({ data }: SignalDetailProps) {
           <div>
             <span className="text-[#6b7280]">{t('detail.collectedAt')}: </span>
             <span className="text-[#c0c0c0]">
-              {formatLocalDateTime(signal.collected_at)}
+              {formatLocalDateTime(signal.collected_at, locale)}
             </span>
           </div>
           {signal.url && (

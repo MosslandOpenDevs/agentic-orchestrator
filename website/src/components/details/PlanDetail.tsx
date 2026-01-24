@@ -186,13 +186,13 @@ export function PlanDetail({ data }: PlanDetailProps) {
           <div>
             <span className="text-[#6b7280]">{t('detail.createdAt')}: </span>
             <span className="text-[#c0c0c0]">
-              {formatLocalDateTime(plan.created_at)}
+              {formatLocalDateTime(plan.created_at, locale)}
             </span>
           </div>
           <div>
             <span className="text-[#6b7280]">{t('detail.updatedAt')}: </span>
             <span className="text-[#c0c0c0]">
-              {formatLocalDateTime(plan.updated_at)}
+              {formatLocalDateTime(plan.updated_at, locale)}
             </span>
           </div>
         </div>

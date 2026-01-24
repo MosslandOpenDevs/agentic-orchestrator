@@ -241,13 +241,13 @@ export function DebateDetail({ data }: DebateDetailProps) {
           <div>
             <span className="text-[#6b7280]">{t('detail.startedAt')}: </span>
             <span className="text-[#c0c0c0]">
-              {formatLocalDateTime(debate.started_at)}
+              {formatLocalDateTime(debate.started_at, locale)}
             </span>
           </div>
           <div>
             <span className="text-[#6b7280]">{t('detail.completedAt')}: </span>
             <span className="text-[#c0c0c0]">
-              {debate.completed_at ? formatLocalDateTime(debate.completed_at) : t('detail.inProgress')}
+              {debate.completed_at ? formatLocalDateTime(debate.completed_at, locale) : t('detail.inProgress')}
             </span>
           </div>
         </div>

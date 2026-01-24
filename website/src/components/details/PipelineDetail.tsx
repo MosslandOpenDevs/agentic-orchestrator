@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
+import { useI18n } from '@/lib/i18n';
 import { ApiClient } from '@/lib/api';
 import { formatLocalDate } from '@/lib/date';
 import type { ModalData } from '../modals/ModalProvider';
@@ -13,6 +14,7 @@ interface PipelineDetailProps {
 
 export function PipelineDetail({ data }: PipelineDetailProps) {
   const router = useRouter();
+  const { locale } = useI18n();
   const [loading, setLoading] = useState(true);
   const [stageData, setStageData] = useState<any>(null);
   const stageId = data.stageId as string;
@@ -171,7 +173,7 @@ export function PipelineDetail({ data }: PipelineDetailProps) {
                     </span>
                     {item.created_at && (
                       <span className="text-[10px] text-[#3b3b3b]">
-                        {formatLocalDate(item.created_at)}
+                        {formatLocalDate(item.created_at, locale)}
                       </span>
                     )}
                   </div>

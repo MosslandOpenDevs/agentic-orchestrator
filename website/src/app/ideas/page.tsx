@@ -335,7 +335,7 @@ export default function IdeasPage() {
                             {trend.signal_count} signals
                             {trend.analyzed_at && (
                               <span className="ml-2">
-                                | {formatLocalDateTime(trend.analyzed_at)}
+                                | {formatLocalDateTime(trend.analyzed_at, locale)}
                               </span>
                             )}
                           </div>
@@ -366,7 +366,7 @@ export default function IdeasPage() {
                             {idea.source_type} | Score: {idea.score.toFixed(1)}
                             {idea.created_at && (
                               <span className="ml-2">
-                                | {formatLocalDateTime(idea.created_at)}
+                                | {formatLocalDateTime(idea.created_at, locale)}
                               </span>
                             )}
                           </div>
@@ -427,7 +427,7 @@ export default function IdeasPage() {
                           <div className="text-[10px] text-[#6b7280]">signals</div>
                           {trend.analyzed_at && (
                             <div className="text-[10px] text-[#6b7280] mt-1">
-                              {formatLocalDateTime(trend.analyzed_at)}
+                              {formatLocalDateTime(trend.analyzed_at, locale)}
                             </div>
                           )}
                         </div>
@@ -497,7 +497,7 @@ export default function IdeasPage() {
                           <p className="text-xs text-[#6b7280] mt-1 line-clamp-2">{getIdeaSummaryText(getLocalizedText(idea.summary, idea.summary_ko))}</p>
                           {idea.created_at && (
                             <div className="text-[10px] text-[#6b7280] mt-2">
-                              {formatLocalDateTime(idea.created_at)}
+                              {formatLocalDateTime(idea.created_at, locale)}
                             </div>
                           )}
                         </div>
@@ -549,7 +549,7 @@ export default function IdeasPage() {
                           <h3 className="text-sm font-medium text-[#c0c0c0]">{getLocalizedText(plan.title, plan.title_ko)}</h3>
                           {plan.created_at && (
                             <div className="text-[10px] text-[#6b7280] mt-1">
-                              {formatLocalDateTime(plan.created_at)}
+                              {formatLocalDateTime(plan.created_at, locale)}
                             </div>
                           )}
                         </div>

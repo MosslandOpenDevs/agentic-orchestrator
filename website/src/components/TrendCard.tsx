@@ -25,7 +25,7 @@ const categoryColors: Record<string, string> = {
 };
 
 export function TrendCard({ trend, index, trendId }: TrendCardProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { openModal } = useModal();
   const [isExpanded, setIsExpanded] = useState(false);
   const categoryStyle = categoryColors[trend.category] || categoryColors.general;
@@ -66,7 +66,7 @@ export function TrendCard({ trend, index, trendId }: TrendCardProps) {
               </span>
               {trend.analyzedAt && (
                 <span className="font-mono text-xs text-zinc-600">
-                  • {formatLocalDateTime(trend.analyzedAt)}
+                  • {formatLocalDateTime(trend.analyzedAt, locale)}
                 </span>
               )}
             </div>
