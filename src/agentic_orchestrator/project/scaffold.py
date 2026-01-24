@@ -9,11 +9,13 @@ Orchestrates the complete project generation pipeline:
 5. Generate LLM-enhanced code
 6. Create project directory structure
 7. Update project status in database
+8. Auto-commit and push to GitHub
 """
 
 import json
 import logging
 import asyncio
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -200,6 +202,13 @@ class ProjectScaffold:
                 status="ready",
                 directory_path=str(project_path),
             )
+
+            # Auto-commit and push to GitHub
+            git_success = await self._git_commit_and_push(str(project_path), project_name)
+            if git_success:
+                logger.info(f"Project auto-pushed to GitHub: {project_name}")
+            else:
+                logger.warning(f"Git push failed for project: {project_name} (project still created locally)")
 
             duration = (datetime.utcnow() - start_time).total_seconds()
 
@@ -389,6 +398,76 @@ class ProjectScaffold:
             safe_name = safe_name[:50].rsplit("-", 1)[0]
 
         return safe_name.lower() or "project"
+
+    async def _git_commit_and_push(self, project_path: str, project_name: str) -> bool:
+        """
+        Commit and push the generated project to GitHub.
+
+        Args:
+            project_path: Full path to the project directory
+            project_name: Name of the project
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Get the repository root (parent of projects/ directory)
+            repo_root = Path(project_path).parent.parent
+
+            # Stage the project directory
+            add_result = subprocess.run(
+                ["git", "add", f"projects/{project_name}/"],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if add_result.returncode != 0:
+                logger.error(f"Git add failed: {add_result.stderr}")
+                return False
+
+            # Create commit message
+            commit_message = f"feat: auto-generate project scaffold for {project_name}"
+
+            # Commit the changes
+            commit_result = subprocess.run(
+                ["git", "commit", "-m", commit_message],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if commit_result.returncode != 0:
+                # Check if there's nothing to commit
+                if "nothing to commit" in commit_result.stdout.lower():
+                    logger.info("No changes to commit (project already committed)")
+                    return True
+                logger.error(f"Git commit failed: {commit_result.stderr}")
+                return False
+
+            logger.info(f"Committed project: {project_name}")
+
+            # Push to remote
+            push_result = subprocess.run(
+                ["git", "push", "origin", "main"],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if push_result.returncode != 0:
+                logger.error(f"Git push failed: {push_result.stderr}")
+                return False
+
+            logger.info(f"Pushed project to GitHub: {project_name}")
+            return True
+
+        except subprocess.TimeoutExpired:
+            logger.error("Git operation timed out")
+            return False
+        except Exception as e:
+            logger.error(f"Git commit/push failed: {e}")
+            return False
 
 
 async def generate_project_from_plan(
