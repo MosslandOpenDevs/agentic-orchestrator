@@ -457,19 +457,120 @@ async def get_activity(
     limit: int = Query(default=20, le=100),
     session: Session = Depends(get_session),
 ):
-    """Get recent system activity for the activity feed."""
-    log_repo = SystemLogRepository(session)
+    """Get recent system activity for the activity feed.
 
-    logs = log_repo.get_recent(limit=limit)
+    Generates activity from real data tables (signals, trends, ideas, debates, plans)
+    instead of relying on explicit system logs.
+    """
+    from ..db.models import Signal, Trend, Idea, DebateSession, Plan
+    from sqlalchemy import desc, union_all, literal
 
     activities = []
-    for log in logs:
+
+    # Get recent signals (last 24 hours, limit to avoid too many)
+    recent_signals = (
+        session.query(Signal)
+        .filter(Signal.collected_at.isnot(None))
+        .order_by(desc(Signal.collected_at))
+        .limit(20)
+        .all()
+    )
+    for signal in recent_signals:
         activities.append({
-            "time": log.created_at.strftime("%H:%M") if log.created_at else "",
-            "type": log.source,
-            "message": log.message,
-            "level": log.level,
+            "timestamp": signal.collected_at,
+            "time": signal.collected_at.strftime("%H:%M:%S") if signal.collected_at else "",
+            "type": "trend",  # signals show as 'trend' type for SIGNAL prefix
+            "message": f"Signal collected: {signal.title[:80]}..." if len(signal.title) > 80 else f"Signal collected: {signal.title}",
+            "source": signal.source,
         })
+
+    # Get recent trends
+    recent_trends = (
+        session.query(Trend)
+        .filter(Trend.analyzed_at.isnot(None))
+        .order_by(desc(Trend.analyzed_at))
+        .limit(10)
+        .all()
+    )
+    for trend in recent_trends:
+        activities.append({
+            "timestamp": trend.analyzed_at,
+            "time": trend.analyzed_at.strftime("%H:%M:%S") if trend.analyzed_at else "",
+            "type": "trend",
+            "message": f"Trend analyzed: {trend.name[:60]}... (score: {trend.score:.1f})" if len(trend.name) > 60 else f"Trend analyzed: {trend.name} (score: {trend.score:.1f})",
+            "signal_count": trend.signal_count,
+        })
+
+    # Get recent ideas
+    recent_ideas = (
+        session.query(Idea)
+        .filter(Idea.created_at.isnot(None))
+        .order_by(desc(Idea.created_at))
+        .limit(10)
+        .all()
+    )
+    for idea in recent_ideas:
+        status_emoji = {"promoted": "🚀", "scored": "📊", "archived": "📦"}.get(idea.status, "💡")
+        activities.append({
+            "timestamp": idea.created_at,
+            "time": idea.created_at.strftime("%H:%M:%S") if idea.created_at else "",
+            "type": "idea",
+            "message": f"Idea generated [{idea.status}]: {idea.title[:50]}..." if len(idea.title) > 50 else f"Idea generated [{idea.status}]: {idea.title}",
+            "score": idea.score,
+        })
+
+    # Get recent debates
+    recent_debates = (
+        session.query(DebateSession)
+        .order_by(desc(DebateSession.started_at))
+        .limit(10)
+        .all()
+    )
+    for debate in recent_debates:
+        if debate.started_at:
+            topic_short = (debate.topic[:40] + "...") if debate.topic and len(debate.topic) > 40 else (debate.topic or "Unknown topic")
+            activities.append({
+                "timestamp": debate.started_at,
+                "time": debate.started_at.strftime("%H:%M:%S"),
+                "type": "debate",
+                "message": f"Debate started: {topic_short}",
+                "phase": debate.phase,
+            })
+        if debate.completed_at:
+            activities.append({
+                "timestamp": debate.completed_at,
+                "time": debate.completed_at.strftime("%H:%M:%S"),
+                "type": "debate",
+                "message": f"Debate completed: {debate.status} - {len(debate.ideas_generated or [])} ideas generated",
+                "status": debate.status,
+            })
+
+    # Get recent plans
+    recent_plans = (
+        session.query(Plan)
+        .filter(Plan.created_at.isnot(None))
+        .order_by(desc(Plan.created_at))
+        .limit(10)
+        .all()
+    )
+    for plan in recent_plans:
+        activities.append({
+            "timestamp": plan.created_at,
+            "time": plan.created_at.strftime("%H:%M:%S") if plan.created_at else "",
+            "type": "plan",
+            "message": f"Plan created [{plan.status}]: {plan.title[:50]}..." if len(plan.title) > 50 else f"Plan created [{plan.status}]: {plan.title}",
+            "version": plan.version,
+        })
+
+    # Sort all activities by timestamp descending
+    activities.sort(key=lambda x: x.get("timestamp") or datetime.min, reverse=True)
+
+    # Limit to requested amount
+    activities = activities[:limit]
+
+    # Remove timestamp field (only used for sorting) and ensure time format
+    for activity in activities:
+        activity.pop("timestamp", None)
 
     return {
         "activities": activities,

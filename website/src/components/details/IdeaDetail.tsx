@@ -142,12 +142,13 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
             </button>
           </div>
 
-          <AnimatePresence>
+          <AnimatePresence initial={false}>
             {expandedMessages && (
               <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
                 className="space-y-3 max-h-96 overflow-y-auto"
               >
                 {debates[0].messages.map((msg, idx) => (
