@@ -8,9 +8,10 @@ import { StatsGrid } from '@/components/Stats';
 import { Pipeline } from '@/components/Pipeline';
 import { ActivityFeed } from '@/components/ActivityFeed';
 import { TerminalWindow } from '@/components/TerminalWindow';
+import { AdapterDetailModal } from '@/components/AdapterDetailModal';
 import { rssCategories, aiProviders, mockStats, mockActivity, mockPipeline } from '@/data/mock';
-import { fetchSystemStats, fetchActivity, fetchPipeline } from '@/lib/api';
-import type { SystemStats, ActivityItem, PipelineStage } from '@/lib/types';
+import { fetchSystemStats, fetchActivity, fetchPipeline, fetchAdapters } from '@/lib/api';
+import type { SystemStats, ActivityItem, PipelineStage, AdapterInfo } from '@/lib/types';
 
 const ASCII_LOGO = `
 ███╗   ███╗ ██████╗ ███████╗███████╗    █████╗  ██████╗
@@ -26,7 +27,10 @@ export default function Dashboard() {
   const [stats, setStats] = useState<SystemStats>(mockStats);
   const [activity, setActivity] = useState<ActivityItem[]>(mockActivity);
   const [pipeline, setPipeline] = useState<PipelineStage[]>(mockPipeline);
+  const [adapters, setAdapters] = useState<AdapterInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAdapterModalOpen, setIsAdapterModalOpen] = useState(false);
+  const [isAdaptersLoading, setIsAdaptersLoading] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -52,6 +56,16 @@ export default function Dashboard() {
     const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // Load adapters when modal opens
+  useEffect(() => {
+    if (isAdapterModalOpen && adapters.length === 0) {
+      setIsAdaptersLoading(true);
+      fetchAdapters()
+        .then(setAdapters)
+        .finally(() => setIsAdaptersLoading(false));
+    }
+  }, [isAdapterModalOpen, adapters.length]);
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] pt-12">
@@ -124,28 +138,38 @@ export default function Dashboard() {
               transition={{ delay: 0.5 }}
             >
               <TerminalWindow title="signals.conf">
-                <div className="space-y-2">
-                  <div className="text-[#6b7280] text-xs mb-3">
-                    <span className="text-[#bd93f9]"># </span>
-                    Signal adapters configuration
-                  </div>
-                  {rssCategories.map((cat) => (
-                    <div key={cat.name} className="flex items-center justify-between py-1">
-                      <span className="text-[#c0c0c0] text-xs">
-                        <span className="text-[#00ffff]">[</span>
-                        {cat.name.toLowerCase().replace(/ /g, '_')}
-                        <span className="text-[#00ffff]">]</span>
+                <button
+                  onClick={() => setIsAdapterModalOpen(true)}
+                  className="w-full text-left hover:bg-[#21262d]/30 -m-3 p-3 rounded transition-colors"
+                >
+                  <div className="space-y-2">
+                    <div className="text-[#6b7280] text-xs mb-3 flex justify-between items-center">
+                      <span>
+                        <span className="text-[#bd93f9]"># </span>
+                        Signal adapters configuration
                       </span>
-                      <span className="tag tag-cyan">{cat.count} sources</span>
+                      <span className="text-[#00ffff] text-[10px] opacity-60 hover:opacity-100">
+                        [click for details]
+                      </span>
                     </div>
-                  ))}
-                  <div className="border-t border-[#21262d] pt-3 mt-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[#6b7280] text-xs">total_adapters:</span>
-                      <span className="text-[#39ff14] font-bold">45</span>
+                    {rssCategories.map((cat) => (
+                      <div key={cat.name} className="flex items-center justify-between py-1">
+                        <span className="text-[#c0c0c0] text-xs">
+                          <span className="text-[#00ffff]">[</span>
+                          {cat.name.toLowerCase().replace(/ /g, '_')}
+                          <span className="text-[#00ffff]">]</span>
+                        </span>
+                        <span className="tag tag-cyan">{cat.count} sources</span>
+                      </div>
+                    ))}
+                    <div className="border-t border-[#21262d] pt-3 mt-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[#6b7280] text-xs">total_adapters:</span>
+                        <span className="text-[#39ff14] font-bold">9</span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                </button>
               </TerminalWindow>
             </motion.div>
 
@@ -238,6 +262,14 @@ export default function Dashboard() {
           </a>
         </motion.div>
       </div>
+
+      {/* Adapter Detail Modal */}
+      <AdapterDetailModal
+        isOpen={isAdapterModalOpen}
+        onClose={() => setIsAdapterModalOpen(false)}
+        adapters={adapters}
+        isLoading={isAdaptersLoading}
+      />
     </div>
   );
 }

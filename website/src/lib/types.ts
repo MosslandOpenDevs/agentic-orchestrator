@@ -146,3 +146,17 @@ export interface TimelineEvent {
   description?: string;
   metadata?: Record<string, unknown>;
 }
+
+// Adapter types
+export interface AdapterInfo {
+  name: string;
+  category: string;
+  description: string;
+  description_en: string;
+  enabled: boolean;
+  last_fetch: string | null;
+  health: Record<string, unknown>;
+  sources?: string[];
+  source_count?: number;
+  error?: string;
+}

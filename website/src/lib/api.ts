@@ -12,6 +12,7 @@ import type {
   Idea,
   Plan,
   PipelineStage,
+  AdapterInfo,
 } from './types';
 import {
   mockStats,
@@ -221,6 +222,12 @@ export interface AgentsResponse {
   total: number;
 }
 
+export interface AdaptersResponse {
+  adapters: AdapterInfo[];
+  total: number;
+  enabled_count: number;
+}
+
 // Generic fetch function with error handling and timeout
 async function apiFetch<T>(
   endpoint: string,
@@ -408,6 +415,11 @@ export class ApiClient {
     const query = phase ? `?phase=${phase}` : '';
     return apiFetch<AgentsResponse>(`/agents${query}`);
   }
+
+  // Adapters
+  static async getAdapters(): Promise<ApiResponse<AdaptersResponse>> {
+    return apiFetch<AdaptersResponse>('/adapters');
+  }
 }
 
 // Helper functions to convert API data to frontend types with mock fallback
@@ -509,6 +521,17 @@ export async function fetchPlans(): Promise<Plan[]> {
     created: p.created_at?.split('T')[0] || '',
     issueUrl: p.github_issue_url || undefined,
   }));
+}
+
+export async function fetchAdapters(): Promise<AdapterInfo[]> {
+  const { data, error } = await ApiClient.getAdapters();
+
+  if (error || !data) {
+    console.warn('Failed to fetch adapters:', error);
+    return [];
+  }
+
+  return data.adapters;
 }
 
 export async function fetchPipeline(): Promise<PipelineStage[]> {

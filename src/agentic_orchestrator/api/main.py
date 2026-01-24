@@ -477,6 +477,132 @@ async def get_activity(
     }
 
 
+@app.get("/adapters")
+async def get_adapters():
+    """Get detailed signal adapter information."""
+    from ..adapters import (
+        RSSAdapter, GitHubEventsAdapter, OnChainAdapter,
+        SocialMediaAdapter, NewsAPIAdapter, TwitterAdapter,
+        DiscordAdapter, LensAdapter, FarcasterAdapter
+    )
+    import asyncio
+
+    adapters_info = []
+
+    # Define all adapters with their details
+    adapter_classes = [
+        {
+            "class": RSSAdapter,
+            "category": "news",
+            "description": "RSS/Atom 피드 수집기",
+            "description_en": "RSS/Atom feed collector",
+        },
+        {
+            "class": GitHubEventsAdapter,
+            "category": "dev",
+            "description": "GitHub 트렌딩 및 릴리스 추적",
+            "description_en": "GitHub trending & releases tracker",
+        },
+        {
+            "class": OnChainAdapter,
+            "category": "crypto",
+            "description": "DefiLlama TVL, DEX 볼륨, 웨일 알림, 스테이블코인 흐름",
+            "description_en": "DefiLlama TVL, DEX volume, whale alerts, stablecoin flows",
+        },
+        {
+            "class": SocialMediaAdapter,
+            "category": "social",
+            "description": "Reddit 서브레딧 모니터링",
+            "description_en": "Reddit subreddit monitoring",
+        },
+        {
+            "class": NewsAPIAdapter,
+            "category": "news",
+            "description": "NewsAPI, Cryptopanic, Hacker News",
+            "description_en": "NewsAPI, Cryptopanic, Hacker News",
+        },
+        {
+            "class": TwitterAdapter,
+            "category": "social",
+            "description": "Twitter/X Nitter RSS 풀 (20+ 계정)",
+            "description_en": "Twitter/X via Nitter RSS pool (20+ accounts)",
+        },
+        {
+            "class": DiscordAdapter,
+            "category": "social",
+            "description": "Discord 서버 공지사항 (7개 서버)",
+            "description_en": "Discord server announcements (7 servers)",
+        },
+        {
+            "class": LensAdapter,
+            "category": "web3",
+            "description": "Lens Protocol GraphQL API (10개 프로필)",
+            "description_en": "Lens Protocol GraphQL API (10 profiles)",
+        },
+        {
+            "class": FarcasterAdapter,
+            "category": "web3",
+            "description": "Farcaster/Warpcast (10개 유저, 10개 채널)",
+            "description_en": "Farcaster/Warpcast (10 users, 10 channels)",
+        },
+    ]
+
+    for adapter_info in adapter_classes:
+        try:
+            adapter = adapter_info["class"]()
+
+            # Get health check info
+            health = await adapter.health_check()
+
+            # Build detailed info
+            info = {
+                "name": adapter.name,
+                "category": adapter_info["category"],
+                "description": adapter_info["description"],
+                "description_en": adapter_info["description_en"],
+                "enabled": adapter.is_enabled(),
+                "last_fetch": health.get("last_fetch"),
+                "health": health,
+            }
+
+            # Add adapter-specific details
+            if hasattr(adapter, 'SUBREDDITS'):
+                info["sources"] = adapter.SUBREDDITS
+                info["source_count"] = len(adapter.SUBREDDITS)
+            elif hasattr(adapter, 'TRACKED_ACCOUNTS'):
+                info["sources"] = adapter.TRACKED_ACCOUNTS
+                info["source_count"] = len(adapter.TRACKED_ACCOUNTS)
+            elif hasattr(adapter, 'TRACKED_PROTOCOLS'):
+                info["sources"] = adapter.TRACKED_PROTOCOLS
+                info["source_count"] = len(adapter.TRACKED_PROTOCOLS)
+            elif hasattr(adapter, 'TRACKED_PROFILES'):
+                info["sources"] = adapter.TRACKED_PROFILES
+                info["source_count"] = len(adapter.TRACKED_PROFILES)
+            elif hasattr(adapter, 'TRACKED_USERS'):
+                info["sources"] = adapter.TRACKED_USERS
+                info["source_count"] = len(adapter.TRACKED_USERS)
+            elif hasattr(adapter, 'TRACKED_SERVERS'):
+                info["sources"] = [s["name"] for s in adapter.TRACKED_SERVERS]
+                info["source_count"] = len(adapter.TRACKED_SERVERS)
+
+            adapters_info.append(info)
+
+        except Exception as e:
+            adapters_info.append({
+                "name": adapter_info["class"].__name__.replace("Adapter", "").lower(),
+                "category": adapter_info["category"],
+                "description": adapter_info["description"],
+                "enabled": False,
+                "error": str(e),
+            })
+
+    return {
+        "adapters": adapters_info,
+        "total": len(adapters_info),
+        "enabled_count": sum(1 for a in adapters_info if a.get("enabled", False)),
+    }
+
+
 @app.get("/agents")
 async def get_agents(phase: Optional[str] = None):
     """Get agent personas information."""
@@ -536,6 +662,7 @@ async def root():
             "usage": "/usage",
             "activity": "/activity",
             "agents": "/agents",
+            "adapters": "/adapters",
             "docs": "/docs",
         },
     }
