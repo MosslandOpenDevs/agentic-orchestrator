@@ -1,86 +1,63 @@
 # System Overview
-The Mossland Crypto Community Sentiment & Security Dashboard with AI-Driven Insights is a complex system that integrates multiple components to provide real-time market insights. The high-level diagram consists of the following layers:
-* Frontend: User Interface built with NextJS
-* Backend: Express-based server handling API requests and integrating with external services
-* Database: PostgreSQL database storing sentiment analysis data, blockchain transactions, and user information
-* Blockchain: Ethereum network providing real-time transactional data
-* External APIs: Twitter API for sentiment analysis and other APIs for enhanced AI-driven insights
+The Mossland Crypto Community Sentiment & Security Dashboard with AI-Driven Insights is a complex system that integrates multiple components to provide real-time market insights and security alerts. The high-level diagram consists of the following components:
+* Frontend (NextJS)
+* Backend (Express)
+* Database (PostgreSQL)
+* Blockchain (Ethereum)
+* External APIs (Twitter API, etc.)
 
-# Component Architecture
-## Frontend
-* NextJS framework for building the user interface
-* React components for rendering dashboard elements
-* Redux or MobX for state management
+## Component Architecture
+### Frontend
+* NextJS framework for building server-side rendered and static React applications
+* Responsible for rendering UI components and handling user interactions
 
-## Backend
-* Express.js framework for handling API requests
-* Node.js runtime environment
-* Ethereum blockchain integration using Web3.js library
-* Twitter API integration for sentiment analysis
+### Backend
+* Express framework for building RESTful APIs
+* Handles API requests, interacts with the database, and integrates with external services
 
-## Database
-* PostgreSQL database management system
-* Schema design incorporating tables for user data, sentiment analysis, and blockchain transactions
+### Database
+* PostgreSQL relational database management system
+* Stores sentiment analysis results, security alerts, and other relevant data
 
-## Blockchain
-* Ethereum network for real-time transactional data
-* Web3.js library for interacting with the Ethereum blockchain
-* Support for multiple blockchain networks in Phase 2
+### Blockchain
+* Ethereum blockchain network
+* Provides real-time transactional data for integration with the backend services
 
-# Data Flow
-1. User interacts with the frontend dashboard
-2. Frontend sends API requests to the backend server
-3. Backend server retrieves data from external APIs (Twitter, Ethereum blockchain)
-4. Sentiment analysis module processes Twitter data using machine learning models
-5. Blockchain integration module pulls real-time transactional data from Ethereum network
-6. Data is stored in the PostgreSQL database
-7. Backend server processes and analyzes data to generate AI-driven insights
-8. Insights are sent back to the frontend dashboard for display
+## Data Flow
+1. **Data Ingestion**: The system ingests data from various sources, including Twitter API and Ethereum blockchain.
+2. **Sentiment Analysis**: The sentiment analysis module processes the ingested data using machine learning models.
+3. **Data Storage**: The processed data is stored in the PostgreSQL database.
+4. **API Requests**: The frontend sends API requests to the backend to fetch sentiment analysis results or submit new security alerts.
+5. **Backend Processing**: The backend handles API requests, interacts with the database, and integrates with external services.
 
-# API Design
-## Sentiment Analysis Endpoints
-* `GET /sentiment-analysis`: Retrieve sentiment analysis data for a specific cryptocurrency
-* `POST /sentiment-analysis`: Create new sentiment analysis data for a specific cryptocurrency
+## API Design
+### Endpoints
+* `GET /api/sentiment-analysis`: Fetches sentiment analysis results for a user.
+* `POST /api/security-alerts`: Submits a new security alert to the system.
 
-## Blockchain Integration Endpoints
-* `GET /blockchain-data`: Retrieve real-time transactional data from Ethereum network
-* `POST /blockchain-data`: Create new blockchain transaction data
+### Request/Response Formats
+* JSON format for request and response bodies
 
-## User Management Endpoints
-* `GET /users`: Retrieve list of registered users
-* `POST /users`: Create new user account
+## Database Schema
+The conceptual database schema consists of the following entities:
+* **Users**: stores information about registered users
+* **SentimentAnalysis**: stores sentiment analysis results for each user
+* **SecurityAlerts**: stores submitted security alerts
+* **BlockchainData**: stores real-time transactional data from Ethereum blockchain
 
-# Database Schema (Conceptual)
-* **Users Table**
-	+ id (primary key)
-	+ username
-	+ email
-	+ password
-* **Sentiment Analysis Table**
-	+ id (primary key)
-	+ cryptocurrency
-	+ sentiment_score
-	+ created_at
-* **Blockchain Transactions Table**
-	+ id (primary key)
-	+ transaction_hash
-	+ block_number
-	+ timestamp
+## Security Considerations
+* Implement authentication and authorization mechanisms to secure API endpoints
+* Use encryption to protect sensitive data in transit and at rest
+* Regularly update dependencies and patch vulnerabilities
 
-# Security Considerations
-* Authentication and authorization using JSON Web Tokens (JWT)
-* Encryption of sensitive data using SSL/TLS
-* Secure password storage using bcrypt or similar library
-* Regular security audits and penetration testing
+## Scalability Notes
+* Design the system to scale horizontally (add more instances) and vertically (increase instance resources)
+* Use load balancers and caching mechanisms to improve performance under high traffic
+* Implement queuing systems to handle high volumes of data ingestion and processing
 
-# Scalability Notes
-* Horizontal scaling of backend server instances
-* Load balancing using NGINX or HAProxy
-* Caching using Redis or Memcached
-* Database replication for high availability
-
-# Deployment Architecture
-* Frontend deployment on a CDN (Content Delivery Network) like Cloudflare or Verizon Digital Media Services
-* Backend deployment on a cloud provider like AWS or Google Cloud Platform
-* Containerization using Docker for easy deployment and management
-* Orchestration using Kubernetes for automated scaling and management
+## Deployment Architecture
+The deployment architecture consists of the following components:
+* **Frontend**: deployed on a CDN or cloud provider (e.g. Vercel, Netlify)
+* **Backend**: deployed on a cloud provider (e.g. AWS, Google Cloud) using containerization (e.g. Docker)
+* **Database**: deployed on a cloud provider (e.g. AWS RDS, Google Cloud SQL)
+* **Blockchain**: integrates with Ethereum blockchain network using web3 libraries and providers (e.g. Infura, Alchemy)

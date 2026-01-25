@@ -1,75 +1,82 @@
 # Mossland Crypto Community Sentiment & Security Dashboard with AI-Driven Insights
 
-## Project Description
-
-Mossland Defi Real-Time Market Insights is a comprehensive platform designed to provide users with real-time sentiment analysis and security insights from the crypto community. Leveraging Ethereum blockchain transactions, this project aims at offering a more secure and data-informed trading experience.
+## Description
+The **Mossland Defi Real-Time Market Insights** project aims to provide a secure and data-informed trading experience by integrating sentiment analysis from social media and real-time transactional data from the Ethereum blockchain. This dashboard will help users make more informed decisions in their crypto investments.
 
 ## Features
-- Sentiment Analysis Module: Data retrieval from Twitter API and basic machine learning models for text classification.
-- Blockchain Integration: Real-time transactional data from Ethereum.
-- Initial Target Users: 500 active users expected in the initial phase.
-- Phase 2: Integration with more external APIs to enhance AI-driven insights, support for multiple blockchain networks beyond Ethereum.
-- Long-term Vision: Expand into a full-fledged Web3 ecosystem offering additional services like decentralized insurance and identity verification systems.
+- Sentiment Analysis Module with Twitter API Integration.
+- Real-time Transaction Data from Ethereum Blockchain.
+- Initial Support for Ethereum Blockchain, future support for additional blockchains.
+- AI-driven Insights to enhance trading strategies.
 
 ## Tech Stack
 
-![Next.js](https://img.shields.io/badge/nextjs-%23000000.svg?style=for-the-badge&logo=nextdotjs&logoColor=white)
-![Express.js](https://img.shields.io/badge/express-%23404d59.svg?style=for-the-badge&logo=express&logoColor=%2361DAFB)
-![PostgreSQL](https://img.shields.io/badge/postgres-%23316192.svg?style=for-the-badge&logo=postgresql&logoColor=white)
-![Ethereum](https://img.shields.io/badge/ethereum-%23F7931A.svg?style=for-the-badge&logo=Ethereum)
+![Next.js](https://img.shields.io/badge/nextjs-black?style=for-the-badge&logo=nextdotjs)
+![Express.js](https://img.shields.io/badge/express-black?style=for-the-badge&logo=express)
+![PostgreSQL](https://img.shields.io/badge/postgresql-black?style=for-the-badge&logo=postgreql)
+![Ethereum](https://img.shields.io/badge/Ethereum-black?style=for-the-badge&logo=Ethereum)
 
 ## Getting Started
 
 ### Prerequisites
-- Node.js and npm (or yarn) installed.
+- Node.js and npm/yarn installed on your machine.
 
 ### Installation
-```bash
-git clone https://github.com/yourusername/plan-mossland-defi-real-time-market-insights.git
-cd plan-mossland-defi-real-time-market-insights
-npm install # or yarn
-```
-
-### Setup
-1. Create a `.env` file in the root directory and add your API keys:
-   ```bash
-   NEXT_PUBLIC_TWITTER_API_KEY=your_twitter_api_key
-   ETHEREUM_NODE_URL=https://mainnet.infura.io/v3/your_project_id
+1. Clone the repository:
+   ```sh
+   git clone https://github.com/yourusername/plan-mossland-defi-real-time-market-insights.git
+   cd plan-mossland-defi-real-time-market-insights
    ```
 
-2. Initialize the database with necessary tables using the provided SQL scripts.
+2. Install dependencies for both frontend and backend:
+   ```sh
+   npm install # or yarn install
+   ```
 
-### Running the Project
-```bash
-npm run dev # or yarn dev
-```
+3. Set up environment variables as specified in `.env.example`.
+
+### Setup
+1. Start the backend server:
+   ```sh
+   npm run start:server # or yarn start:server
+   ```
+
+2. Run the frontend development server:
+   ```sh
+   npm run dev # or yarn dev
+   ```
 
 ## Usage Examples
 
-To start sentiment analysis:
-```bash
-npm run analyze-sentiment # or yarn analyze-sentiment
-```
-
-For testing blockchain integration:
-```bash
-npm run test-blockchain-integration # or yarn test-blockchain-integration
-```
+- Access the dashboard on `http://localhost:3000` to view real-time market insights.
+- Check sentiment analysis for specific crypto assets by navigating through the dashboard.
 
 ## Project Structure
-- `frontend` - Contains the Next.js application.
-- `backend` - Express server with API routes and business logic.
-- `database` - SQL scripts for database setup and management.
-- `blockchain` - Ethereum-related modules and services.
+```
+project-root/
+├── backend/           # Backend services and configurations.
+│   └── src/
+│       ├── controllers/
+│       ├── models/
+│       ├── routes/
+│       └── config/
+│
+├── frontend/          # Next.js application for the UI.
+│   └── pages/
+│   └── components/
+│   └── public/
+│
+├── .env.example       # Example environment variables file.
+└── README.md          # This document.
+```
 
-## Contributing Guidelines
+## Contributing
 
-1. Fork the repository on GitHub.
-2. Clone your forked repository to your local machine.
-3. Create a new branch for your feature or bug fix.
-4. Commit changes to that branch.
-5. Push your changes to your fork.
-6. Open a pull request against the main repository.
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
 ## License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the LICENSE.md file for details.

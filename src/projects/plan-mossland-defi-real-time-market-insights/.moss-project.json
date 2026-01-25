@@ -1,9 +1,9 @@
 {
   "version": "1.0.0",
   "generator": "moss-ao",
-  "createdAt": "2026-01-25T00:27:59.237154",
+  "createdAt": "2026-01-25T01:22:16.244951",
   "planId": "ed7af9df",
-  "projectId": "d744f1aa",
+  "projectId": "72660a27",
   "techStack": {
     "frontend": "nextjs",
     "backend": "express",
