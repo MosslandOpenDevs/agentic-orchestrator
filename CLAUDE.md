@@ -159,6 +159,8 @@ agentic-orchestrator/
 | GET | `/projects` | 생성된 프로젝트 목록 |
 | GET | `/projects/{id}` | 프로젝트 상세 |
 | GET | `/jobs/{id}` | 비동기 작업 상태 조회 |
+| POST | `/plans/{id}/approve` | Draft 플랜 수동 승인 (generate_project=true로 즉시 프로젝트 생성 가능) |
+| GET | `/plans/pending-approval` | 승인 대기 중인 Draft 플랜 목록 |
 | GET | `/agents` | 에이전트 목록 |
 | GET | `/adapters` | 시그널 어댑터 목록 및 상태 |
 | GET | `/usage` | API 사용량 통계 |
@@ -542,18 +544,39 @@ git commit -m "docs: update documentation for recent changes"
 
 ## Plan → Project 자동 생성
 
-**상태:** ✅ 구현 완료
+**상태:** ✅ 구현 완료 (v0.6.3: Production-Quality Code Generation)
 
-승인된 Plan을 `projects/` 폴더에 실제 프로젝트로 변환하는 기능:
+승인된 Plan을 `projects/` 폴더에 실제 프로덕션 품질의 프로젝트로 변환하는 기능:
 
 ```
-Plan (DB) → 파싱 → 스택 감지 → LLM 코드 생성 → projects/{project-name}/
+Plan (DB) → Deep LLM 파싱 → 엔티티/서비스 추출 → LLM 코드 생성 → projects/{project-name}/
 ```
+
+### 향상된 Plan 파서 (v0.6.3)
+
+- **Deep LLM Parsing**: 마크다운에서 상세 정보 추출
+- **DataEntity**: 데이터 모델 및 관계 정의
+- **ExternalService**: Twitter API, Coingecko, Etherscan 등 외부 서비스 감지
+- **UIComponent**: 프론트엔드 컴포넌트 및 페이지 추출
+- **SmartContractSpec**: 블록체인 스마트 컨트랙트 사양
+
+### 프로덕션 품질 코드 생성 (v0.6.3)
+
+생성되는 코드:
+- **완전한 FastAPI/Express 백엔드**: 비즈니스 로직, 라우터, 모델 포함
+- **완전한 Next.js/React 프론트엔드**: 모든 페이지와 컴포넌트 포함
+- **Solidity 스마트 컨트랙트**: Hardhat 테스트 프레임워크 포함
+- **외부 서비스 연동 레이어**: API 클라이언트, 웹소켓 핸들러
+- **데이터베이스 스키마 및 마이그레이션**
+- **Docker 설정**
 
 ### 트리거 전략
 
-- **자동 생성 (score ≥ 8.0)**: 토론 완료 후 Plan이 승인되면 자동으로 프로젝트 생성
-- **수동 생성 (score < 8.0)**: 웹 UI에서 "Generate Project" 버튼 클릭
+- **자동 생성 (score ≥ 8.0)**: 토론 완료 후 Plan이 자동 승인되고 프로젝트 생성
+- **수동 승인 (score < 8.0)**: Plan이 "draft" 상태로 생성됨
+  - `POST /plans/{id}/approve` API로 수동 승인
+  - 승인 시 `generate_project=true` 옵션으로 즉시 프로젝트 생성 가능
+  - `GET /plans/pending-approval` API로 승인 대기 목록 조회
 
 ### 지원 기술 스택
 
