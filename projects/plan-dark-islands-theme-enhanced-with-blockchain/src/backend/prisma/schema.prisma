@@ -1,0 +1,33 @@
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model UserSettings {
+  userId            String   @id @default(cuid())
+  themePreferences  Json     @db(Object)
+  accessibilitySettings Json @db(Object)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model BlockchainInteraction {
+  interactionId      String   @id @default(cuid())
+  userId             String
+  blockchainNetwork  String
+  interactionType    String
+  timestamp          DateTime
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user UserSettings @relation(fields: [userId], references: [userId])
+}
+
+enum InteractionType {
+  contractDeployment
+  transaction
+}
