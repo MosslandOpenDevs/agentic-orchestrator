@@ -242,28 +242,13 @@ class HybridLLMRouter:
                 budget_available=True,
             )
 
-        # Quality-based selection
+        # Quality-based selection - always prefer local to save costs
         if quality == "critical":
-            # Use API for critical tasks (if budget available)
-            if budget_available:
-                return self.hierarchy.get_model_for_task(
-                    task_type,
-                    prefer_local=False,
-                    budget_available=True,
-                )
-            else:
-                return "llama3.3:70b"  # Best local model
+            # Use best local model for critical tasks
+            return "llama3.3:70b"
 
         elif quality == "high":
-            # Use good local model or API
-            if budget_available and not prefer_local:
-                return self.hierarchy.get_model_for_task(
-                    task_type,
-                    prefer_local=False,
-                    budget_available=True,
-                )
-            else:
-                return "qwen2.5:32b"
+            return "qwen2.5:32b"
 
         else:
             # Normal/low quality - use local

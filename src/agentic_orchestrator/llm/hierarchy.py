@@ -166,11 +166,11 @@ class LLMHierarchy:
         # Trend analysis - use good local models
         "trend_analysis": ["qwen2.5:14b", "llama3.2:3b"],
 
-        # Critical outputs - use API models (with local fallback)
-        "final_plan": ["claude-opus-4-5", "qwen2.5:32b"],  # Fallback to local
-        "quality_check": ["claude-opus-4-5", "qwen2.5:14b"],
-        "technical_review": ["gpt-5.2", "qwen2.5:14b"],
-        "public_output": ["claude-opus-4-5", "qwen2.5:32b"],
+        # Critical outputs - prefer local models (API as last resort)
+        "final_plan": ["qwen2.5:32b", "llama3.3:70b"],
+        "quality_check": ["qwen2.5:32b", "qwen2.5:14b"],
+        "technical_review": ["qwen2.5:32b", "qwen2.5:14b"],
+        "public_output": ["qwen2.5:32b", "llama3.3:70b"],
     }
 
     def __init__(self):

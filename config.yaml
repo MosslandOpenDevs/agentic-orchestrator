@@ -82,9 +82,9 @@ throttling:
 # API Budget Configuration
 budget:
   # Daily spending limit in USD
-  daily_limit_usd: 5.0
+  daily_limit_usd: 1.0
   # Monthly spending limit in USD
-  monthly_limit_usd: 150.0
+  monthly_limit_usd: 30.0
   # Warn when usage reaches this percentage
   warning_threshold: 0.7
   # Critical alert at this percentage (prefer local models)
