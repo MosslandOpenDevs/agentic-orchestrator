@@ -88,7 +88,7 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PYTHONPATH: './src',
-        OLLAMA_HOST: 'http://localhost:11434',
+        OLLAMA_HOST: 'http://100.81.60.60:11434',
       },
       error_file: './logs/trends-error.log',
       out_file: './logs/trends-out.log',
@@ -109,7 +109,7 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PYTHONPATH: './src',
-        OLLAMA_HOST: 'http://localhost:11434',
+        OLLAMA_HOST: 'http://100.81.60.60:11434',
       },
       error_file: './logs/debate-error.log',
       out_file: './logs/debate-out.log',

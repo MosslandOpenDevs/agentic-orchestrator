@@ -4,10 +4,9 @@ LLM-based code generation for project scaffolding.
 Enhanced for high-quality, production-ready code generation.
 
 Uses task-based model selection for optimal code generation:
-- glm-4.7-flash: Plan parsing (18GB, fast)
-- qwen2.5:32b: Code generation (19GB, balanced)
-- llama3.3:70b: Architecture design (42GB, complex tasks)
-- phi4:14b: Simple tasks/fallback (9.1GB, lightweight)
+- qwen3.5:4b: Plan parsing (3.4GB, fast)
+- qwen3.5:9b: Code generation & architecture (6.6GB, balanced)
+- gemma4:e4b: Simple tasks/fallback (9.6GB, lightweight)
 """
 
 import logging
@@ -37,19 +36,19 @@ class ProjectCodeGenerator:
     LLM-based code generator for project scaffolding.
 
     Uses different models for different tasks:
-    - Parsing: glm-4.7-flash (fast, good at structured extraction)
-    - Code generation: qwen2.5:32b (balanced quality/speed for code)
-    - Architecture: llama3.3:70b (complex reasoning for system design)
-    - Simple tasks: phi4:14b (lightweight fallback)
+    - Parsing: qwen3.5:4b (fast, good at structured extraction)
+    - Code generation: qwen3.5:9b (balanced quality/speed for code)
+    - Architecture: qwen3.5:9b (complex reasoning for system design)
+    - Simple tasks: gemma4:e4b (lightweight fallback)
     """
 
     # Task-based model selection
     TASK_MODELS = {
-        "parsing": "glm-4.7-flash",       # Plan parsing, JSON extraction
-        "code_generation": "qwen2.5:32b", # Component, API, model generation
-        "architecture": "llama3.3:70b",   # Complex system design
-        "simple": "phi4:14b",             # Config files, simple docs
-        "readme": "qwen2.5:32b",          # README generation
+        "parsing": "qwen3.5:4b",          # Plan parsing, JSON extraction
+        "code_generation": "qwen3.5:9b",  # Component, API, model generation
+        "architecture": "qwen3.5:9b",     # Complex system design
+        "simple": "gemma4:e4b",            # Config files, simple docs
+        "readme": "qwen3.5:9b",           # README generation
     }
 
     def __init__(self, router=None):
@@ -418,7 +417,7 @@ Output ONLY the {'Python' if backend == 'fastapi' else 'TypeScript'} code, no ex
         """
         Generate architecture documentation.
 
-        Uses the larger llama3.3:70b model for complex reasoning.
+        Uses the larger qwen3.5:9b model for complex reasoning.
 
         Args:
             parsed_plan: Parsed plan data

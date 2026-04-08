@@ -43,53 +43,33 @@ class LLMHierarchy:
     - Budget controlled
     """
 
-    # Local models (Tier 1 - Free)
+    # Local models (Tier 1 - Free) on remote Ollama server (100.81.60.60)
     LOCAL_MODELS: Dict[str, ModelConfig] = {
-        "llama3.3:70b": ModelConfig(
-            name="llama3.3:70b",
-            provider="ollama",
-            tier=ModelTier.FREE,
-            context_size=131072,
-            cost_per_1k_input=0.0,
-            cost_per_1k_output=0.0,
-            capabilities=["reasoning", "analysis", "moderation", "planning"],
-            recommended_for=["moderation", "final_evaluation", "complex_reasoning"]
-        ),
-        "qwen2.5:32b": ModelConfig(
-            name="qwen2.5:32b",
+        "qwen3.5:9b": ModelConfig(
+            name="qwen3.5:9b",
             provider="ollama",
             tier=ModelTier.FREE,
             context_size=32768,
             cost_per_1k_input=0.0,
             cost_per_1k_output=0.0,
-            capabilities=["reasoning", "analysis", "coding", "evaluation"],
-            recommended_for=["evaluation", "convergence", "technical_review"]
+            capabilities=["reasoning", "analysis", "moderation", "planning", "coding", "evaluation"],
+            recommended_for=["moderation", "final_evaluation", "complex_reasoning", "evaluation", "convergence", "technical_review"]
         ),
-        "phi4:14b": ModelConfig(
-            name="phi4:14b",
-            provider="ollama",
-            tier=ModelTier.FREE,
-            context_size=16384,
-            cost_per_1k_input=0.0,
-            cost_per_1k_output=0.0,
-            capabilities=["reasoning", "coding", "generation"],
-            recommended_for=["generation", "idea_creation", "discussion"]
-        ),
-        "qwen2.5:14b": ModelConfig(
-            name="qwen2.5:14b",
+        "gemma4:e4b": ModelConfig(
+            name="gemma4:e4b",
             provider="ollama",
             tier=ModelTier.FREE,
             context_size=32768,
             cost_per_1k_input=0.0,
             cost_per_1k_output=0.0,
             capabilities=["reasoning", "coding", "generation", "translation"],
-            recommended_for=["generation", "translation", "discussion"]
+            recommended_for=["generation", "idea_creation", "discussion", "translation"]
         ),
-        "llama3.2:3b": ModelConfig(
-            name="llama3.2:3b",
+        "qwen3.5:4b": ModelConfig(
+            name="qwen3.5:4b",
             provider="ollama",
             tier=ModelTier.FREE,
-            context_size=131072,
+            context_size=32768,
             cost_per_1k_input=0.0,
             cost_per_1k_output=0.0,
             capabilities=["summarization", "classification", "quick_tasks"],
@@ -141,36 +121,35 @@ class LLMHierarchy:
         ),
     }
 
-    # Task to model mapping
-    # Note: For test mode, smaller models are prioritized for faster execution
+    # Task to model mapping (remote Ollama: qwen3.5:9b, gemma4:e4b, qwen3.5:4b)
     TASK_MODEL_MAP: Dict[str, List[str]] = {
-        # Divergence phase - use fast local models (prioritize speed for testing)
-        "idea_generation": ["qwen2.5:14b", "llama3.2:3b"],
-        "brainstorming": ["qwen2.5:14b", "llama3.2:3b"],
-        "discussion": ["qwen2.5:14b", "llama3.2:3b"],
+        # Divergence phase - use mid-tier models
+        "idea_generation": ["gemma4:e4b", "qwen3.5:4b"],
+        "brainstorming": ["gemma4:e4b", "qwen3.5:4b"],
+        "discussion": ["gemma4:e4b", "qwen3.5:4b"],
 
-        # Convergence phase - use medium local models (with fast fallback)
-        "evaluation": ["qwen2.5:14b", "llama3.2:3b"],
-        "scoring": ["qwen2.5:14b", "llama3.2:3b"],
-        "filtering": ["llama3.2:3b"],
+        # Convergence phase - use mid-tier with fast fallback
+        "evaluation": ["gemma4:e4b", "qwen3.5:4b"],
+        "scoring": ["gemma4:e4b", "qwen3.5:4b"],
+        "filtering": ["qwen3.5:4b"],
 
-        # Moderation - use medium model (70b is too slow)
-        "moderation": ["qwen2.5:32b", "qwen2.5:14b"],
-        "final_decision": ["qwen2.5:32b", "qwen2.5:14b"],
+        # Moderation - use best model
+        "moderation": ["qwen3.5:9b", "gemma4:e4b"],
+        "final_decision": ["qwen3.5:9b", "gemma4:e4b"],
 
         # Fast tasks - use smallest model
-        "summary": ["llama3.2:3b"],
-        "classification": ["llama3.2:3b"],
-        "translation": ["qwen2.5:14b"],
+        "summary": ["qwen3.5:4b"],
+        "classification": ["qwen3.5:4b"],
+        "translation": ["gemma4:e4b"],
 
         # Trend analysis - use good local models
-        "trend_analysis": ["qwen2.5:14b", "llama3.2:3b"],
+        "trend_analysis": ["gemma4:e4b", "qwen3.5:4b"],
 
-        # Critical outputs - prefer local models (API as last resort)
-        "final_plan": ["qwen2.5:32b", "llama3.3:70b"],
-        "quality_check": ["qwen2.5:32b", "qwen2.5:14b"],
-        "technical_review": ["qwen2.5:32b", "qwen2.5:14b"],
-        "public_output": ["qwen2.5:32b", "llama3.3:70b"],
+        # Critical outputs - use best models
+        "final_plan": ["qwen3.5:9b", "gemma4:e4b"],
+        "quality_check": ["qwen3.5:9b", "gemma4:e4b"],
+        "technical_review": ["qwen3.5:9b", "gemma4:e4b"],
+        "public_output": ["qwen3.5:9b", "gemma4:e4b"],
     }
 
     def __init__(self):
@@ -193,7 +172,7 @@ class LLMHierarchy:
         Returns:
             Model name
         """
-        candidates = self.TASK_MODEL_MAP.get(task, ["qwen2.5:14b"])
+        candidates = self.TASK_MODEL_MAP.get(task, ["gemma4:e4b"])
 
         for model in candidates:
             config = self.all_models.get(model)
@@ -211,7 +190,7 @@ class LLMHierarchy:
             return model
 
         # Default to local model
-        return "qwen2.5:14b"
+        return "gemma4:e4b"
 
     def get_model_config(self, model: str) -> Optional[ModelConfig]:
         """Get configuration for a model."""
@@ -239,7 +218,7 @@ class LLMHierarchy:
         """Get fallback model if primary is unavailable."""
         config = self.all_models.get(model)
         if not config:
-            return "qwen2.5:14b"
+            return "gemma4:e4b"
 
         # If it's an API model, fallback to best local model for the task
         if config.provider != "ollama":
@@ -250,7 +229,7 @@ class LLMHierarchy:
                         return candidate
 
         # Default fallback
-        return "qwen2.5:32b" if config.tier in [ModelTier.PREMIUM, ModelTier.STANDARD] else "qwen2.5:14b"
+        return "qwen3.5:9b" if config.tier in [ModelTier.PREMIUM, ModelTier.STANDARD] else "gemma4:e4b"
 
     def estimate_task_tokens(self, task: str) -> Dict[str, int]:
         """Estimate token usage for a task type."""

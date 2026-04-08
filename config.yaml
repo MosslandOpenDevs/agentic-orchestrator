@@ -105,13 +105,13 @@ project:
   # LLM model selection for different tasks
   llm:
     # Plan parsing (fast, structured extraction)
-    parsing: "glm-4.7-flash"
+    parsing: "qwen3.5:4b"
     # Code generation (balanced quality/speed)
-    code_generation: "qwen2.5:32b"
+    code_generation: "qwen3.5:9b"
     # Architecture design (complex reasoning)
-    architecture: "llama3.3:70b"
+    architecture: "qwen3.5:9b"
     # Simple tasks / fallback (lightweight)
-    fallback: "phi4:14b"
+    fallback: "qwen3.5:4b"
 
   # Output directory
   output_dir: "projects"

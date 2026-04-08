@@ -683,10 +683,10 @@ def _load_project_config() -> dict:
             "max_concurrent": 1,
         },
         "llm": {
-            "parsing": "glm-4.7-flash",
-            "code_generation": "qwen2.5:32b",
-            "architecture": "llama3.3:70b",
-            "fallback": "phi4:14b",
+            "parsing": "qwen3.5:4b",
+            "code_generation": "qwen3.5:9b",
+            "architecture": "qwen3.5:9b",
+            "fallback": "qwen3.5:4b",
         },
         "output_dir": "projects",
     }

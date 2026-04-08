@@ -61,8 +61,8 @@ class ThrottleState:
 @dataclass
 class OllamaConfig:
     """Ollama configuration."""
-    base_url: str = "http://localhost:11434"
-    default_model: str = "qwen2.5:14b"
+    base_url: str = "http://100.81.60.60:11434"
+    default_model: str = "gemma4:e4b"
     timeout: int = 300  # 5 minutes for large models
     max_retries: int = 3
     # Throttling settings (loaded from config.yaml)
@@ -110,29 +110,27 @@ class OllamaProvider:
     - GPU memory management
     """
 
-    # Available models on the user's system
+    # Available models on the remote Ollama server (100.81.60.60)
     AVAILABLE_MODELS = {
-        "llama3.3:70b": {"size": "42GB", "context": 131072, "tier": "premium"},
-        "qwen2.5:32b": {"size": "19GB", "context": 32768, "tier": "high"},
-        "phi4:14b": {"size": "9.1GB", "context": 16384, "tier": "standard"},
-        "qwen2.5:14b": {"size": "9.0GB", "context": 32768, "tier": "standard"},
-        "llama3.2:3b": {"size": "2.0GB", "context": 131072, "tier": "fast"},
+        "qwen3.5:9b": {"size": "6.6GB", "context": 32768, "tier": "high"},
+        "gemma4:e4b": {"size": "9.6GB", "context": 32768, "tier": "standard"},
+        "qwen3.5:4b": {"size": "3.4GB", "context": 32768, "tier": "fast"},
     }
 
     # Recommended models for different tasks
     TASK_MODELS = {
-        "moderation": "llama3.3:70b",      # Complex reasoning, final decisions
-        "evaluation": "qwen2.5:32b",        # Evaluation, scoring
-        "generation": "phi4:14b",           # Idea generation
-        "generation_alt": "qwen2.5:14b",    # Alternative generation
-        "summary": "llama3.2:3b",           # Fast summaries
-        "classification": "llama3.2:3b",    # Quick classification
-        "translation": "qwen2.5:14b",       # Translation tasks
+        "moderation": "qwen3.5:9b",         # Complex reasoning, final decisions
+        "evaluation": "qwen3.5:9b",          # Evaluation, scoring
+        "generation": "gemma4:e4b",          # Idea generation
+        "generation_alt": "qwen3.5:9b",      # Alternative generation
+        "summary": "qwen3.5:4b",             # Fast summaries
+        "classification": "qwen3.5:4b",      # Quick classification
+        "translation": "gemma4:e4b",          # Translation tasks
     }
 
     def __init__(self, config: Optional[OllamaConfig] = None):
         self.config = config or OllamaConfig(
-            base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434")
+            base_url=os.getenv("OLLAMA_HOST", "http://100.81.60.60:11434")
         )
         self._available_models: List[str] = []
         self._last_health_check: Optional[datetime] = None

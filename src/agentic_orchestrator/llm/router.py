@@ -245,10 +245,10 @@ class HybridLLMRouter:
         # Quality-based selection - always prefer local to save costs
         if quality == "critical":
             # Use best local model for critical tasks
-            return "llama3.3:70b"
+            return "qwen3.5:9b"
 
         elif quality == "high":
-            return "qwen2.5:32b"
+            return "qwen3.5:9b"
 
         else:
             # Normal/low quality - use local
