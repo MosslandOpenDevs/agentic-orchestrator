@@ -22,7 +22,7 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 
 from .parser import PlanParser, ParsedPlan
-from .templates import TemplateManager, TemplateFile
+from .templates import TemplateManager, TemplateFile, slugify_project_name
 from .generator import ProjectCodeGenerator, GeneratedFile
 
 logger = logging.getLogger(__name__)
@@ -415,20 +415,8 @@ class ProjectScaffold:
 
     def _generate_project_name(self, title: str) -> str:
         """Generate a safe project directory name from title."""
-        # Remove special characters and convert to lowercase
-        safe_name = "".join(
-            c if c.isalnum() or c in "-_ " else ""
-            for c in title
-        ).strip()
-
-        # Replace spaces with hyphens
-        safe_name = "-".join(safe_name.split())
-
-        # Ensure it's not too long
-        if len(safe_name) > 50:
-            safe_name = safe_name[:50].rsplit("-", 1)[0]
-
-        return safe_name.lower() or "project"
+        normalized = "-".join((title or "").split())
+        return slugify_project_name(normalized)
 
     async def _git_commit_and_push(self, project_path: str, project_name: str) -> bool:
         """
@@ -442,6 +430,14 @@ class ProjectScaffold:
             True if successful, False otherwise
         """
         try:
+            # Defense-in-depth: project_name is already slugified, but verify
+            # before passing it into a subprocess argument.
+            if project_name != slugify_project_name(project_name):
+                logger.error(
+                    "Refusing git operations: unsafe project name %r", project_name
+                )
+                return False
+
             # Get the repository root (parent of projects/ directory)
             repo_root = Path(project_path).parent.parent
 

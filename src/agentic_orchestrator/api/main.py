@@ -13,12 +13,17 @@ Endpoints:
 - GET /agents - Agent personas information
 """
 
+import logging
+import os
+import secrets
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, Query, Depends, BackgroundTasks, HTTPException
+from fastapi import FastAPI, Query, Depends, BackgroundTasks, HTTPException, Header, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from ..db.connection import get_db, Database
 from ..db.repositories import (
@@ -51,14 +56,63 @@ def get_session():
     finally:
         session.close()
 
-# CORS middleware
+# CORS middleware - whitelist via MOSS_CORS_ORIGINS (comma-separated).
+# Defaults restrict to the production domain and local dev frontends.
+_default_origins = "https://ao.moss.land,http://localhost:3000,http://127.0.0.1:3000"
+_cors_origins = [
+    o.strip()
+    for o in os.environ.get("MOSS_CORS_ORIGINS", _default_origins).split(",")
+    if o.strip()
+]
+if "*" in _cors_origins:
+    logger.warning(
+        "MOSS_CORS_ORIGINS contains '*'; disabling allow_credentials to comply with CORS spec."
+    )
+    _allow_credentials = False
+else:
+    _allow_credentials = True
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins,
+    allow_credentials=_allow_credentials,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Write-endpoint authentication
+# ---------------------------------------------------------------------------
+# Set MOSS_API_KEY in the environment to require X-API-Key on mutating routes.
+# When unset, mutating endpoints fail closed with 503 so the operator must
+# explicitly opt in (legacy unauthenticated mode is no longer supported).
+_API_KEY_ENV = "MOSS_API_KEY"
+
+
+def require_api_key(x_api_key: Optional[str] = Header(default=None)) -> None:
+    """Require X-API-Key header matching MOSS_API_KEY.
+
+    Behavior:
+    - If MOSS_API_KEY is not configured, return 503 (operator must configure).
+    - If the header is missing or mismatched, return 401.
+    - Compares with constant-time to mitigate timing attacks.
+    """
+    expected = os.environ.get(_API_KEY_ENV)
+    if not expected:
+        logger.error(
+            "Mutating endpoint called but %s is not configured.", _API_KEY_ENV
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="API authentication is not configured on the server.",
+        )
+    if not x_api_key or not secrets.compare_digest(x_api_key, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key.",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
 
 
 class HealthResponse(BaseModel):
@@ -1268,6 +1322,7 @@ async def generate_project(
     request: GenerateProjectRequest = GenerateProjectRequest(),
     background_tasks: BackgroundTasks = None,
     session: Session = Depends(get_session),
+    _: None = Depends(require_api_key),
 ):
     """
     Trigger project generation from an approved Plan.
@@ -1439,6 +1494,7 @@ async def approve_plan(
     request: ApprovePlanRequest = ApprovePlanRequest(),
     background_tasks: BackgroundTasks = None,
     session: Session = Depends(get_session),
+    _: None = Depends(require_api_key),
 ):
     """
     Manually approve a draft plan for project generation.

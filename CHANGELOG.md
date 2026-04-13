@@ -7,6 +7,21 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.7] - 2026-04-13
+
+### Security
+- **API authentication on mutating endpoints**: `POST /plans/{id}/approve` and `POST /plans/{id}/generate-project` now require an `X-API-Key` header matching the `MOSS_API_KEY` env var. When the key is unset the endpoints fail closed with HTTP 503 (operator must opt in).
+- **CORS hardening**: Replaced `allow_origins=["*"] + allow_credentials=True` with a whitelist read from `MOSS_CORS_ORIGINS` (default: `https://ao.moss.land,http://localhost:3000,http://127.0.0.1:3000`). Methods and headers reduced to the set actually used.
+- **Server-side proxy for the Generate Project button**: Added `/proxy/plans/[id]/generate-project` and `/proxy/plans/[id]/approve` Next.js route handlers under `website/src/app/proxy/...`. The browser calls the proxy, which injects the API key server-side. The key never reaches the browser.
+- **Path traversal & symlink hardening in project generator** (`project/templates.py`, `project/scaffold.py`): LLM-supplied file paths are validated via a new `_safe_relative_path()` helper that rejects `..`, absolute paths, control characters, Windows drive letters, and back-slashes. Each resolved path is re-checked against the project root and parent directories are inspected for symlinks before writing. Project name slugification consolidated into `slugify_project_name()`.
+- **`.gitignore` hardening**: Explicitly ignore `data/orchestrator.db`, SQLite WAL/journal/SHM siblings, `data/backup/`, and `data/jobs.json` so they cannot be committed by accident (previously relied on staying untracked).
+
+### Changed
+- Pruned 15 expired trend snapshots under `data/trends/2026/01/` (90-day retention policy).
+- `.env.example` and `website/.env.local` document the new `MOSS_API_KEY`, `MOSS_CORS_ORIGINS`, and `MOSS_BACKEND_URL` variables.
+
+---
+
 ## [0.6.6] - 2026-02-01
 
 ### Added

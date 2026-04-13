@@ -70,3 +70,13 @@ out/
 # Local documentation with sensitive info
 *.local.md
 CLAUDE.local.md
+
+# Application data (SQLite DB and backups - never commit)
+data/orchestrator.db
+data/orchestrator.db-journal
+data/orchestrator.db-wal
+data/orchestrator.db-shm
+data/backup/
+
+# Async job state
+data/jobs.json

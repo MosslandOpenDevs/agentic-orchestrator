@@ -7,10 +7,55 @@ Provides boilerplate code and configuration for:
 - Solidity (Hardhat)
 """
 
+import logging
 import os
-from pathlib import Path
+import re
+from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
+
+
+_UNSAFE_PATH_RE = re.compile(r"[\x00-\x1f]|[<>:\"|?*]")
+
+
+def _safe_relative_path(raw_path: str) -> Optional[PurePosixPath]:
+    """Validate and normalize a file path supplied by an LLM/template.
+
+    Returns a normalized POSIX path relative to the project root, or None
+    if the path is unsafe (absolute, drive-letter, traversal, control chars).
+    """
+    if not raw_path or not isinstance(raw_path, str):
+        return None
+    candidate = raw_path.strip().replace("\\", "/").lstrip("/")
+    if not candidate or candidate in (".", ".."):
+        return None
+    if _UNSAFE_PATH_RE.search(candidate):
+        return None
+    if ":" in candidate:  # Windows drive-letter / scheme prefix
+        return None
+    parts = []
+    for part in PurePosixPath(candidate).parts:
+        if part in ("", "."):
+            continue
+        if part == "..":
+            return None
+        parts.append(part)
+    if not parts:
+        return None
+    return PurePosixPath(*parts)
+
+
+def slugify_project_name(name: str, fallback: str = "project") -> str:
+    """Produce a filesystem-safe lowercase project slug."""
+    if not name:
+        return fallback
+    safe = re.sub(r"[^a-z0-9\-_]+", "-", name.lower())
+    safe = re.sub(r"-+", "-", safe).strip("-_")
+    if len(safe) > 50:
+        safe = safe[:50].rsplit("-", 1)[0] or safe[:50]
+    return safe or fallback
 
 # Supported technology stacks
 SUPPORTED_STACKS = {
@@ -841,25 +886,66 @@ pub struct Initialize {}
         Returns:
             Path to the created project directory
         """
-        # Slugify project name
-        safe_name = "".join(
-            c if c.isalnum() or c in "-_" else "-"
-            for c in project_name.lower()
-        ).strip("-")
+        safe_name = slugify_project_name(project_name)
 
-        project_dir = self.projects_dir / safe_name
+        projects_root = self.projects_dir.resolve()
+        projects_root.mkdir(parents=True, exist_ok=True)
+        project_dir = projects_root / safe_name
 
-        # Create project directory
+        # Refuse to write into a symlinked project directory (symlink attack).
+        if project_dir.is_symlink():
+            raise ValueError(
+                f"Refusing to write into symlinked project directory: {project_dir}"
+            )
+
         project_dir.mkdir(parents=True, exist_ok=True)
+        project_root = project_dir.resolve()
 
-        # Create files
+        # Create files (each path validated to stay inside project_root)
+        skipped = 0
         for file in files:
-            file_path = project_dir / file.path
-            file_path.parent.mkdir(parents=True, exist_ok=True)
+            relative = _safe_relative_path(file.path)
+            if relative is None:
+                logger.warning("Skipping unsafe file path: %r", file.path)
+                skipped += 1
+                continue
+
+            file_path = (project_root / relative).resolve()
+            try:
+                file_path.relative_to(project_root)
+            except ValueError:
+                logger.warning(
+                    "Skipping file that escapes project root: %r -> %s",
+                    file.path,
+                    file_path,
+                )
+                skipped += 1
+                continue
+
+            parent = file_path.parent
+            if parent.is_symlink():
+                logger.warning(
+                    "Skipping file under symlinked directory: %s", parent
+                )
+                skipped += 1
+                continue
+            if file_path.is_symlink():
+                logger.warning("Skipping symlinked file target: %s", file_path)
+                skipped += 1
+                continue
+
+            parent.mkdir(parents=True, exist_ok=True)
 
             if file.is_binary:
                 file_path.write_bytes(file.content.encode() if isinstance(file.content, str) else file.content)
             else:
                 file_path.write_text(file.content)
+
+        if skipped:
+            logger.warning(
+                "create_project_structure: skipped %d unsafe file(s) for %s",
+                skipped,
+                safe_name,
+            )
 
         return project_dir

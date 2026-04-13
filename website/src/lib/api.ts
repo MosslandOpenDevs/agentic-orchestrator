@@ -324,6 +324,48 @@ export interface PipelineLiveResponse {
   timestamp: string;
 }
 
+// Same shape as apiFetch but hits the Next.js origin directly (no /api prefix).
+// Used for mutating endpoints that need to pass through a server-side proxy
+// to inject the X-API-Key header without exposing it to the browser.
+async function proxyFetch<T>(
+  endpoint: string,
+  options?: RequestInit
+): Promise<ApiResponse<T>> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const response = await fetch(endpoint, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+    });
+    clearTimeout(timeoutId);
+
+    const data = response.headers.get('Content-Type')?.includes('application/json')
+      ? await response.json()
+      : null;
+
+    if (!response.ok) {
+      const detail =
+        (data && typeof data === 'object' && 'detail' in data && (data as { detail: string }).detail) ||
+        `${response.status} ${response.statusText}`;
+      return { data: null, error: detail, isFromCache: false };
+    }
+    return { data: data as T, error: null, isFromCache: false };
+  } catch (error) {
+    clearTimeout(timeoutId);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    if (error instanceof Error && error.name !== 'AbortError') {
+      console.warn(`Proxy request failed for ${endpoint}:`, errorMessage);
+    }
+    return { data: null, error: errorMessage, isFromCache: false };
+  }
+}
+
 // Generic fetch function with error handling and timeout
 async function apiFetch<T>(
   endpoint: string,
@@ -479,10 +521,12 @@ export class ApiClient {
   }
 
   static async generateProject(planId: string, forceRegenerate: boolean = false) {
-    return apiFetch<GenerateProjectResponse>(`/plans/${planId}/generate-project`, {
-      method: 'POST',
-      body: JSON.stringify({ force_regenerate: forceRegenerate }),
-    });
+    // Mutating endpoint goes through the Next.js server-side proxy
+    // (/proxy/...) so the X-API-Key never reaches the browser.
+    return proxyFetch<GenerateProjectResponse>(
+      `/proxy/plans/${encodeURIComponent(planId)}/generate-project`,
+      { method: 'POST', body: JSON.stringify({ force_regenerate: forceRegenerate }) }
+    );
   }
 
   // Projects
