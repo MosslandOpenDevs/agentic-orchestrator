@@ -166,8 +166,12 @@ class MultiStageDebate:
         self.total_tokens = 0
         self.total_cost = 0.0
 
-    # Maximum debate duration in seconds (45 minutes)
-    DEBATE_TIMEOUT_SECONDS = 45 * 60
+    # Maximum debate duration in seconds (90 minutes).
+    # Production runs (8/3 divergence + 4/2 convergence + 5/2 planning, all on
+    # local Ollama with 5s throttle) settle around 45-50 min once Ollama
+    # actually responds — the previous 45-min cap was set when every model
+    # call was 404'ing and a "completed" debate took 4 minutes by failing fast.
+    DEBATE_TIMEOUT_SECONDS = 90 * 60
 
     async def run_debate(
         self,
