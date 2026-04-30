@@ -4,7 +4,7 @@
 
 An autonomous multi-agent orchestration system for discovering, planning, and implementing micro Web3 services for the Mossland ecosystem.
 
-**Version**: v0.5.1 "Bilingual"
+**Version**: v0.6.8 "Stable Planner"
 
 ## Key Features
 
@@ -313,4 +313,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 *Built for the Mossland ecosystem - human-guided, AI-powered innovation.*
 
-*v0.5.1 "Bilingual" - Multi-agent orchestration with bilingual content support*
+*v0.6.8 "Stable Planner" - qwen2.5:14b top-tier planning, .env-driven Ollama routing*

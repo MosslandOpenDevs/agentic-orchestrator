@@ -7,6 +7,23 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.8] - 2026-04-30
+
+### Security
+- **Removed residual hardcoded Tailscale IP from source files**: `e0a4f4e` had stripped the internal Ollama IP from `ecosystem.config.js`, but the same address remained in `OllamaConfig.base_url`, the `os.getenv("OLLAMA_HOST", ...)` fallback, and a comment in `ollama.py`, plus a comment in `hierarchy.py`. All four references replaced with `localhost`/generic wording so the public repo no longer leaks internal network topology. (commit `8e2c9c2`)
+
+### Fixed
+- **Scheduler honors `OLLAMA_HOST` again**: After the security cleanup in `e0a4f4e`, PM2-spawned debate / trends / backlog workers were silently falling back to `http://localhost:11434` and returning HTTP 404 on every model call (the planning phase produced 17-character empty plans as a result). `ecosystem.config.js` now ships an inline `.env` parser that runs before the `env:` blocks are evaluated, so `OLLAMA_HOST` from `.env` is picked up without requiring the operator to export it in the shell first. No new dependency added (intentionally avoided `dotenv` package). (commit `48cf50f`)
+
+### Added
+- **`qwen2.5:14b` as the new top-tier local planner**: pulled on the remote Ollama server and registered in `LLMHierarchy.LOCAL_MODELS` with `tier=FREE`. `TASK_MODEL_MAP` now prefers it for `final_plan`, `quality_check`, `technical_review`, `moderation`, and `final_decision`, with `qwen3.5:9b` as the automatic fallback. Older models stay in place for divergence/translation/classification where extra parameters do not help. (commit `a8b3aea`)
+
+### Operator notes
+- Set `OLLAMA_HOST=http://<your-ollama-host>:11434` in `.env` (gitignored). Without it, all Ollama-backed work will hit `localhost`.
+- `qwen2.5:14b` (~9 GB) must be present on the remote Ollama server. Pull via `curl -X POST $OLLAMA_HOST/api/pull -d '{"name":"qwen2.5:14b"}'`.
+
+---
+
 ## [0.6.7] - 2026-04-13
 
 ### Security
