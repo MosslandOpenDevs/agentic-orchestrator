@@ -65,8 +65,10 @@ throttling:
     cooling_period_seconds: 60
     # Number of requests before cooling
     requests_before_cooling: 10
-    # Request timeout (seconds) - increased for queued requests
-    request_timeout: 600
+    # Request timeout (seconds) - increased for queued requests +
+    # large prompts (e.g. trend analysis can run 5-10 min on 9B with
+    # 50 signals; planning can run 8-12 min on 14B).
+    request_timeout: 1200
     # Batch delay between multiple generations
     batch_delay_seconds: 10
 
@@ -108,8 +110,10 @@ project:
     parsing: "qwen3.5:4b"
     # Code generation (balanced quality/speed)
     code_generation: "qwen3.5:9b"
-    # Architecture design (complex reasoning)
-    architecture: "qwen3.5:9b"
+    # Architecture design (complex reasoning) — uses the 14b planner
+    # for the same reason debate planning does: more parameters help
+    # multi-component design decisions.
+    architecture: "qwen2.5:14b"
     # Simple tasks / fallback (lightweight)
     fallback: "qwen3.5:4b"
 

@@ -216,6 +216,13 @@ class TrendRepository(BaseRepository):
         """Get total count of all trends."""
         return self.session.query(func.count(Trend.id)).scalar() or 0
 
+    def delete_older_than(self, days: int) -> int:
+        """Delete trends older than specified days."""
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        result = self.session.query(Trend).filter(Trend.analyzed_at < cutoff).delete()
+        self.session.flush()
+        return result
+
 
 class IdeaRepository(BaseRepository):
     """Repository for Idea operations."""
@@ -439,6 +446,26 @@ class DebateRepository(BaseRepository):
                     setattr(debate, key, value)
             self.session.flush()
         return debate
+
+    def delete_older_than(self, days: int) -> int:
+        """Delete debate sessions (and their cascaded messages) older than days."""
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        # Delete child messages first to avoid orphaning if cascade isn't set.
+        old_session_ids = [
+            sid for (sid,) in self.session.query(DebateSession.id)
+            .filter(DebateSession.started_at < cutoff)
+            .all()
+        ]
+        if not old_session_ids:
+            return 0
+        self.session.query(DebateMessage).filter(
+            DebateMessage.session_id.in_(old_session_ids)
+        ).delete(synchronize_session=False)
+        result = self.session.query(DebateSession).filter(
+            DebateSession.id.in_(old_session_ids)
+        ).delete(synchronize_session=False)
+        self.session.flush()
+        return result
 
 
 class PlanRepository(BaseRepository):

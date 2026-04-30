@@ -152,8 +152,10 @@ class LLMHierarchy:
         "classification": ["qwen3.5:4b"],
         "translation": ["gemma4:e4b"],
 
-        # Trend analysis - prefer mid-tier
-        "trend_analysis": ["qwen3.5:9b", "gemma4:e4b", "qwen3.5:4b"],
+        # Trend analysis - high-volume summarization task; favor the fast
+        # 4B first to keep within Ollama request_timeout, fall back to 9B
+        # only if the small model produces empty/unparseable output.
+        "trend_analysis": ["qwen3.5:4b", "qwen3.5:9b", "gemma4:e4b"],
 
         # Critical outputs - use the 14B planner with 9B fallback
         "final_plan": ["qwen2.5:14b", "qwen3.5:9b", "gemma4:e4b"],

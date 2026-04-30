@@ -25,7 +25,10 @@ class TrendAnalyzer:
     """
 
     # Maximum articles to include in a single analysis prompt
-    MAX_ARTICLES_PER_ANALYSIS = 100
+    # Cap signals fed into the LLM. With ~100 items, prompts hit ~13k chars
+    # and qwen3.5:4b/:9b regularly miss the 600 s Ollama timeout. 50 keeps
+    # prompts around ~6 k chars and lets the small model finish in 1-2 min.
+    MAX_ARTICLES_PER_ANALYSIS = 50
 
     # System message for trend analysis
     SYSTEM_MESSAGE = """You are an expert trend analyst specializing in technology,
@@ -196,9 +199,9 @@ Prioritize trends with:
         headlines_parts = []
         for category, category_items in grouped.items():
             headlines_parts.append(f"\n### {category.upper()}")
-            for item in category_items[:20]:  # Limit per category
+            for item in category_items[:15]:  # Limit per category
                 summary_preview = (
-                    item.summary[:100] + "..." if len(item.summary) > 100 else item.summary
+                    item.summary[:80] + "..." if len(item.summary) > 80 else item.summary
                 )
                 headlines_parts.append(f"- [{item.source}] {item.title}\n  {summary_preview}")
 

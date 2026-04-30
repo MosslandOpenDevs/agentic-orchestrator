@@ -187,10 +187,35 @@ async def _analyze_trends_async():
         signal_repo = SignalRepository(session)
         trend_repo = TrendRepository(session)
 
-        # Get recent signals (last 48 hours)
+        # Get recent signals (last 48 hours). We over-fetch then diversify
+        # by source so a single dominant source (github currently ≈61% of
+        # signals) does not crowd out all the others before the LLM ever
+        # sees them. Round-robin pick caps each source at the same count
+        # within the final analysis batch.
         logger.info("Fetching recent signals...")
-        signals = signal_repo.get_recent(hours=48, limit=200)
-        logger.info(f"Found {len(signals)} signals to analyze")
+        raw_signals = signal_repo.get_recent(hours=48, limit=600)
+        logger.info(f"Fetched {len(raw_signals)} candidate signals; diversifying by source")
+
+        from collections import defaultdict, deque
+        by_source: "defaultdict[str, deque]" = defaultdict(deque)
+        for s in raw_signals:
+            by_source[s.source or 'unknown'].append(s)
+
+        TARGET_BATCH = 200
+        signals = []
+        # Round-robin until we hit the target or every queue empties.
+        active_sources = list(by_source.keys())
+        while len(signals) < TARGET_BATCH and active_sources:
+            for src in list(active_sources):
+                if not by_source[src]:
+                    active_sources.remove(src)
+                    continue
+                signals.append(by_source[src].popleft())
+                if len(signals) >= TARGET_BATCH:
+                    break
+
+        source_mix = {src: sum(1 for s in signals if (s.source or 'unknown') == src) for src in by_source}
+        logger.info(f"Diversified batch source mix: {source_mix}")
 
         if not signals:
             logger.warning("No signals found for trend analysis")
@@ -974,11 +999,19 @@ async def _run_debate_async(topic: Optional[str] = None):
         # Collect participants during debate
         all_participants = set()
 
-        # Callback for progress logging and saving messages
+        # Callback for progress logging and saving messages.
+        #
+        # We commit after every message instead of relying on the outer
+        # commit at the end of the debate. Without this, when a debate
+        # times out (DEBATE_TIMEOUT_SECONDS) or the worker is SIGTERM'd
+        # mid-flight, SQLAlchemy rolls back the entire transaction and
+        # every message accumulated during the run is silently lost —
+        # the session ends up with status='failed' but messages=[] in
+        # the DB, which is exactly the pattern we found in the 2390
+        # historical sessions audit.
         def on_message(msg):
             logger.info(f"[{msg.phase.value}] {msg.agent_name}: {msg.message_type.value}")
             all_participants.add(msg.agent_name)
-            # Save message to database
             try:
                 debate_repo.add_message({
                     'session_id': session_id,
@@ -990,8 +1023,13 @@ async def _run_debate_async(topic: Optional[str] = None):
                     'token_count': getattr(msg, 'token_count', 0),
                     'model_used': getattr(msg, 'model', None),
                 })
+                session.commit()
             except Exception as e:
-                logger.warning(f"Failed to save message: {e}")
+                logger.error(f"Failed to save debate message: {e}", exc_info=True)
+                try:
+                    session.rollback()
+                except Exception:
+                    pass
 
         def on_phase_complete(result):
             logger.info(f"Phase {result.phase.value} completed: {result.duration_seconds:.1f}s, ${result.total_cost:.4f}")
@@ -1133,6 +1171,38 @@ def _process_backlog():
             'approved_plans': len(approved_plans),
             'idea_counts': idea_counts,
         }
+
+        # Retention sweep — keep DB lean. Signals already auto-cleanup at
+        # 30d in the signal scheduler; here we age out old trends and
+        # debate sessions (and their messages cascade) so the SQLite file
+        # does not grow unboundedly. Numbers chosen to keep ~3-6 months
+        # of history available for analytics while bounding row counts.
+        from ..db import (
+            TrendRepository,
+            DebateRepository,
+        )
+        retention_session = db.get_session()
+        try:
+            trend_repo = TrendRepository(retention_session)
+            debate_repo_r = DebateRepository(retention_session)
+
+            trends_deleted = trend_repo.delete_older_than(days=180)
+            sessions_deleted = debate_repo_r.delete_older_than(days=180)
+            retention_session.commit()
+            stats['trends_deleted'] = trends_deleted
+            stats['debate_sessions_deleted'] = sessions_deleted
+            logger.info(
+                f"Retention: pruned {trends_deleted} trends, "
+                f"{sessions_deleted} debate sessions (older than 180 days)"
+            )
+        except Exception as e:
+            logger.warning(f"Retention sweep skipped: {e}")
+            try:
+                retention_session.rollback()
+            except Exception:
+                pass
+        finally:
+            retention_session.close()
 
         duration = (datetime.utcnow() - start_time).total_seconds()
         logger.info(f"Backlog processing completed in {duration:.1f}s")
