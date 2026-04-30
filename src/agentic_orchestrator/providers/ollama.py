@@ -112,6 +112,7 @@ class OllamaProvider:
 
     # Available models on the remote Ollama server (host configured via OLLAMA_HOST)
     AVAILABLE_MODELS = {
+        "qwen2.5:14b": {"size": "9.0GB", "context": 32768, "tier": "premium"},
         "qwen3.5:9b": {"size": "6.6GB", "context": 32768, "tier": "high"},
         "gemma4:e4b": {"size": "9.6GB", "context": 32768, "tier": "standard"},
         "qwen3.5:4b": {"size": "3.4GB", "context": 32768, "tier": "fast"},
@@ -119,13 +120,14 @@ class OllamaProvider:
 
     # Recommended models for different tasks
     TASK_MODELS = {
-        "moderation": "qwen3.5:9b",         # Complex reasoning, final decisions
+        "moderation": "qwen2.5:14b",         # Best reasoning for final decisions
         "evaluation": "qwen3.5:9b",          # Evaluation, scoring
         "generation": "gemma4:e4b",          # Idea generation
         "generation_alt": "qwen3.5:9b",      # Alternative generation
         "summary": "qwen3.5:4b",             # Fast summaries
         "classification": "qwen3.5:4b",      # Quick classification
-        "translation": "gemma4:e4b",          # Translation tasks
+        "translation": "gemma4:e4b",         # Translation tasks
+        "planning": "qwen2.5:14b",           # Final plan / quality check
     }
 
     def __init__(self, config: Optional[OllamaConfig] = None):

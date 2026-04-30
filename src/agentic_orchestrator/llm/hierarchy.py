@@ -45,6 +45,16 @@ class LLMHierarchy:
 
     # Local models (Tier 1 - Free) on remote Ollama server (host configured via OLLAMA_HOST)
     LOCAL_MODELS: Dict[str, ModelConfig] = {
+        "qwen2.5:14b": ModelConfig(
+            name="qwen2.5:14b",
+            provider="ollama",
+            tier=ModelTier.FREE,
+            context_size=32768,
+            cost_per_1k_input=0.0,
+            cost_per_1k_output=0.0,
+            capabilities=["reasoning", "analysis", "planning", "coding", "evaluation", "moderation"],
+            recommended_for=["final_plan", "quality_check", "technical_review", "moderation", "complex_reasoning"]
+        ),
         "qwen3.5:9b": ModelConfig(
             name="qwen3.5:9b",
             provider="ollama",
@@ -121,35 +131,35 @@ class LLMHierarchy:
         ),
     }
 
-    # Task to model mapping (remote Ollama: qwen3.5:9b, gemma4:e4b, qwen3.5:4b)
+    # Task to model mapping (remote Ollama: qwen2.5:14b, qwen3.5:9b, gemma4:e4b, qwen3.5:4b)
     TASK_MODEL_MAP: Dict[str, List[str]] = {
         # Divergence phase - use mid-tier models
-        "idea_generation": ["gemma4:e4b", "qwen3.5:4b"],
-        "brainstorming": ["gemma4:e4b", "qwen3.5:4b"],
-        "discussion": ["gemma4:e4b", "qwen3.5:4b"],
+        "idea_generation": ["gemma4:e4b", "qwen3.5:9b", "qwen3.5:4b"],
+        "brainstorming": ["gemma4:e4b", "qwen3.5:9b", "qwen3.5:4b"],
+        "discussion": ["gemma4:e4b", "qwen3.5:9b", "qwen3.5:4b"],
 
-        # Convergence phase - use mid-tier with fast fallback
-        "evaluation": ["gemma4:e4b", "qwen3.5:4b"],
-        "scoring": ["gemma4:e4b", "qwen3.5:4b"],
+        # Convergence phase - bigger model first for better evaluation
+        "evaluation": ["qwen3.5:9b", "gemma4:e4b", "qwen3.5:4b"],
+        "scoring": ["qwen3.5:9b", "gemma4:e4b", "qwen3.5:4b"],
         "filtering": ["qwen3.5:4b"],
 
-        # Moderation - use best model
-        "moderation": ["qwen3.5:9b", "gemma4:e4b"],
-        "final_decision": ["qwen3.5:9b", "gemma4:e4b"],
+        # Moderation - use the strongest available model
+        "moderation": ["qwen2.5:14b", "qwen3.5:9b", "gemma4:e4b"],
+        "final_decision": ["qwen2.5:14b", "qwen3.5:9b", "gemma4:e4b"],
 
         # Fast tasks - use smallest model
         "summary": ["qwen3.5:4b"],
         "classification": ["qwen3.5:4b"],
         "translation": ["gemma4:e4b"],
 
-        # Trend analysis - use good local models
-        "trend_analysis": ["gemma4:e4b", "qwen3.5:4b"],
+        # Trend analysis - prefer mid-tier
+        "trend_analysis": ["qwen3.5:9b", "gemma4:e4b", "qwen3.5:4b"],
 
-        # Critical outputs - use best models
-        "final_plan": ["qwen3.5:9b", "gemma4:e4b"],
-        "quality_check": ["qwen3.5:9b", "gemma4:e4b"],
-        "technical_review": ["qwen3.5:9b", "gemma4:e4b"],
-        "public_output": ["qwen3.5:9b", "gemma4:e4b"],
+        # Critical outputs - use the 14B planner with 9B fallback
+        "final_plan": ["qwen2.5:14b", "qwen3.5:9b", "gemma4:e4b"],
+        "quality_check": ["qwen2.5:14b", "qwen3.5:9b", "gemma4:e4b"],
+        "technical_review": ["qwen2.5:14b", "qwen3.5:9b", "gemma4:e4b"],
+        "public_output": ["qwen2.5:14b", "qwen3.5:9b", "gemma4:e4b"],
     }
 
     def __init__(self):
