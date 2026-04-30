@@ -876,6 +876,37 @@ async def _run_debate_async(topic: Optional[str] = None):
     debate_session = None
     db = None
     trend_context = None
+    session_id = None
+
+    # Recover orphans from previous crashes/SIGTERMs before starting a new
+    # debate. The DEBATE_TIMEOUT_SECONDS cap means anything still in 'active'
+    # for more than 90 minutes cannot be running on this worker, and there is
+    # only one debate worker, so it is safe to mark them failed.
+    try:
+        recovery_db = get_database()
+        recovery_session = recovery_db.get_session()
+        from sqlalchemy import text as _sql_text
+        result = recovery_session.execute(
+            _sql_text(
+                "UPDATE debate_sessions "
+                "SET status='failed', "
+                "    completed_at=COALESCE(completed_at, :now), "
+                "    summary=COALESCE(summary, 'recovered: worker exited before this session finished') "
+                "WHERE status='active' "
+                "  AND started_at < :cutoff"
+            ),
+            {
+                "now": datetime.utcnow(),
+                "cutoff": datetime.utcnow() - timedelta(minutes=90),
+            },
+        )
+        recovery_session.commit()
+        recovered = result.rowcount or 0
+        if recovered:
+            logger.warning(f"Startup recovery: marked {recovered} stale active debate sessions as failed")
+        recovery_session.close()
+    except Exception as recovery_err:
+        logger.warning(f"Startup orphan recovery skipped: {recovery_err}")
 
     try:
         # Initialize components
@@ -1037,21 +1068,28 @@ async def _run_debate_async(topic: Optional[str] = None):
             logger.info("Final plan generated successfully")
             logger.info(f"Plan length: {len(result.final_plan)} characters")
 
-    except Exception as e:
-        logger.error(f"Debate execution failed: {e}", exc_info=True)
-        # Mark session as failed if it was created
+    except BaseException as e:
+        # BaseException catches asyncio.CancelledError too. CancelledError is
+        # raised when PM2 sends SIGTERM (--update-env / restart) while a
+        # debate is running; before this, the bare `except Exception` missed
+        # it and the session sat in DB as status='active' forever, requiring
+        # manual cleanup. KeyboardInterrupt is also a BaseException — same
+        # logic applies.
+        logger.error(f"Debate execution failed: {type(e).__name__}: {e}",
+                     exc_info=not isinstance(e, asyncio.CancelledError))
         if debate_session and db:
             try:
-                session = db.get_session()
-                debate_repo = DebateRepository(session)
-                debate_repo.update_session(
+                cleanup_session = db.get_session()
+                cleanup_repo = DebateRepository(cleanup_session)
+                cleanup_repo.update_session(
                     debate_session.id,
-                    status='cancelled',
-                    outcome='error',
-                    summary=f"Error: {str(e)}",
+                    status='failed',
+                    outcome='cancelled' if isinstance(e, asyncio.CancelledError) else 'error',
+                    summary=f"{type(e).__name__}: {str(e)[:200]}",
                     completed_at=datetime.utcnow(),
                 )
-                session.commit()
+                cleanup_session.commit()
+                cleanup_session.close()
             except Exception:
                 pass
         raise
