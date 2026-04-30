@@ -60,17 +60,34 @@ class HybridLLMRouter:
         budget: Optional[BudgetController] = None,
         hierarchy: Optional[LLMHierarchy] = None,
     ):
+        import os
+
+        # Ollama-only mode: when MOSS_LOCAL_LLM_ONLY is unset or truthy
+        # (default), the router refuses to instantiate paid providers and
+        # forces every request to local models, regardless of what
+        # `quality` or `force_api` the caller asks for. Set to "false" to
+        # re-enable the hybrid behavior.
+        self.local_only = os.getenv("MOSS_LOCAL_LLM_ONLY", "true").lower() not in (
+            "0", "false", "no", "off",
+        )
+
         self.ollama = ollama or OllamaProvider()
-        self.claude = claude
-        self.openai = openai
+        self.claude = None if self.local_only else claude
+        self.openai = None if self.local_only else openai
         self.budget = budget or BudgetController()
         self.hierarchy = hierarchy or LLMHierarchy()
 
-        self._init_api_providers()
+        if not self.local_only:
+            self._init_api_providers()
+        else:
+            logger.info("HybridLLMRouter: MOSS_LOCAL_LLM_ONLY active — paid providers disabled")
 
     def _init_api_providers(self):
-        """Initialize API providers if not provided."""
+        """Initialize API providers if not provided. No-op in local-only mode."""
         import os
+
+        if self.local_only:
+            return
 
         if self.claude is None and os.getenv("ANTHROPIC_API_KEY"):
             try:
@@ -114,6 +131,20 @@ class HybridLLMRouter:
             LLMResponse with generated content
         """
         start_time = datetime.utcnow()
+
+        # In local-only mode any caller-supplied force_api / paid model
+        # selection is silently overridden — we never make billed calls.
+        if self.local_only:
+            force_api = False
+            force_local = True
+            if model:
+                model_config = self.hierarchy.get_model_config(model)
+                if model_config and model_config.provider != "ollama":
+                    logger.warning(
+                        f"local-only: ignoring requested paid model '{model}', "
+                        f"falling back to task-based local selection for '{task_type}'"
+                    )
+                    model = None
 
         # Determine model to use
         if model:

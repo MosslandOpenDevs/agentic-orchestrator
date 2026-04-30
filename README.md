@@ -71,13 +71,14 @@ Open http://localhost:3000 to view the dashboard.
 │  │   Architect, Project Manager, Technical Lead...                │     │
 │  └────────────────────────────────────────────────────────────────┘     │
 ├─────────────────────────────────────────────────────────────────────────┤
-│                         HYBRID LLM ROUTER                                │
-│  ┌─────────────────────┐     ┌─────────────────────┐                    │
-│  │   Local (Ollama)    │ ←→  │   Cloud API         │                    │
-│  │   - Qwen 32B        │     │   - Claude          │                    │
-│  │   - Llama 3         │     │   - GPT-4           │                    │
-│  │   - Mistral         │     │   - Gemini          │                    │
-│  └─────────────────────┘     └─────────────────────┘                    │
+│                  LLM ROUTER (Ollama-only by default)                     │
+│  ┌──────────────────────────┐    ┌──────────────────────────────────┐   │
+│  │   Local (Ollama)         │    │   Cloud API (opt-in via flag)   │   │
+│  │   - qwen2.5:14b (plan)   │    │   - Claude / OpenAI / Gemini    │   │
+│  │   - qwen3.5:9b           │    │   Disabled when                 │   │
+│  │   - gemma4:e4b           │    │   MOSS_LOCAL_LLM_ONLY=true      │   │
+│  │   - qwen3.5:4b (fast)    │    │                                  │   │
+│  └──────────────────────────┘    └──────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
