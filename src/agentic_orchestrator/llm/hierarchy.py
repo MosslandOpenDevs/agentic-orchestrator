@@ -43,7 +43,7 @@ class LLMHierarchy:
     - Budget controlled
     """
 
-    # Local models (Tier 1 - Free) on remote Ollama server (100.81.60.60)
+    # Local models (Tier 1 - Free) on remote Ollama server (host configured via OLLAMA_HOST)
     LOCAL_MODELS: Dict[str, ModelConfig] = {
         "qwen3.5:9b": ModelConfig(
             name="qwen3.5:9b",

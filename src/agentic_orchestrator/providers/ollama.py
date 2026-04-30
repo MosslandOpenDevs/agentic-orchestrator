@@ -61,7 +61,7 @@ class ThrottleState:
 @dataclass
 class OllamaConfig:
     """Ollama configuration."""
-    base_url: str = "http://100.81.60.60:11434"
+    base_url: str = "http://localhost:11434"
     default_model: str = "gemma4:e4b"
     timeout: int = 300  # 5 minutes for large models
     max_retries: int = 3
@@ -110,7 +110,7 @@ class OllamaProvider:
     - GPU memory management
     """
 
-    # Available models on the remote Ollama server (100.81.60.60)
+    # Available models on the remote Ollama server (host configured via OLLAMA_HOST)
     AVAILABLE_MODELS = {
         "qwen3.5:9b": {"size": "6.6GB", "context": 32768, "tier": "high"},
         "gemma4:e4b": {"size": "9.6GB", "context": 32768, "tier": "standard"},
@@ -130,7 +130,7 @@ class OllamaProvider:
 
     def __init__(self, config: Optional[OllamaConfig] = None):
         self.config = config or OllamaConfig(
-            base_url=os.getenv("OLLAMA_HOST", "http://100.81.60.60:11434")
+            base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434")
         )
         self._available_models: List[str] = []
         self._last_health_check: Optional[datetime] = None
