@@ -141,18 +141,20 @@ class LLMHierarchy:
         # Trend analysis
         "trend_analysis": ["qwen3.5:9b"],
 
-        # Planning phase — 9B is now primary because the planning round
-        # fires 3-5 agents in parallel and 14B does NOT reliably finish
-        # a 5000-token planning prompt within request_timeout (1800s)
-        # under concurrency on this hardware. Manual debate 2a9024eb on
-        # 2026-05-01 deadlocked at exactly this point: 5 concurrent 14B
-        # calls, every one of them timed out, debate hit the 90-min cap.
-        # 14B stays as fallback so a single retry-after-timeout still
-        # reaches it; for that single-shot use 14B is fast enough.
-        "final_plan": ["qwen3.5:9b", "qwen2.5:14b"],
-        "quality_check": ["qwen3.5:9b", "qwen2.5:14b"],
-        "technical_review": ["qwen3.5:9b", "qwen2.5:14b"],
-        "public_output": ["qwen3.5:9b", "qwen2.5:14b"],
+        # Planning phase — 9B only. 14B was kept as fallback in the
+        # previous commit, but a live VRAM probe on 2026-05-02 showed
+        # the remote Ollama GPU (~8 GB) cannot hold qwen3.5:9b
+        # (6.28 GB resident) and qwen2.5:14b (~9 GB) at the same time.
+        # Whenever the fallback fires, Ollama must unload 9B and load
+        # 14B — and then swap back when the next 9B call arrives.
+        # Each swap cost 40–90 s on this hardware, so a single planning
+        # round that touched fallback could spend more time swapping
+        # than generating. Worth less than the marginal quality bump
+        # 14B gives. If we ever get a bigger GPU, re-add 14B here.
+        "final_plan": ["qwen3.5:9b"],
+        "quality_check": ["qwen3.5:9b"],
+        "technical_review": ["qwen3.5:9b"],
+        "public_output": ["qwen3.5:9b"],
     }
 
     def __init__(self):
