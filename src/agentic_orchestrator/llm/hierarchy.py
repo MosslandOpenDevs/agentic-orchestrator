@@ -43,7 +43,10 @@ class LLMHierarchy:
     - Budget controlled
     """
 
-    # Local models (Tier 1 - Free) on remote Ollama server (host configured via OLLAMA_HOST)
+    # Local models (Tier 1 - Free) on remote Ollama server (host configured via OLLAMA_HOST).
+    # Consolidated to qwen3.5:9b for all generation tasks to eliminate VRAM model swaps
+    # on the shared Ollama server (~8GB GPU). qwen2.5:14b is retained as the only
+    # exception, used solely by the scheduled debate planning phase.
     LOCAL_MODELS: Dict[str, ModelConfig] = {
         "qwen2.5:14b": ModelConfig(
             name="qwen2.5:14b",
@@ -62,28 +65,8 @@ class LLMHierarchy:
             context_size=32768,
             cost_per_1k_input=0.0,
             cost_per_1k_output=0.0,
-            capabilities=["reasoning", "analysis", "moderation", "planning", "coding", "evaluation"],
-            recommended_for=["moderation", "final_evaluation", "complex_reasoning", "evaluation", "convergence", "technical_review"]
-        ),
-        "gemma4:e4b": ModelConfig(
-            name="gemma4:e4b",
-            provider="ollama",
-            tier=ModelTier.FREE,
-            context_size=32768,
-            cost_per_1k_input=0.0,
-            cost_per_1k_output=0.0,
-            capabilities=["reasoning", "coding", "generation", "translation"],
-            recommended_for=["generation", "idea_creation", "discussion", "translation"]
-        ),
-        "qwen3.5:4b": ModelConfig(
-            name="qwen3.5:4b",
-            provider="ollama",
-            tier=ModelTier.FREE,
-            context_size=32768,
-            cost_per_1k_input=0.0,
-            cost_per_1k_output=0.0,
-            capabilities=["summarization", "classification", "quick_tasks"],
-            recommended_for=["summary", "classification", "filtering"]
+            capabilities=["reasoning", "analysis", "moderation", "planning", "coding", "evaluation", "generation", "translation", "summarization", "classification"],
+            recommended_for=["moderation", "final_evaluation", "complex_reasoning", "evaluation", "convergence", "technical_review", "generation", "idea_creation", "discussion", "translation", "summary", "classification", "filtering"]
         ),
     }
 
@@ -131,37 +114,39 @@ class LLMHierarchy:
         ),
     }
 
-    # Task to model mapping (remote Ollama: qwen2.5:14b, qwen3.5:9b, gemma4:e4b, qwen3.5:4b)
+    # Task to model mapping. All generation tasks resolve to qwen3.5:9b to keep
+    # the shared remote Ollama (~8GB GPU) warm with a single resident model.
+    # qwen2.5:14b is reserved for the scheduled planning phase only — it forces
+    # a one-off VRAM swap every 6 hours, which is acceptable for batch work.
     TASK_MODEL_MAP: Dict[str, List[str]] = {
-        # Divergence phase - use mid-tier models
-        "idea_generation": ["gemma4:e4b", "qwen3.5:9b", "qwen3.5:4b"],
-        "brainstorming": ["gemma4:e4b", "qwen3.5:9b", "qwen3.5:4b"],
-        "discussion": ["gemma4:e4b", "qwen3.5:9b", "qwen3.5:4b"],
+        # Divergence phase
+        "idea_generation": ["qwen3.5:9b"],
+        "brainstorming": ["qwen3.5:9b"],
+        "discussion": ["qwen3.5:9b"],
 
-        # Convergence phase - bigger model first for better evaluation
-        "evaluation": ["qwen3.5:9b", "gemma4:e4b", "qwen3.5:4b"],
-        "scoring": ["qwen3.5:9b", "gemma4:e4b", "qwen3.5:4b"],
-        "filtering": ["qwen3.5:4b"],
+        # Convergence phase
+        "evaluation": ["qwen3.5:9b"],
+        "scoring": ["qwen3.5:9b"],
+        "filtering": ["qwen3.5:9b"],
 
-        # Moderation - use the strongest available model
-        "moderation": ["qwen2.5:14b", "qwen3.5:9b", "gemma4:e4b"],
-        "final_decision": ["qwen2.5:14b", "qwen3.5:9b", "gemma4:e4b"],
+        # Moderation / final decision
+        "moderation": ["qwen3.5:9b"],
+        "final_decision": ["qwen3.5:9b"],
 
-        # Fast tasks - use smallest model
-        "summary": ["qwen3.5:4b"],
-        "classification": ["qwen3.5:4b"],
-        "translation": ["gemma4:e4b"],
+        # Fast / utility tasks
+        "summary": ["qwen3.5:9b"],
+        "classification": ["qwen3.5:9b"],
+        "translation": ["qwen3.5:9b"],
 
-        # Trend analysis - high-volume summarization task; favor the fast
-        # 4B first to keep within Ollama request_timeout, fall back to 9B
-        # only if the small model produces empty/unparseable output.
-        "trend_analysis": ["qwen3.5:4b", "qwen3.5:9b", "gemma4:e4b"],
+        # Trend analysis
+        "trend_analysis": ["qwen3.5:9b"],
 
-        # Critical outputs - use the 14B planner with 9B fallback
-        "final_plan": ["qwen2.5:14b", "qwen3.5:9b", "gemma4:e4b"],
-        "quality_check": ["qwen2.5:14b", "qwen3.5:9b", "gemma4:e4b"],
-        "technical_review": ["qwen2.5:14b", "qwen3.5:9b", "gemma4:e4b"],
-        "public_output": ["qwen2.5:14b", "qwen3.5:9b", "gemma4:e4b"],
+        # Planning phase — only place where 14B is allowed to swap in.
+        # 9B is the fallback so the system stays operational if 14B fails.
+        "final_plan": ["qwen2.5:14b", "qwen3.5:9b"],
+        "quality_check": ["qwen2.5:14b", "qwen3.5:9b"],
+        "technical_review": ["qwen2.5:14b", "qwen3.5:9b"],
+        "public_output": ["qwen2.5:14b", "qwen3.5:9b"],
     }
 
     def __init__(self):
@@ -184,7 +169,7 @@ class LLMHierarchy:
         Returns:
             Model name
         """
-        candidates = self.TASK_MODEL_MAP.get(task, ["gemma4:e4b"])
+        candidates = self.TASK_MODEL_MAP.get(task, ["qwen3.5:9b"])
 
         for model in candidates:
             config = self.all_models.get(model)
@@ -202,7 +187,7 @@ class LLMHierarchy:
             return model
 
         # Default to local model
-        return "gemma4:e4b"
+        return "qwen3.5:9b"
 
     def get_model_config(self, model: str) -> Optional[ModelConfig]:
         """Get configuration for a model."""
@@ -230,7 +215,7 @@ class LLMHierarchy:
         """Get fallback model if primary is unavailable."""
         config = self.all_models.get(model)
         if not config:
-            return "gemma4:e4b"
+            return "qwen3.5:9b"
 
         # If it's an API model, fallback to best local model for the task
         if config.provider != "ollama":
@@ -240,8 +225,8 @@ class LLMHierarchy:
                     if candidate in self.LOCAL_MODELS:
                         return candidate
 
-        # Default fallback
-        return "qwen3.5:9b" if config.tier in [ModelTier.PREMIUM, ModelTier.STANDARD] else "gemma4:e4b"
+        # Default fallback — 9B is the only always-warm local model.
+        return "qwen3.5:9b"
 
     def estimate_task_tokens(self, task: str) -> Dict[str, int]:
         """Estimate token usage for a task type."""

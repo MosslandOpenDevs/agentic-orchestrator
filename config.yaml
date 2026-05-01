@@ -104,18 +104,17 @@ project:
     # Maximum concurrent project generations
     max_concurrent: 1
 
-  # LLM model selection for different tasks
+  # LLM model selection for different tasks.
+  # All consolidated to qwen3.5:9b — the shared remote Ollama (~8GB GPU) can
+  # only fit one generation model, so we keep 9b resident at all times to
+  # avoid VRAM swap stalls. Architecture work was previously on 14b but is
+  # now intentionally downgraded to 9b: 14b is reserved exclusively for the
+  # scheduled debate planning phase to limit swap to once per 6h cycle.
   llm:
-    # Plan parsing (fast, structured extraction)
-    parsing: "qwen3.5:4b"
-    # Code generation (balanced quality/speed)
+    parsing: "qwen3.5:9b"
     code_generation: "qwen3.5:9b"
-    # Architecture design (complex reasoning) — uses the 14b planner
-    # for the same reason debate planning does: more parameters help
-    # multi-component design decisions.
-    architecture: "qwen2.5:14b"
-    # Simple tasks / fallback (lightweight)
-    fallback: "qwen3.5:4b"
+    architecture: "qwen3.5:9b"
+    fallback: "qwen3.5:9b"
 
   # Output directory
   output_dir: "projects"
