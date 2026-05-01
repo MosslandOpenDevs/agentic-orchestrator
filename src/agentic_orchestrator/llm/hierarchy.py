@@ -141,12 +141,18 @@ class LLMHierarchy:
         # Trend analysis
         "trend_analysis": ["qwen3.5:9b"],
 
-        # Planning phase — only place where 14B is allowed to swap in.
-        # 9B is the fallback so the system stays operational if 14B fails.
-        "final_plan": ["qwen2.5:14b", "qwen3.5:9b"],
-        "quality_check": ["qwen2.5:14b", "qwen3.5:9b"],
-        "technical_review": ["qwen2.5:14b", "qwen3.5:9b"],
-        "public_output": ["qwen2.5:14b", "qwen3.5:9b"],
+        # Planning phase — 9B is now primary because the planning round
+        # fires 3-5 agents in parallel and 14B does NOT reliably finish
+        # a 5000-token planning prompt within request_timeout (1800s)
+        # under concurrency on this hardware. Manual debate 2a9024eb on
+        # 2026-05-01 deadlocked at exactly this point: 5 concurrent 14B
+        # calls, every one of them timed out, debate hit the 90-min cap.
+        # 14B stays as fallback so a single retry-after-timeout still
+        # reaches it; for that single-shot use 14B is fast enough.
+        "final_plan": ["qwen3.5:9b", "qwen2.5:14b"],
+        "quality_check": ["qwen3.5:9b", "qwen2.5:14b"],
+        "technical_review": ["qwen3.5:9b", "qwen2.5:14b"],
+        "public_output": ["qwen3.5:9b", "qwen2.5:14b"],
     }
 
     def __init__(self):
