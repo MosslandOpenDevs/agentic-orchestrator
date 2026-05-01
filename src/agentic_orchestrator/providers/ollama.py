@@ -138,6 +138,10 @@ class OllamaProvider:
         self._last_health_check: Optional[datetime] = None
         self._throttle_state = ThrottleState()
         self._throttle_enabled = os.getenv("OLLAMA_THROTTLE", "true").lower() == "true"
+        # 503 retry configuration. Tunable via env so the operator can
+        # widen/narrow the patience window without a code change.
+        self._max_503_retries = int(os.getenv("OLLAMA_503_RETRIES", "4"))
+        self._503_backoff_base = float(os.getenv("OLLAMA_503_BACKOFF", "5"))
 
     async def _wait_for_throttle(self) -> None:
         """Wait for throttling conditions to be met.
@@ -240,31 +244,55 @@ class OllamaProvider:
 
         timeout = self.config.throttle.get("request_timeout", self.config.timeout)
 
-        try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(
-                    f"{self.config.base_url}/api/generate",
-                    json=payload
-                )
-                response.raise_for_status()
-                data = response.json()
+        # Server-side 503 ("server busy, maximum pending requests exceeded")
+        # is transient — Ollama returns it when its internal queue is full
+        # because multiple PM2 workers (debate/trends/translator) hit it at
+        # once. Retry with exponential backoff before giving up; the LLM
+        # router's own fallback handles the give-up case.
+        last_503_body = None
+        for attempt in range(self._max_503_retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(
+                        f"{self.config.base_url}/api/generate",
+                        json=payload,
+                    )
+                    if response.status_code == 503:
+                        last_503_body = response.text[:200]
+                        if attempt < self._max_503_retries:
+                            backoff = self._503_backoff_base * (2 ** attempt)
+                            logger.warning(
+                                f"[Ollama] 503 from server "
+                                f"(attempt {attempt + 1}/{self._max_503_retries + 1}); "
+                                f"sleeping {backoff:.1f}s before retry. body={last_503_body!r}"
+                            )
+                            await asyncio.sleep(backoff)
+                            continue
+                        raise ProviderError(
+                            f"Ollama HTTP error: 503 (server busy after "
+                            f"{self._max_503_retries + 1} retries) body={last_503_body!r}"
+                        )
 
-                return OllamaResponse(
-                    content=data.get("response", ""),
-                    model=model,
-                    total_duration=data.get("total_duration"),
-                    load_duration=data.get("load_duration"),
-                    prompt_eval_count=data.get("prompt_eval_count"),
-                    eval_count=data.get("eval_count"),
-                    done=data.get("done", True)
-                )
+                    response.raise_for_status()
+                    data = response.json()
+                    return OllamaResponse(
+                        content=data.get("response", ""),
+                        model=model,
+                        total_duration=data.get("total_duration"),
+                        load_duration=data.get("load_duration"),
+                        prompt_eval_count=data.get("prompt_eval_count"),
+                        eval_count=data.get("eval_count"),
+                        done=data.get("done", True),
+                    )
 
-        except httpx.TimeoutException:
-            raise ProviderError(f"Ollama timeout after {timeout}s")
-        except httpx.HTTPStatusError as e:
-            raise ProviderError(f"Ollama HTTP error: {e.response.status_code}")
-        except Exception as e:
-            raise ProviderError(f"Ollama error: {e}")
+            except httpx.TimeoutException:
+                raise ProviderError(f"Ollama timeout after {timeout}s")
+            except httpx.HTTPStatusError as e:
+                raise ProviderError(f"Ollama HTTP error: {e.response.status_code}")
+            except ProviderError:
+                raise
+            except Exception as e:
+                raise ProviderError(f"Ollama error: {e}")
 
     async def generate_stream(
         self,

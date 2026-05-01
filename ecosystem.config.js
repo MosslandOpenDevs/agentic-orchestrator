@@ -56,20 +56,28 @@
 // Toggle between TEST and PRODUCTION schedules
 const TEST_MODE = false;  // Set to false for production schedules
 
+// Cron minutes are staggered so the PM2 workers do not all fire on the
+// hour and flood the single-instance Ollama queue (which returned HTTP
+// 503 'maximum pending requests exceeded' under the previous schedule).
+//   signals  → :05 of every 30 min  (cheap, no LLM)
+//   trends   → :15 of every 2 h     (LLM-bound)
+//   debate   → :25 of every 6 h     (LLM-bound, longest)
+//   backlog  → :45 of every 4 h     (mostly DB / retention)
+//   health   → :02/:07/.../:57      (cheap, no LLM)
 const SCHEDULES = {
   test: {
-    signals: '*/10 * * * *',    // Every 10 minutes
-    trends: '*/30 * * * *',     // Every 30 minutes
-    debate: '0 * * * *',        // Every hour
-    backlog: '*/30 * * * *',    // Every 30 minutes
-    health: '*/5 * * * *',      // Every 5 minutes
+    signals: '5,35 * * * *',    // :05 and :35 every hour
+    trends: '15 */1 * * *',     // :15 every hour
+    debate: '25 * * * *',       // :25 every hour
+    backlog: '45 * * * *',      // :45 every hour
+    health: '2-57/5 * * * *',   // every 5 min, offset by 2 to avoid :00
   },
   production: {
-    signals: '*/30 * * * *',    // Every 30 minutes
-    trends: '0 */2 * * *',      // Every 2 hours
-    debate: '0 */6 * * *',      // Every 6 hours
-    backlog: '0 */4 * * *',     // Every 4 hours
-    health: '*/5 * * * *',      // Every 5 minutes
+    signals: '5,35 * * * *',    // :05 and :35 every hour (= every 30 min)
+    trends: '15 */2 * * *',     // :15 every 2 hours
+    debate: '25 */6 * * *',     // :25 every 6 hours
+    backlog: '45 */4 * * *',    // :45 every 4 hours
+    health: '2-57/5 * * * *',   // every 5 min, offset by 2
   },
 };
 

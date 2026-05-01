@@ -80,3 +80,4 @@ data/backup/
 
 # Async job state
 data/jobs.json
+data/orchestrator.db.bak*
