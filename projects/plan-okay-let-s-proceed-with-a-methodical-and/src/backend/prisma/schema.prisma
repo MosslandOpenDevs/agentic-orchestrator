@@ -1,0 +1,24 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+model NFT {
+  id String @id @default(uuid())
+  tokenId String
+  metadata JSON
+  owner Address
+  createdAt DateTime @default(now())
+  user User? @relation("userNFT", on: oneToOne)
+}
+
+model User {
+  id String @id @default(uuid())
+  address String
+  createdAt DateTime @default(now())
+  nfts NFT[] @relation("userNFT", on: oneToOne)
+}
+
+model Prompt {
+  id String @id @default(uuid())
+  text String
+}
