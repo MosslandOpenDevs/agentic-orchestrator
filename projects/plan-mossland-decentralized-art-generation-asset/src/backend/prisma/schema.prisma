@@ -1,0 +1,36 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+model NFT {
+  id String @id @default(uuid())
+  tokenId String
+  metadata JSON
+  owner Address
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([owner])
+  @@map(["nft"])
+}
+
+model User {
+  id String @id @default(uuid())
+  username String
+  address String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([address])
+  @@map(["user"])
+}
+
+model Prompt {
+  id String @id @default(uuid())
+  text String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([text])
+  @@map(["prompt"])
+}
