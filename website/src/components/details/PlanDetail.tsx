@@ -411,9 +411,9 @@ export function PlanDetail({ data }: PlanDetailProps) {
             {/* LLM Models Info */}
             <div className="text-xs text-[#6b7280]">
               <span>{locale === 'ko' ? '사용 모델: ' : 'Models: '}</span>
-              <span className="text-[#00ffff]">glm-4.7-flash</span>
-              <span className="mx-1">→</span>
-              <span className="text-[#bd93f9]">qwen2.5:32b</span>
+              <span className="text-[#bd93f9]">qwen3.5:9b</span>
+              <span className="mx-1">+</span>
+              <span className="text-[#00ffff]">qwen3-embedding:0.6b</span>
             </div>
           </div>
         )}

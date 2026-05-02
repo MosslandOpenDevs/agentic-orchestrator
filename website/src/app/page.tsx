@@ -286,7 +286,7 @@ export default function Dashboard() {
                     <div className="text-[#00ffff] text-xs mb-2">
                       <span className="text-[#bd93f9]">@</span> Local Models (Ollama)
                     </div>
-                    {['llama3.3:70b', 'qwen2.5:32b', 'phi4:14b'].map((model, idx) => (
+                    {['qwen3.5:9b', 'qwen3-embedding:0.6b'].map((model, idx) => (
                       <div key={model} className="flex items-center justify-between py-1 ml-4">
                         <span className="text-[#c0c0c0] text-xs">{model}</span>
                         <div className="flex items-center gap-2">

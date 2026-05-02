@@ -334,7 +334,7 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
             response = await self.router.route(
                 prompt=prompt,
                 task_type="parsing",
-                model="qwen3.5:4b",
+                model="qwen3.5:9b",
                 temperature=0.1,
                 max_tokens=500,
             )

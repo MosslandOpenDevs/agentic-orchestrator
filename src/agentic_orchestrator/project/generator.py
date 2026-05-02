@@ -3,10 +3,9 @@ LLM-based code generation for project scaffolding.
 
 Enhanced for high-quality, production-ready code generation.
 
-Uses task-based model selection for optimal code generation:
-- qwen3.5:4b: Plan parsing (3.4GB, fast)
-- qwen3.5:9b: Code generation & architecture (6.6GB, balanced)
-- gemma4:e4b: Simple tasks/fallback (9.6GB, lightweight)
+All chat tasks resolve to qwen3.5:9b — the shared remote Ollama keeps that
+model + qwen3-embedding:0.6b co-resident on the ~8GB GPU, so any other
+model name will 404 against the server.
 """
 
 import logging
@@ -35,20 +34,17 @@ class ProjectCodeGenerator:
     """
     LLM-based code generator for project scaffolding.
 
-    Uses different models for different tasks:
-    - Parsing: qwen3.5:4b (fast, good at structured extraction)
-    - Code generation: qwen3.5:9b (balanced quality/speed for code)
-    - Architecture: qwen3.5:9b (complex reasoning for system design)
-    - Simple tasks: gemma4:e4b (lightweight fallback)
+    All tasks resolve to qwen3.5:9b — the only chat model resident on the
+    shared remote Ollama. qwen3-embedding:0.6b is reserved for embeddings.
     """
 
-    # Task-based model selection
+    # Task-based model selection — every chat task uses the single resident model.
     TASK_MODELS = {
-        "parsing": "qwen3.5:4b",          # Plan parsing, JSON extraction
-        "code_generation": "qwen3.5:9b",  # Component, API, model generation
-        "architecture": "qwen3.5:9b",     # Complex system design
-        "simple": "gemma4:e4b",            # Config files, simple docs
-        "readme": "qwen3.5:9b",           # README generation
+        "parsing": "qwen3.5:9b",
+        "code_generation": "qwen3.5:9b",
+        "architecture": "qwen3.5:9b",
+        "simple": "qwen3.5:9b",
+        "readme": "qwen3.5:9b",
     }
 
     def __init__(self, router=None):

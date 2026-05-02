@@ -62,7 +62,7 @@ class ThrottleState:
 class OllamaConfig:
     """Ollama configuration."""
     base_url: str = "http://localhost:11434"
-    default_model: str = "gemma4:e4b"
+    default_model: str = "qwen3.5:9b"
     timeout: int = 300  # 5 minutes for large models
     max_retries: int = 3
     # Throttling settings (loaded from config.yaml)
@@ -110,24 +110,26 @@ class OllamaProvider:
     - GPU memory management
     """
 
-    # Available models on the remote Ollama server (host configured via OLLAMA_HOST)
+    # Available models on the remote Ollama server (host configured via OLLAMA_HOST).
+    # Consolidated to a single chat model + a single embedding model so the shared
+    # ~8GB GPU never has to swap. Any other model name will 404 against the server.
     AVAILABLE_MODELS = {
-        "qwen2.5:14b": {"size": "9.0GB", "context": 32768, "tier": "premium"},
-        "qwen3.5:9b": {"size": "6.6GB", "context": 32768, "tier": "high"},
-        "gemma4:e4b": {"size": "9.6GB", "context": 32768, "tier": "standard"},
-        "qwen3.5:4b": {"size": "3.4GB", "context": 32768, "tier": "fast"},
+        "qwen3.5:9b": {"size": "6.6GB", "context": 32768, "tier": "chat"},
+        "qwen3-embedding:0.6b": {"size": "0.6GB", "context": 8192, "tier": "embedding"},
     }
 
-    # Recommended models for different tasks
+    # Recommended models for different tasks. All chat/generation tasks resolve
+    # to qwen3.5:9b — embedding is the only task that uses qwen3-embedding:0.6b.
     TASK_MODELS = {
-        "moderation": "qwen2.5:14b",         # Best reasoning for final decisions
-        "evaluation": "qwen3.5:9b",          # Evaluation, scoring
-        "generation": "gemma4:e4b",          # Idea generation
-        "generation_alt": "qwen3.5:9b",      # Alternative generation
-        "summary": "qwen3.5:4b",             # Fast summaries
-        "classification": "qwen3.5:4b",      # Quick classification
-        "translation": "gemma4:e4b",         # Translation tasks
-        "planning": "qwen2.5:14b",           # Final plan / quality check
+        "moderation": "qwen3.5:9b",
+        "evaluation": "qwen3.5:9b",
+        "generation": "qwen3.5:9b",
+        "generation_alt": "qwen3.5:9b",
+        "summary": "qwen3.5:9b",
+        "classification": "qwen3.5:9b",
+        "translation": "qwen3.5:9b",
+        "planning": "qwen3.5:9b",
+        "embedding": "qwen3-embedding:0.6b",
     }
 
     def __init__(self, config: Optional[OllamaConfig] = None):

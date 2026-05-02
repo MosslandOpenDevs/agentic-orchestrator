@@ -210,22 +210,14 @@ export default function ProjectsPage() {
           <span className="text-[#6b7280]">→</span>
           <span className="text-[#39ff14]">{locale === 'ko' ? '프로젝트' : 'Project'}</span>
         </div>
-        <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+        <div className="mt-3 grid grid-cols-2 md:grid-cols-2 gap-2 text-xs">
           <div className="p-2 border border-[#21262d] rounded">
-            <div className="text-[#6b7280]">{locale === 'ko' ? '파싱' : 'Parsing'}</div>
-            <div className="text-[#00ffff] font-mono">glm-4.7-flash</div>
+            <div className="text-[#6b7280]">{locale === 'ko' ? '채팅 / 생성' : 'Chat / Gen'}</div>
+            <div className="text-[#bd93f9] font-mono">qwen3.5:9b</div>
           </div>
           <div className="p-2 border border-[#21262d] rounded">
-            <div className="text-[#6b7280]">{locale === 'ko' ? '코드 생성' : 'Code Gen'}</div>
-            <div className="text-[#bd93f9] font-mono">qwen2.5:32b</div>
-          </div>
-          <div className="p-2 border border-[#21262d] rounded">
-            <div className="text-[#6b7280]">{locale === 'ko' ? '아키텍처' : 'Architecture'}</div>
-            <div className="text-[#ff6b35] font-mono">llama3.3:70b</div>
-          </div>
-          <div className="p-2 border border-[#21262d] rounded">
-            <div className="text-[#6b7280]">{locale === 'ko' ? '폴백' : 'Fallback'}</div>
-            <div className="text-[#39ff14] font-mono">phi4:14b</div>
+            <div className="text-[#6b7280]">{locale === 'ko' ? '임베딩' : 'Embedding'}</div>
+            <div className="text-[#00ffff] font-mono">qwen3-embedding:0.6b</div>
           </div>
         </div>
       </div>

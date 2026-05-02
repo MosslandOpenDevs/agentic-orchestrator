@@ -106,7 +106,7 @@ RSS 피드 → 트렌드 분석 → Claude로 아이디어 생성 → GitHub Iss
 ```
 
 - **스케줄**: PM2 (TEST: 1시간마다, PROD: 6시간마다)
-- **LLM**: Ollama (로컬) - qwen2.5:14b, llama3.2:3b
+- **LLM**: Ollama (원격) - qwen3.5:9b (채팅) + qwen3-embedding:0.6b (임베딩)
 - **출력**: `Idea` 객체 리스트
 - **특징**: 다양한 페르소나가 토론
 

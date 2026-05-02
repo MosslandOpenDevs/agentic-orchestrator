@@ -44,20 +44,10 @@ class LLMHierarchy:
     """
 
     # Local models (Tier 1 - Free) on remote Ollama server (host configured via OLLAMA_HOST).
-    # Consolidated to qwen3.5:9b for all generation tasks to eliminate VRAM model swaps
-    # on the shared Ollama server (~8GB GPU). qwen2.5:14b is retained as the only
-    # exception, used solely by the scheduled debate planning phase.
+    # Consolidated to a single chat model (qwen3.5:9b) plus a single embedding model
+    # (qwen3-embedding:0.6b). The shared ~8GB GPU only has to keep these two resident,
+    # so there is never a VRAM swap during normal operation.
     LOCAL_MODELS: Dict[str, ModelConfig] = {
-        "qwen2.5:14b": ModelConfig(
-            name="qwen2.5:14b",
-            provider="ollama",
-            tier=ModelTier.FREE,
-            context_size=32768,
-            cost_per_1k_input=0.0,
-            cost_per_1k_output=0.0,
-            capabilities=["reasoning", "analysis", "planning", "coding", "evaluation", "moderation"],
-            recommended_for=["final_plan", "quality_check", "technical_review", "moderation", "complex_reasoning"]
-        ),
         "qwen3.5:9b": ModelConfig(
             name="qwen3.5:9b",
             provider="ollama",
@@ -66,7 +56,17 @@ class LLMHierarchy:
             cost_per_1k_input=0.0,
             cost_per_1k_output=0.0,
             capabilities=["reasoning", "analysis", "moderation", "planning", "coding", "evaluation", "generation", "translation", "summarization", "classification"],
-            recommended_for=["moderation", "final_evaluation", "complex_reasoning", "evaluation", "convergence", "technical_review", "generation", "idea_creation", "discussion", "translation", "summary", "classification", "filtering"]
+            recommended_for=["moderation", "final_evaluation", "complex_reasoning", "evaluation", "convergence", "technical_review", "generation", "idea_creation", "discussion", "translation", "summary", "classification", "filtering", "final_plan", "quality_check"]
+        ),
+        "qwen3-embedding:0.6b": ModelConfig(
+            name="qwen3-embedding:0.6b",
+            provider="ollama",
+            tier=ModelTier.FREE,
+            context_size=8192,
+            cost_per_1k_input=0.0,
+            cost_per_1k_output=0.0,
+            capabilities=["embedding"],
+            recommended_for=["embedding", "semantic_search", "similarity"]
         ),
     }
 
@@ -114,10 +114,10 @@ class LLMHierarchy:
         ),
     }
 
-    # Task to model mapping. All generation tasks resolve to qwen3.5:9b to keep
-    # the shared remote Ollama (~8GB GPU) warm with a single resident model.
-    # qwen2.5:14b is reserved for the scheduled planning phase only — it forces
-    # a one-off VRAM swap every 6 hours, which is acceptable for batch work.
+    # Task to model mapping. All chat/generation tasks resolve to qwen3.5:9b
+    # — the shared remote Ollama (~8GB GPU) keeps that model and the
+    # qwen3-embedding:0.6b embedder co-resident, so there is no VRAM swap.
+    # Anything else will 404 on the server until it's pulled again.
     TASK_MODEL_MAP: Dict[str, List[str]] = {
         # Divergence phase
         "idea_generation": ["qwen3.5:9b"],
@@ -141,20 +141,14 @@ class LLMHierarchy:
         # Trend analysis
         "trend_analysis": ["qwen3.5:9b"],
 
-        # Planning phase — 9B only. 14B was kept as fallback in the
-        # previous commit, but a live VRAM probe on 2026-05-02 showed
-        # the remote Ollama GPU (~8 GB) cannot hold qwen3.5:9b
-        # (6.28 GB resident) and qwen2.5:14b (~9 GB) at the same time.
-        # Whenever the fallback fires, Ollama must unload 9B and load
-        # 14B — and then swap back when the next 9B call arrives.
-        # Each swap cost 40–90 s on this hardware, so a single planning
-        # round that touched fallback could spend more time swapping
-        # than generating. Worth less than the marginal quality bump
-        # 14B gives. If we ever get a bigger GPU, re-add 14B here.
+        # Planning phase
         "final_plan": ["qwen3.5:9b"],
         "quality_check": ["qwen3.5:9b"],
         "technical_review": ["qwen3.5:9b"],
         "public_output": ["qwen3.5:9b"],
+
+        # Embedding (separate model — kept resident alongside the chat model)
+        "embedding": ["qwen3-embedding:0.6b"],
     }
 
     def __init__(self):
