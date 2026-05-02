@@ -26,7 +26,7 @@ class TrendAnalyzer:
 
     # Maximum articles to include in a single analysis prompt
     # Cap signals fed into the LLM. With ~100 items, prompts hit ~13k chars
-    # and qwen3.5:4b/:9b regularly miss the 600 s Ollama timeout. 50 keeps
+    # and gemma3:4b/:9b regularly miss the 600 s Ollama timeout. 50 keeps
     # prompts around ~6 k chars and lets the small model finish in 1-2 min.
     MAX_ARTICLES_PER_ANALYSIS = 50
 
