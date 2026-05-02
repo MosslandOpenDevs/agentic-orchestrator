@@ -334,7 +334,7 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
             response = await self.router.route(
                 prompt=prompt,
                 task_type="parsing",
-                model="qwen3.5:9b",
+                model="qwen3.5:4b",
                 temperature=0.1,
                 max_tokens=500,
             )
@@ -789,7 +789,7 @@ Be comprehensive but realistic based on what's actually described in the plan.""
             response = await self.router.route(
                 prompt=deep_prompt,
                 task_type="parsing",
-                model="qwen3.5:9b",  # Use larger model for complex extraction
+                model="qwen3.5:4b",  # Use larger model for complex extraction
                 temperature=0.2,
                 max_tokens=4000,
             )

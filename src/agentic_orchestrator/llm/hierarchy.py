@@ -44,12 +44,12 @@ class LLMHierarchy:
     """
 
     # Local models (Tier 1 - Free) on remote Ollama server (host configured via OLLAMA_HOST).
-    # Consolidated to a single chat model (qwen3.5:9b) plus a single embedding model
+    # Consolidated to a single chat model (qwen3.5:4b) plus a single embedding model
     # (qwen3-embedding:0.6b). The shared ~8GB GPU only has to keep these two resident,
     # so there is never a VRAM swap during normal operation.
     LOCAL_MODELS: Dict[str, ModelConfig] = {
-        "qwen3.5:9b": ModelConfig(
-            name="qwen3.5:9b",
+        "qwen3.5:4b": ModelConfig(
+            name="qwen3.5:4b",
             provider="ollama",
             tier=ModelTier.FREE,
             context_size=32768,
@@ -114,38 +114,38 @@ class LLMHierarchy:
         ),
     }
 
-    # Task to model mapping. All chat/generation tasks resolve to qwen3.5:9b
+    # Task to model mapping. All chat/generation tasks resolve to qwen3.5:4b
     # — the shared remote Ollama (~8GB GPU) keeps that model and the
     # qwen3-embedding:0.6b embedder co-resident, so there is no VRAM swap.
     # Anything else will 404 on the server until it's pulled again.
     TASK_MODEL_MAP: Dict[str, List[str]] = {
         # Divergence phase
-        "idea_generation": ["qwen3.5:9b"],
-        "brainstorming": ["qwen3.5:9b"],
-        "discussion": ["qwen3.5:9b"],
+        "idea_generation": ["qwen3.5:4b"],
+        "brainstorming": ["qwen3.5:4b"],
+        "discussion": ["qwen3.5:4b"],
 
         # Convergence phase
-        "evaluation": ["qwen3.5:9b"],
-        "scoring": ["qwen3.5:9b"],
-        "filtering": ["qwen3.5:9b"],
+        "evaluation": ["qwen3.5:4b"],
+        "scoring": ["qwen3.5:4b"],
+        "filtering": ["qwen3.5:4b"],
 
         # Moderation / final decision
-        "moderation": ["qwen3.5:9b"],
-        "final_decision": ["qwen3.5:9b"],
+        "moderation": ["qwen3.5:4b"],
+        "final_decision": ["qwen3.5:4b"],
 
         # Fast / utility tasks
-        "summary": ["qwen3.5:9b"],
-        "classification": ["qwen3.5:9b"],
-        "translation": ["qwen3.5:9b"],
+        "summary": ["qwen3.5:4b"],
+        "classification": ["qwen3.5:4b"],
+        "translation": ["qwen3.5:4b"],
 
         # Trend analysis
-        "trend_analysis": ["qwen3.5:9b"],
+        "trend_analysis": ["qwen3.5:4b"],
 
         # Planning phase
-        "final_plan": ["qwen3.5:9b"],
-        "quality_check": ["qwen3.5:9b"],
-        "technical_review": ["qwen3.5:9b"],
-        "public_output": ["qwen3.5:9b"],
+        "final_plan": ["qwen3.5:4b"],
+        "quality_check": ["qwen3.5:4b"],
+        "technical_review": ["qwen3.5:4b"],
+        "public_output": ["qwen3.5:4b"],
 
         # Embedding (separate model — kept resident alongside the chat model)
         "embedding": ["qwen3-embedding:0.6b"],
@@ -171,7 +171,7 @@ class LLMHierarchy:
         Returns:
             Model name
         """
-        candidates = self.TASK_MODEL_MAP.get(task, ["qwen3.5:9b"])
+        candidates = self.TASK_MODEL_MAP.get(task, ["qwen3.5:4b"])
 
         for model in candidates:
             config = self.all_models.get(model)
@@ -189,7 +189,7 @@ class LLMHierarchy:
             return model
 
         # Default to local model
-        return "qwen3.5:9b"
+        return "qwen3.5:4b"
 
     def get_model_config(self, model: str) -> Optional[ModelConfig]:
         """Get configuration for a model."""
@@ -217,7 +217,7 @@ class LLMHierarchy:
         """Get fallback model if primary is unavailable."""
         config = self.all_models.get(model)
         if not config:
-            return "qwen3.5:9b"
+            return "qwen3.5:4b"
 
         # If it's an API model, fallback to best local model for the task
         if config.provider != "ollama":
@@ -228,7 +228,7 @@ class LLMHierarchy:
                         return candidate
 
         # Default fallback — 9B is the only always-warm local model.
-        return "qwen3.5:9b"
+        return "qwen3.5:4b"
 
     def estimate_task_tokens(self, task: str) -> Dict[str, int]:
         """Estimate token usage for a task type."""

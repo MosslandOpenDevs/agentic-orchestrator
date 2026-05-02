@@ -1,7 +1,7 @@
 """
 ContentTranslator - Bidirectional translation between English and Korean.
 
-Uses qwen3.5:9b for high-quality translation of ideas and plans.
+Uses qwen3.5:4b for high-quality translation of ideas and plans.
 Automatically detects source language and translates accordingly:
 - Korean content → English (main field) + Korean (*_ko field)
 - English content → English (main field) + Korean translation (*_ko field)
@@ -20,7 +20,7 @@ class ContentTranslator:
     """Bidirectional content translator for English and Korean."""
 
     # Translation model (local, free)
-    DEFAULT_MODEL = "qwen3.5:9b"
+    DEFAULT_MODEL = "qwen3.5:4b"
 
     # System prompts for each direction
     SYSTEM_PROMPT_KO_TO_EN = """You are a professional English translator specializing in technology and startup content.

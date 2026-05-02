@@ -3,7 +3,7 @@ LLM-based code generation for project scaffolding.
 
 Enhanced for high-quality, production-ready code generation.
 
-All chat tasks resolve to qwen3.5:9b — the shared remote Ollama keeps that
+All chat tasks resolve to qwen3.5:4b — the shared remote Ollama keeps that
 model + qwen3-embedding:0.6b co-resident on the ~8GB GPU, so any other
 model name will 404 against the server.
 """
@@ -34,17 +34,17 @@ class ProjectCodeGenerator:
     """
     LLM-based code generator for project scaffolding.
 
-    All tasks resolve to qwen3.5:9b — the only chat model resident on the
+    All tasks resolve to qwen3.5:4b — the only chat model resident on the
     shared remote Ollama. qwen3-embedding:0.6b is reserved for embeddings.
     """
 
     # Task-based model selection — every chat task uses the single resident model.
     TASK_MODELS = {
-        "parsing": "qwen3.5:9b",
-        "code_generation": "qwen3.5:9b",
-        "architecture": "qwen3.5:9b",
-        "simple": "qwen3.5:9b",
-        "readme": "qwen3.5:9b",
+        "parsing": "qwen3.5:4b",
+        "code_generation": "qwen3.5:4b",
+        "architecture": "qwen3.5:4b",
+        "simple": "qwen3.5:4b",
+        "readme": "qwen3.5:4b",
     }
 
     def __init__(self, router=None):
@@ -413,7 +413,7 @@ Output ONLY the {'Python' if backend == 'fastapi' else 'TypeScript'} code, no ex
         """
         Generate architecture documentation.
 
-        Uses the larger qwen3.5:9b model for complex reasoning.
+        Uses the larger qwen3.5:4b model for complex reasoning.
 
         Args:
             parsed_plan: Parsed plan data

@@ -708,10 +708,10 @@ def _load_project_config() -> dict:
             "max_concurrent": 1,
         },
         "llm": {
-            "parsing": "qwen3.5:9b",
-            "code_generation": "qwen3.5:9b",
-            "architecture": "qwen3.5:9b",
-            "fallback": "qwen3.5:9b",
+            "parsing": "qwen3.5:4b",
+            "code_generation": "qwen3.5:4b",
+            "architecture": "qwen3.5:4b",
+            "fallback": "qwen3.5:4b",
         },
         "output_dir": "projects",
     }

@@ -62,7 +62,7 @@ class ThrottleState:
 class OllamaConfig:
     """Ollama configuration."""
     base_url: str = "http://localhost:11434"
-    default_model: str = "qwen3.5:9b"
+    default_model: str = "qwen3.5:4b"
     timeout: int = 300  # 5 minutes for large models
     max_retries: int = 3
     # Throttling settings (loaded from config.yaml)
@@ -114,21 +114,21 @@ class OllamaProvider:
     # Consolidated to a single chat model + a single embedding model so the shared
     # ~8GB GPU never has to swap. Any other model name will 404 against the server.
     AVAILABLE_MODELS = {
-        "qwen3.5:9b": {"size": "6.6GB", "context": 32768, "tier": "chat"},
+        "qwen3.5:4b": {"size": "6.6GB", "context": 32768, "tier": "chat"},
         "qwen3-embedding:0.6b": {"size": "0.6GB", "context": 8192, "tier": "embedding"},
     }
 
     # Recommended models for different tasks. All chat/generation tasks resolve
-    # to qwen3.5:9b — embedding is the only task that uses qwen3-embedding:0.6b.
+    # to qwen3.5:4b — embedding is the only task that uses qwen3-embedding:0.6b.
     TASK_MODELS = {
-        "moderation": "qwen3.5:9b",
-        "evaluation": "qwen3.5:9b",
-        "generation": "qwen3.5:9b",
-        "generation_alt": "qwen3.5:9b",
-        "summary": "qwen3.5:9b",
-        "classification": "qwen3.5:9b",
-        "translation": "qwen3.5:9b",
-        "planning": "qwen3.5:9b",
+        "moderation": "qwen3.5:4b",
+        "evaluation": "qwen3.5:4b",
+        "generation": "qwen3.5:4b",
+        "generation_alt": "qwen3.5:4b",
+        "summary": "qwen3.5:4b",
+        "classification": "qwen3.5:4b",
+        "translation": "qwen3.5:4b",
+        "planning": "qwen3.5:4b",
         "embedding": "qwen3-embedding:0.6b",
     }
 
