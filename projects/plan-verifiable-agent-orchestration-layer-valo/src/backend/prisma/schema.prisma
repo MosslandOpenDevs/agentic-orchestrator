@@ -1,0 +1,45 @@
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+
+model AgentReceipt {
+  id String @id @default(uuid())
+  tokenId String
+  asset String
+  quantity Float
+  timestamp DateTime @db.ts
+  verifier String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([tokenId])
+}
+
+model Portfolio {
+  id String @id @default(uuid())
+  userId String
+  riskLevel Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId])
+}
+
+model AavePosition {
+  id String @id @default(uuid())
+  asset String
+  quantity Float
+  borrowRate Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([asset])
+}
+
+model CompoundPosition {
+  id String @id @default(uuid())
+  asset String
+  quantity Float
+  interestRate Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([asset])
+}

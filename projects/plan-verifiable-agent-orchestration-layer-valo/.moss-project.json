@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "generator": "moss-ao",
+  "createdAt": "2026-05-04T03:39:18.779581",
+  "planId": "3c7350b7",
+  "projectId": "0f52140b",
+  "techStack": {
+    "frontend": "react",
+    "backend": "express",
+    "database": "postgresql",
+    "blockchain": "ethereum",
+    "additional": [
+      "polygon"
+    ]
+  },
+  "features": []
+}
