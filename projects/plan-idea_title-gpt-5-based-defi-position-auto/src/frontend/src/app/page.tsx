@@ -4,101 +4,67 @@ import { useColorScheme } from 'react-native';
 import {
   SafeAreaView,
   StyleSheet,
-  Text,
   View,
+  Text,
   TouchableOpacity,
   ScrollView,
 } from 'react-native';
 
-const Tailwind = useTailwind();
-
-type PortfolioData = {
-  assets: {
-    [key: string]: {
-      name: string;
-      quantity: number;
-      price: number;
-      totalValue: number;
-    };
-  };
-  totalValue: number;
-  riskScore: number;
-};
-
-type AppState {
-  theme: 'light' | 'dark';
+// Placeholder data - Replace with actual data fetching
+interface PortfolioItem {
+  asset: string;
+  balance: number;
+  price: number;
 }
 
-const App: React.FC<AppState> = () => {
-  const [portfolioData, setPortfolioData] = useState<PortfolioData>({
-    assets: {
-      USDC: { name: 'USDC', quantity: 100, price: 1.0, totalValue: 100.0 },
-      MTL: { name: 'MTL', quantity: 50, price: 1.5, totalValue: 75.0 },
-    },
-    totalValue: 175.0,
-    riskScore: 0.5,
-  });
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+const PortfolioDashboard = () => {
+  const tailwind = useTailwind();
+  const colorScheme = useColorScheme();
+  const [theme, setTheme] = useState<string>('light');
 
-  useEffect(() => {
-    // Simulate data fetching
-    setTimeout(() => {
-      setPortfolioData({
-        assets: {
-          USDC: { name: 'USDC', quantity: 120, price: 1.05, totalValue: 126.0 },
-          MTL: { name: 'MTL', quantity: 60, price: 1.6, totalValue: 96.0 },
-        },
-        totalValue: 222.0,
-        riskScore: 0.7,
-      });
-    }, 1500);
-  }, []);
+  const [portfolio, setPortfolio] = useState<PortfolioItem[]>([
+    { asset: 'SOL', balance: 100, price: 150 },
+    { asset: 'USDC', balance: 5000, price: 1 },
+    { asset: 'LAND', balance: 5, price: 1000 },
+  ]);
 
   const toggleTheme = () => {
     setTheme(theme === 'light' ? 'dark' : 'light');
   };
 
   return (
-    <SafeAreaView style={Tailwind.safeAreaView}>
-      <View style={[Tailwind.flexBox, Tailwind.bgGray100, Tailwind.paddingVertical16]}>
-        <View style={Tailwind.shadowBox}>
-          <Text style={Tailwind.textTitle}>TerraForm Dashboard</Text>
-          <Text style={Tailwind.textSubTitle}>Your AI-Powered DeFi Position Auto-Rebalancing Agent</Text>
-          <TouchableOpacity style={Tailwind.button} onPress={toggleTheme}>
-            <Text style={Tailwind.textButton}>Toggle Theme</Text>
+    <SafeAreaView style={tailwind.safeAreaView}>
+      <View style={[tailwind.container, theme === 'dark' ? tailwind.darkContainer : tailwind.container]}>
+        <View style={tailwind.header}>
+          <Text style={tailwind.headerText}>TerraForm - Portfolio Dashboard</Text>
+          <TouchableOpacity style={tailwind.toggleButton} onPress={toggleTheme}>
+            <Text style={tailwind.toggleButtonText}>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</Text>
           </TouchableOpacity>
         </View>
 
         <ScrollView>
-          <View style={Tailwind.container}>
-            {/* Portfolio Overview */}
-            <View style={Tailwind.card}>
-              <Text style={Tailwind.textCardTitle}>Portfolio Summary</Text>
-              <Text style={Tailwind.textCardSubtitle}>Total Value: ${portfolioData.totalValue.toFixed(2)}</Text>
-              <Text style={Tailwind.textCardSubtitle}>Risk Score: {portfolioData.riskScore.toFixed(2)}</Text>
+          <View style={tailwind.content}>
+            <View style={tailwind.card}>
+              <Text style={tailwind.cardTitle}>Portfolio Overview</Text>
+              {portfolio.map((item) => (
+                <View key={item.asset} style={tailwind.cardItem}>
+                  <Text>{item.asset}</Text>
+                  <Text>{item.balance}</Text>
+                  <Text>{item.price}</Text>
+                </View>
+              ))}
             </View>
 
-            {/* Asset Details */}
-            <View style={Tailwind.card}>
-              <Text style={Tailwind.textCardTitle}>Asset Details</Text>
-              <View>
-                <Text style={Tailwind.textCardSubtitle}>USDC</Text>
-                <Text style={Tailwind.textCardSubtitle}>Quantity: 120</Text>
-                <Text style={Tailwind.textCardSubtitle}>Price: $1.05</Text>
-                <Text style={Tailwind.textCardSubtitle}>Value: $126.00</Text>
-              </View>
-              <View>
-                <Text style={Tailwind.textCardSubtitle}>MTL</Text>
-                <Text style={Tailwind.textCardSubtitle}>Quantity: 60</Text>
-                <Text style={Tailwind.textCardSubtitle}>Price: $1.60</Text>
-                <Text style={Tailwind.textCardSubtitle}>Value: $96.00</Text>
-              </View>
+            {/* Placeholder for Rebalancing Settings */}
+            <View style={tailwind.card}>
+              <Text style={tailwind.cardTitle}>Rebalancing Settings</Text>
+              <Text>Coming Soon - Configure your risk tolerance and investment preferences.</Text>
             </View>
 
-            {/* Placeholder for Rebalancing Form */}
-            <View style={Tailwind.card}>
-              <Text style={Tailwind.textCardTitle}>Rebalancing Form</Text>
-              {/* Placeholder content */}
+            {/* Placeholder for Recommendation Display */}
+            <View style={tailwind.card}>
+              <Text style={tailwind.cardTitle}>GPT-5 Recommendation</Text>
+              <Text>Coming Soon - The AI will generate a rebalancing recommendation based on your settings.</Text>
             </View>
           </View>
         </ScrollView>
@@ -107,4 +73,58 @@ const App: React.FC<AppState> = () => {
   );
 };
 
-export default App;
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  header: {
+    backgroundColor: '#f0f0f0',
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ccc',
+  },
+  headerText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  toggleButton: {
+    backgroundColor: '#ddd',
+    padding: 8,
+    borderRadius: 4,
+  },
+  toggleButtonText: {
+    fontSize: 16,
+  },
+  content: {
+    padding: 16,
+  },
+  card: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 16,
+    shadowColor: '#ccc',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.23,
+    shadowRadius: 2.62,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  cardItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+});
+
+export default PortfolioDashboard;

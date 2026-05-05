@@ -1,9 +1,9 @@
 {
   "version": "1.0.0",
   "generator": "moss-ao",
-  "createdAt": "2026-05-05T09:38:15.705978",
-  "planId": "21565746",
-  "projectId": "c1e45ac9",
+  "createdAt": "2026-05-05T09:46:53.819472",
+  "planId": "a9f705e5",
+  "projectId": "a411395f",
   "techStack": {
     "frontend": "react",
     "backend": "fastapi",

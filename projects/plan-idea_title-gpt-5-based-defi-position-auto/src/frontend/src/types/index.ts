@@ -12,17 +12,16 @@ export interface NFTHolder {
 export interface Portfolio {
   id: string;
   nftHolderId: string;
-  assetPositions: any;
+  assetBalances: any;
 }
 
-export interface AssetPosition {
+export interface Asset {
   id: string;
-  assetAddress: string;
-  quantity: any;
-  price: any;
+  symbol: string;
+  name: string;
 }
 
-export interface GPT5Recommendation {
+export interface RebalancingRecommendation {
   id: string;
   portfolioId: string;
   recommendation: string;

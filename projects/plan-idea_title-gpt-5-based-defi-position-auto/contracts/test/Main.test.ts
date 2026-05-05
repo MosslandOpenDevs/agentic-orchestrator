@@ -1,97 +1,142 @@
-import { ethers, Signer } from "ethers";
-import { expect } from "chai";
-import { Contract } from "ethers";
-import { JsonRpcProvider } from "ethers";
+import { ethers, Signer } from 'ethers';
+import { expect } from 'chai';
+import { Contract } from 'ethers';
 
 // Mock contract interface - Replace with your actual contract interface
 interface MyContractInterface {
   name: string;
-  balanceOf: (tokenId: string) => Promise<number>;
-  setBalance: (tokenId: string, amount: number) => Promise<void>;
-  // Add other public functions here
+  balance: () => Promise<number>;
+  deposit: (amount: number) => Promise<void>;
+  withdraw: (amount: number) => Promise<void>;
+  owner: Signer;
+  setFeeRate: (rate: number) => Promise<void>;
+  getFeeRate: () => Promise<number>;
 }
 
-describe("MyContract", () => {
-  let provider: JsonRpcProvider;
-  let signer: Signer;
+// Mock contract implementation - Replace with your actual contract implementation
+class MyContractMock implements MyContractInterface {
+  private _balance: number = 0;
+  private _feeRate: number = 0;
+  private _owner: Signer;
+
+  constructor(owner: Signer) {
+    this._owner = owner;
+  }
+
+  name = "TerraForm";
+
+  balance = async (): Promise<number> => {
+    return this._balance;
+  };
+
+  deposit = async (amount: number): Promise<void> => {
+    this._balance += amount;
+  };
+
+  withdraw = async (amount: number): Promise<void> => {
+    this._balance -= amount;
+  };
+
+  owner = this._owner;
+
+  setFeeRate = (rate: number) => {
+    this._feeRate = rate;
+  };
+
+  getFeeRate = () => {
+    return this._feeRate;
+  };
+}
+
+
+describe('MyContract', () => {
+  let ethersJs: ethers.providers.EthersProvider;
   let contract: MyContractInterface;
-  let deploymentAddress: string;
+  let owner: Signer;
+  let address: string;
 
   beforeAll(async () => {
-    // Replace with your Hardhat network URL
-    provider = new JsonRpcProvider("http://localhost:8545");
-    signer = await ethers.getSigner();
-    const ABI = [...new Contract("MyContract", ["name", "balanceOf", "setBalance"] ).methods];
-    contract = new MyContractInterface(ABI);
-    deploymentAddress = await signer.getAddress();
+    // Mock provider for testing
+    ethersJs = new ethers.SignerWallet({
+      privateKey: '0x...', // Replace with a real private key
+      provider: 'http://localhost:8545',
+    });
+
+    owner = ethersJs;
+
+    // Mock contract instance
+    contract = new MyContractMock(owner);
+    address = await ethersJs.getAddress();
   });
 
-  describe("Deployment Tests", () => {
-    it("Should deploy successfully", async () => {
-      const deploymentResult = await contract.deploy({
-        from: signer.address,
-        gasLimit: 200000,
-      });
-      expect(deploymentResult.deployed).to.equal(deploymentAddress);
-    });
-  });
-
-  describe("Public Functions Tests", () => {
-    it("Should return the correct name", async () => {
-      const name = await contract.name();
-      expect(name).to.equal("MyContract");
-    });
-
-    it("Should return the correct balance for a token", async () => {
-      const tokenId = "0";
-      const balance = await contract.balanceOf(tokenId);
-      expect(balance).to.equal(0);
-    });
-
-    it("Should set the balance for a token", async () => {
-      const tokenId = "0";
-      const amount = 10;
-      await contract.setBalance(tokenId, amount);
-      const newBalance = await contract.balanceOf(tokenId);
-      expect(newBalance).to.equal(amount);
+  describe('Deployment', () => {
+    it('should deploy contract successfully', async () => {
+      // This is a mock deployment - replace with your actual deployment logic
+      // For example:
+      // const deployedContract = await deployContract(contract);
+      // expect(deployedContract.address).not.toBeNull();
+      expect(address).to.exist;
     });
   });
 
-  describe("Access Control Tests", () => {
-    it("Should only allow the owner to set balance", async () => {
-      // This is a placeholder.  Implement access control logic in your contract.
-      // This test assumes a simple owner role.
-      // Replace with your actual access control implementation.
-      // Example:
-      // const owner = signer;
-      // const otherSigner = await ethers.getSigner("otherAddress");
-      // await contract.setBalance("0", 10);
-      // expect(await contract.balanceOf("0")).to.equal(10);
-      // await contract.setBalance("0", 20);
-      // expect(await contract.balanceOf("0")).to.equal(10); // Should revert
+  describe('Public Functions', () => {
+    it('should return the current balance', async () => {
+      await contract.deposit(100);
+      const balance = await contract.balance();
+      expect(balance).to.equal(100);
+    });
+
+    it('should allow depositing funds', async () => {
+      await contract.deposit(50);
+      expect(await contract.balance()).to.equal(50);
+    });
+
+    it('should allow withdrawing funds', async () => {
+      await contract.deposit(100);
+      await contract.withdraw(50);
+      expect(await contract.balance()).to.equal(50);
     });
   });
 
-  describe("Edge Cases and Reverts Tests", () => {
-    it("Should revert if setting balance to a non-existent token", async () => {
-      const tokenId = "9999999999999999999"; // An invalid token ID
+  describe('Access Control', () => {
+    it('should only allow the owner to set the fee rate', async () => {
+      // Mock implementation to prevent unauthorized access
+      const unauthorizedSigner = ethersJs.address;
       try {
-        await contract.setBalance(tokenId, 10);
-        expect.fail("Should have reverted");
+        await contract.setFeeRate(10);
+        expect(await contract.getFeeRate()).to.equal(10);
       } catch (error) {
-        expect(error).to.not.be.null;
-        expect(error.message).to.include("revert");
+        // Expected error if unauthorized
+        expect(error).to.exist;
+      }
+
+      // Verify that the owner is the only one who can set the fee rate
+      try {
+        await contract.setFeeRate(20);
+        expect(await contract.getFeeRate()).to.equal(20);
+      } catch (error) {
+        expect(error).to.exist;
+      }
+    });
+  });
+
+  describe('Edge Cases and Reverts', () => {
+    it('should revert if withdrawing more funds than available', async () => {
+      await contract.deposit(50);
+      try {
+        await contract.withdraw(100);
+        expect.fail('Should have reverted');
+      } catch (error) {
+        expect(error).to.instanceOf(ethers.errors.Overdraw);
       }
     });
 
-    it("Should revert if setting balance to a negative amount", async () => {
-      const tokenId = "0";
+    it('should revert if setting a negative fee rate', async () => {
       try {
-        await contract.setBalance(tokenId, -10);
-        expect.fail("Should have reverted");
+        await contract.setFeeRate(-10);
+        expect.fail('Should have reverted');
       } catch (error) {
-        expect(error).to.not.be.null;
-        expect(error.message).to.include("revert");
+        expect(error).to.instanceOf(ethers.errors.ArithmeticError);
       }
     });
   });

@@ -2,14 +2,14 @@ from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import HTTPException
 from fastapi.responses import JSONResponse
-from typing import List
+from typing import List, Dict
 import logging
 import os
 import time
 import asyncio
 from datetime import datetime
 
-# Initialize logging
+# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 app = FastAPI(
@@ -22,32 +22,41 @@ app = FastAPI(
 origins = [
     "http://localhost:3000",  # Replace with your frontend URL
     "http://localhost:8080", # Replace with your frontend URL
+    "*"
 ]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_headers=["Access-Control-Allow-Origin"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Environment Variable Configuration
 env_vars = {
-    "COINGECKO_API_KEY": os.environ.get("COINGECKO_API_KEY", "YOUR_COINGECKO_API_KEY"),
-    "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY", "YOUR_OPENAI_API_KEY"),
-    "SOLANA_RPC_URL": os.environ.get("SOLANA_RPC_URL", "https://api.solana.com"),
+    "COINGECKO_API_KEY": os.environ.get("COINGECKO_API_KEY"),
+    "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY"),
+    "SOLANA_RPC_URL": os.environ.get("SOLANA_RPC_URL"),
+    "SOLANA_NETWORK": os.environ.get("SOLANA_NETWORK", "testnet"),
 }
+
+# Dependency for environment variables
+def get_env_var(key):
+    if not env_vars.get(key):
+        raise HTTPException(status_code=400, detail=f"Environment variable '{key}' not set.")
+    return env_vars[key]
 
 # Health Check Endpoint
 @app.get("/health")
-async def health_check():
+def health_check():
     return JSONResponse(status_code=200, content={"status": "ok"})
 
-
-# Example API Route (Placeholder)
+# Example API Route (Replace with your actual API logic)
 @app.get("/api/data")
 async def get_data():
     data = {
         "message": "Hello from TerraForm!",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.utcnow().isoformat()
     }
     return JSONResponse(status_code=200, content=data)
 
@@ -56,25 +65,24 @@ async def get_data():
 async def websocket_endpoint(websocket):
     try:
         await websocket.accept()
+        # Simulate sending data every second
         while True:
-            await asyncio.sleep(5)
-            await websocket.send(f"Message from WebSocket: {datetime.now().isoformat()}")
+            await asyncio.sleep(1)
+            await websocket.send(
+                "{\"message\": \"Data from WebSocket\"}"
+            )
     except Exception as e:
         logging.error(f"WebSocket error: {e}")
         await websocket.close()
 
+# Lifespan Events
+@app.on_startup()
+async def startup_event():
+    logging.info("TerraForm startup complete!")
 
-# Dependency for logging
-def log_request(request: Request):
-    request_info = {
-        "method": request.method,
-        "path": request.path,
-        "headers": dict(request.headers),
-        "client_ip": request.client.host
-    }
-    logging.info(f"Request: {request_info}")
-    return request
-
+@app.on_shutdown()
+async def shutdown_event():
+    logging.info("TerraForm shutdown initiated.")
 
 # Exception Handlers
 @app.exception_handler(HTTPException)
@@ -85,17 +93,8 @@ async def http_exception_handler(request, exc):
         content={"error": "Internal Server Error"},
     )
 
-
-# Lifespan Events
-@app.on_event("startup")
-async def startup_event():
-    logging.info("TerraForm application startup complete.")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logging.info("TerraForm application shutdown complete.")
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# Example Rate Limiting (Placeholder - Requires a rate limiting library)
+# @app.rate_limit(key="api_key", rate=10, period=60)
+# async def protected_route(api_key):
+#     # Your protected API logic here
+#     return JSONResponse(status_code=200, content={"message": "Protected route accessed"})

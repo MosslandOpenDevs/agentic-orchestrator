@@ -1,111 +1,108 @@
 ```markdown
-# Portfolio Management API Documentation
+# DeFi Portfolio Recommender API Documentation
 
 ## 1. Overview
 
-This API provides functionality for managing and analyzing a portfolio of assets, leveraging a GPT-5 powered rebalancing engine and real-time asset price data. It allows users to retrieve portfolio details, trigger rebalancing recommendations, and fetch asset prices.
+This API provides functionalities for managing DeFi portfolios and generating rebalancing recommendations. It leverages GPT-5 to provide intelligent portfolio suggestions based on user-defined goals and risk tolerance.  This documentation outlines the available endpoints, authentication requirements, and expected response formats.
 
 ## 2. Authentication Details
 
-This API utilizes API Key authentication.  You must include an `Authorization` header with your API key in every request.
-
-*   **Header:** `Authorization: Bearer YOUR_API_KEY`
-
-    Replace `YOUR_API_KEY` with your actual API key.  API keys can be obtained through the registration process.
+All API requests require an API key passed in the `X-API-Key` header.  You can obtain your API key by registering an account on our platform.
 
 ## 3. Base URL Configuration
 
 The base URL for all API requests is:
 
-`https://api.example.com/v1`
+```
+https://api.example.com
+```
 
-## 4. API Endpoints
+(Replace `https://api.example.com` with the actual base URL of your API)
 
-### 4.1. GET /api/portfolio/{portfolioId}
+## 4. Endpoints
 
-*   **Method:** `GET`
-*   **Path:** `/api/portfolio/{portfolioId}`
-*   **Description:** Retrieves the portfolio data for a given portfolio ID.
-*   **Request Parameters:**
-    *   `portfolioId` (Path Parameter):  The unique identifier for the portfolio.  Must be a positive integer.
+### 4.1. GET /api/assets
+
+*   **Method:** GET
+*   **Path:** `/api/assets`
+*   **Description:** Retrieves a list of available DeFi assets supported by the system.
+*   **Request Parameters/Body:** None
+*   **Response Format:** JSON Array
+    *   Each element in the array represents a DeFi asset.
+    *   Example:
+        ```json
+        [
+          { "id": "BTC", "name": "Bitcoin", "symbol": "BTC", "description": "The first and most well-known cryptocurrency." },
+          { "id": "ETH", "name": "Ethereum", "symbol": "ETH", "description": "The leading blockchain platform." },
+          { "id": "USDT", "name": "Tether USD", "symbol": "USDT", "description": "A stablecoin pegged to the US Dollar." }
+        ]
+        ```
+*   **Example Request:**
+    ```
+    GET /api/assets
+    ```
+*   **Example Response:** (See JSON example above)
+
+### 4.2. GET /api/portfolios/{portfolioId}
+
+*   **Method:** GET
+*   **Path:** `/api/portfolios/{portfolioId}`
+*   **Description:** Retrieves the portfolio data for a specific portfolio ID.
+*   **Request Parameters/Body:**
+    *   `portfolioId` (Path Parameter): The unique identifier for the portfolio.  Must be a valid integer.
 *   **Response Format:** JSON
     *   Example:
         ```json
         {
-          "portfolioId": 123,
-          "name": "My Portfolio",
+          "id": "portfolio123",
+          "name": "My Crypto Portfolio",
+          "userId": "user456",
           "assets": [
-            {"assetAddress": "BTC/USDT", "quantity": 0.5, "currentPrice": 60000},
-            {"assetAddress": "ETH/USDT", "quantity": 1.0, "currentPrice": 3000}
+            { "assetId": "BTC", "quantity": 0.5, "price": 30000 },
+            { "assetId": "ETH", "quantity": 1.2, "price": 2000 }
           ],
-          "totalValue": 180000.00
+          "totalValue": 75000.00
         }
         ```
 *   **Example Request:**
     ```
-    GET /api/portfolio/123
+    GET /api/portfolios/portfolio123
     ```
 *   **Example Response:** (See JSON example above)
 
-### 4.2. POST /api/rebalance/{portfolioId}
+### 4.3. POST /api/recommendations
 
-*   **Method:** `POST`
-*   **Path:** `/api/rebalance/{portfolioId}`
-*   **Description:** Triggers the GPT-5 API to generate a rebalancing recommendation for a given portfolio ID.  This endpoint uses the GPT-5 model to analyze the portfolio and suggest adjustments based on market conditions.
-*   **Request Parameters:**
-    *   `portfolioId` (Path Parameter): The unique identifier for the portfolio. Must be a positive integer.
-*   **Request Body:**  (JSON - Optional.  Can be used to provide specific instructions to GPT-5.  Defaults to standard rebalancing parameters)
-    ```json
-    {
-      "riskTolerance": "moderate",
-      "timeHorizon": "1 year",
-      "assetClasses": ["crypto", "fiat"]
-    }
-    ```
+*   **Method:** POST
+*   **Path:** `/api/recommendations`
+*   **Description:** Generates a rebalancing recommendation for a portfolio using GPT-5.
+*   **Request Parameters/Body:**
+    *   `portfolioId` (Required): The unique identifier for the portfolio.  Must be a valid integer.
+    *   `riskTolerance` (Required):  A string representing the user's risk tolerance (e.g., "low", "medium", "high").
+    *   `investmentHorizon` (Optional): A string representing the investment horizon (e.g., "short-term", "long-term"). Defaults to "medium".
 *   **Response Format:** JSON
     *   Example:
         ```json
         {
-          "portfolioId": 123,
-          "recommendations": [
-            {"assetAddress": "BTC/USDT", "newQuantity": 0.3},
-            {"assetAddress": "ETH/USDT", "newQuantity": 1.2}
+          "id": "recommendation789",
+          "portfolioId": "portfolio123",
+          "recommendation": "Based on your risk tolerance and investment horizon, we recommend increasing your allocation to ETH and decreasing your allocation to BTC.",
+          "assetChanges": [
+            { "assetId": "BTC", "change": -0.1, "percentageChange": -10.0 },
+            { "assetId": "ETH", "change": 0.3, "percentageChange": 30.0 }
           ],
-          "message": "GPT-5 recommends rebalancing to increase crypto exposure based on your risk tolerance and time horizon."
+          "totalValueChange": 15000.00
         }
         ```
 *   **Example Request:**
     ```
-    POST /api/rebalance/123
+    POST /api/recommendations
     Content-Type: application/json
-    Authorization: Bearer YOUR_API_KEY
-    Body:
+
     {
-      "riskTolerance": "aggressive",
-      "timeHorizon": "6 months"
+      "portfolioId": "portfolio123",
+      "riskTolerance": "medium",
+      "investmentHorizon": "long-term"
     }
-    ```
-*   **Example Response:** (See JSON example above)
-
-### 4.3. GET /api/asset_price/{assetAddress}
-
-*   **Method:** `GET`
-*   **Path:** `/api/asset_price/{assetAddress}`
-*   **Description:** Retrieves the current price of an asset.
-*   **Request Parameters:**
-    *   `assetAddress` (Path Parameter): The address of the asset (e.g., "BTC/USDT", "ETH/USDT").  Must be a valid asset pair.
-*   **Response Format:** JSON
-    *   Example:
-        ```json
-        {
-          "assetAddress": "BTC/USDT",
-          "price": 60000.00,
-          "timestamp": 1678886400
-        }
-        ```
-*   **Example Request:**
-    ```
-    GET /api/asset_price/BTC/USDT
     ```
 *   **Example Response:** (See JSON example above)
 
@@ -113,18 +110,17 @@ The base URL for all API requests is:
 
 | Code      | Description                               | Action                               |
 |-----------|-------------------------------------------|-------------------------------------|
-| 400        | Bad Request - Invalid input data           | Check request body/parameters for errors |
-| 401        | Unauthorized - Invalid API Key            | Verify API key is correct            |
-| 404        | Not Found - Portfolio or Asset not found   | Verify portfolio ID and asset address |
-| 429        | Too Many Requests - Rate Limit Exceeded  | Implement retry logic with exponential backoff |
-| 500        | Internal Server Error - Server issue       | Contact support                     |
+| 400        | Bad Request - Invalid input data          | Check request body for errors.       |
+| 401        | Unauthorized - Invalid API key           | Provide a valid API key in the header. |
+| 403        | Forbidden - Insufficient permissions    | Ensure you have the necessary rights. |
+| 404        | Not Found - Resource not found            | Verify the ID or path is correct.    |
+| 500        | Internal Server Error - Unexpected error | Contact support for assistance.     |
 
 ## 6. Rate Limiting Info
 
-*   **Limit:** 100 requests per minute per API key.
-*   **Purpose:**  To prevent abuse and ensure fair usage of the API.
-*   **Headers:**  Rate limiting information is returned in the response headers:
-    *   `X-RateLimit-Limit`:  The maximum number of requests allowed.
-    *   `X-RateLimit-Remaining`: The number of requests remaining.
-    *   `X-RateLimit-Reset`: The time (in seconds) until the rate limit resets.
+The API is rate-limited to prevent abuse and ensure service stability.  The rate limit is 100 requests per minute per API key.  If you exceed the rate limit, you will receive a 429 (Too Many Requests) error.  You can implement retry logic with exponential backoff to handle temporary rate limiting.  Detailed rate limit information will be returned in the response headers:
+
+*   `X-RateLimit-Limit`:  The maximum number of requests allowed in the current window.
+*   `X-RateLimit-Remaining`: The number of requests remaining in the current window.
+*   `X-RateLimit-Reset`: The time (in seconds) until the rate limit resets.
 ```

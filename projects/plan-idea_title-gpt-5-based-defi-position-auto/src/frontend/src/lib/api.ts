@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
+import fetch, { Response } from 'node-fetch';
 
 interface BaseResponse {
   success: boolean;
@@ -6,103 +6,60 @@ interface BaseResponse {
   error?: string;
 }
 
-class PortfolioClient {
-  private axiosInstance: AxiosInstance;
+class ApiClient {
   private baseUrl: string;
-  private authHeaders: Record<string, string>;
+  private apiKey: string;
 
-  constructor(
-    baseUrl: string,
-    authHeaders: Record<string, string> = {}
-  ) {
+  constructor(baseUrl: string, apiKey: string) {
     this.baseUrl = baseUrl;
-    this.axiosInstance = axios.create({
-      baseURL: this.baseUrl,
-      headers: {
+    this.apiKey = apiKey;
+  }
+
+  private async request<T>(method: string, endpoint: string, body?: any): Promise<BaseResponse<T>> {
+    try {
+      const url = `${this.baseUrl}${endpoint}`;
+      const headers = {
         'Content-Type': 'application/json',
-      },
-    });
-    this.authHeaders = authHeaders;
-  }
+        'Authorization': `Bearer ${this.apiKey}`,
+      };
 
-  async getPortfolio(portfolioId: string): Promise<BaseResponse> {
-    try {
-      const response = await this.axiosInstance.get(`/api/portfolio/${portfolioId}`);
-      return {
-        success: true,
-        data: response.data,
-        error: null,
+      const options: RequestInit = {
+        method,
+        headers,
+        body: JSON.stringify(body),
       };
-    } catch (error: any) {
-      console.error('Error fetching portfolio:', error);
-      return {
-        success: false,
-        data: null,
-        error: error.message || 'Unknown error',
-      };
+
+      const response: Response = await fetch(url, options);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(
+          `${response.status} - ${response.statusText} - ${JSON.stringify(errorData)}`
+        );
+      }
+
+      const data = await response.json() as T;
+      return { success: true, data };
+    } catch (error) {
+      console.error('API Request Error:', error);
+      throw error;
     }
   }
 
-  async postRebalance(portfolioId: string): Promise<BaseResponse> {
-    try {
-      const response = await this.axiosInstance.post(`/api/rebalance/${portfolioId}`, {
-        // Add request body here if needed
-      });
-      return {
-        success: true,
-        data: response.data,
-        error: null,
-      };
-    } catch (error: any) {
-      console.error('Error rebalancing portfolio:', error);
-      return {
-        success: false,
-        data: null,
-        error: error.message || 'Unknown error',
-      };
-    }
+  // GET /api/assets
+  async getAssets(): Promise<BaseResponse<any[]>> {
+    return await this.request('GET', '/api/assets');
   }
 
-  async getAssetPrice(assetAddress: string): Promise<BaseResponse> {
-    try {
-      const response = await this.axiosInstance.get(`/api/asset_price/${assetAddress}`);
-      return {
-        success: true,
-        data: response.data,
-        error: null,
-      };
-    } catch (error: any) {
-      console.error('Error fetching asset price:', error);
-      return {
-        success: false,
-        data: null,
-        error: error.message || 'Unknown error',
-      };
-    }
+  // GET /api/portfolios/{portfolioId}
+  async getPortfolio(portfolioId: string): Promise<BaseResponse<any>> {
+    return await this.request('GET', `/api/portfolios/${portfolioId}`);
+  }
+
+  // POST /api/recommedations
+  async generateRecommendations(portfolioId: string): Promise<BaseResponse<any>> {
+    return await this.request('POST', '/api/recommedations', { portfolioId });
   }
 }
 
-interface CustomError {
-  statusCode: number;
-  message: string;
-}
-
-export class ApiClient {
-  private portfolioClient: PortfolioClient;
-
-  constructor(baseUrl: string, authHeaders: Record<string, string>) {
-    this.portfolioClient = new PortfolioClient(baseUrl, authHeaders);
-  }
-
-  getPortfolio(portfolioId: string): Promise<BaseResponse> {
-    return this.portfolioClient.getPortfolio(portfolioId);
-  }
-
-  postRebalance(portfolioId: string): Promise<BaseResponse> {
-    return this.portfolioClient.postRebalance(portfolioId);
-  }
-
-  getAssetPrice(assetAddress: string): Promise<BaseResponse> {
-    return this.portfolioClient.getAssetPrice(assetAddress);
-  }
-}
+export default ApiClient;

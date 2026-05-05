@@ -4,11 +4,10 @@ import logging
 import requests
 from typing import Dict, Optional, List
 from requests.exceptions import RequestException
-from concurrent.futures import ThreadPoolExecutor, Future
+from concurrent.futures import ThreadPoolExecutor
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
 class CoingeckoService:
     """
@@ -25,11 +24,11 @@ class CoingeckoService:
             max_retries: The maximum number of retries for transient failures.
         """
         self.api_key = api_key
-        self.base_url = "https://api.coingecko.com/v3"
+        self.base_url = "https://api.coingecko.com/api/v3"
         self.rate_limit_interval = rate_limit_interval
         self.max_retries = max_retries
         self.retry_backoff_factor = 2  # Exponential backoff
-        self.lock = threading.Lock()  # For thread-safe rate limiting
+        self.lock = threading.Lock() # Thread safety for rate limiting
 
     def _make_request(self, endpoint: str, params: Dict = None) -> Dict:
         """
@@ -40,115 +39,142 @@ class CoingeckoService:
             params: The request parameters.
 
         Returns:
-            The API response as a dictionary.
+            The JSON response from the API.
 
         Raises:
             requests.exceptions.RequestException: If the request fails.
         """
-        headers = {"X-CG-KEY": self.api_key}
+        headers = {"X-CG-VERSION": "v3", "Authorization": f"Bearer {self.api_key}"}
         try:
             response = requests.get(endpoint, headers=headers, params=params)
             response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
             return response.json()
         except RequestException as e:
-            logger.error(f"Request failed for {endpoint}: {e}")
-            raise
+            logging.error(f"Request failed for {endpoint}: {e}")
+            return None
 
-    def get_ticker(self, symbol: str) -> Dict:
+    def get_ticker(self, coin_id: str) -> Optional[Dict]:
         """
         Gets the ticker data for a cryptocurrency.
 
         Args:
-            symbol: The cryptocurrency symbol (e.g., "bitcoin").
+            coin_id: The ID of the cryptocurrency.
 
         Returns:
-            The ticker data as a dictionary.
+            The ticker data as a dictionary, or None if an error occurred.
         """
-        endpoint = f"/coins/{symbol}/tickers"
+        endpoint = f"{self.base_url}/exchange/tickers/{coin_id}"
         return self._make_request(endpoint)
 
-    def get_price(self, symbol: str) -> float:
+    def get_price(self, coin_id: str, vs_currency: str = "usd") -> Optional[float]:
         """
-        Gets the current price of a cryptocurrency.
+        Gets the price of a cryptocurrency in a specified currency.
 
         Args:
-            symbol: The cryptocurrency symbol.
+            coin_id: The ID of the cryptocurrency.
+            vs_currency: The currency to convert to (default: USD).
 
         Returns:
-            The current price as a float.
+            The price as a float, or None if an error occurred.
         """
-        ticker = self.get_ticker(symbol)
-        if ticker and ticker.get("last"):
-            return float(ticker["last"])
-        else:
-            logger.warning(f"Could not retrieve price for {symbol}")
-            return None
+        endpoint = f"{self.base_url}/simple/price?ids={coin_id}&vs_currency={vs_currency}"
+        data = self._make_request(endpoint)
+        if data and coin_id in data:
+            return data[coin_id]["price"]
+        return None
 
-    def get_market_caps(self, symbol: str) -> Dict:
+    def get_coins(self, vs_currency: str = "usd", skip: int = 0, limit: int = 20) -> List[Dict]:
         """
-        Gets the market cap data for a cryptocurrency.
+        Gets a list of cryptocurrencies.
 
         Args:
-            symbol: The cryptocurrency symbol.
+            vs_currency: The currency to convert to (default: USD).
+            skip: The number of items to skip (for pagination).
+            limit: The maximum number of items to return.
 
         Returns:
-            The market cap data as a dictionary.
+            A list of cryptocurrency dictionaries.
         """
-        endpoint = f"/coins/{symbol}/market_caps"
+        endpoint = f"{self.base_url}/coins/{vs_currency}?skip={skip}&limit={limit}"
         return self._make_request(endpoint)
 
-    def get_all_prices(self, symbols: List[str]) -> Dict:
+    def get_gemini_prices(self) -> List[Dict]:
         """
-        Gets the current prices for a list of cryptocurrencies.
-
-        Args:
-            symbols: A list of cryptocurrency symbols.
-
-        Returns:
-            A dictionary where the keys are the symbols and the values are the prices.
+        Gets the current prices of cryptocurrencies on Gemini.
         """
-        prices = {}
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = {executor.submit(self.get_price, symbol): symbol for symbol in symbols}
-            for future in futures:
-                try:
-                    symbol = futures[future]
-                    price = future.result()
-                    if price is not None:
-                        prices[symbol] = price
-                except Future.cancelError:
-                    logger.info(f"Task for {symbol} cancelled")
-                except Exception as e:
-                    logger.error(f"Error getting price for {symbol}: {e}")
-        return prices
-
-    def get_latest_trades(self, symbol: str) -> List[Dict]:
-        """
-        Gets the latest trades for a cryptocurrency.
-
-        Args:
-            symbol: The cryptocurrency symbol.
-
-        Returns:
-            A list of trade dictionaries.
-        """
-        endpoint = f"/coins/{symbol}/trades"
+        endpoint = f"{self.base_url}/exchanges/gemini/tickers"
         return self._make_request(endpoint)
+
+    def get_historical_price(self, coin_id: str, vs_currency: str = "usd", timeframe: str = "1h", granularity: str = "1m", skip: int = 0, limit: int = 200) -> List[Dict]:
+        """
+        Gets historical price data for a cryptocurrency.
+
+        Args:
+            coin_id: The ID of the cryptocurrency.
+            vs_currency: The currency to convert to (default: USD).
+            timeframe: The timeframe for the historical data (e.g., "1h", "1d").
+            granularity: The granularity of the historical data (e.g., "1m", "1h").
+            skip: The number of items to skip (for pagination).
+            limit: The maximum number of items to return.
+
+        Returns:
+            A list of historical price dictionaries.
+        """
+        endpoint = f"{self.base_url}/coins/{coin_id}/market_chart"
+        params = {
+            "vs_currency": vs_currency,
+            "timeframe": timeframe,
+            "granularity": granularity,
+            "skip": skip,
+            "limit": limit
+        }
+        return self._make_request(endpoint, params)
+
 
 import threading
 
-if __name__ == '__main__':
-    # Example Usage (replace with your API key)
-    api_key = os.environ.get("COINGEKO_API_KEY")
-    if not api_key:
-        print("Please set the COINGEKO_API_KEY environment variable.")
-    else:
-        service = CoingeckoService(api_key=api_key)
-        btc_price = service.get_price("bitcoin")
-        if btc_price:
-            print(f"Bitcoin price: {btc_price}")
-        else:
-            print("Could not retrieve Bitcoin price.")
+class RateLimiter:
+    def __init__(self, rate_limit_interval: int, max_requests: int):
+        self.rate_limit_interval = rate_limit_interval
+        self.max_requests = max_requests
+        self.request_counts = {}
+        self.lock = threading.Lock()
 
-        all_prices = service.get_all_prices(["bitcoin", "ethereum", "cardano"])
-        print("\nAll Prices:", all_prices)
+    def acquire(self):
+        with self.lock:
+            now = time.time()
+            if "coingecko_requests" not in self.request_counts:
+                self.request_counts["coingecko_requests"] = []
+            self.request_counts["coingecko_requests"].append(now)
+            self.request_counts["coingecko_requests"] = sorted(list(set(self.request_counts["coingecko_requests"])))
+
+            while len(self.request_counts["coingecko_requests"]) >= self.max_requests:
+                oldest_request = self.request_counts["coingecko_requests"][0]
+                self.request_counts["coingecko_requests"].pop(0)
+                wait_time = self.rate_limit_interval - (time.time() - oldest_request)
+                if wait_time > 0:
+                    time.sleep(wait_time)
+
+    def check(self):
+        with self.lock:
+            now = time.time()
+            self.request_counts["coingecko_requests"].append(now)
+            self.request_counts["coingecko_requests"] = sorted(list(set(self.request_counts["coingecko_requests"])))
+            return len(self.request_counts["coingecko_requests"]) <= self.max_requests
+
+# Example usage (replace with your API key)
+if __name__ == '__main__':
+    os.environ['COINGEKO_API_KEY'] = 'YOUR_COINGEKO_API_KEY'
+    service = CoingeckoService(api_key=os.environ['COINGEKO_API_KEY'])
+
+    # Example: Get the price of Bitcoin in USD
+    btc_price = service.get_price("bitcoin")
+    print(f"Bitcoin price: {btc_price}")
+
+    # Example: Get a list of coins
+    coins = service.get_coins()
+    print(f"Coins: {coins}")
+
+    # Example: Get historical price data
+    historical_data = service.get_historical_price("bitcoin", timeframe="1d")
+    print(f"Historical data: {historical_data}")
