@@ -1,0 +1,28 @@
+{
+  "version": "1.0.0",
+  "generator": "moss-ao",
+  "createdAt": "2026-05-05T15:39:09.569839",
+  "planId": "2292c8d9",
+  "projectId": "5eee930b",
+  "techStack": {
+    "frontend": "react",
+    "backend": "django",
+    "database": "postgresql",
+    "blockchain": "ethereum",
+    "additional": [
+      "flask"
+    ]
+  },
+  "features": [
+    "*Estimated Cost:**",
+    "**Labor (Development Team - 3 FTEs):** $80,000 - $120,000 (Based on estimated hourly rates and development time)",
+    "**Infrastructure (Cloud Hosting, API Access):** $5,000 - $10,000 (Initial setup and ongoing costs)",
+    "**API & Tool Subscriptions (Claude, Data Analytics):** $10,000 - $20,000 (Annual subscription costs)",
+    "**Contingency (10%):** $11,500 - $18,000",
+    "**Total (MVP):** $106,500 - $168,000",
+    "**Frontend:** React.js \u2013 Chosen for its component-based architecture, efficient rendering, and large ecosystem, facilitating rapid development and UI customization.",
+    "**Backend:** Python (with Django/Flask framework) \u2013 Selected for its strong data science libraries (Pandas, NumPy), robust ecosystem for blockchain integration, and suitability for building complex algorithms.",
+    "**Database:** PostgreSQL \u2013 Chosen for its reliability, ACID compliance, and support for complex queries \u2013 ideal for storing portfolio data and risk assessment results.",
+    "**Blockchain Integration:** Ethereum (via Web3.js or Ethers.js) \u2013  Given RAVE\u2019s existing infrastructure and the widespread adoption of Ethereum for quadratic funding."
+  ]
+}
