@@ -1,35 +1,36 @@
 import fetch, { Response } from 'node-fetch';
 
-interface ApiConfig {
-  baseUrl: string;
-  authHeaderKey: string;
-  authHeaderValue: string;
+interface BaseResponse {
+  success: boolean;
+  data?: any;
+  error?: string;
 }
 
 class ApiClient {
   private baseUrl: string;
-  private authHeaderKey: string;
-  private authHeaderValue: string;
+  private accessToken: string | null = null;
 
-  constructor(config: ApiConfig) {
-    this.baseUrl = config.baseUrl;
-    this.authHeaderKey = config.authHeaderKey;
-    this.authHeaderValue = config.authHeaderValue;
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl;
   }
 
-  private async request<T>(
-    method: 'get' | 'post' | 'put' | 'delete',
-    endpoint: string,
-    body?: any
-  ): Promise<T> {
+  setAccessToken(token: string) {
+    this.accessToken = token;
+  }
+
+  async request<T>(method: string, endpoint: string, body?: any, headers?: any): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
-    const headers = {
+    const headerOptions = {
       'Content-Type': 'application/json',
-      [this.authHeaderKey]: this.authHeaderValue,
+      ...headers,
     };
 
+    if (this.accessToken) {
+      headerOptions['Authorization'] = `Bearer ${this.accessToken}`;
+    }
+
     try {
-      const response = await fetch(url, {
+      const response: Response = await fetch(url, {
         method,
         headers,
         body: body ? JSON.stringify(body) : null,
@@ -37,44 +38,54 @@ class ApiClient {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new ApiError(response.status, response.statusText, errorData);
+        throw new ApiError(response.status, errorData.message || `HTTP error ${response.status}`);
       }
 
       const data = await response.json() as T;
       return data;
     } catch (error) {
       console.error('API Request Error:', error);
-      throw error;
+      throw new ApiError(500, 'Internal Server Error');
     }
   }
+}
 
-  // NFT Portfolio
-  async getPortfolio(): Promise<any> {
-    return this.request('get', '/api/nft/portfolio');
+class SecurityPricesClient extends ApiClient {
+  constructor() {
+    super('/api/security-prices');
   }
 
-  // Rain Market Data
-  async getRainMarketData(): Promise<any> {
-    return this.request('get', '/api/marketdata/rain');
+  getSecurityPrices(): Promise<any> {
+    return this.request('GET', '');
+  }
+}
+
+class RebalanceClient extends ApiClient {
+  constructor() {
+    super('/api/rebalance');
   }
 
-  // Rebalance
-  async rebalance(strategy: any): Promise<any> {
-    return this.request('post', '/api/rebalance', strategy);
+  generateRebalance(body: any): Promise<any> {
+    return this.request('POST', '', body);
+  }
+}
+
+class PortfolioClient extends ApiClient {
+  constructor() {
+    super('/api/portfolio');
+  }
+
+  getPortfolio(userId: string): Promise<any> {
+    return this.request('GET', `/${userId}`);
   }
 }
 
 class ApiError extends Error {
-  public status: number;
-  public statusText: string;
-  public data: any;
-
-  constructor(status: number, statusText: string, data: any) {
-    super(`${status} - ${statusText}`);
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
     this.status = status;
-    this.statusText = statusText;
-    this.data = data;
   }
 }
 
-export default ApiClient;
+export { SecurityPricesClient, RebalanceClient, PortfolioClient, ApiClient, ApiError };

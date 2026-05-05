@@ -1,95 +1,123 @@
-from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import HTTPException
-from fastapi.responses import JSONResponse
-from typing import Dict, Any
+from typing import List
 import logging
 import os
-from .database import Database
-from .exceptions import DatabaseError, APIError
-from .health import health_check
-from .router import router
+from dotenv import load_dotenv
+import uuid
+import time
+import json
+from datetime import datetime
+
+load_dotenv()
 
 app = FastAPI(
-    title="Rain Stablecoin Analytics",
-    description="A platform for analyzing Rain stablecoin data and DeFi trends.",
+    title="DTCC Tokenized Security Platform",
+    description="A platform for managing tokenized securities with DTCC integration.",
     version="0.1.0",
-    docs_url="/docs",
-    openapi_url="/openapi.json",
 )
 
-# Configure CORS
-origins = [
-    "http://localhost:8000",  # React development server
-    "http://localhost:3000",  # React development server
-    "http://localhost:8080",  # Example backend
-    "*"  # Allow all origins for development - REMOVE FOR PRODUCTION
-]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=[os.getenv("ALLOWED_ORIGINS", "*")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure Logging
+# Logging setup
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-# Environment Variable Configuration
-if not os.environ.get("DATABASE_URL"):
-    logger.error("DATABASE_URL environment variable not set.")
-    raise EnvironmentError("DATABASE_URL environment variable must be set.")
 
-if not os.environ.get("OPENAI_API_KEY"):
-    logger.error("OPENAI_API_KEY environment variable not set.")
-    raise EnvironmentError("OPENAI_API_KEY environment variable must be set.")
+# Dependency for handling errors
+def handle_exception(e: HTTPException):
+    logger.exception("An error occurred")
+    raise e
 
-# Database Dependency
-def get_database():
-    db = Database(os.environ["DATABASE_URL"])
-    return db
 
-# Exception Handlers
-@app.exception_handler(DatabaseError)
-def database_exception_handler(exception):
-    return JSONResponse(
-        status_code=500,
-        content={"error": str(exception)},
-    )
-
-@app.exception_handler(APIError)
-def api_exception_handler(exception):
-    return JSONResponse(
-        status_code=500,
-        content={"error": str(exception)},
-    )
-
-# Lifespan Events
-@app.on_event("startup")
-async def startup_event():
-    logger.info("Application startup complete.")
-    health_check()
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("Application shutdown complete.")
-
-# Health Check Endpoint
+# Health check endpoint
 @app.get("/health")
-async def health_check_endpoint():
-    return JSONResponse(
-        status_code=200,
-        content={"status": "ok"},
-    )
+def health_check():
+    return {"status": "ok"}
 
-# API Router
-app.include_router(router)
 
-@app.get("/test")
-async def test_endpoint():
-    return {"message": "Hello from Rain Stablecoin Analytics!"}
+# Dummy data for demonstration
+@app.get("/data")
+def get_data():
+    return {
+        "dtcc_security_price": 123.45,
+        "crypto_price": 678.90,
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+# Dummy endpoint for testing
+@app.get("/dummy")
+def dummy_endpoint():
+    return {"message": "This is a dummy endpoint"}
+
+
+# Example of a rate limiting decorator (optional)
+# from fastapi.responses import HTTPExceptionResponse
+# from fastapi import FastAPI, Request
+#
+# @app.on_event("startup")
+# async def startup_event():
+#     # Configure rate limiting here (e.g., using a library like Flask-Limiter)
+#     pass
+#
+# @app.on_event("shutdown")
+# async def shutdown_event():
+#     # Cleanup resources here
+#     pass
+
+# Example of a simple route with error handling
+@app.get("/example")
+async def example_route():
+    try:
+        # Simulate an error
+        # raise ValueError("Simulated error")
+        return {"message": "Example route successful"}
+    except Exception as e:
+        logger.exception("Error in example route")
+        raise handle_exception(HTTPException(status_code=500, detail=str(e)))
+
+# Example of a route with dependency injection
+# @app.get("/data-with-dependency")
+# async def data_with_dependency():
+#     # Simulate fetching data
+#     data = {"data": "Some data"}
+#     return data
+
+
+# Example of a route with environment variable access
+@app.get("/env-var")
+def get_env_var():
+    api_key = os.getenv("MY_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="API key not found")
+    return {"api_key": api_key}
+
+
+# Example of a route with UUID generation
+@app.post("/generate-uuid")
+def generate_uuid():
+    uuid_value = str(uuid.uuid4())
+    return {"uuid": uuid_value}
+
+
+# Example of a route with WebSocket integration (placeholder)
+@app.get("/websocket")
+async def websocket_route():
+    return {"message": "Connected to WebSocket"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)

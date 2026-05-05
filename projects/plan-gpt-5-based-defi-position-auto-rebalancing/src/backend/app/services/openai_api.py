@@ -9,110 +9,108 @@ from datetime import datetime
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Environment variable configuration
-openai.api_key = os.environ.get("OPENAI_API_KEY")
-if not openai.api_key:
-    raise EnvironmentError("OPENAI_API_KEY environment variable not set.")
-
-# Rate limiting configuration (example - adjust as needed)
-RATE_LIMIT_DELAY = 0.5  # seconds
-MAX_RETRIES = 3
-BACKOFF_FACTOR = 2  # Exponential backoff factor
-
-# Caching configuration (simple in-memory cache - replace with a persistent cache for production)
-CACHE = {}
-
-# Retry decorator with exponential backoff
-@tenacity.retry(
-    tries=MAX_RETRIES,
-    backoff=tenacity.wait_exponential(multiplier=BACKOFF_FACTOR),
-    retry_on_exception=(openai.exceptions.APIError, openai.exceptions.RateLimitError),
-    auto_reraise=True
-)
-def retry_openai_call(func, *args, **kwargs):
-    return func(*args, **kwargs)
-
 class OpenAIAPI:
-    def __init__(self):
-        self.model_cache = {}  # Cache for model names
-        self.messages_cache = {} # Cache for conversation messages
-
-    def get_model_name(self, model_id: str) -> str:
-        if model_id in self.model_cache:
-            return self.model_cache[model_id]
-        else:
-            self.model_cache[model_id] = model_id
-            return model_id
-
-    def get_completion(self, prompt: str, model: str = "gpt-3.5-turbo", max_tokens: int = 100, temperature: float = 0.7, n: int = 1) -> str:
+    def __init__(self, api_key: str, model: str = "gpt-3.5-turbo"):
         """
-        Generates text completion using the OpenAI API.
+        Initializes the OpenAI API service.
+
+        Args:
+            api_key: Your OpenAI API key.
+            model: The OpenAI model to use (default: "gpt-3.5-turbo").
         """
+        self.api_key = api_key
+        openai.api_key = self.api_key
+        self.model = model
+        self.cache = {}  # Simple in-memory cache
+        self.retry_count = 0
+        self.max_retries = 3
+        self.retry_delay = 2  # seconds
+
+    def _log_request(self, prompt: str, method: str, params: Dict) -> None:
+        """Logs the details of an API request."""
+        log_message = f"Request: {method} - Prompt: '{prompt}' - Params: {params}"
+        logging.info(log_message)
+
+    def _log_response(self, response: Dict, method: str, prompt: str, params: Dict) -> None:
+        """Logs the details of an API response."""
+        log_message = f"Response: {method} - Prompt: '{prompt}' - Params: {params} - Status Code: {response.get('headers', {}).get('status_code', None)}"
+        logging.info(log_message)
+
+    def _get_cached_response(self, prompt: str, params: Dict) -> Optional[Dict]:
+        """Retrieves a response from the cache."""
+        timestamp = datetime.now().timestamp()
+        key = (prompt, tuple(params.items()))
+        if key in self.cache:
+            cached_response = self.cache[key]
+            if cached_response['timestamp'] > timestamp:
+                logging.debug("Cache entry expired.  Fetching new response.")
+                return None
+            logging.debug("Response retrieved from cache.")
+            return cached_response
+        return None
+
+    def _cache_response(self, prompt: str, params: Dict, response: Dict) -> None:
+        """Caches a response for future use."""
+        timestamp = datetime.now().timestamp()
+        key = (prompt, tuple(params.items()))
+        self.cache[key] = {'timestamp': timestamp, 'response': response}
+
+    def generate_text(self, prompt: str, **params: Dict) -> str:
+        """
+        Generates text using the OpenAI API.
+
+        Args:
+            prompt: The prompt to send to the API.
+            **params: Additional parameters for the API call (e.g., max_tokens, temperature).
+
+        Returns:
+            The generated text.
+        """
+        self._log_request(prompt, "generate_text", params)
+
+        cached_response = self._get_cached_response(prompt, params)
+        if cached_response:
+            logging.debug("Returning cached response.")
+            return cached_response['response']
+
         try:
             response = openai.ChatCompletion.create(
-                model=self.get_model_name(model),
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=max_tokens,
-                temperature=temperature,
-                n=n
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                **params
             )
-            return response.choices[0].message.content
-        except openai.exceptions.APIError as e:
-            logging.error(f"OpenAI API Error: {e}")
-            raise
-        except openai.exceptions.RateLimitError as e:
-            logging.warning(f"OpenAI Rate Limit Error: {e}")
-            time.sleep(RATE_LIMIT_DELAY)
-            return retry_openai_call(self.get_completion, prompt, model, max_tokens, temperature, n)
-        except Exception as e:
-            logging.error(f"Unexpected Error: {e}")
-            raise
-
-    def analyze_sentiment(self, text: str, model: str = "gpt-3.5-turbo") -> Dict[str, float]:
-        """
-        Analyzes the sentiment of the given text using the OpenAI API.
-        """
-        try:
-            response = openai.ChatCompletion.create(
-                model=self.get_model_name(model),
-                messages=[
-                    {"role": "user", "content": f"Analyze the sentiment of the following text: {text}. Return a dictionary with 'positive' and 'negative' scores between 0 and 1."},
-                ],
-                max_tokens=150,
-                temperature=0.2,
-                n=1
-            )
-            result = response.choices[0].message.content
-            try:
-                return eval(result)  # Evaluate the string result
-            except (SyntaxError, ValueError) as e:
-                logging.error(f"Error evaluating sentiment result: {e}")
+            text = response['choices'][0]['message']['content']
+            self._cache_response(prompt, params, response)
+            self._log_response(response, "generate_text", prompt, params)
+            return text
+        except openai.error.RateLimitError as e:
+            logging.error(f"Rate limit error: {e}")
+            self.retry_count += 1
+            if self.retry_count <= self.max_retries:
+                logging.info(f"Retrying (attempt {self.retry_count}/{self.max_retries}) in {self.retry_delay} seconds...")
+                time.sleep(self.retry_delay)
+                return self.generate_text(prompt, **params)  # Recursive retry
+            else:
+                logging.error(f"Max retries reached for rate limit error.")
                 raise
-        except openai.exceptions.APIError as e:
-            logging.error(f"OpenAI API Error: {e}")
+        except openai.error.OpenAIError as e:
+            logging.error(f"OpenAI API error: {e}")
             raise
-        except openai.exceptions.RateLimitError as e:
-            logging.warning(f"OpenAI Rate Limit Error: {e}")
-            time.sleep(RATE_LIMIT_DELAY)
-            return retry_openai_call(self.analyze_sentiment, text, model)
         except Exception as e:
-            logging.error(f"Unexpected Error: {e}")
+            logging.exception(f"An unexpected error occurred: {e}")
             raise
 
-    def generate_prompt(self, prompt_text: str) -> str:
+    def analyze_text(self, text: str, **params: Dict) -> str:
         """
-        Generates a prompt for the OpenAI API.
-        """
-        return prompt_text
+        Analyzes text using the OpenAI API. (Placeholder - Implement your analysis logic here)
 
-    def get_conversation_history(self, conversation_id: str) -> List[Dict[str, str]]:
+        Args:
+            text: The text to analyze.
+            **params: Additional parameters for the API call.
+
+        Returns:
+            The analysis result.
         """
-        Retrieves the conversation history from the cache.
-        """
-        if conversation_id in self.messages_cache:
-            return self.messages_cache[conversation_id]
-        else:
-            self.messages_cache[conversation_id] = []
-            return self.messages_cache[conversation_id]
+        self._log_request(text, "analyze_text", params)
+        # Placeholder implementation - Replace with your actual analysis logic
+        return f"Analysis result for: {text} -  Params: {params}"
