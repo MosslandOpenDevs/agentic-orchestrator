@@ -6,7 +6,7 @@ const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'plan-idea_title-gpt-5-based-defi-position-auto',
-  description: 'Okay, let’s tackle this strategically. The Solana TVL growth and the potential for an AI-driven auto',
+  description: 'Okay, let’s get this straight. This “Singularity” approach from Singular Bank is intriguing, but fra',
 };
 
 export default function RootLayout({

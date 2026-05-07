@@ -1,126 +1,159 @@
 ```markdown
-# DeFi Portfolio Recommender API Documentation
+# Smart Contract Analysis API Documentation
 
 ## 1. Overview
 
-This API provides functionalities for managing DeFi portfolios and generating rebalancing recommendations. It leverages GPT-5 to provide intelligent portfolio suggestions based on user-defined goals and risk tolerance.  This documentation outlines the available endpoints, authentication requirements, and expected response formats.
+This API provides tools for analyzing smart contracts, generating vulnerability reports, and assessing risk. It leverages GPT-5 to perform advanced analysis and provides a dynamic risk assessment based on contract code. This API is designed for developers, security researchers, and anyone involved in the development and auditing of smart contracts.
 
 ## 2. Authentication Details
 
-All API requests require an API key passed in the `X-API-Key` header.  You can obtain your API key by registering an account on our platform.
+This API utilizes API key authentication.  You must include an API key in the `X-API-Key` header for all requests.  Contact your administrator to obtain an API key.
 
 ## 3. Base URL Configuration
 
-The base URL for all API requests is:
+The base URL for all API endpoints is:
 
-```
-https://api.example.com
-```
+`https://api.example.com/v1`
 
-(Replace `https://api.example.com` with the actual base URL of your API)
+(Replace `https://api.example.com/v1` with the actual base URL of your API)
 
-## 4. Endpoints
+## 4. API Endpoints
 
-### 4.1. GET /api/assets
+### 4.1 GET /api/contracts
 
 *   **Method:** GET
-*   **Path:** `/api/assets`
-*   **Description:** Retrieves a list of available DeFi assets supported by the system.
+*   **Path:** `/api/contracts`
+*   **Description:** Retrieves a list of all smart contracts stored in the system.
 *   **Request Parameters/Body:** None
 *   **Response Format:** JSON Array
-    *   Each element in the array represents a DeFi asset.
-    *   Example:
-        ```json
-        [
-          { "id": "BTC", "name": "Bitcoin", "symbol": "BTC", "description": "The first and most well-known cryptocurrency." },
-          { "id": "ETH", "name": "Ethereum", "symbol": "ETH", "description": "The leading blockchain platform." },
-          { "id": "USDT", "name": "Tether USD", "symbol": "USDT", "description": "A stablecoin pegged to the US Dollar." }
-        ]
-        ```
+    *   Each element in the array represents a smart contract and contains the following fields:
+        *   `contractAddress`: (String) The contract's Ethereum address.
+        *   `contractName`: (String) The name of the contract.
+        *   `contractVersion`: (String) The version of the contract.
+        *   `creationDate`: (String) The date the contract was created (ISO 8601 format).
+        *   `contractSize`: (Integer) The size of the contract in bytes.
 *   **Example Request:**
     ```
-    GET /api/assets
+    GET /api/contracts
     ```
-*   **Example Response:** (See JSON example above)
+*   **Example Response:**
+    ```json
+    [
+      {
+        "contractAddress": "0x1234567890abcdef1234567890abcdef12345678",
+        "contractName": "TokenContract",
+        "contractVersion": "1.0",
+        "creationDate": "2023-10-26T10:00:00Z",
+        "contractSize": 1024
+      },
+      {
+        "contractAddress": "0x9876543210fedcba9876543210fedcba98765432",
+        "contractName": "VotingContract",
+        "contractVersion": "2.1",
+        "creationDate": "2023-10-27T14:30:00Z",
+        "contractSize": 1536
+      }
+    ]
+    ```
 
-### 4.2. GET /api/portfolios/{portfolioId}
+### 4.2 GET /api/contracts/{contractAddress}
 
 *   **Method:** GET
-*   **Path:** `/api/portfolios/{portfolioId}`
-*   **Description:** Retrieves the portfolio data for a specific portfolio ID.
-*   **Request Parameters/Body:**
-    *   `portfolioId` (Path Parameter): The unique identifier for the portfolio.  Must be a valid integer.
+*   **Path:** `/api/contracts/{contractAddress}`
+*   **Description:** Retrieves details for a specific smart contract.
+*   **Request Parameters/Body:** None
+*   **Path Parameter:**
+    *   `contractAddress`: (String) The Ethereum address of the smart contract.
 *   **Response Format:** JSON
-    *   Example:
-        ```json
-        {
-          "id": "portfolio123",
-          "name": "My Crypto Portfolio",
-          "userId": "user456",
-          "assets": [
-            { "assetId": "BTC", "quantity": 0.5, "price": 30000 },
-            { "assetId": "ETH", "quantity": 1.2, "price": 2000 }
-          ],
-          "totalValue": 75000.00
-        }
-        ```
+    *   Includes all fields from the `/api/contracts` endpoint response, plus:
+        *   `contractSourceCode`: (String) The source code of the contract.
 *   **Example Request:**
     ```
-    GET /api/portfolios/portfolio123
+    GET /api/contracts/0x1234567890abcdef1234567890abcdef12345678
     ```
-*   **Example Response:** (See JSON example above)
-
-### 4.3. POST /api/recommendations
-
-*   **Method:** POST
-*   **Path:** `/api/recommendations`
-*   **Description:** Generates a rebalancing recommendation for a portfolio using GPT-5.
-*   **Request Parameters/Body:**
-    *   `portfolioId` (Required): The unique identifier for the portfolio.  Must be a valid integer.
-    *   `riskTolerance` (Required):  A string representing the user's risk tolerance (e.g., "low", "medium", "high").
-    *   `investmentHorizon` (Optional): A string representing the investment horizon (e.g., "short-term", "long-term"). Defaults to "medium".
-*   **Response Format:** JSON
-    *   Example:
-        ```json
-        {
-          "id": "recommendation789",
-          "portfolioId": "portfolio123",
-          "recommendation": "Based on your risk tolerance and investment horizon, we recommend increasing your allocation to ETH and decreasing your allocation to BTC.",
-          "assetChanges": [
-            { "assetId": "BTC", "change": -0.1, "percentageChange": -10.0 },
-            { "assetId": "ETH", "change": 0.3, "percentageChange": 30.0 }
-          ],
-          "totalValueChange": 15000.00
-        }
-        ```
-*   **Example Request:**
-    ```
-    POST /api/recommendations
-    Content-Type: application/json
-
+*   **Example Response:**
+    ```json
     {
-      "portfolioId": "portfolio123",
-      "riskTolerance": "medium",
-      "investmentHorizon": "long-term"
+      "contractAddress": "0x1234567890abcdef1234567890abcdef12345678",
+      "contractName": "TokenContract",
+      "contractVersion": "1.0",
+      "creationDate": "2023-10-26T10:00:00Z",
+      "contractSize": 1024,
+      "contractSourceCode": "pragma solidity ^0.8.0;\ncontract TokenContract {\n    string public name = \"MyToken\";\n    string public symbol = \"MTK\";\n    uint8 public decimals = 18;\n    uint256 public totalSupply;\n\n    mapping(address => uint256) public balanceOf;\n\n    constructor() { \n        totalSupply = 1000000; \n    }\n}",
+      "compilerVersion": "0.8.15"
     }
     ```
-*   **Example Response:** (See JSON example above)
+
+### 4.3 POST /api/vulnerabilities
+
+*   **Method:** POST
+*   **Path:** `/api/vulnerabilities`
+*   **Description:** Generates a vulnerability report for a smart contract using GPT-5.
+*   **Request Parameters/Body:**
+    *   `contractAddress`: (String) The Ethereum address of the smart contract.
+    *   `maxTokens`: (Integer, Optional) Maximum number of tokens to generate. Defaults to 500.
+*   **Response Format:** JSON
+    *   `report`: (String) The vulnerability report generated by GPT-5.
+    *   `status`: (String) "success" or "error".
+    *   `tokensGenerated`: (Integer) The number of tokens generated.
+*   **Example Request:**
+    ```
+    POST /api/vulnerabilities
+    Content-Type: application/json
+    X-API-Key: YOUR_API_KEY
+
+    {
+      "contractAddress": "0x1234567890abcdef1234567890abcdef12345678",
+      "maxTokens": 1000
+    }
+    ```
+*   **Example Response (Success):**
+    ```json
+    {
+      "report": "Potential reentrancy vulnerability detected in the contract's transfer function.  Consider adding a check to ensure that the recipient address is not the same as the sender address before transferring funds.",
+      "status": "success",
+      "tokensGenerated": 750
+    }
+    ```
+
+### 4.4 GET /api/risk/{contractAddress}
+
+*   **Method:** GET
+*   **Path:** `/api/risk/{contractAddress}`
+*   **Description:** Retrieves the dynamic risk assessment for a smart contract.
+*   **Request Parameters/Body:** None
+*   **Path Parameter:**
+    *   `contractAddress`: (String) The Ethereum address of the smart contract.
+*   **Response Format:** JSON
+    *   `riskScore`: (Float) A numerical score representing the overall risk level (0.0 - 1.0).
+    *   `riskCategory`: (String) A categorical risk assessment (e.g., "Low", "Medium", "High").
+    *   `vulnerabilitiesFound`: (Integer) Number of vulnerabilities identified.
+    *   `codeComplexity`: (String) Description of the code complexity.
+*   **Example Request:**
+    ```
+    GET /api/risk/0x1234567890abcdef1234567890abcdef12345678
+    ```
+*   **Example Response:**
+    ```json
+    {
+      "riskScore": 0.65,
+      "riskCategory": "Medium",
+      "vulnerabilitiesFound": 2,
+      "codeComplexity": "Moderate - Contains complex logic and potential for vulnerabilities."
+    }
+    ```
 
 ## 5. Error Codes and Handling
 
-| Code      | Description                               | Action                               |
-|-----------|-------------------------------------------|-------------------------------------|
-| 400        | Bad Request - Invalid input data          | Check request body for errors.       |
-| 401        | Unauthorized - Invalid API key           | Provide a valid API key in the header. |
-| 403        | Forbidden - Insufficient permissions    | Ensure you have the necessary rights. |
-| 404        | Not Found - Resource not found            | Verify the ID or path is correct.    |
-| 500        | Internal Server Error - Unexpected error | Contact support for assistance.     |
+| Code    | Description                               | Action                               |
+| :------ | :---------------------------------------- | :---------------------------------- |
+| 400      | Bad Request - Invalid input parameters   | Check request body and parameters.   |
+| 401      | Unauthorized - Invalid API key          | Provide a valid API key.            |
+| 404      | Not Found - Contract not found            | Verify the contract address.         |
+| 500      | Internal Server Error - API error        | Contact API support.                |
+| 429      | Too Many Requests - Rate Limit Exceeded | Implement retry logic with exponential backoff. |
 
 ## 6. Rate Limiting Info
 
-The API is rate-limited to prevent abuse and ensure service stability.  The rate limit is 100 requests per minute per API key.  If you exceed the rate limit, you will receive a 429 (Too Many Requests) error.  You can implement retry logic with exponential backoff to handle temporary rate limiting.  Detailed rate limit information will be returned in the response headers:
-
-*   `X-RateLimit-Limit`:  The maximum number of requests allowed in the current window.
-*   `X-RateLimit-Remaining`: The number of requests remaining in the current window.
-*   `X-RateLimit-Reset`: The time (in seconds) until the rate limit resets.
+The API is rate-limited to prevent abuse.  The rate limit is 100 requests per minute per API key.  Exceeding this limit will result in a 429 Too Many Requests error.  Implement retry logic with exponential backoff to handle rate limiting errors.
 ```

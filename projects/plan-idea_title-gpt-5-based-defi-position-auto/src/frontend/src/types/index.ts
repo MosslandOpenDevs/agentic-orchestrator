@@ -3,29 +3,29 @@
  */
 
 
-export interface NFTHolder {
-  id: string;
-  nftAddress: string;
-  preferences: any;
+export interface SmartContract {
+  contractAddress: string;
+  contractName: string;
+  contractVersion: string;
+  creationTimestamp: string;
 }
 
-export interface Portfolio {
+export interface VulnerabilityReport {
   id: string;
-  nftHolderId: string;
-  assetBalances: any;
+  contractAddress: string;
+  vulnerabilityType: string;
+  severity: string;
+  description: string;
+  confidenceScore: number;
+  createdAt: string;
 }
 
-export interface Asset {
+export interface RiskAssessment {
   id: string;
-  symbol: string;
-  name: string;
-}
-
-export interface RebalancingRecommendation {
-  id: string;
-  portfolioId: string;
-  recommendation: string;
-  timestamp: string;
+  contractAddress: string;
+  assessmentTimestamp: string;
+  overallRiskScore: number;
+  riskFactors: any;
 }
 
 

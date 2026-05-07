@@ -1,130 +1,129 @@
 import React, { useState, useEffect } from 'react';
-import { useTailwind } from 'tailwind-rn';
-import { useColorScheme } from 'react-native';
-import {
-  SafeAreaView,
-  StyleSheet,
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-} from 'react-native';
+import { useTailwind } from 'tailwind-rn'; // Assuming tailwind-rn for React Native
+import { OpenAI } from 'openai';
 
-// Placeholder data - Replace with actual data fetching
-interface PortfolioItem {
-  asset: string;
-  balance: number;
-  price: number;
-}
+type SmartContract = {
+  name: string;
+  address: string;
+  vulnerabilityReports: VulnerabilityReport[];
+  riskAssessment: RiskAssessment | null;
+};
 
-const PortfolioDashboard = () => {
+type VulnerabilityReport = {
+  id: string;
+  description: string;
+  severity: 'low' | 'medium' | 'high';
+  gpt5Analysis: string;
+};
+
+type RiskAssessment = {
+  id: string;
+  description: string;
+  riskLevel: 'low' | 'medium' | 'high';
+  gpt5Analysis: string;
+};
+
+const Dashboard = () => {
   const tailwind = useTailwind();
-  const colorScheme = useColorScheme();
-  const [theme, setTheme] = useState<string>('light');
+  const [smartContracts, setSmartContracts] = useState<SmartContract[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [portfolio, setPortfolio] = useState<PortfolioItem[]>([
-    { asset: 'SOL', balance: 100, price: 150 },
-    { asset: 'USDC', balance: 5000, price: 1 },
-    { asset: 'LAND', balance: 5, price: 1000 },
-  ]);
+  useEffect(() => {
+    // Simulate fetching data from an API
+    const fetchData = async () => {
+      try {
+        const contracts: SmartContract[] = [
+          {
+            name: 'MosslandToken',
+            address: '0x...',
+            vulnerabilityReports: [
+              { id: '1', description: 'Reentrancy Vulnerability', severity: 'high', gpt5Analysis: 'Potential reentrancy issue detected.' },
+            ],
+            riskAssessment: null,
+          },
+          {
+            name: 'StakingContract',
+            address: '0x...',
+            vulnerabilityReports: [],
+            riskAssessment: null,
+          },
+        ];
+        setSmartContracts(contracts);
+        setLoading(false);
+      } catch (err) {
+        setError(err.message);
+        setLoading(false);
+      }
+    };
 
-  const toggleTheme = () => {
-    setTheme(theme === 'light' ? 'dark' : 'light');
-  };
+    fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className={tailwind('flex justify-center items-center h-screen')}>
+        <p className={tailwind('text-xl')}>Loading...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className={tailwind('flex justify-center items-center h-screen')}>
+        <p className={tailwind('text-red-500 text-xl')}>Error: {error}</p>
+      </div>
+    );
+  }
 
   return (
-    <SafeAreaView style={tailwind.safeAreaView}>
-      <View style={[tailwind.container, theme === 'dark' ? tailwind.darkContainer : tailwind.container]}>
-        <View style={tailwind.header}>
-          <Text style={tailwind.headerText}>TerraForm - Portfolio Dashboard</Text>
-          <TouchableOpacity style={tailwind.toggleButton} onPress={toggleTheme}>
-            <Text style={tailwind.toggleButtonText}>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</Text>
-          </TouchableOpacity>
-        </View>
+    <div className={tailwind('flex h-screen')}>
+      {/* Sidebar */}
+      <div className={tailwind('w-64 bg-gray-200 h-full')}>
+        {/* Navigation */}
+        <nav className={tailwind('p-4')}>
+          <h2 className={tailwind('text-xl font-bold')}>Dashboard</h2>
+          <hr className={tailwind('my-2 border-t-2 border-gray-300')}/>
+          {/* Add more navigation items here */}
+        </nav>
+      </div>
 
-        <ScrollView>
-          <View style={tailwind.content}>
-            <View style={tailwind.card}>
-              <Text style={tailwind.cardTitle}>Portfolio Overview</Text>
-              {portfolio.map((item) => (
-                <View key={item.asset} style={tailwind.cardItem}>
-                  <Text>{item.asset}</Text>
-                  <Text>{item.balance}</Text>
-                  <Text>{item.price}</Text>
-                </View>
-              ))}
-            </View>
+      {/* Main Content */}
+      <div className={tailwind('flex-grow w-full')}>
+        {/* Header */}
+        <div className={tailwind('bg-white shadow-md p-4')}>
+          <h1 className={tailwind('text-3xl font-bold')}>GPT-5 DeFi Position Auto-Rebalancing Agent</h1>
+        </div>
 
-            {/* Placeholder for Rebalancing Settings */}
-            <View style={tailwind.card}>
-              <Text style={tailwind.cardTitle}>Rebalancing Settings</Text>
-              <Text>Coming Soon - Configure your risk tolerance and investment preferences.</Text>
-            </View>
+        {/* Smart Contract List */}
+        <div className={tailwind('p-4')}>
+          <h2 className={tailwind('text-2xl font-bold mb-4')}>Smart Contracts</h2>
+          <ul className={tailwind('list-disc list-inside')}>
+            {smartContracts.map((contract) => (
+              <li key={contract.name} className={tailwind('mb-2')}>
+                <p className={tailwind('font-semibold')}>
+                  {contract.name} ({contract.address})
+                </p>
+                {contract.vulnerabilityReports.length > 0 ? (
+                  <p className={tailwind('text-gray-600')}>
+                    {contract.vulnerabilityReports.length} Vulnerabilities Found
+                  </p>
+                ) : (
+                  <p className={tailwind('text-gray-600')}>No Vulnerabilities Found</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
 
-            {/* Placeholder for Recommendation Display */}
-            <View style={tailwind.card}>
-              <Text style={tailwind.cardTitle}>GPT-5 Recommendation</Text>
-              <Text>Coming Soon - The AI will generate a rebalancing recommendation based on your settings.</Text>
-            </View>
-          </View>
-        </ScrollView>
-      </View>
-    </SafeAreaView>
+        {/* Data Visualization Placeholders */}
+        <div className={tailwind('p-4')}>
+          <h2 className={tailwind('text-2xl font-bold mb-4')}>Data Visualization</h2>
+          {/* Add charts and graphs here */}
+        </div>
+      </div>
+    </div>
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    backgroundColor: '#f0f0f0',
-    padding: 16,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
-  },
-  headerText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  toggleButton: {
-    backgroundColor: '#ddd',
-    padding: 8,
-    borderRadius: 4,
-  },
-  toggleButtonText: {
-    fontSize: 16,
-  },
-  content: {
-    padding: 16,
-  },
-  card: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 16,
-    shadowColor: '#ccc',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.23,
-    shadowRadius: 2.62,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  cardItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-});
-
-export default PortfolioDashboard;
+export default Dashboard;

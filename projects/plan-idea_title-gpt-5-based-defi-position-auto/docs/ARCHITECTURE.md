@@ -1,115 +1,83 @@
 ```markdown
-# plan-idea_title-gpt-5-based-defi-position-auto Software Architecture Document
+# plan-idea_title-gpt-5-based-defi-position-auto - Software Architecture Document
 
 ## 1. System Overview
 
-This system, “TerraForm,” is an AI-driven DeFi position auto-rebalancing agent for Mossland NFT holders on Solana. It leverages GPT-5 to generate optimized portfolio recommendations based on real-time market data and user preferences. The system consists of a frontend (React), a backend (FastAPI), a database (PostgreSQL), and direct integration with the Solana blockchain.  The core function is to dynamically adjust NFT positions across supported DeFi protocols to maximize returns while managing risk.
+This system, tentatively named “Contract Sentinel,” aims to leverage GPT-5 for automated smart contract vulnerability analysis and risk assessment within the Ethereum ecosystem. It will provide a user interface for NFT holders to review and approve/reject findings, ultimately informing DeFi position decisions.
 
 **High-Level Diagram:**
 
 ```
-+---------------------+       +---------------------+       +---------------------+
-|      Frontend       |------>|      Backend        |------>|    Solana Blockchain |
-|  (React.js)         |       |  (FastAPI, Python)  |       |  (NFTs, Positions)  |
-+---------------------+       +---------------------+       +---------------------+
-         ^                     |                     |
-         |                     |                     |
-         +---------------------+       +---------------------+
-         |    CoinGecko/       |       |     PostgreSQL       |
-         |  CoinMarketCap     |       |  (Database)          |
-         +---------------------+       +---------------------+
++---------------------+     +---------------------+     +---------------------+
+|      Frontend       | --> |      Backend        | --> |   Ethereum Network  |
+| (React)             |     | (FastAPI, GPT-5)    |     | (Smart Contracts)   |
++---------------------+     +---------------------+     +---------------------+
+       ^                      |
+       |                      |
+       +----------------------+
+       |   Postgres Database |
+       +----------------------+
 ```
 
 ## 2. Component Architecture
 
-*   **Frontend (React.js):**
-    *   User Interface for portfolio management, risk preference settings, and viewing recommendations.
-    *   Handles user interactions and displays data received from the backend.
-    *   Communicates with the backend via API calls.
-*   **Backend (FastAPI, Python):**
-    *   API Server: Handles requests from the frontend, interacts with the database and Solana blockchain.
-    *   GPT-5 Integration Module:  Communicates with the GPT-5 API to generate rebalancing recommendations.
-    *   Solana Blockchain Interaction Module:  Uses Solana Web3.js to interact with the Solana blockchain (e.g., querying NFT ownership, adjusting positions).
-    *   Data Processing Module: Processes market data, calculates portfolio performance, and prepares data for GPT-5.
-*   **Database (PostgreSQL):**
-    *   Stores NFT metadata (IDs, names, etc.), user portfolio data (asset holdings, risk tolerance), historical performance data, and potentially GPT-5 generated recommendations.
-*   **External APIs (CoinGecko/CoinMarketCap):**
-    *   Provides real-time asset price data.
+The system comprises the following key components:
+
+*   **Frontend (React):** Provides the user interface for NFT holders to interact with the system, view vulnerability reports, and approve/reject findings.  Handles user authentication and data presentation.
+*   **Backend (FastAPI):** The core of the system, responsible for handling API requests, interacting with the GPT-5 model, managing the database, and orchestrating the overall workflow.
+*   **GPT-5 Integration:**  An external API call to OpenAI's GPT-5 model, utilizing carefully crafted prompts to analyze smart contract code.
+*   **Postgres Database:** Stores smart contract metadata, vulnerability reports, risk assessment data, user information, and system configuration.
+*   **Ethereum Network:** The target environment for smart contract analysis and interaction.
 
 ## 3. Data Flow
 
-1.  **User Interaction:** User interacts with the frontend to view their portfolio or adjust risk preferences.
-2.  **API Request:** Frontend sends a request to the backend API endpoint (e.g., `/api/recommedations`).
-3.  **Data Retrieval:** Backend retrieves user portfolio data from PostgreSQL.
-4.  **GPT-5 Request:** Backend constructs a prompt for GPT-5, including user risk tolerance, current portfolio holdings, and market data.
-5.  **GPT-5 Response:** GPT-5 generates a rebalancing recommendation.
-6.  **Data Processing:** Backend processes the GPT-5 response and calculates the impact of the recommendation.
-7.  **Solana Interaction:** Backend uses Solana Web3.js to execute the rebalancing transactions on the Solana blockchain (e.g., swapping NFTs).
-8.  **Data Update:** Backend updates the user's portfolio data in PostgreSQL.
-9.  **Frontend Update:** Backend sends the updated portfolio data to the frontend for display.
+1.  **User Interaction:** A user interacts with the Frontend to submit a smart contract address for analysis.
+2.  **API Request:** The Frontend sends a request to the Backend API endpoint `/api/vulnerabilities`.
+3.  **Smart Contract Retrieval:** The Backend retrieves the smart contract’s source code from the Ethereum network (using a suitable Ethereum client library).
+4.  **GPT-5 Analysis:** The Backend constructs a prompt for GPT-5, including the smart contract code, and sends it to the GPT-5 API.
+5.  **Vulnerability Report Generation:** GPT-5 analyzes the code and generates a vulnerability report (potentially including identified vulnerabilities and confidence scores).
+6.  **Data Storage:** The Backend stores the vulnerability report and associated risk assessment data in the Postgres Database.
+7.  **Frontend Display:** The Backend sends the vulnerability report and risk assessment data to the Frontend for display to the user.
+8.  **User Approval/Rejection:** The user reviews the report and approves or rejects the findings via the Frontend.
+9.  **Database Update:** The Backend updates the database to reflect the user's decision.
 
 ## 4. API Design
 
-*   **GET /api/assets:**
-    *   **Description:** Retrieves a list of available DeFi assets supported by the system.
-    *   **Request:** None
-    *   **Response:** JSON array of asset objects (e.g., `[{name: "SOL", symbol: "SOL"}, {name: "USDC", symbol: "USDC"}]`).
-*   **GET /api/portfolios/{portfolioId}:**
-    *   **Description:** Retrieves the portfolio data for a specific portfolio ID.
-    *   **Request:** `portfolioId` (path parameter)
-    *   **Response:** JSON object containing portfolio details (e.g., `{"portfolioId": "123", "assets": [...], "riskTolerance": "moderate"}`).
-*   **POST /api/recommedations:**
-    *   **Description:** Generates a rebalancing recommendation for a portfolio using GPT-5.
-    *   **Request:** JSON object containing:
-        *   `portfolioId` (string)
-        *   `riskTolerance` (string, e.g., "low", "medium", "high")
-        *   `assetPreferences` (optional, array of preferred assets)
-    *   **Response:** JSON object containing the rebalancing recommendation (e.g., `{"recommendations": [...], "reasoning": "GPT-5 analysis..."}`).
+| Method | Endpoint          | Description                               | Request Body (Example) | Response Body (Example) |
+|--------|-------------------|-------------------------------------------|-------------------------|--------------------------|
+| GET    | `/api/contracts`    | Retrieves a list of all smart contracts.   | None                    | `[ { "contractAddress": "0x...", "name": "..." } ]` |
+| GET    | `/api/contracts/{contractAddress}` | Retrieves details for a specific smart contract. | None                    | `{ "contractAddress": "0x...", "name": "...", "code": "..." }` |
+| POST   | `/api/vulnerabilities` | Generates a vulnerability report.        | `{ "contractAddress": "0x...", "prompt": "Analyze this contract for vulnerabilities..." }` | `{ "reportId": "...", "vulnerabilities": [ { "type": "Reentrancy", "confidence": 0.8 } ] }` |
+| GET    | `/api/risk/{contractAddress}` | Retrieves the dynamic risk assessment.      | None                    | `{ "riskScore": 0.7, "riskDescription": "Moderate risk..." }` |
 
 ## 5. Database Schema (Conceptual)
 
-*   **Users Table:**
-    *   `user_id` (INT, Primary Key)
-    *   `username` (VARCHAR)
-    *   `password` (VARCHAR)
-    *   `risk_tolerance` (VARCHAR)
-*   **Portfolios Table:**
-    *   `portfolio_id` (VARCHAR, Primary Key)
-    *   `user_id` (INT, Foreign Key referencing Users)
-    *   `name` (VARCHAR)
-*   **NFTHoldings Table:**
-    *   `portfolio_id` (VARCHAR, Foreign Key referencing Portfolios)
-    *   `nft_id` (VARCHAR, Foreign Key referencing NFTs)
-    *   `quantity` (INT)
-*   **Assets Table:**
-    *   `asset_id` (VARCHAR, Primary Key)
-    *   `name` (VARCHAR)
-    *   `symbol` (VARCHAR)
-*   **PriceData Table:**
-    *   `asset_id` (VARCHAR, Foreign Key referencing Assets)
-    *   `timestamp` (TIMESTAMP)
-    *   `price` (DECIMAL)
+| Table Name       | Columns                               | Data Type        |
+|------------------|---------------------------------------|------------------|
+| `smart_contracts`| `contract_address`, `name`, `deployed_date`, `code` | VARCHAR, VARCHAR, TIMESTAMP, TEXT |
+| `vulnerability_reports` | `report_id`, `contract_address`, `gpt5_output`, `risk_score`, `user_approval_status` | VARCHAR, VARCHAR, TEXT, FLOAT, BOOLEAN |
+| `users`          | `user_id`, `public_address`, `role`     | VARCHAR, VARCHAR, VARCHAR |
+| `risk_assessments`| `contract_address`, `risk_score`, `risk_description`| VARCHAR, FLOAT, TEXT |
 
 ## 6. Security Considerations
 
-*   **Authentication & Authorization:** Secure user authentication (e.g., JWT) and authorization mechanisms to control access to portfolios and API endpoints.
-*   **Solana Blockchain Security:** Implement robust error handling and transaction signing to prevent accidental or malicious transactions.  Careful consideration of gas costs.
-*   **GPT-5 API Security:** Securely manage GPT-5 API keys and implement rate limiting to prevent abuse and control costs.
+*   **EIP-712 Signature Verification:** Mandatory for all smart contract interactions to ensure only authorized users can approve findings.
+*   **GPT-5 Prompt Security:** Carefully crafted prompts to prevent prompt injection attacks and ensure GPT-5 only analyzes code. Input sanitization is critical.
+*   **Rate Limiting:** Implement rate limiting on API endpoints to prevent abuse.
 *   **Data Encryption:** Encrypt sensitive data at rest and in transit.
-*   **Input Validation:** Thoroughly validate all user inputs to prevent injection attacks.
-*   **Regular Security Audits:** Conduct regular security audits and penetration testing.
+*   **Regular Security Audits:** Conduct regular security audits of the entire system.
+*   **Dependency Management:** Maintain up-to-date dependencies to mitigate vulnerabilities.
 
 ## 7. Scalability Notes
 
-*   **Database Scaling:** Utilize PostgreSQL’s replication and sharding capabilities for horizontal scalability.
-*   **Backend Scaling:**  Employ a load balancer to distribute traffic across multiple FastAPI instances.
-*   **GPT-5 API Scaling:** Monitor GPT-5 API usage and adjust the number of requests processed by the backend based on demand.  Caching frequently accessed data.
-*   **Solana Blockchain Interaction:** Optimize Solana transaction execution to minimize gas costs and improve performance.
+*   **Asynchronous Processing:** Utilize asynchronous processing for GPT-5 analysis to avoid blocking the API.
+*   **Caching:** Implement caching mechanisms for frequently accessed data (e.g., smart contract metadata).
+*   **Database Scaling:** Utilize database sharding or replication to handle increasing data volumes.
+*   **Horizontal Scaling:** Design the Backend to be horizontally scalable to handle increased API traffic.
 
 ## 8. Deployment Architecture
 
-*   **Frontend:** Deployed on a static hosting platform (e.g., Netlify, Vercel).
-*   **Backend:** Deployed on a cloud platform (e.g., AWS, Google Cloud, Azure) using a container orchestration service (e.g., Kubernetes, Docker Compose).
-*   **Database:** Hosted on a managed PostgreSQL service (e.g., AWS RDS, Google Cloud SQL, Azure Database for PostgreSQL).
-*   **Solana Blockchain Interaction:**  Deployed within the backend container.
-*   **GPT-5 API:**  Accessed via external API endpoint.
+*   **Frontend:** Deployed as a static website using a CDN (e.g., Netlify, Vercel).
+*   **Backend:** Deployed on a cloud platform (e.g., AWS, Google Cloud, Azure) using a containerization technology like Docker and Kubernetes.
+*   **GPT-5 API:** Accessed via OpenAI's API.
+*   **Postgres Database:** Managed as a managed service (e.g., AWS RDS, Google Cloud SQL, Azure Database for PostgreSQL).

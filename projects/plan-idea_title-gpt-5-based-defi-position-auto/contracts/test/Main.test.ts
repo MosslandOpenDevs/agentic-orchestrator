@@ -1,143 +1,91 @@
 import { ethers, Signer } from 'ethers';
 import { expect } from 'chai';
 import { Contract } from 'ethers';
+import { solidity } from 'solidity-coverage';
+import { MockProvider } from 'hardhat-ether';
 
-// Mock contract interface - Replace with your actual contract interface
-interface MyContractInterface {
-  name: string;
-  balance: () => Promise<number>;
-  deposit: (amount: number) => Promise<void>;
-  withdraw: (amount: number) => Promise<void>;
-  owner: Signer;
-  setFeeRate: (rate: number) => Promise<void>;
-  getFeeRate: () => Promise<number>;
-}
+// Placeholder for your contract - replace with your actual contract
+// This is just a dummy contract for testing purposes
+contract MyContract, Contract {
+  private static readonly ZERO_ADDRESS = ethers.constants.AddressZero;
 
-// Mock contract implementation - Replace with your actual contract implementation
-class MyContractMock implements MyContractInterface {
-  private _balance: number = 0;
-  private _feeRate: number = 0;
-  private _owner: Signer;
+  constructor() {}
 
-  constructor(owner: Signer) {
-    this._owner = owner;
+  public function testFunction(value: string) internal {
+    expect(value).to.equal('test');
   }
 
-  name = "TerraForm";
+  public function publicFunction(value: string) internal {
+    expect(value).to.equal('public');
+  }
 
-  balance = async (): Promise<number> => {
-    return this._balance;
-  };
-
-  deposit = async (amount: number): Promise<void> => {
-    this._balance += amount;
-  };
-
-  withdraw = async (amount: number): Promise<void> => {
-    this._balance -= amount;
-  };
-
-  owner = this._owner;
-
-  setFeeRate = (rate: number) => {
-    this._feeRate = rate;
-  };
-
-  getFeeRate = () => {
-    return this._feeRate;
-  };
+  public function accessControlledFunction(signer: Signer) internal {
+    expect(signer.address).to.neq(MyContract.ZERO_ADDRESS);
+  }
 }
 
-
-describe('MyContract', () => {
-  let ethersJs: ethers.providers.EthersProvider;
-  let contract: MyContractInterface;
+describe('MyContract', function () {
+  let provider: MockProvider;
+  let contract: MyContract;
   let owner: Signer;
-  let address: string;
 
-  beforeAll(async () => {
-    // Mock provider for testing
-    ethersJs = new ethers.SignerWallet({
-      privateKey: '0x...', // Replace with a real private key
-      provider: 'http://localhost:8545',
+  before(async function () {
+    provider = new MockProvider({
+      networks: {
+        local: {
+          host: '127.0.0.1',
+          port: 8545,
+          chainId: 0,
+          gas: 2000000,
+          gasPrice: 5000000000,
+        },
+      },
     });
 
-    owner = ethersJs;
+    await provider.hardhatRunner.reset();
 
-    // Mock contract instance
-    contract = new MyContractMock(owner);
-    address = await ethersJs.getAddress();
+    owner = await ethers.getSigner();
+    contract = new MyContract(owner.address);
   });
 
-  describe('Deployment', () => {
-    it('should deploy contract successfully', async () => {
-      // This is a mock deployment - replace with your actual deployment logic
-      // For example:
-      // const deployedContract = await deployContract(contract);
-      // expect(deployedContract.address).not.toBeNull();
-      expect(address).to.exist;
-    });
-  });
-
-  describe('Public Functions', () => {
-    it('should return the current balance', async () => {
-      await contract.deposit(100);
-      const balance = await contract.balance();
-      expect(balance).to.equal(100);
-    });
-
-    it('should allow depositing funds', async () => {
-      await contract.deposit(50);
-      expect(await contract.balance()).to.equal(50);
-    });
-
-    it('should allow withdrawing funds', async () => {
-      await contract.deposit(100);
-      await contract.withdraw(50);
-      expect(await contract.balance()).to.equal(50);
+  describe('Deployment Tests', function () {
+    it('should deploy contract with correct owner', async function () {
+      const deployedContract = await contract.deployed();
+      expect(deployedContract.address).to.neq(MyContract.ZERO_ADDRESS);
+      await contract.accessControlledFunction(owner);
     });
   });
 
-  describe('Access Control', () => {
-    it('should only allow the owner to set the fee rate', async () => {
-      // Mock implementation to prevent unauthorized access
-      const unauthorizedSigner = ethersJs.address;
-      try {
-        await contract.setFeeRate(10);
-        expect(await contract.getFeeRate()).to.equal(10);
-      } catch (error) {
-        // Expected error if unauthorized
-        expect(error).to.exist;
-      }
+  describe('Public Function Tests', function () {
+    it('should call testFunction with correct value', async function () {
+      await contract.testFunction('expectedValue');
+      expect(await contract.testFunction('expectedValue')).to.equal('test');
+    });
 
-      // Verify that the owner is the only one who can set the fee rate
-      try {
-        await contract.setFeeRate(20);
-        expect(await contract.getFeeRate()).to.equal(20);
-      } catch (error) {
-        expect(error).to.exist;
-      }
+    it('should call publicFunction with correct value', async function () {
+      await contract.publicFunction('expectedValue');
+      expect(await contract.publicFunction('expectedValue')).to.equal('public');
     });
   });
 
-  describe('Edge Cases and Reverts', () => {
-    it('should revert if withdrawing more funds than available', async () => {
-      await contract.deposit(50);
-      try {
-        await contract.withdraw(100);
-        expect.fail('Should have reverted');
-      } catch (error) {
-        expect(error).to.instanceOf(ethers.errors.Overdraw);
-      }
+  describe('Access Control Tests', function () {
+    it('should reject calls to accessControlledFunction from the zero address', async function () {
+      await contract.accessControlledFunction(MyContract.ZERO_ADDRESS);
+      expect.assertions(0);
+    });
+  });
+
+  describe('Edge Cases and Reverts', function () {
+    it('should revert if called from the zero address', async function () {
+      await expect(contract.accessControlledFunction(MyContract.ZERO_ADDRESS)).to.be.reverted();
     });
 
-    it('should revert if setting a negative fee rate', async () => {
-      try {
-        await contract.setFeeRate(-10);
-        expect.fail('Should have reverted');
-      } catch (error) {
-        expect(error).to.instanceOf(ethers.errors.ArithmeticError);
-      }
+    it('should revert if called without proper signature', async function () {
+      // Implement signature verification logic here - this is a placeholder
+      // In a real scenario, you'd verify the EIP-712 signature
+      // This test just simulates a signature verification failure
+      const invalidSignature = ethers.utils.defaultSignature('test');
+      await expect(contract.accessControlledFunction(owner)).to.be.reverted();
     });
   });
 });

@@ -1,127 +1,95 @@
-from typing import List, Optional
+from typing import Optional
 from pydantic import BaseModel, Field
 from pydantic import ConfigDict
 from datetime import datetime
 
-class FieldValidator(BaseModel):
-    """Base class for field validators."""
-    value: any
-    message: str
+class FieldConfig(ConfigDict):
+    default_color = "#ccc"
+    extra = "forbid"
 
-    def validate(self, value: any) -> any:
-        if value != self.value:
-            raise ValueError(self.message)
-        return value
+class SmartContract(BaseModel):
+    id: str = Field(..., description="Unique identifier for the smart contract", color="blue")
+    name: str = Field(..., description="Name of the smart contract", color="green")
+    address: str = Field(..., description="Smart contract address", color="orange")
+    contract_code: str = Field(..., description="Source code of the smart contract", color="purple")
+    creation_date: datetime = Field(..., description="Date the contract was created", color="red")
+    config: dict = Field(..., description="Contract configuration", color="yellow")
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "id": "0x1234567890abcdef",
+                "name": "Mossland NFT Contract",
+                "address": "0x1234567890abcdef",
+                "contract_code": "contract MosslandNFT { ... }",
+                "creation_date": datetime(2023, 1, 1, 12, 0, 0),
+                "config": {"nft_type": "image", "metadata_schema": "image_metadata"}
+            }
+        }
 
+class VulnerabilityReport(BaseModel):
+    id: str = Field(..., description="Unique identifier for the vulnerability report", color="purple")
+    smart_contract_id: str = Field(..., description="ID of the smart contract being analyzed", color="orange")
+    vulnerability_name: str = Field(..., description="Name of the vulnerability", color="red")
+    severity: str = Field(..., description="Severity of the vulnerability (Critical, High, Medium, Low)", color="green")
+    description: str = Field(..., description="Detailed description of the vulnerability", color="blue")
+    recommendation: str = Field(..., description="Recommended remediation steps", color="yellow")
+    date_reported: datetime = Field(..., description="Date the vulnerability was reported", color="purple")
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "id": "vr_123",
+                "smart_contract_id": "0x1234567890abcdef",
+                "vulnerability_name": "Reentrancy Vulnerability",
+                "severity": "Critical",
+                "description": "The contract is vulnerable to reentrancy attacks.",
+                "recommendation": "Use the Checks-Effects-Interactions pattern.",
+                "date_reported": datetime(2024, 5, 20, 10, 30, 0),
+            }
+        }
 
-class Config:
-    """Pydantic Config class."""
-    extra = 'forbid'
-    allow_population_by_field_name = True
-    arbitrary_types_allowed = True
+class RiskAssessment(BaseModel):
+    id: str = Field(..., description="Unique identifier for the risk assessment", color="purple")
+    smart_contract_id: str = Field(..., description="ID of the smart contract being assessed", color="orange")
+    risk_score: float = Field(..., description="Overall risk score (0.0 - 1.0)", color="red")
+    vulnerabilities: list[str] = Field(..., description="List of vulnerabilities contributing to the risk score", color="green")
+    recommendations: list[str] = Field(..., description="List of recommendations to mitigate the risk", color="blue")
+    date_assessed: datetime = Field(..., description="Date the risk assessment was performed", color="yellow")
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "id": "ra_456",
+                "smart_contract_id": "0x1234567890abcdef",
+                "risk_score": 0.8,
+                "vulnerabilities": ["Reentrancy Vulnerability", "Integer Overflow"],
+                "recommendations": ["Use the Checks-Effects-Interactions pattern.", "Implement input validation."],
+                "date_assessed": datetime(2024, 5, 21, 14, 0, 0),
+            }
+        }
 
-
-class Asset(BaseModel):
-    """Represents a DeFi asset (e.g., USDC, USDT) within the TerraForm system."""
-    id: str = Field(..., description="Unique identifier for the asset", min_length=36)
-    name: str = Field(..., description="Name of the asset (e.g., USDC, USDT)")
-    symbol: str = Field(..., description="Asset symbol (e.g., USDC, USDT)")
-    decimals: int = Field(18, description="Number of decimal places")
-    config = Config()
-
-
-class Portfolio(BaseModel):
-    """Represents the DeFi position of an NFT holder."""
-    nft_holder_id: str = Field(..., description="Unique identifier for the NFT holder")
-    assets: List[Asset] = Field([], description="List of assets in the portfolio")
-    total_value: float = Field(0.0, description="Total value of the portfolio")
-    config = Config()
-
-
-class RebalancingRecommendation(BaseModel):
-    """Represents a recommendation generated by GPT-5 for portfolio adjustments."""
-    id: str = Field(..., description="Unique identifier for the recommendation", min_length=36)
-    nft_holder_id: str = Field(..., description="Unique identifier for the NFT holder")
-    timestamp: datetime = Field(datetime.now, description="Timestamp of the recommendation")
-    recommendation: str = Field(..., description="GPT-5 recommendation text")
-    confidence: float = Field(0.8, description="Confidence level of the recommendation (0.0-1.0)")
-    config = Config()
-
-
-class NFTHolder(BaseModel):
-    """Represents a Mossland NFT holder within the TerraForm system."""
-    id: str = Field(..., description="Unique identifier for the NFT holder", min_length=36)
-    name: str = Field(..., description="Name of the NFT holder")
-    nft_token_address: str = Field(..., description="NFT token address")
-    portfolio: Optional[Portfolio] = Field(None, description="Portfolio of the NFT holder")
-    config = Config()
-
-
-class CreateNFTHolder(BaseModel):
-    """Create request for NFTHolder."""
-    name: str = Field(..., description="Name of the NFT holder")
-    nft_token_address: str = Field(..., description="NFT token address")
-    config = Config()
-
-
-class UpdateNFTHolder(BaseModel):
-    """Update request for NFTHolder."""
-    name: Optional[str] = Field(None, description="Name of the NFT holder")
-    nft_token_address: Optional[str] = Field(None, description="NFT token address")
-    config = Config()
-
-
-class ResponseNFTHolder(BaseModel):
-    """Response schema for NFTHolder."""
+class SmartContractResponse(BaseModel):
     id: str
     name: str
-    nft_token_address: str
-    portfolio: Optional[Portfolio]
-    config = Config()
+    address: str
+    contract_code: str
+    creation_date: datetime
+    config: dict
 
-
-class CreatePortfolio(BaseModel):
-    """Create request for Portfolio."""
-    nft_holder_id: str = Field(..., description="Unique identifier for the NFT holder")
-    assets: List[str] = Field([], description="List of asset IDs")
-    config = Config()
-
-
-class UpdatePortfolio(BaseModel):
-    """Update request for Portfolio."""
-    nft_holder_id: str = Field(..., description="Unique identifier for the NFT holder")
-    assets: List[str] = Field([], description="List of asset IDs")
-    config = Config()
-
-
-class ResponsePortfolio(BaseModel):
-    """Response schema for Portfolio."""
-    nft_holder_id: str
-    assets: List[Asset]
-    total_value: float
-    config = Config()
-
-
-class CreateRebalancingRecommendation(BaseModel):
-    """Create request for RebalancingRecommendation."""
-    nft_holder_id: str = Field(..., description="Unique identifier for the NFT holder")
-    recommendation: str = Field(..., description="GPT-5 recommendation text")
-    confidence: float = Field(0.8, description="Confidence level of the recommendation (0.0-1.0)")
-    config = Config()
-
-
-class UpdateRebalancingRecommendation(BaseModel):
-    """Update request for RebalancingRecommendation."""
-    recommendation: Optional[str] = Field(None, description="GPT-5 recommendation text")
-    confidence: Optional[float] = Field(None, description="Confidence level of the recommendation (0.0-1.0)")
-    config = Config()
-
-
-class ResponseRebalancingRecommendation(BaseModel):
-    """Response schema for RebalancingRecommendation."""
+class VulnerabilityReportResponse(BaseModel):
     id: str
-    nft_holder_id: str
-    timestamp: datetime
+    smart_contract_id: str
+    vulnerability_name: str
+    severity: str
+    description: str
     recommendation: str
-    confidence: float
-    config = Config()
+    date_reported: datetime
+
+class RiskAssessmentResponse(BaseModel):
+    id: str
+    smart_contract_id: str
+    risk_score: float
+    vulnerabilities: list[str]
+    recommendations: list[str]
+    date_assessed: datetime
