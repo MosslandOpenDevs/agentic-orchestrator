@@ -1,0 +1,32 @@
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+  shards = ["default"]
+}
+
+model ENSDomain {
+  id             String    @id @default(uuid())
+  name           String    
+  tokenId        String
+  owner          String    
+  createdAt      DateTime  @createdAt
+  updatedAt      DateTime  @updatedAt
+}
+
+model NFT {
+  id             String    @id @default(uuid())
+  tokenId        String
+  metadata       JSON
+  domainId       String
+  createdAt      DateTime  @createdAt
+  updatedAt      DateTime  @updatedAt
+  
+  @@index([domainId])
+}
+
+model User {
+  id             String    @id @default(uuid())
+  address        String    
+  createdAt      DateTime  @createdAt
+  updatedAt      DateTime  @updatedAt
+}
