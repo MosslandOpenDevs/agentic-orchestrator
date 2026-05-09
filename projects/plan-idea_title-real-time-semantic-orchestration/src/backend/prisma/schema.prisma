@@ -1,0 +1,34 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+
+model Agent {
+  id String @id @default(uuid())
+  name String
+  metadata Json
+  createdAt DateTime @default(now())
+}
+
+model Message {
+  id String @id @default(uuid())
+  senderId String
+  receiverId String
+  content String
+  createdAt DateTime @default(now())
+  agent sender Agent? @relation("sender", fields: [senderId], references: [id])
+  agent receiver Agent? @relation("receiver", fields: [receiverId], references: [id])
+}
+
+model Transaction {
+  id String @id @default(uuid())
+  timestamp DateTime
+  agentId String
+  data Json
+  createdAt DateTime @default(now())
+  agent Agent? @relation("agent", fields: [agentId], references: [id])
+}
