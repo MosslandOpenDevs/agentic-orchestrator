@@ -1,0 +1,41 @@
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+  driver = "pg"
+  discover = true
+}
+
+model ENSDomain {
+  id             String    @id @default(uuid())
+  name           String    
+  owner          String    
+  registrationStatus String
+  createdAt      DateTime  @createdAt
+  updatedAt      DateTime  @updatedAt
+}
+
+model NFT {
+  id             String    @id @default(uuid())
+  tokenId        String
+  metadata       JsonObject
+  ensDomainId    String    @relation("nft_ensdomain", self)
+  createdAt      DateTime  @createdAt
+  updatedAt      DateTime  @updatedAt
+}
+
+model ClaudeAsset {
+  id             String    @id @default(uuid())
+  brandName      String
+  assetType      String
+  assetData      Json
+  createdAt      DateTime  @createdAt
+  updatedAt      DateTime  @updatedAt
+}
+
+model nft_ensdomain {
+  id Serial primary
+  ensDomainId String
+  NFTId       String
+  foreignKey(id) on Delete CASCADE references nft(id)
+  foreignKey(ensDomainId) on Delete CASCADE references ensdomain(id)
+}
