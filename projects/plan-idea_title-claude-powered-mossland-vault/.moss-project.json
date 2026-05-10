@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "generator": "moss-ao",
+  "createdAt": "2026-05-10T15:38:26.623822",
+  "planId": "74ca46e7",
+  "projectId": "bea262e0",
+  "techStack": {
+    "frontend": "nextjs",
+    "backend": "fastapi",
+    "database": "postgresql",
+    "blockchain": "ethereum",
+    "additional": [
+      "react",
+      "solana"
+    ]
+  },
+  "features": [
+    "**Long-term Vision:**  Develop a fully autonomous DeFi portfolio management system, leveraging advanced AI techniques (e.g., reinforcement learning).  Expand to other NFT collections beyond Mossland."
+  ]
+}
