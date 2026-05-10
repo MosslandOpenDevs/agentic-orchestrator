@@ -6,7 +6,7 @@ const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'plan-gpt-5-based-defi-position-auto-rebalancing',
-  description: 'Okay, let’s do this. DTCC’s move into tokenized securities is… a fascinating puzzle. It’s not a disr',
+  description: 'Okay, let’s get this done. Michael Saylor’s noise is a starting point, not a roadmap. We're building',
 };
 
 export default function RootLayout({

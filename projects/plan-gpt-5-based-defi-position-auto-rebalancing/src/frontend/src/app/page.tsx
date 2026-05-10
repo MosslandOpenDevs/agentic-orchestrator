@@ -1,167 +1,154 @@
 import React, { useState, useEffect } from 'react';
 import { useTailwind } from 'tailwind-rn';
-import { CoingeckoAPI } from './api/coingecko';
-import { OpenAIAPI } from './api/openai';
-import { WebSocketClient } from 'react-websockets';
-import { useColorScheme } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area';
-import { StatusBar } from 'react-native';
+import { CoinGecko } from './CoinGecko';
+import { OpenAI } from './OpenAI';
+import { WebSocketClient, sendMessage } from 'react-websockets';
 
-const App = () => {
-  const tailwind = useTailwind();
+// Placeholder components - Replace with actual implementations
+import PortfolioDashboard from './components/PortfolioDashboard';
+import NFTDetails from './components/NFTDetails';
+import SettingsPanel from './components/SettingsPanel';
+
+const Dashboard = () => {
   const [loading, setLoading] = useState(true);
-  const [cryptoData, setCryptoData] = useState({});
-  const [rebalanceRecommendations, setRebalanceRecommendations] = useState([]);
-  const [openAIResponse, setOpenAIResponse] = useState('');
-  const [ws, setWs] = useState(null);
-  const [mode, setMode] = useState('light');
+  const [nftData, setNftData] = useState<any>();
+  const [gptPredictions, setGptPredictions] = useState<any>();
+  const [portfolioData, setPortfolioData] = useState<any>();
+  const [riskTolerance, setRiskTolerance] = useState(50);
+  const [aggressiveness, setAggressiveness] = useState(50);
+
+  const tailwind = useTailwind();
 
   useEffect(() => {
-    const fetchCryptoData = async () => {
-      try {
-        const data = await CoingeckoAPI.getAssets();
-        setCryptoData(data);
-      } catch (error) {
-        console.error('Error fetching crypto data:', error);
-      }
-    };
-
-    fetchCryptoData();
+    // Simulate data fetching
+    setTimeout(() => {
+      setNftData({ symbol: 'MOS', price: 100 });
+      setPortfolioData({ assets: [{ symbol: 'MOS', quantity: 10 }, { symbol: 'ETH', quantity: 5 }] });
+      setLoading(false);
+    }, 2000);
   }, []);
-
-  useEffect(() => {
-    const fetchOpenAIResponse = async () => {
-      try {
-        const response = await OpenAIAPI.generateText('Analyze current DeFi market conditions and suggest potential rebalancing strategies.');
-        setOpenAIResponse(response);
-      } catch (error) {
-        console.error('Error fetching OpenAI response:', error);
-      }
-    };
-
-    fetchOpenAIResponse();
-  }, []);
-
-  useEffect(() => {
-    const connectWebSocket = () => {
-      const ws = new WebSocketClient({
-        uri: 'ws://localhost:8080', // Replace with your WebSocket server URI
-      });
-
-      ws.onOpen = () => {
-        console.log('WebSocket connected');
-      };
-
-      ws.onMessage = async (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          setRebalanceRecommendations(data.recommendations);
-        } catch (error) {
-          console.error('Error receiving WebSocket message:', error);
-        }
-      };
-
-      ws.onclose = () => {
-        console.log('WebSocket disconnected');
-      };
-
-      setWs(ws);
-    };
-
-    connectWebSocket();
-  }, []);
-
-
-  useEffect(() => {
-    if (ws) {
-      ws.connect();
-    }
-  }, [ws]);
-
-  if (loading) {
-    return (
-      <SafeAreaProvider>
-        <StatusBar barStyle={mode === 'dark' ? 'dark-content' : 'light-content'} />
-        <div className={tailwind('flex items-center justify-center h-screen')}>
-          <p className={tailwind('text-xl')}>Loading...</p>
-        </div>
-      </SafeAreaProvider>
-    );
-  }
 
   return (
-    <SafeAreaProvider>
-      <StatusBar barStyle={mode === 'dark' ? 'dark-content' : 'light-content'} />
-      <div className={tailwind('flex h-screen')}>
-        {/* Sidebar */}
-        <div className={tailwind('bg-gray-800 p-4')}>
-          <h2 className={tailwind('text-lg font-bold text-white')}>DeFi Rebalancing Dashboard</h2>
+    <div className={tailwind('flex h-screen')}>
+      {loading && (
+        <div className={tailwind('flex justify-center items-center h-full bg-gray-100')}>
+          <p className={tailwind('text-xl font-bold')}>Loading...</p>
         </div>
-
-        {/* Main Content */}
-        <div className={tailwind('flex-grow p-4')}>
-          {/* Header */}
-          <div className={tailwind('bg-white shadow-md p-4')}>
-            <h1 className={tailwind('text-3xl font-bold text-gray-800')}>
-              Mossland Strategic Response
-            </h1>
-            <button
-              className={tailwind(
-                mode === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 hover:bg-gray-200',
-                'py-2 px-4 rounded-md mr-2'
-              )}
-              onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')}
-            >
-              Toggle Mode
-            </button>
-          </div>
-
-          {/* Portfolio Overview */}
-          <div className={tailwind('mt-4 p-4 rounded-md shadow-md')}>
-            <h2 className={tailwind('text-2xl font-bold text-gray-800')}>Portfolio Overview</h2>
-            <p className={tailwind('text-gray-600')}>
-              Fetching Crypto Data...
-            </p>
-            {Object.keys(cryptoData).map((asset) => (
-              <div key={asset} className={tailwind('mb-2')}>
-                <p className={tailwind('text-xl font-bold')}>{asset}</p>
-                <p className={tailwind('text-gray-600')}>{cryptoData[asset].price}</p>
+      )}
+      <div className={tailwind('flex')}>
+        <div className={tailwind('w-64 bg-gray-200 h-full overflow-y-auto')}>
+          <h2 className={tailwind('text-lg font-semibold p-4')}>Dashboard</h2>
+          <SettingsPanel
+            riskTolerance={riskTolerance}
+            aggressiveness={aggressiveness}
+            onRiskChange={(value) => setRiskTolerance(value)}
+            onAggressivenessChange={(value) => setAggressiveness(value)}
+          />
+        </div>
+        <div className={tailwind('flex-grow w-full p-4')}>
+          <header className={tailwind('bg-white shadow-md p-4')}>
+            <h1 className={tailwind('text-3xl font-bold')}>Mossland DeFi Dashboard</h1>
+          </header>
+          <main className={tailwind('p-4')}>
+            <PortfolioDashboard
+              data={portfolioData}
+              nftSymbol="MOS"
+              riskTolerance={riskTolerance}
+              aggressiveness={aggressiveness}
+            />
+            <NFTDetails nftSymbol="MOS" price={nftData?.price} />
+            {gptPredictions && (
+              <div className={tailwind('bg-white shadow-md p-4')}>
+                <h2 className={tailwind('text-lg font-semibold')}>GPT-5 Predictions</h2>
+                <p>{gptPredictions.prediction}</p>
               </div>
-            ))}
-          </div>
-
-          {/* Rebalancing Recommendations */}
-          <div className={tailwind('mt-4 p-4 rounded-md shadow-md')}>
-            <h2 className={tailwind('text-2xl font-bold text-gray-800')}>
-              Rebalancing Recommendations
-            </h2>
-            {rebalanceRecommendations.length > 0 && (
-              <ul className={tailwind('list-disc text-gray-600')}>
-                {rebalanceRecommendations.map((recommendation) => (
-                  <li key={recommendation.id} className={tailwind('mb-2')}>
-                    {recommendation.strategy}
-                  </li>
-                ))}
-              </ul>
             )}
-            {!rebalanceRecommendations.length > 0 && (
-              <p className={tailwind('text-gray-600')}>
-                No recommendations available.
-              </p>
-            )}
-          </div>
-
-          {/* OpenAI Response */}
-          <div className={tailwind('mt-4 p-4 rounded-md shadow-md')}>
-            <h2 className={tailwind('text-2xl font-bold text-gray-800')}>
-              OpenAI Analysis
-            </h2>
-            <pre className={tailwind('text-gray-600 p-2 rounded-md')}>{openAIResponse}</pre>
-          </div>
+          </main>
         </div>
       </div>
-    </SafeAreaProvider>
+    </div>
   );
 };
 
-export default App;
+export default Dashboard;
+
+// CoinGecko Component (Placeholder)
+import { CoinGecko } from './CoinGecko';
+
+export { CoinGecko };
+
+// OpenAI Component (Placeholder)
+import { OpenAI } from './OpenAI';
+
+export { OpenAI };
+
+// PortfolioDashboard Component (Placeholder)
+import React from 'react';
+
+const PortfolioDashboard = ({ data, nftSymbol, riskTolerance, aggressiveness }) => {
+  return (
+    <div>
+      <h2 className="text-lg font-semibold mb-4">Portfolio Overview</h2>
+      {/* Placeholder for portfolio data display */}
+      <p>Asset: {nftSymbol}</p>
+      <p>Risk Tolerance: {riskTolerance}</p>
+      <p>Aggressiveness: {aggressiveness}</p>
+    </div>
+  );
+};
+
+export default PortfolioDashboard;
+
+// NFTDetails Component (Placeholder)
+import React from 'react';
+
+const NFTDetails = ({ nftSymbol, price }) => {
+  return (
+    <div>
+      <h2 className="text-lg font-semibold mb-4">NFT Details</h2>
+      <p>Symbol: {nftSymbol}</p>
+      <p>Price: {price}</p>
+    </div>
+  );
+};
+
+export default NFTDetails;
+
+// SettingsPanel Component (Placeholder)
+import React from 'react';
+
+const SettingsPanel = ({ riskTolerance, aggressiveness, onRiskChange, onAggressivenessChange }) => {
+  return (
+    <div>
+      <h2 className="text-lg font-semibold mb-4">Settings</h2>
+      <label className="block">Risk Tolerance:</label>
+      <input
+        type="number"
+        value={riskTolerance}
+        onChange={(e) => onRiskChange(parseInt(e.target.value, 10))}
+      />
+      <label className="block">Aggressiveness:</label>
+      <input
+        type="number"
+        value={aggressiveness}
+        onChange={(e) => onAggressivenessChange(parseInt(e.target.value, 10))}
+      />
+    </div>
+  );
+};
+
+export default SettingsPanel;
+
+// CoinGecko Component (Implementation)
+import { CoinGecko } from './CoinGecko';
+
+export { CoinGecko };
+
+// OpenAI Component (Implementation)
+import { OpenAI } from './OpenAI';
+
+export { OpenAI };
+// React Websockets Component (Implementation)
+import { WebSocketClient, sendMessage } from 'react-websockets';
+
+export { WebSocketClient, sendMessage };

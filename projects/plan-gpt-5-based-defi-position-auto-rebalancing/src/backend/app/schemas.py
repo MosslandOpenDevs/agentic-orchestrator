@@ -1,129 +1,104 @@
-from pydantic import BaseModel, Field, validator, ConfigDict
-from typing import List, Optional
+from typing import Optional
+from pydantic import BaseModel, Field
+from pydantic import ConfigDict
+from datetime import datetime
 
-class FieldValidator:
-    @validator('value')
-    def value_must_be_positive(cls, value):
-        if value <= 0:
-            raise ValueError('Value must be positive')
-        return value
+class FieldValidator(BaseModel):
+    """
+    Base class for field validators.
+    """
+    pass
 
-class SecurityToken(BaseModel):
-    id: str = Field(..., description="Unique identifier for the security token", example="TOKEN123")
-    name: str = Field(..., description="Name of the security token", example="Mossland Gold")
-    symbol: str = Field(..., description="Trading symbol for the security token", example="MGS")
-    price: float = Field(..., description="Current price of the security token", FieldValidator())
-    quantity: int = Field(..., description="Number of tokens held", example=100)
-    metadata: Optional[dict] = Field(None, description="Additional metadata about the token")
-    config = ConfigDict(extra=None)
+class NFT(BaseModel):
+    """
+    Represents a Mossland NFT asset.
+    """
+    id: str = Field(..., description="Unique NFT identifier", min_length=36)
+    name: str = Field(..., description="NFT name")
+    description: Optional[str] = Field(None, description="NFT description")
+    image_url: str = Field(..., description="URL to the NFT image")
+    metadata: ConfigDict = Field(default_factory=ConfigDict, description="NFT metadata")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="NFT creation timestamp")
+    
+    schema_config = ConfigDict(
+        extra=None,
+        populate_by_name=True,
+        arbitrary_types=True,
+    )
 
-    class Create(BaseModel):
-        id: str = Field(..., description="Unique identifier for the security token")
-        name: str = Field(..., description="Name of the security token")
-        symbol: str = Field(..., description="Trading symbol for the security token")
-        price: float = Field(..., description="Current price of the security token", FieldValidator())
-        quantity: int = Field(..., description="Number of tokens held")
-        metadata: Optional[dict] = Field(None, description="Additional metadata about the token")
+    example = {
+        "id": "0x1234567890abcdef1234567890abcdef12345678",
+        "name": "Mossland Plot 1",
+        "description": "A beautiful plot in the Mossland",
+        "image_url": "https://example.com/mossland_plot_1.png",
+        "metadata": {
+            "location": "Sector A, Block 2",
+            "size": 100,
+            "terrain": "Grassland"
+        },
+        "created_at": datetime.utcnow()
+    }
 
-    class Update(BaseModel):
-        id: str = Field(..., description="Unique identifier for the security token")
-        name: Optional[str] = Field(None, description="Name of the security token")
-        symbol: Optional[str] = Field(None, description="Trading symbol for the security token")
-        price: Optional[float] = Field(None, description="Current price of the security token", FieldValidator())
-        quantity: Optional[int] = Field(None, description="Number of tokens held")
-        metadata: Optional[dict] = Field(None, description="Additional metadata about the token")
 
-    class Response(BaseModel):
-        id: str
-        name: str
-        symbol: str
-        price: float
-        quantity: int
-        metadata: Optional[dict] = Field(None, description="Additional metadata about the token")
+class Portfolio(BaseModel):
+    """
+    Represents a user's NFT portfolio.
+    """
+    user_id: str = Field(..., description="User identifier")
+    nfts: list[NFT] = Field([], description="List of NFTs in the portfolio")
+    
+    schema_config = ConfigDict(
+        extra=None,
+        populate_by_name=True,
+        arbitrary_types=True,
+    )
 
-class PortfolioPosition(BaseModel):
-    id: str = Field(..., description="Unique identifier for the portfolio position", example="POSS123")
-    user_id: str = Field(..., description="ID of the user holding the position", example="USER456")
-    security_token_id: str = Field(..., description="ID of the security token held", example="TOKEN123")
-    quantity: int = Field(..., description="Number of tokens held in the position", FieldValidator())
-    entry_price: float = Field(..., description="Price at which the position was entered", example=10.0)
-    timestamp: int = Field(..., description="Timestamp of the position entry", example=1678886400)
-    config = ConfigDict(extra=None)
+    example = {
+        "user_id": "user123",
+        "nfts": [
+            NFT(id="0x1234567890abcdef1234567890abcdef12345678", name="Mossland Plot 1"),
+            NFT(id="0xabcdef1234567890abcdef1234567890abcdef12345678", name="Mossland Plot 2")
+        ]
+    }
 
-    class Create(BaseModel):
-        id: str = Field(..., description="Unique identifier for the portfolio position")
-        user_id: str = Field(..., description="ID of the user holding the position")
-        security_token_id: str = Field(..., description="ID of the security token held")
-        quantity: int = Field(..., description="Number of tokens held in the position", FieldValidator())
-        entry_price: float = Field(..., description="Price at which the position was entered", FieldValidator())
-        timestamp: int = Field(..., description="Timestamp of the position entry")
 
-    class Update(BaseModel):
-        id: str = Field(..., description="Unique identifier for the portfolio position")
-        user_id: str = Field(..., description="ID of the user holding the position")
-        security_token_id: str = Field(..., description="ID of the security token held")
-        quantity: Optional[int] = Field(None, description="Number of tokens held in the position", FieldValidator())
-        entry_price: Optional[float] = Field(None, description="Price at which the position was entered", FieldValidator())
-        timestamp: Optional[int] = Field(None, description="Timestamp of the position entry")
+class MarketData(BaseModel):
+    """
+    Represents real-time market data for NFTs.
+    """
+    nft_id: str = Field(..., description="NFT identifier")
+    price: float = Field(..., description="Current price")
+    volume: float = Field(..., description="Trading volume")
+    
+    schema_config = ConfigDict(
+        extra=None,
+        populate_by_name=True,
+        arbitrary_types=True,
+    )
 
-    class Response(BaseModel):
-        id: str
-        user_id: str
-        security_token_id: str
-        quantity: int
-        entry_price: float
-        timestamp: int
+    example = {
+        "nft_id": "0x1234567890abcdef1234567890abcdef12345678",
+        "price": 100.0,
+        "volume": 10.0
+    }
 
-class User(BaseModel):
-    id: str = Field(..., description="Unique identifier for the user", example="USER456")
-    username: str = Field(..., description="Username for the user", example="john.doe")
-    email: str = Field(..., description="Email address for the user", example="john.doe@example.com")
-    balance: float = Field(..., description="User's balance in the Mossland Lending Protocol", example=1000.0)
-    config = ConfigDict(extra=None)
 
-    class Create(BaseModel):
-        id: str = Field(..., description="Unique identifier for the user")
-        username: str = Field(..., description="Username for the user")
-        email: str = Field(..., description="Email address for the user")
-        balance: float = Field(..., description="User's balance in the Mossland Lending Protocol", FieldValidator())
+class GPT5Prediction(BaseModel):
+    """
+    Represents a prediction generated by the GPT-5 oracle.
+    """
+    nft_id: str = Field(..., description="NFT identifier")
+    prediction: str = Field(..., description="Prediction text")
+    confidence: float = Field(..., description="Prediction confidence level")
+    
+    schema_config = ConfigDict(
+        extra=None,
+        populate_by_name=True,
+        arbitrary_types=True,
+    )
 
-    class Update(BaseModel):
-        id: str = Field(..., description="Unique identifier for the user")
-        username: Optional[str] = Field(None, description="Username for the user")
-        email: Optional[str] = Field(None, description="Email address for the user")
-        balance: Optional[float] = Field(None, description="User's balance in the Mossland Lending Protocol", FieldValidator())
-
-    class Response(BaseModel):
-        id: str
-        username: str
-        email: str
-        balance: float
-
-class RebalancingRecommendation(BaseModel):
-    id: str = Field(..., description="Unique identifier for the recommendation", example="REC789")
-    user_id: str = Field(..., description="ID of the user the recommendation is for", example="USER456")
-    timestamp: int = Field(..., description="Timestamp of when the recommendation was generated", example=1678886400)
-    recommended_positions: List[dict] = Field([], description="List of recommended portfolio positions")
-    synapse_ai_version: str = Field(..., description="Version of SynapseAI that generated the recommendation", example="1.2.3")
-    config = ConfigDict(extra=None)
-
-    class Create(BaseModel):
-        id: str = Field(..., description="Unique identifier for the recommendation")
-        user_id: str = Field(..., description="ID of the user the recommendation is for")
-        timestamp: int = Field(..., description="Timestamp of when the recommendation was generated")
-        recommended_positions: List[dict] = Field([], description="List of recommended portfolio positions")
-        synapse_ai_version: str = Field(..., description="Version of SynapseAI that generated the recommendation")
-
-    class Update(BaseModel):
-        id: str = Field(..., description="Unique identifier for the recommendation")
-        user_id: str = Field(..., description="ID of the user the recommendation is for")
-        timestamp: Optional[int] = Field(None, description="Timestamp of when the recommendation was generated")
-        recommended_positions: Optional[List[dict]] = Field(None, description="List of recommended portfolio positions")
-        synapse_ai_version: Optional[str] = Field(None, description="Version of SynapseAI that generated the recommendation")
-
-    class Response(BaseModel):
-        id: str
-        user_id: str
-        timestamp: int
-        recommended_positions: List[dict]
-        synapse_ai_version: str
+    example = {
+        "nft_id": "0xabcdef1234567890abcdef1234567890abcdef12345678",
+        "prediction": "The price will increase",
+        "confidence": 0.8
+    }

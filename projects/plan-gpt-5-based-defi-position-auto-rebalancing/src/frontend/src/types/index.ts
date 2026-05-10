@@ -3,37 +3,31 @@
  */
 
 
-export interface SecurityToken {
+export interface NFT {
   tokenId: string;
-  name: string;
-  symbol: string;
-  decimals: number;
-  totalSupply: any;
+  owner: any;
+  metadata: any;
+  value: number;
+}
+
+export interface Portfolio {
+  portfolioId: string;
+  userId: any;
+  holdings: any;
+}
+
+export interface MarketData {
+  tokenId: string;
   price: number;
-  createdAt: string;
+  volume: number;
+  timestamp: string;
 }
 
-export interface PortfolioPosition {
-  positionId: string;
-  userId: string;
+export interface GPT5Prediction {
   tokenId: string;
-  quantity: any;
-  entryPrice: number;
-  lastUpdated: string;
-}
-
-export interface User {
-  userId: string;
-  riskTolerance: number;
-  investmentStrategy: string;
-}
-
-export interface RebalancingRecommendation {
-  recommendationId: string;
-  userId: string;
-  tokenId: string;
-  changeQuantity: any;
-  reason: string;
+  predictedValue: number;
+  confidenceInterval: number;
+  timestamp: string;
 }
 
 

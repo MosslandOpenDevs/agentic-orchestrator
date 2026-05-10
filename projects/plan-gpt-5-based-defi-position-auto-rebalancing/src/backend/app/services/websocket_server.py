@@ -2,121 +2,117 @@ import asyncio
 import logging
 import time
 import os
-from typing import Callable, Dict, Any, Optional
-from collections import deque
-from aiowebsocket import *
-from aiowebsocket.exceptions import ConnectionClosedError
-import rate_limiter
-import json
+from typing import Callable, Dict, Optional, Any
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+from websockets import connect
 
-# Constants
-DEFAULT_MAX_RETRIES = 3
-DEFAULT_RETRY_DELAY = 1  # seconds
-RATE_LIMIT_MAX = 100  # Requests per minute
-RATE_LIMIT_WINDOW = 60  # seconds
+# Configuration
+RATE_LIMIT_MAX_REQUESTS = 10
+RATE_LIMIT_WINDOW_SECONDS = 5
+CACHE_EXPIRY_SECONDS = 60
+LOG_LEVEL = logging.INFO
 
-# Environment variable names
-WS_SERVER_URL = "WS_SERVER_URL"
-LOG_LEVEL = "LOG_LEVEL"
-
-# Rate Limiter
-rate_limiter_instance = rate_limiter.RateLimiter(max_rate=RATE_LIMIT_MAX, period=RATE_LIMIT_WINDOW)
-
+# Logging setup
+logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class WebSocketService:
-    def __init__(self):
-        self.connected_clients: Dict[str, asyncio.WebSocketClient] = {}
-        self.message_queue: deque[Dict[str, Any]] = deque()
-        self.retry_count = 0
-        self.logger = logging.getLogger(__name__)
+    def __init__(self, url: str, connect_timeout: int = 10, retry_attempts: int = 3):
+        self.url = url
+        self.connect_timeout = connect_timeout
+        self.retry_attempts = retry_attempts
+        self.last_request_time = 0
+        self.request_count = 0
+        self.cache = {}  # Simple in-memory cache
+        self.lock = asyncio.Lock()
 
-    def _get_config(self) -> Dict[str, Any]:
-        """Retrieves configuration from environment variables."""
-        config = {
-            WS_SERVER_URL: os.environ.get(WS_SERVER_URL, ""),
-            LOG_LEVEL: os.environ.get(LOG_LEVEL, "INFO").upper()
-        }
-        logging.basicConfig(level=config[LOG_LEVEL])
-        return config
-
-    def _connect(self, client_id: str) -> Optional[asyncio.WebSocketClient]:
-        """Connects to the WebSocket server."""
+    async def _connect(self) -> websockets.Connection:
         try:
-            ws = AsyncioWSocket(self.WS_SERVER_URL)
-            await ws.connect()
-            self.logger.info(f"Client {client_id} connected.")
-            return ws
-        except ConnectionRefusedError as e:
-            self.logger.error(f"Failed to connect to WebSocket server: {e}")
-            return None
+            async with connect(self.url, timeout=self.connect_timeout) as websocket:
+                logging.info(f"Connected to WebSocket server at {self.url}")
+                return websocket
+        except (websockets.exceptions.ConnectionClosedOK, websockets.exceptions.ConnectionClosedStatus,
+                websockets.exceptions.ConnectionClosedError) as e:
+            logging.error(f"WebSocket connection error: {e}")
+            raise
         except Exception as e:
-            self.logger.error(f"Unexpected error during connection: {e}")
-            return None
+            logging.error(f"Unexpected WebSocket connection error: {e}")
+            raise
 
-    def _send_message(self, client: asyncio.WebSocketClient, message: Dict[str, Any]) -> None:
-        """Sends a message to a client."""
+    async def _send_message(self, websocket: websockets.Connection, message: Any) -> bool:
+        with self.lock:
+            now = time.time()
+            if now - self.last_request_time < self.RATE_LIMIT_WINDOW_SECONDS:
+                self.request_count += 1
+                if self.request_count > RATE_LIMIT_MAX_REQUESTS:
+                    await asyncio.sleep(self.RATE_LIMIT_WINDOW_SECONDS)
+            else:
+                self.last_request_time = now
+                self.request_count = 1
+
+            try:
+                await websocket.send(str(message))
+                logging.debug(f"Sent message: {message}")
+                return True
+            except Exception as e:
+                logging.error(f"Error sending message: {e}")
+                return False
+
+    async def _receive_message(self, websocket: websockets.Connection) -> Optional[Any]:
         try:
-            await client.send_text(json.dumps(message))
-            self.logger.debug(f"Sent message to client {client.id}: {message}")
+            message = await websocket.recv()
+            logging.debug(f"Received message: {message}")
+            return message
         except Exception as e:
-            self.logger.error(f"Error sending message to client {client.id}: {e}")
-
-    def _receive_message(self, client: asyncio.WebSocketClient) -> None:
-        """Receives a message from a client."""
-        try:
-            message = await client.receive_text()
-            self.logger.debug(f"Received message from client {client.id}: {message}")
-            self.message_queue.append({"client_id": client.id, "message": message})
-        except ConnectionClosedError:
-            self.logger.warning(f"Client {client.id} disconnected.")
-            self.disconnect_client(client)
-        except Exception as e:
-            self.logger.error(f"Error receiving message from client {client.id}: {e}")
-
-    def _process_message_queue(self) -> None:
-        """Processes messages from the message queue."""
-        while self.message_queue:
-            message = self.message_queue.popleft()
-            for client in self.connected_clients.values():
-                if client.id == message["client_id"]:
-                    self._send_message(client, message)
-                    break
-
-    def connect_client(self, client_id: str, callback: Callable[[asyncio.WebSocketClient], None] = None) -> asyncio.WebSocketClient:
-        """Connects a client to the WebSocket server."""
-        ws = self._connect(client_id)
-        if ws:
-            self.connected_clients[client_id] = ws
-            self.logger.info(f"Client {client_id} connected.")
-            if callback:
-                asyncio.create_task(callback(ws))
-            asyncio.create_task(self._receive_message(ws))
-            return ws
-        else:
+            logging.error(f"Error receiving message: {e}")
             return None
 
-    def disconnect_client(self, client: asyncio.WebSocketClient) -> None:
-        """Disconnects a client from the WebSocket server."""
-        if client.id in self.connected_clients:
-            del self.connected_clients[client.id]
-            self.logger.info(f"Client {client.id} disconnected.")
-            asyncio.current_task().cancel()
+    async def send_and_receive(self, callback: Callable[[Any], None]) -> None:
+        try:
+            websocket = await self._connect()
+            message = await self._send_message(websocket, "Hello from client")
+            if message:
+                received_message = await self._receive_message(websocket)
+                if received_message is not None:
+                    callback(received_message)
+                else:
+                    logging.warning("Received message was None.")
+            else:
+                logging.error("Failed to send initial message.")
+        except Exception as e:
+            logging.error(f"Error during send and receive: {e}")
+        finally:
+            try:
+                await websocket.close()
+            except Exception as e:
+                logging.error(f"Error closing websocket: {e}")
 
-    def send_message_to_client(self, client_id: str, message: Dict[str, Any]) -> None:
-        """Sends a message to a specific client."""
-        client = self.connected_clients.get(client_id)
-        if client:
-            self._send_message(client, message)
-        else:
-            self.logger.warning(f"Client {client_id} not connected.")
+    async def run_forever(self):
+        while True:
+            try:
+                await self.send_and_receive(lambda x: print(f"Callback received: {x}"))
+                await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                logging.info("WebSocket service cancelled.")
+                break
+            except Exception as e:
+                logging.error(f"Unexpected error in run_forever: {e}")
 
-    def process_messages(self) -> None:
-        """Processes messages from the message queue."""
-        self._process_message_queue()
+    def start(self):
+        asyncio.create_task(self.run_forever())
 
-    def run(self) -> None:
-        """Runs the WebSocket service."""
-        asyncio.run(self._process_messages())
+    def stop(self):
+        # No explicit stop mechanism implemented for simplicity.
+        # In a real application, you'd need to gracefully close the websocket.
+        pass
+
+
+if __name__ == '__main__':
+    # Example Usage (replace with your WebSocket server URL)
+    ws_url = os.environ.get("WS_URL", "ws://localhost:8765")
+    service = WebSocketService(ws_url)
+    service.start()
+    try:
+        asyncio.get_event_loop().run_forever()
+    except KeyboardInterrupt:
+        print("Stopping WebSocket service...")
+        service.stop()

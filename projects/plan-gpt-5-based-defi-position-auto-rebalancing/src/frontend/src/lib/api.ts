@@ -1,91 +1,110 @@
-import fetch, { Response } from 'node-fetch';
+import axios, { AxiosResponse, AxiosError } from 'axios';
 
-interface BaseResponse {
+interface BaseResponse<T> {
+  data: T;
   success: boolean;
-  data?: any;
   error?: string;
 }
 
-class ApiClient {
+class NFTClient {
   private baseUrl: string;
-  private accessToken: string | null = null;
+  private axiosInstance: any;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
-  }
+    this.axiosInstance = axios.create({
+      baseURL: this.baseUrl,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
 
-  setAccessToken(token: string) {
-    this.accessToken = token;
-  }
-
-  async request<T>(method: string, endpoint: string, body?: any, headers?: any): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
-    const headerOptions = {
-      'Content-Type': 'application/json',
-      ...headers,
-    };
-
-    if (this.accessToken) {
-      headerOptions['Authorization'] = `Bearer ${this.accessToken}`;
-    }
-
-    try {
-      const response: Response = await fetch(url, {
-        method,
-        headers,
-        body: body ? JSON.stringify(body) : null,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new ApiError(response.status, errorData.message || `HTTP error ${response.status}`);
+    this.axiosInstance.interceptors.request.use(
+      (config) => {
+        // Add authentication headers here if needed
+        // Example: config.headers['Authorization'] = 'Bearer ' + this.authToken;
+        return config;
+      },
+      (error) => {
+        return Promise.reject(error);
       }
+    );
 
-      const data = await response.json() as T;
-      return data;
+    this.axiosInstance.interceptors.response.use(
+      (response) => {
+        return response as BaseResponse<any>;
+      },
+      (error) => {
+        if (error.response) {
+          // Handle HTTP errors (4xx, 5xx)
+          const errorMessage = error.response.data?.message || error.response.statusText;
+          return Promise.reject({
+            ...error,
+            data: { message: errorMessage },
+          });
+        } else {
+          // Handle non-HTTP errors (e.g., network errors)
+          return Promise.reject(error);
+        }
+      }
+    );
+  }
+
+  async getPortfolio(): Promise<BaseResponse<any>> {
+    try {
+      const response = await this.axiosInstance.get('/api/nft/portfolio');
+      return {
+        data: response.data,
+        success: true,
+        error: undefined,
+      };
     } catch (error) {
-      console.error('API Request Error:', error);
-      throw new ApiError(500, 'Internal Server Error');
+      console.error('Error fetching portfolio:', error);
+      throw error;
+    }
+  }
+
+  async getMarketData(tokenId: string): Promise<BaseResponse<any>> {
+    try {
+      const response = await this.axiosInstance.get(`/api/nft/marketdata/${tokenId}`);
+      return {
+        data: response.data,
+        success: true,
+        error: undefined,
+      };
+    } catch (error) {
+      console.error('Error fetching market data:', error);
+      throw error;
+    }
+  }
+
+  async predict(tokenId: string): Promise<BaseResponse<any>> {
+    try {
+      const response = await this.axiosInstance.post('/api/gpt5/predict', { tokenId });
+      return {
+        data: response.data,
+        success: true,
+        error: undefined,
+      };
+    } catch (error) {
+      console.error('Error predicting:', error);
+      throw error;
+    }
+  }
+
+  async getMetadata(tokenId: string): Promise<BaseResponse<any>> {
+    try {
+      const response = await this.axiosInstance.get(`/api/nft/metadata/${tokenId}`);
+      return {
+        data: response.data,
+        success: true,
+        error: undefined,
+      };
+    } catch (error) {
+      console.error('Error fetching metadata:', error);
+      throw error;
     }
   }
 }
 
-class SecurityPricesClient extends ApiClient {
-  constructor() {
-    super('/api/security-prices');
-  }
-
-  getSecurityPrices(): Promise<any> {
-    return this.request('GET', '');
-  }
-}
-
-class RebalanceClient extends ApiClient {
-  constructor() {
-    super('/api/rebalance');
-  }
-
-  generateRebalance(body: any): Promise<any> {
-    return this.request('POST', '', body);
-  }
-}
-
-class PortfolioClient extends ApiClient {
-  constructor() {
-    super('/api/portfolio');
-  }
-
-  getPortfolio(userId: string): Promise<any> {
-    return this.request('GET', `/${userId}`);
-  }
-}
-
-class ApiError extends Error {
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-  }
-}
-
-export { SecurityPricesClient, RebalanceClient, PortfolioClient, ApiClient, ApiError };
+export default NFTClient;

@@ -8,76 +8,160 @@ from concurrent.futures import ThreadPoolExecutor
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class CoingeckoService:
-    def __init__(self, api_key: str, rate_limit_interval: int = 60, max_retries: int = 3):
+    """
+    Service for integrating with the Coingecko API.
+    """
+
+    def __init__(self, api_key: str, rate_limit_delay: int = 1, max_retries: int = 3):
+        """
+        Initializes the CoingeckoService.
+
+        Args:
+            api_key: The Coingecko API key.
+            rate_limit_delay: Delay in seconds between API calls to respect rate limits.
+            max_retries: Maximum number of retries for transient errors.
+        """
         self.api_key = api_key
-        self.base_url = "https://api.coingecko.com/v3"
-        self.rate_limit_interval = rate_limit_interval
+        self.base_url = "https://api.coingecko.com/api/v3"
+        self.rate_limit_delay = rate_limit_delay
         self.max_retries = max_retries
-        self.executor = ThreadPoolExecutor(max_workers=5)  # Adjust based on needs
-        self.cache = {}  # Simple in-memory cache
+        self.retry_backoff_factor = 2  # Exponential backoff
+        self.executor = ThreadPoolExecutor(max_workers=5)  # Thread pool for concurrent requests
 
-    def _make_request(self, endpoint: str, params: Dict = None) -> Optional[Dict]:
-        """Makes a request to the Coingecko API with retry logic."""
-        for attempt in range(self.max_retries):
-            try:
-                url = f"{self.base_url}{endpoint}"
-                if params:
-                    url += "?" + "&".join([f"{k}={v}" for k, v in params.items()])
-                response = requests.get(url, headers={"X-CG-Token": self.api_key})
-                response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-                return response.json()
-            except RequestException as e:
-                logging.error(f"Request failed (attempt {attempt + 1}/{self.max_retries}): {e}")
-                if attempt < self.max_retries - 1:
-                    time.sleep(2 ** attempt)  # Exponential backoff
-                else:
-                    logging.error("Max retries reached.  Request failed.")
-                    return None
-        return None
+    def _make_request(self, endpoint: str, params: Dict = None) -> Dict:
+        """
+        Makes a request to the Coingecko API.
 
-    def get_coin_info(self, coin_id: str) -> Optional[Dict]:
-        """Retrieves information for a specific coin."""
-        cache_key = f"coin_info_{coin_id}"
-        if coin_id in self.cache and time.time() - self.cache[coin_id].get("timestamp", 0) < self.rate_limit_interval:
-            logging.debug(f"Returning cached data for {coin_id}")
-            return self.cache[coin_id]
+        Args:
+            endpoint: The API endpoint.
+            params: Query parameters.
 
-        data = self._make_request(f"coins/{coin_id}")
-        if data:
-            self.cache[coin_id] = {"timestamp": time.time(), "data": data}
-            logging.debug(f"Fetched data for {coin_id} and cached.")
-        else:
-            logging.warning(f"Failed to fetch data for {coin_id}")
-        return data
+        Returns:
+            The JSON response from the API.
 
-    def get_trending_coins(self, market_type: str = "default") -> List[Dict]:
-        """Retrieves a list of trending coins."""
+        Raises:
+            requests.exceptions.RequestException: If the request fails.
+        """
+        headers = {"X-CG-VERSION": "v3", "Authorization": f"Bearer {self.api_key}"}
         try:
-            data = self._make_request(f"coins/trending?market_type={market_type}")
+            response = requests.get(endpoint, headers=headers, params=params)
+            response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+            return response.json()
+        except RequestException as e:
+            logger.error(f"Request failed for {endpoint}: {e}")
+            return None
+
+    def get_ticker(self, symbol: str) -> Optional[Dict]:
+        """
+        Gets the ticker data for a cryptocurrency.
+
+        Args:
+            symbol: The cryptocurrency symbol (e.g., "bitcoin").
+
+        Returns:
+            The ticker data as a dictionary, or None if an error occurred.
+        """
+        endpoint = f"{self.base_url}/exchange/{symbol}/tickers"
+        data = self._make_request(endpoint)
+        if data:
+            return data[0]  # Return the first ticker
+        else:
+            return None
+
+    def get_price(self, symbol: str) -> Optional[float]:
+        """
+        Gets the current price of a cryptocurrency.
+
+        Args:
+            symbol: The cryptocurrency symbol.
+
+        Returns:
+            The current price as a float, or None if an error occurred.
+        """
+        ticker = self.get_ticker(symbol)
+        if ticker:
+            return ticker["last"]
+        else:
+            return None
+
+    def get_market_caps(self, symbol: str) -> Optional[float]:
+        """
+        Gets the market cap of a cryptocurrency.
+
+        Args:
+            symbol: The cryptocurrency symbol.
+
+        Returns:
+            The market cap as a float, or None if an error occurred.
+        """
+        ticker = self.get_ticker(symbol)
+        if ticker:
+            return ticker["market_caps"]
+        else:
+            return None
+
+    def get_all_prices(self, symbols: List[str]) -> Dict[str, Optional[float]]:
+        """
+        Gets the current prices for a list of cryptocurrencies.
+
+        Args:
+            symbols: A list of cryptocurrency symbols.
+
+        Returns:
+            A dictionary where keys are symbols and values are their prices.
+        """
+        prices = {}
+        for symbol in symbols:
+            prices[symbol] = self.get_price(symbol)
+        return prices
+
+    def get_coin_info(self, symbol: str) -> Optional[Dict]:
+        """
+        Gets the basic information for a cryptocurrency.
+
+        Args:
+            symbol: The cryptocurrency symbol.
+
+        Returns:
+            The coin information as a dictionary, or None if an error occurred.
+        """
+        endpoint = f"{self.base_url}/coins/{symbol}"
+        data = self._make_request(endpoint)
+        if data:
+            return data
+        else:
+            return None
+
+    def fetch_data(self, endpoint: str, params: Dict = None) -> Optional[Dict]:
+        """
+        Helper function to handle retries and rate limiting.
+        """
+        for attempt in range(self.max_retries):
+            data = self._make_request(endpoint, params)
             if data:
                 return data
             else:
-                logging.warning("Failed to fetch trending coins.")
-                return []
-        except Exception as e:
-            logging.error(f"Error fetching trending coins: {e}")
-            return []
+                logger.info(f"Attempt {attempt + 1} failed for {endpoint}.  Retrying in {self.retry_backoff_factor} seconds...")
+                time.sleep(self.retry_backoff_factor)
+        logger.error(f"Failed to fetch data after {self.max_retries} attempts for {endpoint}")
+        return None
 
-    def get_price(self, coin_id: str, vs_currency: str = "usd") -> Optional[float]:
-        """Retrieves the price of a coin in a specific currency."""
-        try:
-            data = self._make_request(f"coins/{coin_id}/markets?vs_currency={vs_currency}")
-            if data:
-                return data[0]["price"]
-            else:
-                logging.warning(f"Failed to fetch price for {coin_id} in {vs_currency}")
-                return None
-        except Exception as e:
-            logging.error(f"Error fetching price for {coin_id}: {e}")
-            return None
+if __name__ == '__main__':
+    # Example Usage (replace with your API key)
+    api_key = os.environ.get("COINGEKO_API_KEY")
+    if not api_key:
+        api_key = "YOUR_COINGEKO_API_KEY"  # Replace with your actual API key
 
-    def clear_cache(self):
-        """Clears the in-memory cache."""
-        self.cache = {}
+    service = CoingeckoService(api_key=api_key)
+
+    bitcoin_price = service.get_price("bitcoin")
+    if bitcoin_price:
+        print(f"Bitcoin price: {bitcoin_price}")
+    else:
+        print("Could not retrieve Bitcoin price.")
+
+    all_prices = service.get_all_prices(["bitcoin", "ethereum", "cardano"])
+    print("All prices:", all_prices)
