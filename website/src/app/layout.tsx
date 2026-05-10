@@ -4,6 +4,7 @@ import { I18nProvider } from "@/lib/i18n";
 import { ModalProvider } from "@/components/modals/ModalProvider";
 import { Navigation } from "@/components/Navigation";
 import { Footer } from "@/components/Footer";
+import { NpcCityStrip } from "@/components/NpcCityStrip";
 import "./globals.css";
 
 const jetbrainsMono = JetBrains_Mono({
@@ -61,6 +62,9 @@ export default function RootLayout({
               <main className="relative z-10">
                 {children}
               </main>
+              {/* NPC city cross-link — read-side fetch with 10-min
+                  revalidate; renders nothing if npc.moss.land is down. */}
+              <NpcCityStrip />
               <Footer />
             </div>
           </ModalProvider>
