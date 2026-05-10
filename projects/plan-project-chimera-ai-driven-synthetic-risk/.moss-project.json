@@ -1,0 +1,22 @@
+{
+  "version": "1.0.0",
+  "generator": "moss-ao",
+  "createdAt": "2026-05-10T09:38:34.878704",
+  "planId": "cbbbe5e2",
+  "projectId": "126df4f8",
+  "techStack": {
+    "frontend": "react",
+    "backend": "fastapi",
+    "database": "postgresql",
+    "blockchain": null,
+    "additional": []
+  },
+  "features": [
+    "**Full Version (6-9 Months):**  Integration with dynamic risk scoring, automated smart contract verification, and expanded API integrations.",
+    "*Estimated Cost:**",
+    "**Labor (Development Team - 3 Developers, 1 PM):** $150,000 - $250,000 (depending on team location and experience)",
+    "**Infrastructure (Cloud Hosting, API Costs):** $10,000 - $20,000 annually",
+    "**AI Model Training & Maintenance:** $20,000 - $40,000 (initial training, ongoing monitoring & retraining)",
+    "**Total Estimated Cost (MVP):** $180,000 - $270,000"
+  ]
+}
