@@ -3,116 +3,111 @@ import logging
 import time
 import os
 from typing import Callable, Dict, Optional, Any
+from collections import deque
+import aioredis
+import aiohttp
+from aiohttp import ClientSession
+from aioredis.exceptions import RedisError
 
-from websockets import connect
-
-# Configuration
-RATE_LIMIT_MAX_REQUESTS = 10
-RATE_LIMIT_WINDOW_SECONDS = 5
-CACHE_EXPIRY_SECONDS = 60
-LOG_LEVEL = logging.INFO
-
-# Logging setup
-logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s - %(levelname)s - %(message)s')
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 class WebSocketService:
-    def __init__(self, url: str, connect_timeout: int = 10, retry_attempts: int = 3):
+    def __init__(self, url: str, session_timeout: int = 60, retry_count: int = 3, retry_delay: float = 1.0, rate_limit: int = 10):
         self.url = url
-        self.connect_timeout = connect_timeout
-        self.retry_attempts = retry_attempts
+        self.session_timeout = session_timeout
+        self.retry_count = retry_count
+        self.retry_delay = retry_delay
+        self.rate_limit = rate_limit
         self.last_request_time = 0
         self.request_count = 0
-        self.cache = {}  # Simple in-memory cache
+        self.connected = False
+        self.redis_client = None
+        self.aiohttp_session = None
+        self.message_queue = deque()
         self.lock = asyncio.Lock()
 
-    async def _connect(self) -> websockets.Connection:
+    async def connect(self):
         try:
-            async with connect(self.url, timeout=self.connect_timeout) as websocket:
-                logging.info(f"Connected to WebSocket server at {self.url}")
-                return websocket
-        except (websockets.exceptions.ConnectionClosedOK, websockets.exceptions.ConnectionClosedStatus,
-                websockets.exceptions.ConnectionClosedError) as e:
-            logging.error(f"WebSocket connection error: {e}")
-            raise
-        except Exception as e:
-            logging.error(f"Unexpected WebSocket connection error: {e}")
+            self.redis_client = await aioredis.from_url(os.environ.get("REDIS_URL", "redis://localhost"), decode_responses=True)
+            self.aiohttp_session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.session_timeout))
+            self.connected = True
+            logging.info(f"Connected to WebSocket server at {self.url}")
+        except RedisError as e:
+            logging.error(f"Error connecting to Redis: {e}")
+            self.connected = False
             raise
 
-    async def _send_message(self, websocket: websockets.Connection, message: Any) -> bool:
-        with self.lock:
-            now = time.time()
-            if now - self.last_request_time < self.RATE_LIMIT_WINDOW_SECONDS:
-                self.request_count += 1
-                if self.request_count > RATE_LIMIT_MAX_REQUESTS:
-                    await asyncio.sleep(self.RATE_LIMIT_WINDOW_SECONDS)
-            else:
-                self.last_request_time = now
-                self.request_count = 1
-
+    async def disconnect(self):
+        if self.redis_client:
             try:
-                await websocket.send(str(message))
-                logging.debug(f"Sent message: {message}")
-                return True
+                await self.redis_client.close()
+                self.redis_client = None
             except Exception as e:
-                logging.error(f"Error sending message: {e}")
-                return False
+                logging.error(f"Error closing Redis connection: {e}")
+        if self.aiohttp_session:
+            try:
+                await self.aiohttp_session.close()
+                self.aiohttp_session = None
+            except Exception as e:
+                logging.error(f"Error closing aiohttp session: {e}")
 
-    async def _receive_message(self, websocket: websockets.Connection) -> Optional[Any]:
+    async def send_message(self, message: str):
+        if not self.connected:
+            logging.warning("Not connected to WebSocket server. Message dropped.")
+            return
+
+        if self.request_count >= self.rate_limit:
+            await asyncio.sleep(1.0)  # Simple rate limiting
+            return
+
+        self.request_count += 1
+        start_time = time.time()
         try:
-            message = await websocket.recv()
-            logging.debug(f"Received message: {message}")
-            return message
+            async with self.aiohttp_session.post(self.url, data=message.encode(), headers={'Content-Type': 'text/plain'}) as response:
+                if response.status == 200:
+                    logging.debug(f"Message sent successfully: {message}")
+                else:
+                    logging.error(f"Failed to send message: {message}, Status code: {response.status}")
+        except aiohttp.ClientError as e:
+            logging.error(f"aiohttp error sending message: {e}")
+            await self.retry_message(message)
+        except Exception as e:
+            logging.error(f"Unexpected error sending message: {e}")
+            await self.retry_message(message)
+
+    async def receive_message(self):
+        try:
+            while True:
+                try:
+                    message = await asyncio.wait_for(self.redis_client.blpop(timeout=1), 1)
+                    if message:
+                        data = message[1]
+                        logging.info(f"Received message: {data}")
+                        self.message_queue.append(data)
+                        break
+                except RedisError as e:
+                    logging.error(f"Redis error receiving message: {e}")
+                    await asyncio.sleep(0.5)
         except Exception as e:
             logging.error(f"Error receiving message: {e}")
-            return None
 
-    async def send_and_receive(self, callback: Callable[[Any], None]) -> None:
-        try:
-            websocket = await self._connect()
-            message = await self._send_message(websocket, "Hello from client")
-            if message:
-                received_message = await self._receive_message(websocket)
-                if received_message is not None:
-                    callback(received_message)
-                else:
-                    logging.warning("Received message was None.")
-            else:
-                logging.error("Failed to send initial message.")
-        except Exception as e:
-            logging.error(f"Error during send and receive: {e}")
-        finally:
+    async def retry_message(self, message: str):
+        for i in range(self.retry_count):
+            await asyncio.sleep(self.retry_delay * (i + 1))
             try:
-                await websocket.close()
+                await self.send_message(message)
+                return
             except Exception as e:
-                logging.error(f"Error closing websocket: {e}")
+                logging.warning(f"Retry failed for message {message}: {e}")
 
-    async def run_forever(self):
-        while True:
-            try:
-                await self.send_and_receive(lambda x: print(f"Callback received: {x}"))
-                await asyncio.sleep(1)
-            except asyncio.CancelledError:
-                logging.info("WebSocket service cancelled.")
-                break
-            except Exception as e:
-                logging.error(f"Unexpected error in run_forever: {e}")
+    async def run(self):
+        await self.connect()
+        receiver_task = asyncio.create_task(self.receive_message())
+        sender_task = asyncio.create_task(self.send_message("Hello, WebSocket!"))
+        await asyncio.gather(receiver_task, sender_task)
+        await self.disconnect()
 
-    def start(self):
-        asyncio.create_task(self.run_forever())
-
-    def stop(self):
-        # No explicit stop mechanism implemented for simplicity.
-        # In a real application, you'd need to gracefully close the websocket.
-        pass
-
-
-if __name__ == '__main__':
-    # Example Usage (replace with your WebSocket server URL)
-    ws_url = os.environ.get("WS_URL", "ws://localhost:8765")
-    service = WebSocketService(ws_url)
-    service.start()
-    try:
-        asyncio.get_event_loop().run_forever()
-    except KeyboardInterrupt:
-        print("Stopping WebSocket service...")
-        service.stop()
+    def get_message_queue(self) -> list:
+        with self.lock:
+            return list(self.message_queue)

@@ -6,7 +6,7 @@ interface BaseResponse<T> {
   error?: string;
 }
 
-class NFTClient {
+class NftApi {
   private baseUrl: string;
   private axiosInstance: any;
 
@@ -36,15 +36,13 @@ class NFTClient {
       },
       (error) => {
         if (error.response) {
-          // Handle HTTP errors (4xx, 5xx)
-          const errorMessage = error.response.data?.message || error.response.statusText;
-          return Promise.reject({
-            ...error,
-            data: { message: errorMessage },
-          });
+          // Handle HTTP errors
+          return Promise.reject(
+            new ApiError(error.response.status, error.response.data?.message || 'HTTP Error')
+          );
         } else {
           // Handle non-HTTP errors (e.g., network errors)
-          return Promise.reject(error);
+          return Promise.reject(new ApiError(500, 'Network Error'));
         }
       }
     );
@@ -58,53 +56,56 @@ class NFTClient {
         success: true,
         error: undefined,
       };
-    } catch (error) {
-      console.error('Error fetching portfolio:', error);
-      throw error;
+    } catch (error: any) {
+      throw new ApiError(error.response?.status || 500, error.response?.data?.message || 'Error fetching portfolio');
     }
   }
 
-  async getMarketData(tokenId: string): Promise<BaseResponse<any>> {
+  async rebalancePortfolio(data: any): Promise<BaseResponse<any>> {
     try {
-      const response = await this.axiosInstance.get(`/api/nft/marketdata/${tokenId}`);
+      const response = await this.axiosInstance.post('/api/portfolio/rebalance', data);
       return {
         data: response.data,
         success: true,
         error: undefined,
       };
-    } catch (error) {
-      console.error('Error fetching market data:', error);
-      throw error;
+    } catch (error: any) {
+      throw new ApiError(error.response?.status || 500, error.response?.data?.message || 'Error rebalancing portfolio');
     }
   }
 
-  async predict(tokenId: string): Promise<BaseResponse<any>> {
+  async getPrediction(nftId: string): Promise<BaseResponse<any>> {
     try {
-      const response = await this.axiosInstance.post('/api/gpt5/predict', { tokenId });
+      const response = await this.axiosInstance.get(`/api/nft/prediction/${nftId}`);
       return {
         data: response.data,
         success: true,
         error: undefined,
       };
-    } catch (error) {
-      console.error('Error predicting:', error);
-      throw error;
+    } catch (error: any) {
+      throw new ApiError(error.response?.status || 500, error.response?.data?.message || 'Error fetching prediction');
     }
   }
 
-  async getMetadata(tokenId: string): Promise<BaseResponse<any>> {
+  async getMarketData(): Promise<BaseResponse<any>> {
     try {
-      const response = await this.axiosInstance.get(`/api/nft/metadata/${tokenId}`);
+      const response = await this.axiosInstance.get('/api/marketdata');
       return {
         data: response.data,
         success: true,
         error: undefined,
       };
-    } catch (error) {
-      console.error('Error fetching metadata:', error);
-      throw error;
+    } catch (error: any) {
+      throw new ApiError(error.response?.status || 500, error.response?.data?.message || 'Error fetching market data');
     }
   }
 }
 
-export default NFTClient;
+class ApiError extends Error {
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export default NftApi;

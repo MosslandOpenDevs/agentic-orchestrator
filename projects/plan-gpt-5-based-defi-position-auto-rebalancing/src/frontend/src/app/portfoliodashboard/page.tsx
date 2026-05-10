@@ -1,58 +1,101 @@
 import React, { useState, useEffect } from 'react';
-import { useServer } from '../../api/useServer'; // Assuming API server is in a separate file
-import { PortfolioHolding } from '../../types';
+import { useServerApi } from '../../utils/serverApi'; // Assuming serverApi is defined elsewhere
+import { NFTPortfolioItem } from '../../types/NFTPortfolioItem';
 
-const PortfolioDashboard = () => {
-  const { portfolio, loading, error } = useServer();
-  const [rebalanceAmount, setRebalanceAmount] = useState<number>(0);
+interface PortfolioDashboardProps {
+  userId: string;
+}
 
-  const handleRebalance = () => {
-    // Simulate rebalancing logic - replace with actual implementation
-    console.log('Rebalancing by:', rebalanceAmount);
-    // Call API to execute rebalancing
-  };
+const PortfolioDashboard: React.FC<PortfolioDashboardProps> = ({ userId }) => {
+  const [portfolioData, setPortfolioData] = useState<NFTPortfolioItem[] | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const { getPortfolio } = useServerApi();
 
-  if (loading) return <div>Loading portfolio...</div>;
-  if (error) return <div>Error loading portfolio: {error}</div>;
+  useEffect(() => {
+    const fetchPortfolio = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getPortfolio(userId);
+        if (data) {
+          setPortfolioData(data);
+        } else {
+          setError('Failed to retrieve portfolio data.');
+        }
+      } catch (err: any) {
+        setError(err.message || 'An error occurred.');
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const totalPortfolioValue = portfolio?.holdings?.reduce((sum, holding) => sum + holding.value, 0) || 0;
+    fetchPortfolio();
+  }, [userId, getPortfolio]);
+
+  if (loading) {
+    return (
+      <div className="bg-gray-100 p-8 rounded-lg shadow-md flex items-center justify-center">
+        <p className="text-gray-600">Loading portfolio...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-100 p-8 rounded-lg shadow-md flex items-center justify-center">
+        <p className="text-gray-600">Error: {error}</p>
+      </div>
+    );
+  }
+
+  if (!portfolioData) {
+    return (
+      <div className="bg-gray-100 p-8 rounded-lg shadow-md flex items-center justify-center">
+        <p className="text-gray-600">No portfolio data available.</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="bg-gray-100 p-8 rounded-lg shadow-md w-full max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Portfolio Dashboard</h1>
+    <div className="bg-gray-100 p-8 rounded-lg shadow-md flex flex-col">
+      <h2 className="text-2xl font-bold mb-4">NFT Portfolio</h2>
 
-      <div className="mb-4">
-        <p className="text-gray-700">Total Portfolio Value: <span className="font-semibold">
-          ${totalPortfolioValue.toFixed(2)}
-        </span></p>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {portfolioData.map((item) => (
+          <div
+            key={item.tokenId}
+            className="bg-white rounded-lg shadow-sm p-4 hover:shadow-lg transition duration-300"
+            aria-label={`NFT: ${item.name}`}
+          >
+            <img
+              src={item.imageUrl}
+              alt={item.name}
+              className="w-full h-32 object-cover rounded-lg mb-2"
+            />
+            <h3 className="text-lg font-semibold mb-2">{item.name}</h3>
+            <p className="text-gray-700">Token ID: {item.tokenId}</p>
+            <p className="text-gray-700">Quantity: {item.quantity}</p>
+            <p className="text-gray-700">Current Value: ${item.currentValue.toFixed(2)}</p>
+          </div>
+        ))}
       </div>
 
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-2">Rebalance Amount:</label>
-        <input
-          type="number"
-          className="form-control text-sm rounded-md shadow-outline"
-          value={rebalanceAmount}
-          onChange={(e) => setRebalanceAmount(parseFloat(e.target.value))}
-        />
+      {/* Rebalancing Controls (Placeholder) */}
+      <div className="mt-4 p-4 rounded-lg bg-gray-200">
+        <p className="text-gray-700 mb-2">Rebalancing Controls (Placeholder)</p>
+        <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md w-full mt-2">
+          Adjust Portfolio
+        </button>
       </div>
 
-      <button
-        onClick={handleRebalance}
-        className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md w-full max-w-sm"
-        aria-label="Rebalance Portfolio"
-      >
-        Rebalance Portfolio
-      </button>
-
-      <h2 className="text-xl font-bold mb-4">NFT Holdings</h2>
-      {portfolio?.holdings?.map((holding) => (
-        <div key={holding.tokenId} className="mb-2">
-          <p className="text-gray-700">NFT ID: {holding.tokenId}</p>
-          <p className="text-gray-700">Name: {holding.name}</p>
-          <p className="text-gray-700">Value: ${holding.value.toFixed(2)}</p>
-        </div>
-      ))}
+      {/* NFT Value Predictions (Placeholder) */}
+      <div className="mt-4 p-4 rounded-lg bg-gray-200">
+        <p className="text-gray-700 mb-2">NFT Value Predictions (Placeholder)</p>
+        <p className="text-gray-700">
+          This section will display predicted NFT values based on market trends.
+        </p>
+      </div>
     </div>
   );
 };

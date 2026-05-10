@@ -6,24 +6,24 @@
 export interface NFT {
   tokenId: string;
   owner: any;
-  metadata: any;
-  value: number;
+  metadata: Record<string, any>;
+  quantity: any;
 }
 
 export interface Portfolio {
   portfolioId: string;
   userId: any;
-  holdings: any;
+  holdings: Record<string, any>;
 }
 
 export interface MarketData {
   tokenId: string;
   price: number;
-  volume: number;
+  volume: any;
   timestamp: string;
 }
 
-export interface GPT5Prediction {
+export interface Prediction {
   tokenId: string;
   predictedValue: number;
   confidenceInterval: number;

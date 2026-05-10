@@ -1,20 +1,23 @@
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import HTTPException
-from pydantic import BaseModel
+from typing import List, Dict
 import logging
 import os
 import asyncio
-from websockets import connect
-from websockets.exceptions import ConnectionClosedOK
+from websockets import WebSocketClientProtocol, connect
+from websockets import WebSocket
 import json
 import time
 import gevent
-from gevent import monkey
-monkey.patch_all()
+from gevent.pywsgi import WSGIServer
+from geventwebsocket.handler import WebSocketHandler
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Replace with your actual API keys and settings
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "YOUR_OPENAI_API_KEY")
+COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "YOUR_COINGECKO_API_KEY")
+CONTRACT_ADDRESS = os.environ.get("CONTRACT_ADDRESS", "YOUR_CONTRACT_ADDRESS")
+CONTRACT_ABI = os.environ.get("CONTRACT_ABI", "YOUR_CONTRACT_ABI")
 
 app = FastAPI(
     title="NFT Rebalancing Platform",
@@ -22,148 +25,126 @@ app = FastAPI(
     version="0.1",
 )
 
-# CORS Configuration
-origins = [
-    "http://localhost:8000",  # Adjust as needed
-    "http://localhost:3000",  # Adjust as needed
-    "*"  # For development only - consider restricting in production
-]
+# Configure CORS
+origins = ["http://localhost:8000", "http://localhost:3000"]  # Add your frontend origin here
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
     allow_headers=["Access-Control-Allow-Origin"],
 )
 
-# Data Models
-class RebalanceRequest(BaseModel):
-    asset_ids: list[str]
-    target_allocation: dict
-
-class PredictionResponse(BaseModel):
-    asset_id: str
-    predicted_value: float
-    confidence: float
+# Logging setup
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 
-# Dummy Smart Contract Interaction (Replace with actual smart contract logic)
-def interact_with_smart_contract(asset_ids, target_allocation):
-    """Simulates interaction with a smart contract for rebalancing."""
-    logging.info(f"Simulating smart contract interaction: {asset_ids}, {target_allocation}")
-    # In a real implementation, this would call the smart contract.
-    # For now, we just return a dummy prediction.
-    return {asset_id: 100.0 for asset_id in asset_ids} # Dummy prediction
-
-
-# CoinGecko Integration
-COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY")
-COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
-
-def get_nft_prices(asset_ids):
-    """Retrieves NFT prices from CoinGecko."""
+# Dependency for OpenAI API access
+def get_openai_client():
     try:
-        prices = {}
-        for asset_id in asset_ids:
-            url = f"{COINGECKO_API_URL}/simple/price?ids={asset_id}&vs_currencies=usd"
-            response = gevent.getrequest(url, timeout=10)
-            data = json.loads(response.read().decode())
-            if "usd" in data:
-                prices[asset_id] = data["usd"]
-            else:
-                logging.warning(f"Could not retrieve price for {asset_id} from CoinGecko.")
-        return prices
-    except Exception as e:
-        logging.error(f"Error fetching NFT prices from CoinGecko: {e}")
-        raise
+        import openai
+        openai.api_key = OPENAI_API_KEY
+        return openai
+    except ImportError:
+        raise HTTPException(
+            status_code=500, detail="OpenAI library not installed"
+        )
 
 
-# OpenAI Integration
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-3.5-turbo")
-
-def query_gpt5_oracle(asset_id):
-    """Queries the GPT-5 oracle for NFT value prediction."""
+# Dependency for Coingecko API access
+def get_coingecko_client():
     try:
-        prompt = f"Predict the value of {asset_id} based on current market conditions and historical data."
-        # Replace with actual OpenAI API call
-        # response = openai.Completion.create(
-        #     engine=OPENAI_MODEL,
-        #     prompt=prompt,
-        #     max_tokens=50
-        # )
-        # return response.choices[0].text.strip()
-        return float(f"{asset_id} - 100.0") # Dummy prediction
-    except Exception as e:
-        logging.error(f"Error querying GPT-5 oracle for {asset_id}: {e}")
-        raise
-
-
-# WebSocket Server Integration
-WS_URL = "ws://localhost:8765"  # Replace with your WebSocket server URL
-
-async def send_rebalancing_request(asset_ids, target_allocation):
-    """Sends a rebalancing request to the WebSocket server."""
-    try:
-        async with connect(WS_URL) as websocket:
-            data = {
-                "type": "rebalance",
-                "asset_ids": asset_ids,
-                "target_allocation": target_allocation
-            }
-            await websocket.send(json.dumps(data))
-            response = await websocket.recv()
-            logging.info(f"Received response from WebSocket server: {response}")
-    except ConnectionClosedOK:
-        logging.info("WebSocket connection closed normally.")
-    except Exception as e:
-        logging.error(f"Error sending rebalancing request to WebSocket server: {e}")
+        import coingecko
+        coingecko.api_key = COINGECKO_API_KEY
+        return coingecko
+    except ImportError:
+        raise HTTPException(
+            status_code=500, detail="Coingecko library not installed"
+        )
 
 
 # Health Check Endpoint
-@app.get("/health")
+@app.get("/health", status_code=status.HTTP_200_OK)
 def health_check():
-    """Returns a 200 OK status if the application is running."""
     return {"status": "ok"}
 
 
-# API Routes
-@app.post("/rebalance", response_model=PredictionResponse)
-def rebalance(request: RebalanceRequest):
-    """Rebalances NFT portfolio based on GPT-5 predictions."""
-    asset_ids = request.asset_ids
-    target_allocation = request.target_allocation
+# Example Smart Contract Interaction (Placeholder)
+def call_smart_contract(action: str, params: Dict):
+    # Replace this with your actual smart contract interaction logic
+    logging.info(f"Calling smart contract with action: {action}, params: {params}")
+    # Simulate a successful call
+    return {"result": "success", "data": params}
 
-    # 1. Get NFT Prices from CoinGecko
+
+# Rebalance Endpoint
+@app.post("/rebalance")
+async def rebalance(params: Dict):
     try:
-        prices = get_nft_prices(asset_ids)
+        result = call_smart_contract("rebalance", params)
+        return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve NFT prices from CoinGecko: {e}")
-
-    # 2. Query GPT-5 Oracle for Predictions
-    predictions = {}
-    for asset_id in asset_ids:
-        try:
-            prediction = query_gpt5_oracle(asset_id)
-            predictions[asset_id] = prediction
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to get prediction from GPT-5 oracle for {asset_id}: {e}")
-
-    # 3. Interact with Smart Contract
-    smart_contract_data = interact_with_smart_contract(asset_ids, target_allocation)
-
-    # Combine predictions and smart contract data (simplified)
-    combined_data = {}
-    for asset_id in asset_ids:
-        combined_data[asset_id] = smart_contract_data[asset_id]
-
-    return PredictionResponse(asset_id=asset_ids[0], predicted_value=combined_data[asset_ids[0]], confidence=0.5) # Dummy response
+        logging.error(f"Error during rebalance: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/example")
-def example_route():
-    return {"message": "This is an example endpoint"}
+# NFT Price Data Endpoint
+@app.get("/nft_prices")
+async def get_nft_prices(nft_symbols: List[str]):
+    try:
+        client = get_coingecko_client()
+        prices = {}
+        for symbol in nft_symbols:
+            try:
+                ticker = client.search(symbol)
+                if ticker['coins']:
+                    id = ticker['coins'][0]['id']
+                    prices[symbol] = client.get_coin_info(id)['market_data']['current_price']['usd']
+            except Exception as e:
+                logging.error(f"Error fetching price for {symbol}: {e}")
+                prices[symbol] = None
+        return prices
+    except Exception as e:
+        logging.error(f"Error fetching NFT prices: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# OpenAI Oracle Endpoint
+@app.get("/oracle_prediction")
+async def oracle_prediction(nft_symbol: str):
+    try:
+        client = get_openai_client()
+        prompt = f"Predict the value of {nft_symbol} based on current market conditions."
+        response = client.Completion.create(
+            engine="text-davinci-003",
+            prompt=prompt,
+            max_tokens=50,
+            n=1,
+            stop=None,
+            temperature=0.7,
+        )
+        prediction = response.choices[0].text.strip()
+        return {"symbol": nft_symbol, "prediction": prediction}
+    except Exception as e:
+        logging.error(f"Error from OpenAI oracle: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Example WebSocket endpoint (Placeholder)
+@app.get("/ws")
+async def websocket_endpoint():
+    # This is a placeholder.  Implement WebSocket logic here.
+    return {"message": "WebSocket connection established"}
 
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Example WSGIServer setup (for testing)
+    # This is not production-ready and requires proper configuration
+    # For production, use a dedicated WSGI server like Gunicorn or uWSGI
+    # server = WSGIServer(('localhost', 8000), app, handler_class=WebSocketHandler)
+    # server.serve_forever()
+
+    # Start the FastAPI application
+    # To run this application, you can use:
+    # uvicorn main:app --reload
+    pass

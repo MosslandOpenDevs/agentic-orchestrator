@@ -28,8 +28,6 @@ class CoingeckoService:
         self.base_url = "https://api.coingecko.com/api/v3"
         self.rate_limit_delay = rate_limit_delay
         self.max_retries = max_retries
-        self.retry_backoff_factor = 2  # Exponential backoff
-        self.executor = ThreadPoolExecutor(max_workers=5)  # Thread pool for concurrent requests
 
     def _make_request(self, endpoint: str, params: Dict = None) -> Dict:
         """
@@ -45,7 +43,7 @@ class CoingeckoService:
         Raises:
             requests.exceptions.RequestException: If the request fails.
         """
-        headers = {"X-CG-VERSION": "v3", "Authorization": f"Bearer {self.api_key}"}
+        headers = {"X-CG-Token": self.api_key}
         try:
             response = requests.get(endpoint, headers=headers, params=params)
             response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
@@ -56,7 +54,7 @@ class CoingeckoService:
 
     def get_ticker(self, symbol: str) -> Optional[Dict]:
         """
-        Gets the ticker data for a cryptocurrency.
+        Gets the ticker for a given cryptocurrency symbol.
 
         Args:
             symbol: The cryptocurrency symbol (e.g., "bitcoin").
@@ -64,16 +62,17 @@ class CoingeckoService:
         Returns:
             The ticker data as a dictionary, or None if an error occurred.
         """
-        endpoint = f"{self.base_url}/exchange/{symbol}/tickers"
+        endpoint = f"{self.base_url}/exchange/{symbol}/ticker"
         data = self._make_request(endpoint)
-        if data:
-            return data[0]  # Return the first ticker
+        if data and "success" in data and data["success"]:
+            return data["ticker"]
         else:
+            logger.warning(f"Failed to get ticker for {symbol}: {data}")
             return None
 
     def get_price(self, symbol: str) -> Optional[float]:
         """
-        Gets the current price of a cryptocurrency.
+        Gets the current price for a given cryptocurrency symbol.
 
         Args:
             symbol: The cryptocurrency symbol.
@@ -89,7 +88,7 @@ class CoingeckoService:
 
     def get_market_caps(self, symbol: str) -> Optional[float]:
         """
-        Gets the market cap of a cryptocurrency.
+        Gets the market cap for a given cryptocurrency symbol.
 
         Args:
             symbol: The cryptocurrency symbol.
@@ -99,69 +98,40 @@ class CoingeckoService:
         """
         ticker = self.get_ticker(symbol)
         if ticker:
-            return ticker["market_caps"]
+            return ticker["market_cap"]
         else:
             return None
 
     def get_all_prices(self, symbols: List[str]) -> Dict[str, Optional[float]]:
         """
-        Gets the current prices for a list of cryptocurrencies.
+        Gets the current prices for a list of cryptocurrency symbols.
 
         Args:
             symbols: A list of cryptocurrency symbols.
 
         Returns:
-            A dictionary where keys are symbols and values are their prices.
+            A dictionary where the keys are the symbols and the values are the current prices.
         """
-        prices = {}
-        for symbol in symbols:
-            prices[symbol] = self.get_price(symbol)
-        return prices
+        results = {}
+        with ThreadPoolExecutor(max_workers=len(symbols)) as executor:
+            futures = [executor.submit(self.get_price, symbol) for symbol in symbols]
+            for future in futures:
+                try:
+                    price = future.result()
+                    if price is not None:
+                        results[future.args[0]] = price
+                except Exception as e:
+                    logger.error(f"Error getting price for {future.args[0]}: {e}")
+        return results
 
-    def get_coin_info(self, symbol: str) -> Optional[Dict]:
+    def get_coin_gecko_coins(self) -> List[str]:
         """
-        Gets the basic information for a cryptocurrency.
-
-        Args:
-            symbol: The cryptocurrency symbol.
-
-        Returns:
-            The coin information as a dictionary, or None if an error occurred.
+        Gets a list of all coin gecko coins.
         """
-        endpoint = f"{self.base_url}/coins/{symbol}"
+        endpoint = f"{self.base_url}/coins/list"
         data = self._make_request(endpoint)
-        if data:
-            return data
+        if data and "coins" in data and data["coins"]:
+            return [coin["id"] for coin in data["coins"]]
         else:
-            return None
-
-    def fetch_data(self, endpoint: str, params: Dict = None) -> Optional[Dict]:
-        """
-        Helper function to handle retries and rate limiting.
-        """
-        for attempt in range(self.max_retries):
-            data = self._make_request(endpoint, params)
-            if data:
-                return data
-            else:
-                logger.info(f"Attempt {attempt + 1} failed for {endpoint}.  Retrying in {self.retry_backoff_factor} seconds...")
-                time.sleep(self.retry_backoff_factor)
-        logger.error(f"Failed to fetch data after {self.max_retries} attempts for {endpoint}")
-        return None
-
-if __name__ == '__main__':
-    # Example Usage (replace with your API key)
-    api_key = os.environ.get("COINGEKO_API_KEY")
-    if not api_key:
-        api_key = "YOUR_COINGEKO_API_KEY"  # Replace with your actual API key
-
-    service = CoingeckoService(api_key=api_key)
-
-    bitcoin_price = service.get_price("bitcoin")
-    if bitcoin_price:
-        print(f"Bitcoin price: {bitcoin_price}")
-    else:
-        print("Could not retrieve Bitcoin price.")
-
-    all_prices = service.get_all_prices(["bitcoin", "ethereum", "cardano"])
-    print("All prices:", all_prices)
+            logger.warning(f"Failed to get coin list: {data}")
+            return []

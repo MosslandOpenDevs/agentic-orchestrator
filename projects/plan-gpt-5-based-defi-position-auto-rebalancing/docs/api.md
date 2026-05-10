@@ -1,13 +1,13 @@
 ```markdown
-# NFT Portfolio & Prediction API Documentation
+# NFT Portfolio Management API Documentation
 
 ## 1. Overview
 
-This API provides access to NFT portfolio data, real-time market data, and GPT-5 powered NFT prediction capabilities. It allows users to retrieve their NFT holdings, analyze market trends, and gain insights into potential NFT investments.
+This API provides tools for managing and predicting the value of your NFT portfolio. It integrates real-time market data, GPT-5 predictions, and allows for automated portfolio rebalancing. This API is designed for developers building applications that interact with NFT portfolios.
 
 ## 2. Authentication Details
 
-All API endpoints require an API key for authentication.  This key should be passed in the `X-API-Key` header of each request.  You can obtain your API key by registering an account through our platform.
+All API endpoints require an API key passed in the `X-API-Key` header.  You can obtain an API key by registering an account on our platform.
 
 ## 3. Base URL Configuration
 
@@ -15,7 +15,7 @@ The base URL for all API requests is:
 
 `https://api.example.com`  (Replace with the actual base URL)
 
-## 4. API Endpoints
+## 4. Endpoints
 
 ### 4.1. GET /api/nft/portfolio
 
@@ -25,152 +25,152 @@ The base URL for all API requests is:
 *   **Request Parameters/Body:**
     *   `user_id` (required): The ID of the user whose portfolio is being requested.
 *   **Response Format:** JSON
+*   **Example Request:**
+
+    ```
+    GET /api/nft/portfolio?user_id=123
+    ```
+*   **Example Response:**
+
     ```json
     {
-      "user_id": "user123",
+      "user_id": 123,
       "portfolio": [
         {
-          "nft_id": "nft456",
-          "name": "Cool NFT",
-          "token_name": "COOL",
-          "token_symbol": "COOL",
-          "quantity": 5,
-          "price": 150.00,
-          "last_updated": "2024-10-27T10:00:00Z"
+          "nft_id": "NFT-001",
+          "name": "CryptoPunks #1234",
+          "token_name": "Ethereum",
+          "token_symbol": "ETH",
+          "quantity": 2,
+          "current_value": 25000.00,
+          "last_updated": "2023-10-27T10:00:00Z"
         },
         {
-          "nft_id": "nft789",
-          "name": "Another NFT",
-          "token_name": "ANOTHER",
-          "token_symbol": "ANOTHER",
-          "quantity": 10,
-          "price": 75.50,
-          "last_updated": "2024-10-27T10:01:00Z"
+          "nft_id": "NFT-002",
+          "name": "Bored Ape Yacht Club #5678",
+          "token_name": "Ethereum",
+          "token_symbol": "ETH",
+          "quantity": 1,
+          "current_value": 180000.00,
+          "last_updated": "2023-10-27T10:00:00Z"
         }
       ]
     }
     ```
-*   **Example Request:**
-    ```
-    GET /api/nft/portfolio HTTP/1.1
-    X-API-Key: YOUR_API_KEY
-    User-Agent: curl/7.79.1
-    ```
-*   **Example Response:** (See JSON response above)
 
-### 4.2. GET /api/nft/marketdata
-
-*   **Method:** `GET`
-*   **Path:** `/api/nft/marketdata`
-*   **Description:** Retrieves real-time market data for an NFT.
-*   **Request Parameters/Body:**
-    *   `nft_id` (required): The ID of the NFT for which market data is requested.
-*   **Response Format:** JSON
-    ```json
-    {
-      "nft_id": "nft456",
-      "name": "Cool NFT",
-      "token_name": "COOL",
-      "token_symbol": "COOL",
-      "current_price": 165.25,
-      "volume_24h": 12345.67,
-      "floor_price": 140.00,
-      "last_updated": "2024-10-27T10:02:00Z"
-    }
-    ```
-*   **Example Request:**
-    ```
-    GET /api/nft/marketdata HTTP/1.1
-    X-API-Key: YOUR_API_KEY
-    User-Agent: curl/7.79.1
-    ```
-*   **Example Response:** (See JSON response above)
-
-### 4.3. POST /api/gpt5/predict
+### 4.2. POST /api/portfolio/rebalance
 
 *   **Method:** `POST`
-*   **Path:** `/api/gpt5/predict`
-*   **Description:** Generates a GPT-5 prediction for an NFT.
+*   **Path:** `/api/portfolio/rebalance`
+*   **Description:** Initiates portfolio rebalancing based on market data and predictions.
 *   **Request Parameters/Body:**
-    *   `nft_id` (required): The ID of the NFT for which to generate a prediction.
-    *   `prediction_type` (optional, default: "price"): The type of prediction to generate (e.g., "price", "volume").
+    *   `user_id` (required): The ID of the user whose portfolio is being rebalanced.
+    *   `rebalance_strategy` (optional):  The rebalancing strategy to use (e.g., "aggressive", "conservative", "market").  Defaults to "market".
 *   **Response Format:** JSON
-    ```json
-    {
-      "nft_id": "nft456",
-      "prediction_type": "price",
-      "prediction": 175.00,
-      "confidence": 0.85,
-      "timestamp": "2024-10-27T10:03:00Z"
-    }
-    ```
 *   **Example Request:**
+
     ```
-    POST /api/gpt5/predict HTTP/1.1
-    X-API-Key: YOUR_API_KEY
+    POST /api/portfolio/rebalance
     Content-Type: application/json
 
     {
-      "nft_id": "nft456",
-      "prediction_type": "price"
+      "user_id": 456,
+      "rebalance_strategy": "aggressive"
     }
     ```
-*   **Example Response:** (See JSON response above)
+*   **Example Response:**
 
-### 4.4. GET /api/nft/metadata
-
-*   **Method:** `GET`
-*   **Path:** `/api/nft/metadata`
-*   **Description:** Retrieves metadata for an NFT.
-*   **Request Parameters/Body:**
-    *   `nft_id` (required): The ID of the NFT for which metadata is requested.
-*   **Response Format:** JSON
     ```json
     {
-      "nft_id": "nft456",
-      "name": "Cool NFT",
-      "token_name": "COOL",
-      "token_symbol": "COOL",
-      "description": "A cool NFT for cool people.",
-      "image_url": "https://example.com/cool_nft.png",
-      "attributes": [
-        {
-          "trait_type": "Background",
-          "value": "Blue"
-        },
-        {
-          "trait_type": "Eyes",
-          "value": "Green"
-        }
-      ]
+      "status": "success",
+      "message": "Portfolio rebalancing initiated successfully.",
+      "rebalancing_details": {
+        "nft_id": "NFT-001",
+        "new_quantity": 1,
+        "old_quantity": 2
+      }
     }
     ```
+
+### 4.3. GET /api/nft/prediction
+
+*   **Method:** `GET`
+*   **Path:** `/api/nft/prediction`
+*   **Description:** Retrieves a GPT-5 prediction for an NFT's value.
+*   **Request Parameters/Body:**
+    *   `nft_id` (required): The ID of the NFT for which to generate a prediction.
+*   **Response Format:** JSON
 *   **Example Request:**
+
     ```
-    GET /api/nft/metadata HTTP/1.1
-    X-API-Key: YOUR_API_KEY
-    User-Agent: curl/7.79.1
+    GET /api/nft/prediction?nft_id=NFT-001
     ```
-*   **Example Response:** (See JSON response above)
+*   **Example Response:**
+
+    ```json
+    {
+      "nft_id": "NFT-001",
+      "predicted_value": 27500.00,
+      "confidence_level": 0.85,
+      "prediction_timestamp": "2023-10-27T11:00:00Z",
+      "model_version": "GPT-5"
+    }
+    ```
+
+### 4.4. GET /api/marketdata
+
+*   **Method:** `GET`
+*   **Path:** `/api/marketdata`
+*   **Description:** Retrieves real-time market data for NFTs.
+*   **Request Parameters/Body:**
+    *   `nft_id` (optional): Filter by a specific NFT ID.
+*   **Response Format:** JSON
+*   **Example Request:**
+
+    ```
+    GET /api/marketdata?nft_id=NFT-001
+    ```
+*   **Example Response:**
+
+    ```json
+    {
+      "nft_id": "NFT-001",
+      "token_name": "Ethereum",
+      "token_symbol": "ETH",
+      "current_price": 1800.00,
+      "24h_change": 2.50,
+      "volume_24h": 123456789,
+      "market_cap": 10000000000,
+      "last_updated": "2023-10-27T10:30:00Z"
+    }
+    ```
 
 ## 5. Error Codes and Handling
 
-| Code    | Description                               | Action                                     |
-| :------ | :--------------------------------------- | :----------------------------------------- |
-| 400      | Bad Request - Invalid Input              | Check request parameters for errors.        |
-| 401      | Unauthorized - Missing or Invalid API Key | Provide a valid API key in the `X-API-Key` header. |
-| 404      | Not Found - Resource Not Found            | Verify the `nft_id` or `user_id` is correct.   |
-| 500      | Internal Server Error                    | Contact support for assistance.            |
-| 429      | Too Many Requests - Rate Limit Exceeded | Implement retry logic with exponential backoff. |
+| Code    | Description                               | Response Format  |
+| :------ | :--------------------------------------- | :--------------- |
+| 400      | Bad Request - Invalid input parameters.   | JSON with error details |
+| 401      | Unauthorized - Invalid API key.          | JSON with error details |
+| 404      | Not Found - Resource not found.           | JSON with error details |
+| 500      | Internal Server Error - Server error.    | JSON with error details |
+| 503      | Service Unavailable - Service unavailable. | JSON with error details |
+
+**Example Error Response (401):**
+
+```json
+{
+  "error_code": 401,
+  "message": "Invalid API key."
+}
+```
 
 ## 6. Rate Limiting Info
 
 This API is subject to rate limiting to prevent abuse and ensure fair usage.
 
 *   **Requests per Minute:** 60 requests
-*   **Burst Limit:** 120 requests (allows for short bursts)
-*   **Headers:** Rate limiting information is provided in the response headers:
-    *   `X-RateLimit-Limit`: The maximum number of requests allowed in the current time window.
-    *   `X-RateLimit-Remaining`: The number of requests remaining in the current time window.
-    *   `X-RateLimit-Reset`: The time (in seconds) until the rate limit resets.
+*   **Burst Limit:** 120 requests (allows for a short burst of activity)
+*   **Reset Time:** 60 seconds
+
+Rate limits are enforced on a per-user basis.  If you exceed the rate limits, you will receive a `429 Too Many Requests` error.  Consult the API documentation for details on handling rate limiting errors and potential rate limit increase requests.
 ```
