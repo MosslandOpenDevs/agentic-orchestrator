@@ -1,0 +1,31 @@
+{
+  "version": "1.0.0",
+  "generator": "moss-ao",
+  "createdAt": "2026-05-11T21:40:05.522281",
+  "planId": "334d1245",
+  "projectId": "26863051",
+  "techStack": {
+    "frontend": "react",
+    "backend": "fastapi",
+    "database": "postgresql",
+    "blockchain": "ethereum",
+    "additional": [
+      "express",
+      "mongodb",
+      "solana",
+      "polygon"
+    ]
+  },
+  "features": [
+    "**Full Version (16 Weeks):** Advanced features \u2013 Dynamic rebalancing, NFT holder integration, enhanced risk modeling, comprehensive reporting.",
+    "**Total Estimated Duration:** 22 weeks (allowing for iterative development and testing)",
+    "*Estimated Cost:** (Rough Estimate \u2013 Requires detailed breakdown)",
+    "**Development (Labor):** $80,000 - $150,000 (Depending on team size & experience)",
+    "**Infrastructure (Cloud, Nodes):** $10,000 - $30,000 (Initial setup & ongoing operational costs)",
+    "**GPT-5 API Access & Usage:** $5,000 - $15,000 (Variable based on API consumption)",
+    "**Security Audits:** $10,000 - $20,000 (Crucial - cannot cut corners here)",
+    "**Total Estimated Cost:** $105,000 - $215,000",
+    "*2. Technical Architecture:**",
+    "**Frontend:** React.js \u2013  Provides a responsive and scalable user interface, leveraging a component-based architecture for maintainability and future expansion. The rapid development cycle is crucial."
+  ]
+}
