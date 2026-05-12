@@ -1,126 +1,109 @@
 from typing import Optional
 from pydantic import BaseModel, Field
 from pydantic import ConfigDict
-from datetime import datetime
+from pydantic.validator import validator
 
-class FieldValidator(BaseModel):
-    """Base class for field validators."""
-    value: any
-    message: str
-
-    def validate(self, value: any) -> any:
-        if value is None:
-            return None
-        try:
-            return value
-        except Exception as e:
-            raise FieldValidator(value=value, message=str(e))
+class FieldConfig(ConfigDict):
+    """
+    Configuration for Pydantic fields.
+    """
+    yaml_fingerprint: Optional[str] = None
+    extra: Optional[bool] = False
 
 
-class Config:
-    """Pydantic config class."""
-    json_encoders = {
-        datetime: lambda v: v.iso8601()
-    }
+class RiskParameter(BaseModel):
+    """
+    Defines risk parameters for collateral management.
+    """
+    name: str = Field(..., description="Name of the risk parameter", field_config=FieldConfig)
+    value: float = Field(..., description="Value of the risk parameter", field_config=FieldConfig)
+
+    model_config = ConfigDict(example={
+        "name": "LiquidityRatio",
+        "value": 0.8
+    })
 
 
-class NFT(BaseModel):
-    """NFT - Represents a Mossland NFT."""
-    id: str = Field(..., description="Unique NFT identifier", min_length=36)
-    name: str = Field(..., description="NFT name")
-    metadata: ConfigDict = Field(
-        default_factory=ConfigDict,
-        description="NFT metadata (JSON)"
-    )
-    current_holdings: int = Field(
-        ..., description="Number of NFTs held"
-    )
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+class PriceFeedUpdate(BaseModel):
+    """
+    Records a price feed update from Chainlink.
+    """
+    symbol: str = Field(..., description="Symbol of the asset", field_config=FieldConfig)
+    price: float = Field(..., description="Price of the asset", field_config=FieldConfig)
+    oracle_id: str = Field(..., description="ID of the Chainlink oracle", field_config=FieldConfig)
+    timestamp: float = Field(..., description="Timestamp of the update", field_config=FieldConfig)
 
-    class Config:
-        schema_extra = {
-            "example": {
-                "id": "0x1234567890abcdef1234567890abcdef12345678",
-                "name": "Mossland 1",
-                "metadata": {
-                    "description": "A beautiful Mossland",
-                    "image_url": "https://example.com/mossland1.png"
-                },
-                "current_holdings": 1
-            }
-        }
+    model_config = ConfigDict(example={
+        "symbol": "ETH/USD",
+        "price": 2000.0,
+        "oracle_id": "chainlink-eth-usd",
+        "timestamp": 1678886400.0
+    })
 
 
-class Portfolio(BaseModel):
-    """Portfolio - Represents a user's NFT portfolio."""
-    user_id: str = Field(..., description="User identifier")
-    nfts: list[NFT] = Field(
-        [],
-        description="List of NFTs in the portfolio"
-    )
+class NFTCollateral(BaseModel):
+    """
+    Represents an NFT used as collateral, including its details and current ratio.
+    """
+    tokenId: str = Field(..., description="Token ID of the NFT", field_config=FieldConfig)
+    nft_address: str = Field(..., description="Address of the NFT", field_config=FieldConfig)
+    current_ratio: float = Field(..., description="Current ratio of the NFT", field_config=FieldConfig)
+    underlying_asset: str = Field(..., description="Underlying asset of the NFT", field_config=FieldConfig)
 
-    class Config:
-        schema_extra = {
-            "example": {
-                "user_id": "user123",
-                "nfts": [
-                    {
-                        "id": "0x1234567890abcdef1234567890abcdef12345678",
-                        "name": "Mossland 1",
-                        "metadata": {
-                            "description": "A beautiful Mossland",
-                            "image_url": "https://example.com/mossland1.png"
-                        },
-                        "current_holdings": 1
-                    },
-                    {
-                        "id": "0xabcdef1234567890abcdef1234567890abcdef12345678",
-                        "name": "Mossland 2",
-                        "metadata": {
-                            "description": "Another Mossland",
-                            "image_url": "https://example.com/mossland2.png"
-                        },
-                        "current_holdings": 2
-                    }
-                ]
-            }
-        }
+    model_config = ConfigDict(example={
+        "tokenId": "0x1234567890abcdef",
+        "nft_address": "0xfedcba9876543210",
+        "current_ratio": 0.95,
+        "underlying_asset": "ETH"
+    })
 
 
-class MarketData(BaseModel):
-    """MarketData - Real-time market data for NFTs."""
-    nft_id: str = Field(..., description="NFT identifier")
-    price: float = Field(..., description="Current price")
-    volume: int = Field(..., description="Trading volume")
-    timestamp: datetime = Field(default_factory=datetime.now)
+class CreateNFTCollateral(BaseModel):
+    """
+    Create request for NFTCollateral.
+    """
+    tokenId: str = Field(..., description="Token ID of the NFT", field_config=FieldConfig)
+    nft_address: str = Field(..., description="Address of the NFT", field_config=FieldConfig)
+    current_ratio: float = Field(..., description="Current ratio of the NFT", field_config=FieldConfig)
+    underlying_asset: str = Field(..., description="Underlying asset of the NFT", field_config=FieldConfig)
 
-    class Config:
-        schema_extra = {
-            "example": {
-                "nft_id": "0x1234567890abcdef1234567890abcdef12345678",
-                "price": 100.0,
-                "volume": 1000,
-                "timestamp": datetime.now()
-            }
-        }
+    model_config = ConfigDict(example={
+        "tokenId": "0x1234567890abcdef",
+        "nft_address": "0xfedcba9876543210",
+        "current_ratio": 0.95,
+        "underlying_asset": "ETH"
+    })
 
 
-class Prediction(BaseModel):
-    """Prediction - GPT-5 generated NFT value prediction."""
-    nft_id: str = Field(..., description="NFT identifier")
-    predicted_value: float = Field(..., description="Predicted value")
-    confidence: float = Field(
-        ..., description="Prediction confidence level", gt=0, lt=1
-    )
-    timestamp: datetime = Field(default_factory=datetime.now)
+class UpdateNFTCollateral(BaseModel):
+    """
+    Update request for NFTCollateral.
+    """
+    tokenId: str = Field(..., description="Token ID of the NFT", field_config=FieldConfig)
+    current_ratio: Optional[float] = Field(None, description="Current ratio of the NFT", field_config=FieldConfig)
+    nft_address: Optional[str] = Field(None, description="Address of the NFT", field_config=FieldConfig)
+    underlying_asset: Optional[str] = Field(None, description="Underlying asset of the NFT", field_config=FieldConfig)
 
-    class Config:
-        schema_extra = {
-            "example": {
-                "nft_id": "0x1234567890abcdef1234567890abcdef12345678",
-                "predicted_value": 120.0,
-                "confidence": 0.8,
-                "timestamp": datetime.now()
-            }
-        }
+    model_config = ConfigDict(example={
+        "tokenId": "0x1234567890abcdef",
+        "current_ratio": 0.98,
+        "nft_address": "0xfedcba9876543210",
+        "underlying_asset": "BTC"
+    })
+
+
+class ResponseNFTCollateral(BaseModel):
+    """
+    Response schema for NFTCollateral.
+    """
+    tokenId: str = Field(..., description="Token ID of the NFT", field_config=FieldConfig)
+    nft_address: str = Field(..., description="Address of the NFT", field_config=FieldConfig)
+    current_ratio: float = Field(..., description="Current ratio of the NFT", field_config=FieldConfig)
+    underlying_asset: str = Field(..., description="Underlying asset of the NFT", field_config=FieldConfig)
+
+    model_config = ConfigDict(example={
+        "tokenId": "0x1234567890abcdef",
+        "nft_address": "0xfedcba9876543210",
+        "current_ratio": 0.95,
+        "underlying_asset": "ETH"
+    })

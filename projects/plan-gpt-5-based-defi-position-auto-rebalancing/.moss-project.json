@@ -1,28 +1,28 @@
 {
   "version": "1.0.0",
   "generator": "moss-ao",
-  "createdAt": "2026-05-10T21:47:11.617844",
-  "planId": "b08d8ae2",
-  "projectId": "711807ff",
+  "createdAt": "2026-05-12T15:40:37.787094",
+  "planId": "2e2dd2d9",
+  "projectId": "0e032921",
   "techStack": {
-    "frontend": "react",
+    "frontend": "nextjs",
     "backend": "fastapi",
     "database": "postgresql",
     "blockchain": "ethereum",
     "additional": [
-      "polygon"
+      "react"
     ]
   },
   "features": [
-    "[ ] Task 1: Implement basic rebalancing logic within the smart contract. (3 days) \u2013 *Focus on a simplified algorithm for initial testing. Don\u2019t over-engineer at this stage.*",
-    "[ ] Task 2: Develop Python backend API to interact with the smart contract. (2 days) \u2013 *Establish communication protocols and data validation mechanisms.*",
-    "[ ] Task 3:  Initial Web3.js integration for contract interaction. (2 days) - *Getting the basic connection working is paramount.*",
-    "**Milestone:** Basic rebalancing functionality within the smart contract and backend API working.",
-    "*Week 3-4: GPT-5 Oracle Integration & Data Feed Setup**",
-    "[ ] Task 1: Integrate with CoinGecko API to retrieve NFT price data. (2 days) \u2013 *Error handling and data normalization are critical.*",
-    "[ ] Task 2: Fine-tune GPT-5 model for NFT value prediction (based on historical data and market sentiment). (5 days) \u2013 *This is where the significant cost lies. We need to establish clear metrics for model performance.*",
-    "[ ] Task 3: Develop the oracle logic to query the GPT-5 model and generate predictions. (3 days) \u2013 *This requires careful consideration of API calls, response handling, and potential latency issues.*",
-    "**Milestone:** GPT-5 oracle operational, providing probabilistic NFT value predictions.",
-    "*Week 5-6: Frontend Development & UI/UX**"
+    "*Estimated Cost:**",
+    "**Labor (Development Team - 3 FTEs):** $300,000 - $450,000 (depending on team rates and location)",
+    "**Infrastructure (Cloud Hosting, Chainlink Subscription):** $10,000 - $20,000 annually",
+    "**Software Licenses (LangChain, Development Tools):** $5,000 - $10,000",
+    "**Contingency (10%):** $35,000 - $55,000",
+    "**Frontend:** Next.js/React \u2013 Provides a modern, performant user interface and leverages React\u2019s component-based architecture for efficient development and maintenance.",
+    "**Backend:** Python/FastAPI \u2013 Offers rapid development, scalability, and a rich ecosystem of libraries suitable for financial modeling and data processing.",
+    "**Database:** PostgreSQL \u2013 A robust, relational database ideal for storing collateral data, risk parameters, and transaction history.  Strong data integrity and ACID compliance are crucial.",
+    "**Blockchain Integration:** Ethereum (Optimistic Rollups) - Optimistic rollups offer a good balance between transaction speed and cost, suitable for frequent collateral adjustments.  We'll utilize the Chainlink VRF (Verifiable Random Function) for secure random number generation within the rollup environment.",
+    "**External APIs:** Chainlink (Price Feeds), potentially external NFT marketplaces for asset verification."
   ]
 }

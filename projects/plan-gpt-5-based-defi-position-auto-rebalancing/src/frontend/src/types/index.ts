@@ -3,31 +3,27 @@
  */
 
 
-export interface NFT {
+export interface NFTCollateral {
+  id: string;
   tokenId: string;
-  owner: any;
-  metadata: Record<string, any>;
-  quantity: any;
+  asset: string;
+  currentRatio: number;
+  createdAt: string;
 }
 
-export interface Portfolio {
-  portfolioId: string;
-  userId: any;
-  holdings: Record<string, any>;
-}
-
-export interface MarketData {
-  tokenId: string;
+export interface PriceFeedUpdate {
+  id: string;
+  asset: string;
   price: number;
-  volume: any;
   timestamp: string;
 }
 
-export interface Prediction {
-  tokenId: string;
-  predictedValue: number;
-  confidenceInterval: number;
-  timestamp: string;
+export interface RiskParameter {
+  id: string;
+  asset: string;
+  thresholdLow: number;
+  thresholdHigh: number;
+  action: string;
 }
 
 

@@ -1,118 +1,118 @@
 import React, { useState, useEffect } from 'react';
-import { useTailwind } from 'tailwind-rn'; // Assuming Tailwind-RN for React Native compatibility
-import { CoinGecko } from './api/CoinGecko'; // Replace with your actual CoinGecko API
-import { OpenAI } from './api/OpenAI'; // Replace with your actual OpenAI API
-import { WebSocketClient } from 'websocket';
+import { FaArrowDown, FaArrowUp } from 'react-icons/fa';
+import { Chart } from 'chart.js';
 
-const Tailwind = useTailwind();
+// Tailwind CSS configuration (simplified for brevity)
+const tailwindConfig = {
+  darkMode: 'dark',
+  colors: {
+    'primary': '#569CD6',
+    'secondary': '#FFD700',
+    'accent': '#0070F3',
+    'neutral': {
+      '50': '#F0F4F5',
+      '100': '#E1E8EB',
+      '200': '#CBD5E0',
+      '300': '#A0AEC0',
+      '400': '#718096',
+      '500': '#4E566A',
+      '600': '#1F2429',
+      '700': '#171923',
+      '800': '#0E161B',
+      '900': '#090B12',
+    },
+    'gray': '#9E9E9E',
+  },
+};
 
-type PortfolioItem = {
+// Dummy data for demonstration
+interface NFTCollateral {
   tokenId: string;
-  name: string;
   quantity: number;
   price: number;
-  marketData: any; // Replace with actual market data type
-};
+}
 
-type RebalancingSettings = {
-  aggressiveness: number;
-};
+interface RiskMetrics {
+  totalValue: number;
+  riskScore: number;
+}
 
-const PortfolioDashboard: React.FC = () => {
-  const [portfolio, setPortfolio] = useState<PortfolioItem[]>([]);
+const CollateralDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
-  const [rebalancingSettings, setRebalancingSettings] = useState<RebalancingSettings>({
-    aggressiveness: 50,
+  const [nftCollateralData, setNftCollateralData] = useState<NFTCollateral[]>([]);
+  const [riskMetrics, setRiskMetrics] = useState<RiskMetrics>({
+    totalValue: 0,
+    riskScore: 0,
   });
-  const [error, setError] = useState<string | null>(null);
-  const [darkMode, setDarkMode] = useState(false);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const geckoData = await CoinGecko.getNFTPrices();
-        const openaiData = await OpenAI.predictNFTValue('mossland');
-
-        const newPortfolio: PortfolioItem[] = geckoData.map(
-          (item) => ({
-            tokenId: item.tokenId,
-            name: item.name,
-            quantity: 1, // Placeholder quantity
-            price: item.price,
-            marketData: item.marketData,
-          })
-        );
-
-        setPortfolio(newPortfolio);
-        setLoading(false);
-      } catch (err) {
-        setError(err.message);
-        setLoading(false);
-      }
-    };
-
-    fetchData();
+    // Simulate data fetching
+    setTimeout(() => {
+      const dummyData: NFTCollateral[] = [
+        { tokenId: 'MSL1', quantity: 10, price: 1000 },
+        { tokenId: 'MSL2', quantity: 5, price: 2000 },
+        { tokenId: 'MSL3', quantity: 20, price: 500 },
+      ];
+      setNftCollateralData(dummyData);
+      setRiskMetrics({
+        totalValue: dummyData.reduce((sum, item) => sum + item.quantity * item.price, 0),
+        riskScore: Math.random() * 100,
+      });
+      setLoading(false);
+    }, 1500);
   }, []);
 
-  const handleRebalancingChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const aggressiveness = parseInt(event.target.value, 10);
-    setRebalancingSettings({ aggressiveness });
-  };
-
   if (loading) {
-    return (
-      <div className={Tailwind.container}>
-        <div className={Tailwind.center}>
-          <p>Loading Portfolio Data...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className={Tailwind.container}>
-        <p className={Tailwind.error}>Error: {error}</p>
-      </div>
-    );
+    return <div>Loading...</div>;
   }
 
   return (
-    <div className={`${Tailwind.container} ${darkMode ? 'dark' : ''}`}>
-      <header className={Tailwind.header}>
-        <h1>Mossland Rebalancing Dashboard</h1>
-        <button className={Tailwind.button} onClick={() => setDarkMode(!darkMode)}>
-          Toggle Dark Mode
-        </button>
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-900">
+      <header className="bg-gray-100 dark:bg-gray-900 shadow-md p-4 flex items-center justify-between">
+        <h1>GPT-5 DeFi Position Auto-Rebalancing</h1>
+        <nav>
+          <a href="#" className="text-gray-600 dark:text-gray-400">Overview</a>
+          <a href="#" className="text-gray-600 dark:text-gray-400">Risk Monitoring</a>
+          <a href="#" className="text-gray-600 dark:text-gray-400">Settings</a>
+        </nav>
       </header>
 
-      <main className={Tailwind.main}>
-        <section className={Tailwind.section}>
-          <h2>Portfolio Overview</h2>
-          {portfolio.map((item) => (
-            <div key={item.tokenId} className={Tailwind.card}>
-              <h3>{item.name}</h3>
-              <p>Price: ${item.price}</p>
-              {/* Add more details based on marketData */}
-            </div>
+      <main className="p-4 flex flex-row">
+        <aside className="w-64 bg-gray-100 dark:bg-gray-800 p-4 border-r">
+          <h2>NFT Collateral</h2>
+          {nftCollateralData.map((item) => (
+            <NFTCollateralCard key={item.tokenId} tokenId={item.tokenId} quantity={item.quantity} price={item.price} />
           ))}
-        </section>
+        </aside>
 
-        <section className={Tailwind.section}>
-          <h2>Rebalancing Controls</h2>
-          <label htmlFor="aggressiveness">Aggressiveness:</label>
-          <input
-            type="range"
-            id="aggressiveness"
-            min="0"
-            max="100"
-            value={rebalancingSettings.aggressiveness}
-            onChange={handleRebalancingChange}
-          />
-        </section>
+        <main className="flex-grow w-full p-4">
+          <h2>Risk Monitoring</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Placeholder for risk metrics chart */}
+            <div className="bg-gray-100 dark:bg-gray-800 rounded-md p-4">
+              <h3>Total Value</h3>
+              <p className="font-bold text-xl">{riskMetrics.totalValue.toFixed(2)}</p>
+            </div>
+            {/* Placeholder for risk score chart */}
+            <div className="bg-gray-100 dark:bg-gray-800 rounded-md p-4">
+              <h3>Risk Score</h3>
+              <p className="font-bold text-xl">{riskMetrics.riskScore.toFixed(2)}</p>
+            </div>
+          </div>
+        </main>
       </main>
     </div>
   );
 };
 
-export default PortfolioDashboard;
+const NFTCollateralCard = ({ tokenId, quantity, price }: NFTCollateral) => {
+  return (
+    <div className="bg-gray-100 dark:bg-gray-800 rounded-md p-4 shadow-sm">
+      <h3 className="font-semibold mb-2">{tokenId}</h3>
+      <p className="text-gray-700 dark:text-gray-400">Quantity: {quantity}</p>
+      <p className="text-gray-700 dark:text-gray-400">Price: ${price}</p>
+    </div>
+  );
+};
+
+export default CollateralDashboard;

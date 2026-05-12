@@ -1,176 +1,128 @@
 ```markdown
-# NFT Portfolio Management API Documentation
+# NFT Rebalancing Protocol API Documentation
 
 ## 1. Overview
 
-This API provides tools for managing and predicting the value of your NFT portfolio. It integrates real-time market data, GPT-5 predictions, and allows for automated portfolio rebalancing. This API is designed for developers building applications that interact with NFT portfolios.
+This API provides endpoints for managing and triggering the NFT rebalancing algorithm within the protocol. It interacts with Chainlink price feeds for accurate asset valuations and allows for automated rebalancing of NFT collateral to optimize returns.
 
 ## 2. Authentication Details
 
-All API endpoints require an API key passed in the `X-API-Key` header.  You can obtain an API key by registering an account on our platform.
+All API requests require an API key passed in the `X-API-Key` header.  This key must be provided for all requests.  Contact your system administrator to obtain a valid API key.
 
 ## 3. Base URL Configuration
 
-The base URL for all API requests is:
+The base URL for all API endpoints is:
 
-`https://api.example.com`  (Replace with the actual base URL)
+`https://api.example.com`  (Replace with your actual API URL)
 
 ## 4. Endpoints
 
-### 4.1. GET /api/nft/portfolio
+### 4.1. GET /api/nftCollateral
 
 *   **Method:** `GET`
-*   **Path:** `/api/nft/portfolio`
-*   **Description:** Retrieves a user's NFT portfolio holdings.
-*   **Request Parameters/Body:**
-    *   `user_id` (required): The ID of the user whose portfolio is being requested.
-*   **Response Format:** JSON
+*   **Path:** `/api/nftCollateral`
+*   **Description:** Retrieves all NFT collateral data associated with the protocol. This includes asset holdings, current valuations, and other relevant information.
+*   **Request Parameters/Body:** None
+*   **Response Format:** JSON Array
+    *   Each object in the array represents a single collateral asset.
+    *   Example:
+        ```json
+        [
+          {
+            "assetId": "ETH",
+            "quantity": 100,
+            "valuation": 15000.00,
+            "lastUpdated": "2023-10-27T10:00:00Z"
+          },
+          {
+            "assetId": "USDC",
+            "quantity": 5000,
+            "valuation": 5000.00,
+            "lastUpdated": "2023-10-27T10:00:00Z"
+          }
+        ]
+        ```
 *   **Example Request:**
 
     ```
-    GET /api/nft/portfolio?user_id=123
+    GET /api/nftCollateral
+    X-API-Key: YOUR_API_KEY
     ```
-*   **Example Response:**
+*   **Example Response:** (See JSON example above)
 
-    ```json
-    {
-      "user_id": 123,
-      "portfolio": [
-        {
-          "nft_id": "NFT-001",
-          "name": "CryptoPunks #1234",
-          "token_name": "Ethereum",
-          "token_symbol": "ETH",
-          "quantity": 2,
-          "current_value": 25000.00,
-          "last_updated": "2023-10-27T10:00:00Z"
-        },
-        {
-          "nft_id": "NFT-002",
-          "name": "Bored Ape Yacht Club #5678",
-          "token_name": "Ethereum",
-          "token_symbol": "ETH",
-          "quantity": 1,
-          "current_value": 180000.00,
-          "last_updated": "2023-10-27T10:00:00Z"
-        }
-      ]
-    }
+### 4.2. GET /api/priceFeeds
+
+*   **Method:** `GET`
+*   **Path:** `/api/priceFeeds`
+*   **Description:** Retrieves current price feeds from Chainlink for supported assets. This is used by the rebalancing algorithm to determine accurate valuations.
+*   **Request Parameters/Body:** None
+*   **Response Format:** JSON Array
+    *   Each object represents a price feed for a specific asset.
+    *   Example:
+        ```json
+        [
+          {
+            "assetId": "ETH",
+            "price": 1800.50,
+            "timestamp": 1698400000,
+            "source": "Chainlink"
+          },
+          {
+            "assetId": "USDC",
+            "price": 1.00,
+            "timestamp": 1698400000,
+            "source": "Chainlink"
+          }
+        ]
+        ```
+*   **Example Request:**
+
     ```
+    GET /api/priceFeeds
+    X-API-Key: YOUR_API_KEY
+    ```
+*   **Example Response:** (See JSON example above)
 
-### 4.2. POST /api/portfolio/rebalance
+### 4.3. POST /api/rebalance
 
 *   **Method:** `POST`
-*   **Path:** `/api/portfolio/rebalance`
-*   **Description:** Initiates portfolio rebalancing based on market data and predictions.
-*   **Request Parameters/Body:**
-    *   `user_id` (required): The ID of the user whose portfolio is being rebalanced.
-    *   `rebalance_strategy` (optional):  The rebalancing strategy to use (e.g., "aggressive", "conservative", "market").  Defaults to "market".
+*   **Path:** `/api/rebalance`
+*   **Description:** Triggers the rebalancing algorithm. This initiates the process of adjusting NFT collateral holdings based on current price feeds.
+*   **Request Parameters/Body:** None
 *   **Response Format:** JSON
+    *   Successful rebalancing will return a success message.
+    *   Example:
+        ```json
+        {
+          "status": "success",
+          "message": "Rebalancing initiated successfully."
+        }
+        ```
 *   **Example Request:**
 
     ```
-    POST /api/portfolio/rebalance
-    Content-Type: application/json
-
-    {
-      "user_id": 456,
-      "rebalance_strategy": "aggressive"
-    }
+    POST /api/rebalance
+    X-API-Key: YOUR_API_KEY
     ```
-*   **Example Response:**
-
-    ```json
-    {
-      "status": "success",
-      "message": "Portfolio rebalancing initiated successfully.",
-      "rebalancing_details": {
-        "nft_id": "NFT-001",
-        "new_quantity": 1,
-        "old_quantity": 2
-      }
-    }
-    ```
-
-### 4.3. GET /api/nft/prediction
-
-*   **Method:** `GET`
-*   **Path:** `/api/nft/prediction`
-*   **Description:** Retrieves a GPT-5 prediction for an NFT's value.
-*   **Request Parameters/Body:**
-    *   `nft_id` (required): The ID of the NFT for which to generate a prediction.
-*   **Response Format:** JSON
-*   **Example Request:**
-
-    ```
-    GET /api/nft/prediction?nft_id=NFT-001
-    ```
-*   **Example Response:**
-
-    ```json
-    {
-      "nft_id": "NFT-001",
-      "predicted_value": 27500.00,
-      "confidence_level": 0.85,
-      "prediction_timestamp": "2023-10-27T11:00:00Z",
-      "model_version": "GPT-5"
-    }
-    ```
-
-### 4.4. GET /api/marketdata
-
-*   **Method:** `GET`
-*   **Path:** `/api/marketdata`
-*   **Description:** Retrieves real-time market data for NFTs.
-*   **Request Parameters/Body:**
-    *   `nft_id` (optional): Filter by a specific NFT ID.
-*   **Response Format:** JSON
-*   **Example Request:**
-
-    ```
-    GET /api/marketdata?nft_id=NFT-001
-    ```
-*   **Example Response:**
-
-    ```json
-    {
-      "nft_id": "NFT-001",
-      "token_name": "Ethereum",
-      "token_symbol": "ETH",
-      "current_price": 1800.00,
-      "24h_change": 2.50,
-      "volume_24h": 123456789,
-      "market_cap": 10000000000,
-      "last_updated": "2023-10-27T10:30:00Z"
-    }
-    ```
+*   **Example Response:** (See JSON example above)
 
 ## 5. Error Codes and Handling
 
-| Code    | Description                               | Response Format  |
-| :------ | :--------------------------------------- | :--------------- |
-| 400      | Bad Request - Invalid input parameters.   | JSON with error details |
-| 401      | Unauthorized - Invalid API key.          | JSON with error details |
-| 404      | Not Found - Resource not found.           | JSON with error details |
-| 500      | Internal Server Error - Server error.    | JSON with error details |
-| 503      | Service Unavailable - Service unavailable. | JSON with error details |
-
-**Example Error Response (401):**
-
-```json
-{
-  "error_code": 401,
-  "message": "Invalid API key."
-}
-```
+| Code    | Description                               | Action                               |
+| :------ | :--------------------------------------- | :---------------------------------- |
+| 400      | Bad Request - Invalid input parameters   | Check request body/parameters for errors |
+| 401      | Unauthorized - Invalid API Key          | Provide a valid API Key in header    |
+| 404      | Not Found - Endpoint or resource not found | Verify endpoint and resource existence |
+| 500      | Internal Server Error                    | Contact system administrator         |
+| 503      | Service Unavailable - Chainlink issues  | Retry request later                  |
 
 ## 6. Rate Limiting Info
 
-This API is subject to rate limiting to prevent abuse and ensure fair usage.
+This API is subject to rate limiting to prevent abuse and ensure stability.
 
-*   **Requests per Minute:** 60 requests
-*   **Burst Limit:** 120 requests (allows for a short burst of activity)
-*   **Reset Time:** 60 seconds
-
-Rate limits are enforced on a per-user basis.  If you exceed the rate limits, you will receive a `429 Too Many Requests` error.  Consult the API documentation for details on handling rate limiting errors and potential rate limit increase requests.
+*   **Limit:** 100 requests per minute per API key.
+*   **Headers:** Rate limiting information will be returned in the response headers:
+    *   `X-RateLimit-Limit`:  The maximum number of requests allowed in the current window.
+    *   `X-RateLimit-Remaining`: The number of requests remaining in the current window.
+    *   `X-RateLimit-Reset`: The timestamp (in Unix epoch seconds) when the rate limit resets.
 ```

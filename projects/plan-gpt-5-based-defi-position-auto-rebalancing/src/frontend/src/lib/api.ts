@@ -1,111 +1,69 @@
-import axios, { AxiosResponse, AxiosError } from 'axios';
+import fetch, { Response } from 'node-fetch';
 
-interface BaseResponse<T> {
-  data: T;
-  success: boolean;
+interface BaseResponse {
+  statusCode: number;
+  data?: any;
   error?: string;
 }
 
-class NftApi {
+class ApiClient {
   private baseUrl: string;
-  private axiosInstance: any;
+  private authHeaders: HeadersInit;
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, authHeaders?: HeadersInit) {
     this.baseUrl = baseUrl;
-    this.axiosInstance = axios.create({
-      baseURL: this.baseUrl,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    this.authHeaders = authHeaders || {};
+  }
 
-    this.axiosInstance.interceptors.request.use(
-      (config) => {
-        // Add authentication headers here if needed
-        // Example: config.headers['Authorization'] = 'Bearer ' + this.authToken;
-        return config;
-      },
-      (error) => {
-        return Promise.reject(error);
+  private async request<T>(
+    method: 'get' | 'post' | 'put' | 'delete',
+    endpoint: string,
+    body?: any
+  ): Promise<BaseResponse<T>> {
+    const url = `${this.baseUrl}${endpoint}`;
+    const headers = {
+      ...this.authHeaders,
+      'Content-Type': 'application/json',
+    };
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : null,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(
+          `${response.status} - ${response.statusText} - ${JSON.stringify(
+            errorData
+          )}`
+        );
       }
-    );
 
-    this.axiosInstance.interceptors.response.use(
-      (response) => {
-        return response as BaseResponse<any>;
-      },
-      (error) => {
-        if (error.response) {
-          // Handle HTTP errors
-          return Promise.reject(
-            new ApiError(error.response.status, error.response.data?.message || 'HTTP Error')
-          );
-        } else {
-          // Handle non-HTTP errors (e.g., network errors)
-          return Promise.reject(new ApiError(500, 'Network Error'));
-        }
-      }
-    );
-  }
-
-  async getPortfolio(): Promise<BaseResponse<any>> {
-    try {
-      const response = await this.axiosInstance.get('/api/nft/portfolio');
-      return {
-        data: response.data,
-        success: true,
-        error: undefined,
-      };
-    } catch (error: any) {
-      throw new ApiError(error.response?.status || 500, error.response?.data?.message || 'Error fetching portfolio');
+      const data = await response.json() as T;
+      return { statusCode: response.status, data, error: undefined };
+    } catch (error) {
+      console.error('API Request Error:', error);
+      throw error;
     }
   }
 
-  async rebalancePortfolio(data: any): Promise<BaseResponse<any>> {
-    try {
-      const response = await this.axiosInstance.post('/api/portfolio/rebalance', data);
-      return {
-        data: response.data,
-        success: true,
-        error: undefined,
-      };
-    } catch (error: any) {
-      throw new ApiError(error.response?.status || 500, error.response?.data?.message || 'Error rebalancing portfolio');
-    }
+  // NFT Collateral
+  async getNftCollateral(): Promise<BaseResponse<{}>> {
+    return await this.request('get', '/api/nftCollateral');
   }
 
-  async getPrediction(nftId: string): Promise<BaseResponse<any>> {
-    try {
-      const response = await this.axiosInstance.get(`/api/nft/prediction/${nftId}`);
-      return {
-        data: response.data,
-        success: true,
-        error: undefined,
-      };
-    } catch (error: any) {
-      throw new ApiError(error.response?.status || 500, error.response?.data?.message || 'Error fetching prediction');
-    }
+  // Price Feeds
+  async getPriceFeeds(): Promise<BaseResponse<{}>> {
+    return await this.request('get', '/api/priceFeeds');
   }
 
-  async getMarketData(): Promise<BaseResponse<any>> {
-    try {
-      const response = await this.axiosInstance.get('/api/marketdata');
-      return {
-        data: response.data,
-        success: true,
-        error: undefined,
-      };
-    } catch (error: any) {
-      throw new ApiError(error.response?.status || 500, error.response?.data?.message || 'Error fetching market data');
-    }
+  // Rebalance
+  async rebalance(body: any): Promise<BaseResponse<{}>> {
+    return await this.request('post', '/api/rebalance', body);
   }
 }
 
-class ApiError extends Error {
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
-
-export default NftApi;
+export default ApiClient;

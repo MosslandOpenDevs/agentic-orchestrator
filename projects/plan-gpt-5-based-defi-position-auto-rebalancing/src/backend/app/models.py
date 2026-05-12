@@ -1,103 +1,56 @@
-from sqlalchemy import Column, Integer, String, Float, JSON, DateTime, UUID
+from sqlalchemy import Column, String, Float, DateTime, UUID
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import back_populates
+from sqlalchemy.orm import back_populates, relationship
 
 Base = declarative_base()
 
-class NFT(Base):
-    """
-    Represents a Mossland NFT, including its metadata and current holdings.
-    """
-    __tablename__ = 'nft'
+class RiskParameter(Base):
+    __tablename__ = 'risk_parameters'
 
     id = Column(UUID, primary_key=True)
-    tokenId = Column(String, unique=True, nullable=False)
-    owner = Column(String, nullable=False)
-    metadata = Column(JSON, nullable=False)
-    quantity = Column(Integer, nullable=False)
-    created_at = Column(DateTime, server_default=DateTime.now)
-    updated_at = Column(DateTime, server_default=DateTime.now, server_expression=True)
+    asset = Column(String, nullable=False)
+    thresholdLow = Column(Float, nullable=False)
+    thresholdHigh = Column(Float, nullable=False)
+    action = Column(String, nullable=False)
+    createdAt = Column(DateTime, server_default=True)
+    updated_at = Column(DateTime, server_default=True, server_expression=True, onupdate=True)
 
     def __repr__(self):
-        return f"<NFT(tokenId='{self.tokenId}', owner='{self.owner}')>"
-
-    __table_args__ = (
-        {'schema': 'public'}
-    )
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+        return f"<RiskParameter(id={self.id}, asset='{self.asset}', thresholdLow={self.thresholdLow}, thresholdHigh={self.thresholdHigh}, action='{self.action}')>"
 
 
-class Portfolio(Base):
-    """
-    Represents a user's NFT portfolio managed by the system.
-    """
-    __tablename__ = 'portfolio'
-
-    id = Column(UUID, primary_key=True)
-    portfolioId = Column(String, unique=True, nullable=False)
-    userId = Column(String, nullable=False)
-    holdings = Column(JSON, nullable=False)
-    created_at = Column(DateTime, server_default=DateTime.now)
-    updated_at = Column(DateTime, server_default=DateTime.now, server_expression=True)
-
-    def __repr__(self):
-        return f"<Portfolio(portfolioId='{self.portfolioId}', userId='{self.userId}')>"
-
-    __table_args__ = (
-        {'schema': 'public'}
-    )
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-
-class MarketData(Base):
-    """
-    Real-time market data for NFTs.
-    """
-    __tablename__ = 'market_data'
+class NFTCollateral(Base):
+    __tablename__ = 'nft_collaterals'
 
     id = Column(UUID, primary_key=True)
     tokenId = Column(String, nullable=False)
+    asset = Column(String, nullable=False)
+    currentRatio = Column(Float, nullable=False)
+    createdAt = Column(DateTime, server_default=True)
+    updated_at = Column(DateTime, server_default=True, server_expression=True, onupdate=True)
+
+    def __repr__(self):
+        return f"<NFTCollateral(id={self.id}, tokenId='{self.tokenId}', asset='{self.asset}', currentRatio={self.currentRatio})>"
+
+    PriceFeedUpdates = relationship("PriceFeedUpdate", back_populates="nft_collateral")
+
+
+class PriceFeedUpdate(Base):
+    __tablename__ = 'price_feed_updates'
+
+    id = Column(UUID, primary_key=True)
+    asset = Column(String, nullable=False)
     price = Column(Float, nullable=False)
-    volume = Column(Integer, nullable=False)
     timestamp = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, server_default=DateTime.now)
-    updated_at = Column(DateTime, server_default=DateTime.now, server_expression=True)
+    createdAt = Column(DateTime, server_default=True)
+    updated_at = Column(DateTime, server_default=True, server_expression=True, onupdate=True)
 
     def __repr__(self):
-        return f"<MarketData(tokenId='{self.tokenId}', price={self.price})>"
+        return f"<PriceFeedUpdate(id={self.id}, asset='{self.asset}', price={self.price}, timestamp={self.timestamp})>"
 
-    __table_args__ = (
-        {'schema': 'public'}
-    )
+    nft_collateral = relationship("NFTCollateral", back_populates="price_feed_updates")
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-
-class Prediction(Base):
-    """
-    GPT-5 generated NFT value prediction.
-    """
-    __tablename__ = 'prediction'
-
-    id = Column(UUID, primary_key=True)
-    tokenId = Column(String, nullable=False)
-    predictedValue = Column(Float, nullable=False)
-    confidenceInterval = Column(Float, nullable=False)
-    timestamp = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, server_default=DateTime.now)
-    updated_at = Column(DateTime, server_default=DateTime.now, server_expression=True)
-
-    def __repr__(self):
-        return f"<Prediction(tokenId='{self.tokenId}', predictedValue={self.predictedValue})>"
-
-    __table_args__ = (
-        {'schema': 'public'}
-    )
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+if __name__ == '__main__':
+    from sqlalchemy import create_engine
+    engine = create_engine('sqlite:///:memory:')
+    Base.metadata.create_all(bind=engine)
