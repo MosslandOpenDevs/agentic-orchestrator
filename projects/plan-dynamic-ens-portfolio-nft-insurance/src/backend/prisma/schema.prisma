@@ -1,0 +1,29 @@
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+
+model NFTHolder {
+  id String @id @default(uuid())
+  username String
+  createdAt DateTime @default(now())
+}
+
+model MosslandNFT {
+  tokenId String @id @default(uuid())
+  ownerId String @relation(name: "mosslandnft_owner", foreignKey: id)
+  price Float
+  createdAt DateTime @default(now())
+}
+
+model Portfolio {
+  id String @id @default(uuid())
+  userId String @relation(name: "portfolio_user", foreignKey: userId)
+  createdAt DateTime @default(now())
+}
+
+model ValuationData {
+  tokenId String @id @default(uuid())
+  timestamp DateTime
+  price Float
+}
