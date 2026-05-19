@@ -61,7 +61,7 @@ export async function NpcCityStrip() {
           <Link
             href={NPC_BASE}
             target="_blank"
-            rel="noopener noreferrer"
+            rel="noopener"
             className="text-[12px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-100 shrink-0"
           >
             도시 가기 ↗
@@ -75,7 +75,7 @@ export async function NpcCityStrip() {
                 <Link
                   href={`${NPC_BASE}/npc/${h.npc.slug}/wall`}
                   target="_blank"
-                  rel="noopener noreferrer"
+                  rel="noopener"
                   className="group flex h-full gap-2.5 rounded-xl border border-zinc-500/15 bg-zinc-500/[0.04] p-2.5 transition hover:border-zinc-500/40"
                 >
                   {h.npc.portrait_url ? (
