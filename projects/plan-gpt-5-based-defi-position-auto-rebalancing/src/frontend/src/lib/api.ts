@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosRequestConfig, CanceledError } from 'axios';
+import axios, { AxiosResponse, AxiosError } from 'axios';
 
 interface BaseResponse<T> {
   data: T;
@@ -7,11 +7,10 @@ interface BaseResponse<T> {
 }
 
 class ApiClient {
-  private axiosInstance: AxiosInstance;
   private baseUrl: string;
-  private authHeaders: { [key: string]: string };
+  private axiosInstance: any;
 
-  constructor(baseUrl: string, authHeaders: { [key: string]: string } = {}) {
+  constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
     this.axiosInstance = axios.create({
       baseURL: this.baseUrl,
@@ -20,30 +19,33 @@ class ApiClient {
       },
     });
 
-    this.authHeaders = authHeaders;
     this.axiosInstance.interceptors.request.use(
-      this.handleRequestInterceptors,
-      this.handleResponseInterceptors
+      (config) => {
+        // Add authentication headers here if needed
+        // Example: config.headers['Authorization'] = 'Bearer ' + this.authToken;
+        return config;
+      },
+      (error) => {
+        return Promise.reject(error);
+      }
     );
-  }
 
-  private async handleRequestInterceptors(config: AxiosRequestConfig): Promise<AxiosRequestConfig> {
-    // Add authentication headers
-    if (Object.keys(this.authHeaders).length > 0) {
-      for (const key in this.authHeaders) {
-        if (this.authHeaders.hasOwnProperty(key)) {
-          config.headers[key] = this.authHeaders[key];
+    this.axiosInstance.interceptors.response.use(
+      (response) => {
+        return response as BaseResponse<any>;
+      },
+      (error) => {
+        if (error.response) {
+          // Handle HTTP errors
+          return Promise.reject(
+            new ApiError(error.response.status, error.response.data?.message || 'HTTP Error')
+          );
+        } else {
+          // Handle non-HTTP errors (e.g., network errors)
+          return Promise.reject(new ApiError(500, 'Request Error'));
         }
       }
-    }
-    return config;
-  }
-
-  private async handleResponseInterceptors(response: Response): Promise<Response> {
-    if (response.status < 200 || response.status >= 300) {
-      throw new Error(`HTTP error! Status: ${response.status}`);
-    }
-    return response;
+    );
   }
 
   async get<T>(endpoint: string): Promise<BaseResponse<T>> {
@@ -53,23 +55,8 @@ class ApiClient {
         data: response.data,
         success: true,
         error: undefined,
-      } as BaseResponse<T>;
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        if (error.response) {
-          return {
-            data: undefined,
-            success: false,
-            error: error.response.data?.message || error.response.statusText || 'An error occurred',
-          } as BaseResponse<any>;
-        } else {
-          return {
-            data: undefined,
-            success: false,
-            error: 'An error occurred',
-          } as BaseResponse<any>;
-        }
-      }
+      };
+    } catch (error: any) {
       throw error;
     }
   }
@@ -81,23 +68,8 @@ class ApiClient {
         data: response.data,
         success: true,
         error: undefined,
-      } as BaseResponse<T>;
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        if (error.response) {
-          return {
-            data: undefined,
-            success: false,
-            error: error.response.data?.message || error.response.statusText || 'An error occurred',
-          } as BaseResponse<any>;
-        } else {
-          return {
-            data: undefined,
-            success: false,
-            error: 'An error occurred',
-          } as BaseResponse<any>;
-        }
-      }
+      };
+    } catch (error: any) {
       throw error;
     }
   }
@@ -109,23 +81,8 @@ class ApiClient {
         data: response.data,
         success: true,
         error: undefined,
-      } as BaseResponse<T>;
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        if (error.response) {
-          return {
-            data: undefined,
-            success: false,
-            error: error.response.data?.message || error.response.statusText || 'An error occurred',
-          } as BaseResponse<any>;
-        } else {
-          return {
-            data: undefined,
-            success: false,
-            error: 'An error occurred',
-          } as BaseResponse<any>;
-        }
-      }
+      };
+    } catch (error: any) {
       throw error;
     }
   }
@@ -137,54 +94,16 @@ class ApiClient {
         data: response.data,
         success: true,
         error: undefined,
-      } as BaseResponse<T>;
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        if (error.response) {
-          return {
-            data: undefined,
-            success: false,
-            error: error.response.data?.message || error.response.statusText || 'An error occurred',
-          } as BaseResponse<any>;
-        } else {
-          return {
-            data: undefined,
-            success: false,
-            error: 'An error occurred',
-          } as BaseResponse<any>;
-        }
-      }
+      };
+    } catch (error: any) {
       throw error;
     }
   }
+}
 
-  async patch<T>(endpoint: string, data: any): Promise<BaseResponse<T>> {
-    try {
-      const response = await this.axiosInstance.patch(endpoint, data);
-      return {
-        data: response.data,
-        success: true,
-        error: undefined,
-      } as BaseResponse<T>;
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        if (error.response) {
-          return {
-            data: undefined,
-            success: false,
-            error: error.response.data?.message || error.response.statusText || 'An error occurred',
-          } as BaseResponse<any>;
-        } else {
-          return {
-            data: undefined,
-            success: false,
-            error: 'An error occurred',
-          } as BaseResponse<any>;
-        }
-      }
-      throw error;
-    }
-  }
+interface ApiError {
+  statusCode: number;
+  message: string;
 }
 
 export default ApiClient;

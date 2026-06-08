@@ -2,42 +2,53 @@ import os
 import time
 import logging
 import openai
+import tenacity
 from typing import List, Dict, Optional
-from tenacity import retry, stop_after_attempt, wait_exponential
 from datetime import datetime
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class OpenAIAPI:
-    def __init__(self, api_key: str, model: str = "gpt-3.5-turbo", max_tokens: int = 200, temperature: float = 0.7, rate_limit: int = 10):
+    def __init__(self, api_key: str, model: str = "gpt-3.5-turbo", max_tokens: int = 100, temperature: float = 0.7, rate_limit_delay: int = 2):
         """
         Initializes the OpenAI API service.
 
         Args:
-            api_key: The OpenAI API key.
-            model: The OpenAI model to use.
-            max_tokens: The maximum number of tokens in the generated text.
-            temperature: The temperature for controlling randomness.
-            rate_limit: The maximum number of requests allowed per period.
+            api_key: Your OpenAI API key.
+            model: The OpenAI model to use (default: "gpt-3.5-turbo").
+            max_tokens: The maximum number of tokens in the generated response (default: 100).
+            temperature: Controls randomness (default: 0.7).
+            rate_limit_delay: Delay in seconds to apply when rate limit is hit (default: 2).
         """
-        self.api_key = api_key
+        openai.api_key = api_key
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
-        self.rate_limit = rate_limit
-        self.request_count = 0
-        openai.api_key = self.api_key
+        self.rate_limit_delay = rate_limit_delay
+        self.cache = {}  # Simple in-memory cache
+        self.retry_strategy = tenacity.retry_wait(retry_exponential=True, multiplier=1, min=1, max=5)
 
-        # Configure retry logic
-        self.retry_config = {
-            'retry': retry,
-            'stop': stop_after_attempt(rate_limit),
-            'wait': wait_exponential(multiplier=1, min=3, max=10)
-        }
+    def _cache_key(self, prompt: str) -> str:
+        """Generates a cache key based on the prompt."""
+        return f"{prompt}-{self.model}"
 
-    def _generate_text(self, prompt: str) -> str:
+    def _get_from_cache(self, prompt: str) -> Optional[str]:
+        """Retrieves a response from the cache."""
+        key = self._cache_key(prompt)
+        if key in self.cache:
+            now = datetime.now()
+            if now - self.cache[key]['timestamp'] < datetime.timedelta(minutes=60): # Cache for 1 hour
+                logging.debug(f"Cache hit for prompt: {prompt}")
+                return self.cache[key]['response']
+        return None
+
+    def _cache_response(self, prompt: str, response: str):
+        """Stores a response in the cache."""
+        key = self._cache_key(prompt)
+        self.cache[key] = {'response': response, 'timestamp': datetime.now()}
+
+    def generate_text(self, prompt: str) -> str:
         """
         Generates text using the OpenAI API.
 
@@ -46,85 +57,60 @@ class OpenAIAPI:
 
         Returns:
             The generated text.
-
-        Raises:
-            Exception: If the API request fails.
         """
+        if self._get_from_cache(prompt):
+            logging.debug(f"Returning cached response for prompt: {prompt}")
+            return self._get_from_cache(prompt)
+
         try:
             response = openai.ChatCompletion.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
                 stream=False  # Disable streaming for simplicity
             )
-            return response['choices'][0]['message']['content']
+            text = response['choices'][0]['message']['content']
+            self._cache_response(prompt, text)
+            logging.info(f"Generated text for prompt: {prompt}")
+            return text
         except openai.error.RateLimitError as e:
-            logger.error(f"Rate limit exceeded: {e}")
-            raise
+            logging.warning(f"Rate limit exceeded: {e}. Retrying in {self.rate_limit_delay} seconds...")
+            time.sleep(self.rate_limit_delay)
+            return self.generate_text(prompt)  # Retry
         except openai.error.OpenAIError as e:
-            logger.error(f"OpenAI API error: {e}")
-            raise
+            logging.error(f"OpenAI API error: {e}")
+            raise  # Re-raise the exception for handling at a higher level
         except Exception as e:
-            logger.exception(f"An unexpected error occurred: {e}")
+            logging.exception(f"An unexpected error occurred: {e}")
             raise
 
-    def generate(self, prompt: str) -> str:
+    def analyze_text(self, text: str) -> Dict:
         """
-        Generates text based on the given prompt.
-
-        Args:
-            prompt: The prompt to send to the API.
-
-        Returns:
-            The generated text.
-        """
-        self.request_count += 1
-        if self.request_count % self.rate_limit == 0:
-            time.sleep(2)  # Simple rate limiting
-        try:
-            return self._generate_text(prompt)
-        except Exception:
-            logger.exception("Failed to generate text.")
-            raise
-
-    def analyze_sentiment(self, text: str) -> Dict[str, float]:
-        """
-        Analyzes the sentiment of the given text.
+        Analyzes the given text using the OpenAI API.
 
         Args:
             text: The text to analyze.
 
         Returns:
-            A dictionary containing the sentiment analysis results.
+            A dictionary containing the analysis results.
         """
         try:
-            response = openai.Completion.create(
-                model="text-davinci-003",
-                prompt=f"Analyze the sentiment of the following text: {text}\nSentiment:",
-                max_tokens=50,
-                temperature=0.2,
-                n=1,
-                stop=["\n"]
+            response = openai.ChatCompletion.create(
+                model=self.model,
+                messages=[
+                    {"role": "user", "content": f"Analyze the following text: {text}"}
+                ],
+                max_tokens=200,
+                temperature=0.5
             )
-            return {"sentiment": response.choices[0].text.strip()}
+            analysis = response['choices'][0]['message']['content']
+            return {"analysis": analysis}
         except openai.error.OpenAIError as e:
-            logger.error(f"OpenAI API error: {e}")
-            return {"sentiment": "Error"}
+            logging.error(f"OpenAI API error during analysis: {e}")
+            return {"error": str(e)}
         except Exception as e:
-            logger.exception(f"An unexpected error occurred: {e}")
-            return {"sentiment": "Error"}
-
-    def list_models(self) -> List[str]:
-        """
-        Lists available OpenAI models.
-        """
-        try:
-            response = openai.models.list()
-            return [model['id'] for model in response.data]
-        except openai.error.OpenAIError as e:
-            logger.error(f"OpenAI API error: {e}")
-            return []
-        except Exception as e:
-            logger.exception(f"An unexpected error occurred: {e}")
-            return []
+            logging.exception(f"An unexpected error occurred during analysis: {e}")
+            return {"error": str(e)}

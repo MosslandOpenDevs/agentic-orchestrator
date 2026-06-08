@@ -1,104 +1,201 @@
-import { ethers, Signer } from "ethers";
-import { expect } from "chai";
-import { Contract } from "ethers";
-import { MockProvider } from "hardhat-ether";
+import { ethers, Signer } from 'ethers';
+import { expect } from 'chai';
+import { Contract } from 'ethers';
 
-// Replace with your contract's ABI and address
-const contractABI = [
-  // Your contract ABI here
-];
-let contract: Contract;
-let provider: ethers.providers.Provider;
-let mockSigner: Signer;
+// Mock contracts and interfaces for testing
+interface MosslandInterface {
+  deposit: (amount: string) => Promise<void>;
+  withdraw: (amount: string) => Promise<void>;
+  getUsdValue: () => Promise<string>;
+}
 
-beforeAll(async () => {
-  // Replace with your Hardhat network URL
-  provider = new ethers.providers.JsonRpcProvider("http://localhost:8545");
+interface AgentInterface {
+  getPositions: () => Promise<string[]>;
+  rebalance: (strategy: string) => Promise<void>;
+  updateStrategy: (strategy: string) => Promise<void>;
+  getGPTAnalysis: () => Promise<string>;
+}
 
-  mockSigner = await ethers.getSigner();
+// Mock Mossland implementation
+class MockMossland implements MosslandInterface {
+  private usdValue: string = '100';
 
-  // Deploy the contract (replace with your deployment logic)
-  contract = new ethers.Contract(
-    "0x...", // Replace with your contract address
-    contractABI,
-    mockSigner
-  );
-});
+  deposit(amount: string) {
+    console.log(`Deposited ${amount}`);
+  }
 
-describe("GPT-5 Based DeFi Position Auto-Rebalancing Agent", () => {
-  describe("Deployment Tests", () => {
-    it("Should deploy successfully", async () => {
-      await expect(contract.deploy()).to.emit("Deployment");
+  withdraw(amount: string) {
+    console.log(`Withdrew ${amount}`);
+  }
+
+  getUsdValue() {
+    return this.usdValue;
+  }
+}
+
+// Mock Agent implementation
+class MockAgent implements AgentInterface {
+  private strategy: string = 'conservative';
+
+  getPositions() {
+    return ['tokenA', 'tokenB'];
+  }
+
+  rebalance(strategy: string) {
+    this.strategy = strategy;
+    console.log(`Rebalanced to ${strategy}`);
+  }
+
+  updateStrategy(strategy: string) {
+    this.strategy = strategy;
+    console.log(`Updated strategy to ${strategy}`);
+  }
+
+  getGPTAnalysis() {
+    return 'GPT analysis suggests rebalancing';
+  }
+}
+
+describe('GPT-5 Based DeFi Position Auto-Rebalancing Agent', function () {
+  let agent: Contract;
+  let mossland: MosslandInterface;
+  let agentInstance: AgentInterface;
+  const provider = new ethers.providers.JsonRpcProvider('http://localhost:8545');
+  const signer: Signer = new Signer(provider, '0x');
+  const address = '0xAb5801aA0b36888a81c679602984d40344d38275';
+
+  before(async function () {
+    mossland = new MockMossland();
+    agentInstance = new MockAgent();
+
+    const agentSource = await /* Replace with actual contract source */ ethers.utils.jsonInterface.getContractInterface({
+      address: address,
+      abi: [
+        {
+          name: 'deposit',
+          stateMutability: 'payable',
+          inputs: [
+            {
+              type: 'string',
+              name: 'amount',
+            },
+          ],
+          outputs: [],
+        },
+        {
+          name: 'withdraw',
+          stateMutability: 'payable',
+          inputs: [
+            {
+              type: 'string',
+              name: 'amount',
+            },
+          ],
+          outputs: [],
+        },
+        {
+          name: 'getUsdValue',
+          stateMutability: 'view',
+          outputs: [
+            {
+              type: 'string',
+              name: 'usdValue',
+            },
+          ],
+        },
+        {
+          name: 'getPositions',
+          stateMutability: 'view',
+          outputs: [
+            {
+              type: 'string[]',
+              name: 'positions',
+            },
+          ],
+        },
+        {
+          name: 'rebalance',
+          stateMutability: 'nonpayable',
+          inputs: [
+            {
+              type: 'string',
+              name: 'strategy',
+            },
+          ],
+          outputs: [],
+        },
+        {
+          name: 'updateStrategy',
+          stateMutability: 'nonpayable',
+          inputs: [
+            {
+              type: 'string',
+              name: 'strategy',
+            },
+          ],
+          outputs: [],
+        },
+        {
+          name: 'getGPTAnalysis',
+          stateMutability: 'view',
+          outputs: [
+            {
+              type: 'string',
+              name: 'analysis',
+            },
+          ],
+        },
+      ],
     });
 
-    it("Should set the correct contract owner", async () => {
-      const owner = await contract.owner();
-      expect(owner).to.eq(mockSigner.address);
+    agent = new Contract(address, agentSource);
+  });
+
+  describe('Deployment Tests', function () {
+    it('should deploy successfully', async function () {
+      await agent.deployed();
+      expect(agent.address).to.not.be.equal(ethers.zeroAddress);
     });
   });
 
-  describe("Public Functions", () => {
-    it("Should correctly handle getEstimatedCost", async () => {
-      const cost = await contract.getEstimatedCost();
-      expect(cost).to.eq("185000");
+  describe('Public Functions', function () {
+    describe('getPositions', function () {
+      it('should return the correct positions', async function () {
+        const positions = await agent.getPositions();
+        expect(positions).to.deep.equal(['tokenA', 'tokenB']);
+      });
     });
 
-    it("Should correctly handle updateGPT5APIKey", async () => {
-      const apiKey = "newApiKey";
-      const result = await contract.updateGPT5APIKey(apiKey);
-      expect(result.wait).to.be.true;
+    describe('getUsdValue', function () {
+      it('should return the correct USD value', async function () {
+        const usdValue = await agent.getUsdValue();
+        expect(usdValue).to.equal('100');
+      });
     });
 
-    it("Should correctly handle getGPT5APIKey", async () => {
-      const apiKey = await contract.getGPT5APIKey();
-      expect(apiKey).to.not.be.empty;
-    });
-
-    it("Should correctly handle updateTeamMembers", async () => {
-      const teamMembers = [{ name: "Alice", role: "Engineer" }, { name: "Bob", role: "Engineer" }];
-      const result = await contract.updateTeamMembers(teamMembers);
-      expect(result.wait).to.be.true;
-    });
-
-    it("Should correctly handle getTeamMembers", async () => {
-      const teamMembers = await contract.getTeamMembers();
-      expect(teamMembers.length).to.eq(2);
+    describe('getGPTAnalysis', function () {
+      it('should return the GPT analysis', async function () {
+        const analysis = await agent.getGPTAnalysis();
+        expect(analysis).to.equal('GPT analysis suggests rebalancing');
+      });
     });
   });
 
-  describe("Access Control", () => {
-    it("Only owner can update GPT5 API Key", async () => {
-      const apiKey = "testApiKey";
-      const result = await contract.updateGPT5APIKey(apiKey);
-      expect(result.wait).to.be.true;
-      // Verify that only the owner can call this function
-      const resultUnauthorized = await contract.updateGPT5APIKey(apiKey).catch(() => null);
-      expect(resultUnauthorized).to.eq(null);
+  describe('Access Control and Rebalancing', function () {
+    it('should rebalance to a new strategy', async function () {
+      await agent.rebalance('aggressive');
+      expect(agentInstance.strategy).to.equal('aggressive');
     });
 
-    it("Only owner can update Team Members", async () => {
-      const teamMembers = [{ name: "Alice", role: "Engineer" }, { name: "Bob", role: "Engineer" }];
-      const result = await contract.updateTeamMembers(teamMembers);
-      expect(result.wait).to.be.true;
-      // Verify that only the owner can call this function
-      const resultUnauthorized = await contract.updateTeamMembers(teamMembers).catch(() => null);
-      expect(resultUnauthorized).to.eq(null);
+    it('should update the strategy', async function () {
+      await agent.updateStrategy('moderate');
+      expect(agentInstance.strategy).to.equal('moderate');
     });
   });
 
-  describe("Edge Cases and Reverts", () => {
-    it("Should revert if updateGPT5APIKey is called by a non-owner", async () => {
-      const apiKey = "testApiKey";
-      await expect(contract.updateGPT5APIKey(apiKey)).to.be.reverted;
-    });
-
-    it("Should revert if updateTeamMembers is called by a non-owner", async () => {
-      const teamMembers = [{ name: "Alice", role: "Engineer" }, { name: "Bob", role: "Engineer" }];
-      await expect(contract.updateTeamMembers(teamMembers)).to.be.reverted;
-    });
-
-    it("Should revert if an invalid cost is passed", async () => {
-      await expect(contract.getEstimatedCost("invalid")).to.be.reverted;
+  describe('Edge Cases and Reverts', function () {
+    it('should revert if rebalancing with an invalid strategy', async function () {
+      await expect(agent.rebalance('invalid')).to.reverted();
     });
   });
 });

@@ -3,61 +3,54 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/utils/introspection/ReentrancyGuard.sol";
 
-contract MosslandNFTContract is Ownable, AccessControl {
-    using SafeMath for uint256;
+contract MosslandNFTContract is Ownable, AccessControl, ReentrancyGuard {
+    mapping(string => uint256) public tokenIds;
+    mapping(string => address) public owners;
 
-    mapping(string => address) public NFTs;
-    mapping(string => uint256[]) public PortfolioHoldings;
+    string public constant NAME = "MosslandNFT";
+    string public constant SYMBOL = "MNS";
 
-    event NFTMinted(address owner, string tokenId);
-    event NFTTransferred(address owner, address recipient, string tokenId);
+    event NFTMinted(uint256 tokenId, address owner, string name, string symbol);
+    event NFTTransferred(uint256 tokenId, address from, address to, address owner);
 
     constructor() {
-        _setupAccessControl();
+        AccessControl.grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
-    // Modifier to restrict access to only the owner
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner can call this function");
-        _;
+    function mintNFT(string memory _name, string memory _symbol, address _owner) external AccessControl {
+        require(_name != "", "Name cannot be empty");
+        require(_symbol != "", "Symbol cannot be empty");
+        require(_owner != address(0), "Owner address cannot be zero");
+
+        uint256 newTokenId = tokenIds.entries().length;
+        tokenIds[stringToBytes32(_name)] = newTokenId;
+        owners[_name] = _owner;
+
+        emit NFTMinted(newTokenId, _owner, _name, _symbol);
     }
 
-    // Mints a new Mossland NFT
-    function mintNFT(string memory _tokenId, address _owner) public onlyOwner {
-        require(string.length(_tokenId) > 0, "Token ID cannot be empty");
-        NFTs[_tokenId] = _owner;
-        emit NFTMinted(_owner, _tokenId);
+    function transferNFT(uint256 _tokenId, address _from, address _to) external AccessControl {
+        require(_tokenId > 0, "Token ID must be greater than 0");
+        require(tokenIds[_tokenId] > 0, "Token ID does not exist");
+        require(_from != address(0), "From address cannot be zero");
+        require(_to != address(0), "To address cannot be zero");
+        require(owners[_tokenId] != _from, "You cannot transfer your own NFT");
+
+        uint256 oldOwner = owners[_tokenId];
+        tokenIds[_tokenId] = 0; // Mark token as transferred
+        owners[_tokenId] = _to;
+
+        emit NFTTransferred(_tokenId, _from, _to, oldOwner);
     }
 
-    // Transfers ownership of an NFT
-    function transferNFT(string memory _tokenId, address _recipient, uint256 _allowance) public AccessControl {
-        require(string.length(_tokenId) > 0, "Token ID cannot be empty");
-        require(NFTs[_tokenId] != address(0), "NFT does not exist");
-        require(_recipient != address(0), "Recipient address cannot be zero");
-
-        NFTs[_tokenId] = _recipient;
-        emit NFTTransferred(NFTs[_tokenId], _recipient, _tokenId);
+    // Helper function to convert string to bytes32 for mapping key
+    function stringToBytes32(string memory _str) internal pure function {
+        bytes32 hash = keccak256(_str);
+        return hash;
     }
 
-    // Dynamically adjusts portfolio holdings
-    function rebalancePortfolio(string memory _portfolioId, float _aggressiveness) public onlyOwner {
-        require(_aggressiveness >= 0.0 && _aggressiveness <= 1.0, "Aggressiveness must be between 0.0 and 1.0");
-
-        // Placeholder for rebalancing logic - replace with actual implementation
-        // This is just an example, actual implementation would depend on the specific
-        // portfolio and asset holdings.
-        // Example:
-        // uint256 newHolding = (uint256(_aggressiveness) * totalPortfolioValue) / 100;
-        // PortfolioHoldings[_portfolioId].push(newHolding);
-
-        // For demonstration purposes, we'll just add a dummy value
-        PortfolioHoldings[_portfolioId].push(100);
-    }
-
-    // Fallback function to receive ETH (reentrancy protection)
-    receive() external payable {
-        // Handle ETH receipt if needed - reentrancy protection is already in place
-    }
+    // Fallback function to prevent accidental ETH transfers
+    receive() external payable {}
 }

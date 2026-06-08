@@ -7,24 +7,25 @@ export interface NFTPosition {
   id: string;
   nftId: string;
   userAddress: string;
-  defiProtocol: string;
-  assetToken: string;
-  quantity: any;
+  protocol: string;
+  asset: string;
+  amount: number;
   createdAt: string;
 }
 
 export interface RiskProfile {
   id: string;
   userId: string;
-  riskLevel: string;
+  riskTolerance: string;
   volatilityThreshold: number;
-  lossTolerance: number;
+  maxLossPercentage: number;
 }
 
 export interface MarketData {
   id: string;
-  assetToken: string;
+  asset: string;
   price: number;
+  volatility: number;
   timestamp: string;
 }
 

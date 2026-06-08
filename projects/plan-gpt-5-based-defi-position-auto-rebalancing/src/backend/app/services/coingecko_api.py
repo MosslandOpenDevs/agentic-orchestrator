@@ -10,25 +10,21 @@ from concurrent.futures import ThreadPoolExecutor
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 class CoingeckoService:
-    """
-    Service for integrating with the Coingecko API.
-    """
-
-    def __init__(self, api_key: str, rate_limit_delay: int = 1, max_retries: int = 3):
+    def __init__(self, api_key: str, rate_limit_interval: int = 60, max_retries: int = 3):
         """
         Initializes the CoingeckoService.
 
         Args:
-            api_key: The Coingecko API key.
-            rate_limit_delay: Delay in seconds between API requests to respect rate limits.
-            max_retries: Maximum number of retries for a failed request.
+            api_key: Your Coingecko API key.
+            rate_limit_interval: Interval in seconds for rate limiting.
+            max_retries: Maximum number of retries for transient errors.
         """
         self.api_key = api_key
         self.base_url = "https://api.coingecko.com/api/v3"
-        self.rate_limit_delay = rate_limit_delay
+        self.rate_limit_interval = rate_limit_interval
         self.max_retries = max_retries
-        self.retry_backoff_factor = 2  # Exponential backoff
-        self.retry_exceptions = (RequestException, Exception)
+        self.retry_delay = 2  # Seconds to wait before retrying
+        self.executor = ThreadPoolExecutor(max_workers=5) # Thread pool for concurrent requests
 
     def _make_request(self, endpoint: str, params: Dict = None) -> Dict:
         """
@@ -42,68 +38,99 @@ class CoingeckoService:
             The JSON response from the API.
 
         Raises:
-            Exception: If the request fails after multiple retries.
+            requests.exceptions.RequestException: If the request fails.
         """
-        retries = 0
-        while retries < self.max_retries:
-            try:
-                response = requests.get(endpoint, params=params, headers={'X-CG-Token': self.api_key})
-                response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-                return response.json()
-            except RequestException as e:
-                logging.error(f"Request failed: {e}")
-                retries += 1
-                if not self.retry_exceptions.__cause__ in [e.__cause__ for e in self.retry_exceptions]:
-                    raise
-                time.sleep(self.retry_backoff_factor * (2 ** retries))
-        raise Exception(f"Failed to fetch data after {self.max_retries} retries.")
+        headers = {"X-CG-VERSION": "v3", "Authorization": f"Bearer {self.api_key}"}
+        try:
+            response = requests.get(endpoint, headers=headers, params=params)
+            response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+            return response.json()
+        except RequestException as e:
+            logging.error(f"Request failed for {endpoint}: {e}")
+            raise
 
-    def get_ticker(self, coin_id: str) -> Dict:
+    def get_ticker(self, symbol: str) -> Dict:
         """
         Gets the ticker information for a cryptocurrency.
 
         Args:
-            coin_id: The ID of the cryptocurrency.
+            symbol: The cryptocurrency symbol (e.g., "bitcoin").
 
         Returns:
-            The ticker information.
+            The ticker information as a dictionary.
+
+        Raises:
+            requests.exceptions.RequestException: If the request fails.
         """
-        endpoint = f"/coins/{coin_id}/ticker"
+        endpoint = f"{self.base_url}/exchange/{symbol}/ticker"
         return self._make_request(endpoint)
 
-    def get_price(self, coin_id: str) -> float:
+    def get_price(self, symbol: str) -> float:
         """
         Gets the current price of a cryptocurrency.
 
         Args:
-            coin_id: The ID of the cryptocurrency.
+            symbol: The cryptocurrency symbol.
 
         Returns:
-            The current price.
-        """
-        ticker = self.get_ticker(coin_id)
-        return ticker[0]['price']
+            The current price as a float.
 
-    def get_latest_prices(self, coin_ids: List[str]) -> Dict:
+        Raises:
+            requests.exceptions.RequestException: If the request fails.
         """
-        Gets the latest prices for a list of cryptocurrencies.
+        ticker = self.get_ticker(symbol)
+        return ticker["last"]
+
+    def get_latest_trades(self, symbol: str) -> List[Dict]:
+        """
+        Gets the latest trades for a cryptocurrency.
 
         Args:
-            coin_ids: A list of cryptocurrency IDs.
+            symbol: The cryptocurrency symbol.
 
         Returns:
-            A dictionary of latest prices.
+            The latest trades as a list of dictionaries.
         """
-        data = {}
-        with ThreadPoolExecutor(max_workers=len(coin_ids)) as executor:
-            results = list(executor.map(self.get_price, coin_ids))
-        for i, coin_id in enumerate(coin_ids):
-            data[coin_id] = results[i]
-        return data
+        endpoint = f"{self.base_url}/exchange/{symbol}/trades"
+        return self._make_request(endpoint)
 
-    def get_gemini_exchange_rate(self, coin_id: str) -> float:
+    def get_market_data(self, symbol: str, timeframe: str) -> List[Dict]:
         """
-        Gets the exchange rate for a cryptocurrency on Gemini.
+        Gets market data for a cryptocurrency within a specific timeframe.
+
+        Args:
+            symbol: The cryptocurrency symbol.
+            timeframe: The timeframe (e.g., "1m", "5m", "1h").
+
+        Returns:
+            The market data as a list of dictionaries.
         """
-        endpoint = f"/coins/{coin_id}/last_exchange_rate"
-        return self._make_request(endpoint)['result']
+        endpoint = f"{self.base_url}/exchange/{symbol}/chart"
+        params = {"vs_currency": "usd", "timeframe": timeframe}
+        return self._make_request(endpoint, params)
+
+    def get_all_currencies(self) -> List[str]:
+        """
+        Gets a list of all available cryptocurrency symbols.
+        """
+        response = self._make_request(f"{self.base_url}/coins/list")
+        return [coin["id"] for coin in response]
+
+    def rate_limit_wait(self) -> None:
+        """
+        Waits for the rate limit interval to pass.
+        """
+        time.sleep(self.rate_limit_interval)
+
+    def retry_request(self, func, *args, **kwargs):
+        """
+        Retries a request with exponential backoff.
+        """
+        for attempt in range(self.max_retries):
+            try:
+                return func(*args, **kwargs)
+            except RequestException as e:
+                logging.error(f"Attempt {attempt + 1} failed: {e}")
+                if attempt == self.max_retries - 1:
+                    raise
+                time.sleep(self.retry_delay * (2 ** attempt))

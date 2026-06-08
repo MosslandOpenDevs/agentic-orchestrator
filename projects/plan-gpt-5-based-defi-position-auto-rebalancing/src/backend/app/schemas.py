@@ -1,102 +1,99 @@
-from pydantic import BaseModel, Field
 from typing import Optional
-from pydantic import Field
+from pydantic import BaseModel, Field
+from pydantic import ConfigDict
+from pydantic.validator import validator
 
-class FieldValidator(BaseModel):
+class FieldConfig(ConfigDict):
+    """
+    Configuration for Pydantic fields.
+    """
+    extra = False
+    yaml = False
+
+class BaseNFTPosition(BaseModel):
+    """
+    Base schema for NFTPosition entities.
+    """
+    nft_id: str = Field(..., description="Unique identifier for the NFT", config=FieldConfig)
+    holdings: Optional[dict] = Field(None, description="NFT holdings details")
+    decentralized_finance_allocations: Optional[dict] = Field(None, description="DeFi protocol allocations")
+
+
+class CreateNFTPosition(BaseNFTPosition):
+    """
+    Create schema for NFTPosition entities.
+    """
     pass
 
-class NFTPosition(BaseModel):
-    nft_id: str = Field(..., description="Unique identifier of the NFT", min_length=3)
-    quantity: int = Field(..., description="Number of NFTs held", gt=0)
-    efi_balance: float = Field(..., description="Amount of EFI held associated with this position", gt=0)
-    defi_interactions: list[str] = Field(default=[], description="List of DeFi interactions associated with this position")
-    
-    class Config:
-        schema_extra = {
-            "example": {
-                "nft_id": "0x1234567890abcdef",
-                "quantity": 10,
-                "efi_balance": 100.50,
-                "defi_interactions": ["staking", "lending"]
-            }
-        }
+
+class UpdateNFTPosition(BaseNFTPosition):
+    """
+    Update schema for NFTPosition entities.
+    """
+    pass
+
+
+class ResponseNFTPosition(BaseNFTPosition):
+    """
+    Response schema for NFTPosition entities.
+    """
+    pass
 
 
 class RiskProfile(BaseModel):
-    risk_tolerance: str = Field(..., description="User's risk tolerance (low, medium, high)", enum=['low', 'medium', 'high'])
-    investment_horizon: int = Field(..., description="User's investment horizon in years", gt=0)
-    financial_goals: list[str] = Field(default=[], description="User's financial goals")
+    """
+    Base schema for RiskProfile entities.
+    """
+    risk_tolerance: str = Field(..., description="User's risk tolerance level (e.g., Conservative, Moderate, Aggressive)", config=FieldConfig)
+    investment_horizon: Optional[int] = Field(None, description="User's investment horizon in years", config=FieldConfig)
 
-    class Config:
-        schema_extra = {
-            "example": {
-                "risk_tolerance": "medium",
-                "investment_horizon": 5,
-                "financial_goals": ["retirement", "wealth accumulation"]
-            }
-        }
+
+class CreateRiskProfile(RiskProfile):
+    """
+    Create schema for RiskProfile entities.
+    """
+    pass
+
+
+class UpdateRiskProfile(RiskProfile):
+    """
+    Update schema for RiskProfile entities.
+    """
+    pass
+
+
+class ResponseRiskProfile(RiskProfile):
+    """
+    Response schema for RiskProfile entities.
+    """
+    pass
 
 
 class MarketData(BaseModel):
-    asset_id: str = Field(..., description="Unique identifier of the DeFi asset")
-    price: float = Field(..., description="Current price of the asset", gt=0)
-    volume: float = Field(..., description="Trading volume of the asset", gt=0)
-    
-    class Config:
-        schema_extra = {
-            "example": {
-                "asset_id": "ETH",
-                "price": 3000.75,
-                "volume": 100.20
-            }
-        }
-
-class NFTPositionCreate(BaseModel):
-    nft_id: str = Field(..., description="Unique identifier of the NFT", min_length=3)
-    quantity: int = Field(..., description="Number of NFTs held", gt=0)
-    efi_balance: float = Field(..., description="Amount of EFI held associated with this position", gt=0)
-    defi_interactions: list[str] = Field(default=[], description="List of DeFi interactions associated with this position")
-
-    class Config:
-        schema_extra = {
-            "example": {
-                "nft_id": "0x1234567890abcdef",
-                "quantity": 5,
-                "efi_balance": 50.00,
-                "defi_interactions": ["staking"]
-            }
-        }
+    """
+    Base schema for MarketData entities.
+    """
+    asset_id: str = Field(..., description="Unique identifier for the DeFi asset", config=FieldConfig)
+    price: float = Field(..., description="Current price of the asset", config=FieldConfig)
+    volume: Optional[float] = Field(None, description="Trading volume of the asset", config=FieldConfig)
 
 
-class NFTPositionUpdate(BaseModel):
-    nft_id: str = Field(..., description="Unique identifier of the NFT", min_length=3)
-    quantity: Optional[int] = Field(default=None, description="Number of NFTs held", gt=0)
-    efi_balance: Optional[float] = Field(default=None, description="Amount of EFI held associated with this position", gt=0)
-    defi_interactions: Optional[list[str]] = Field(default=[], description="List of DeFi interactions associated with this position")
-
-    class Config:
-        schema_extra = {
-            "example": {
-                "nft_id": "0x1234567890abcdef",
-                "quantity": 10,
-                "efi_balance": 150.00,
-                "defi_interactions": ["lending", "yield farming"]
-            }
-        }
+class CreateMarketData(MarketData):
+    """
+    Create schema for MarketData entities.
+    """
+    pass
 
 
-class NFTPositionResponse(BaseModel):
-    nft_id: str
-    quantity: int
-    efi_balance: float
-    defi_interactions: list[str]
+class UpdateMarketData(MarketData):
+    """
+    Update schema for MarketData entities.
+    """
+    pass
 
-    class Config:
-        schema_extra = {
-            "example": {
-                "nft_id": "0x1234567890abcdef",
-                "quantity": 10,
-                "efi_balance": 150.00,
-                "defi_interactions": ["lending", "yield farming"]
-            }
-        }
+
+class ResponseMarketData(MarketData):
+    """
+    Response schema for MarketData entities.
+    """
+    pass

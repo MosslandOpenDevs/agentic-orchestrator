@@ -3,124 +3,105 @@ import { Line } from 'react-svg-charts';
 import { Chart } from 'chart.js/auto';
 
 interface RiskAssessmentProps {
-  riskData: {
-    volatility: number;
-    lossTolerance: number;
-    scenarios: {
-      conservative: {
-        lossPercentage: number;
-        probability: number;
-      };
-      moderate: {
-        lossPercentage: number;
-        probability: number;
-      };
-      aggressive: {
-        lossPercentage: number;
-        probability: number;
-      };
-    };
-  };
+  initialRisk: number;
+  volatilityData: { [key: string]: number } | null;
+  lossScenarioData: { [key: string]: number } | null;
   isLoading: boolean;
-  error: string | null;
+  error?: string;
 }
 
 const RiskAssessment: React.FC<RiskAssessmentProps> = ({
-  riskData,
+  initialRisk,
+  volatilityData,
+  lossScenarioData,
   isLoading,
   error,
 }) => {
-  const [chartData, setChartData] = useState<any>();
+  const [risk, setRisk] = useState(initialRisk);
+  const [lossScenario, setLossScenario] = useState(0);
 
   useEffect(() => {
-    if (!riskData || isLoading) return;
-
-    const data = {
-      labels: ['Conservative', 'Moderate', 'Aggressive'],
-      datasets: [
-        {
-          label: 'Loss Percentage',
-          data: [riskData.scenarios.conservative.lossPercentage, riskData.scenarios.moderate.lossPercentage, riskData.scenarios.aggressive.lossPercentage],
-          backgroundColor: [
-            'rgba(255, 99, 132, 0.2)',
-            'rgba(54, 162, 235, 0.2)',
-            'rgba(255, 206, 86, 0.2)',
-          ],
-          borderColor: [
-            'rgba(255, 99, 132, 1)',
-            'rgba(54, 162, 235, 1)',
-            'rgba(255, 206, 86, 1)',
-          ],
-          borderWidth: 1,
-        },
-      ],
-    };
-
-    setChartData(data);
-  }, [riskData]);
+    if (volatilityData && lossScenarioData) {
+      // Simulate data processing - replace with actual logic
+      const volatility = Math.random() * 100;
+      const scenario = Math.random() * 500;
+      setRisk(volatility);
+      setLossScenario(scenario);
+    }
+  }, [volatilityData, lossScenarioData]);
 
   if (isLoading) {
-    return <div>Loading...</div>;
+    return <div>Loading Risk Assessment...</div>;
   }
 
   if (error) {
     return <div>Error: {error}</div>;
   }
 
+  const volatilityChartData = {
+    labels: ['Low', 'Medium', 'High'],
+    datasets: [
+      {
+        label: 'Volatility',
+        data: [risk, risk + 20, risk + 40],
+        backgroundColor: [
+          'rgba(255, 99, 132, 0.2)',
+          'rgba(54, 162, 235, 0.2)',
+          'rgba(255, 206, 86, 0.2)',
+        ],
+        borderColor: ['rgba(255, 99, 132, 1)', 'rgba(54, 162, 235, 1)', 'rgba(255, 206, 86, 1)'],
+        borderWidth: 1,
+      },
+    ],
+  };
+
+  const lossScenarioData = {
+    labels: ['Low', 'Medium', 'High'],
+    datasets: [
+      {
+        label: 'Potential Loss',
+        data: [lossScenario, lossScenario + 100, lossScenario + 200],
+        backgroundColor: [
+          'rgba(255, 99, 132, 0.2)',
+          'rgba(54, 162, 235, 0.2)',
+          'rgba(255, 206, 86, 0.2)',
+        ],
+        borderColor: ['rgba(255, 99, 132, 1)', 'rgba(54, 162, 235, 1)', 'rgba(255, 206, 86, 1)'],
+        borderWidth: 1,
+      },
+    ],
+  };
+
   return (
     <div className="bg-gray-100 p-8 rounded-lg shadow-md w-full max-w-md">
       <h2 className="text-xl font-bold mb-4">Risk Assessment</h2>
 
-      {/* Volatility Chart */}
       <div className="mb-4">
-        <Line
-          data={chartData}
-          width={300}
-          height={200}
-          xAccessor={(d) => d.label}
-          yAccessor={(d) => d.data[0]}
-          className="chart-container"
-        />
+        <p className="text-gray-700">
+          Current Risk Level: {risk.toFixed(2)}
+        </p>
       </div>
 
-      {/* Loss Tolerance Indicator */}
-      <div className="mb-4">
-        <p className="text-lg font-semibold">Loss Tolerance:</p>
-        <div className="flex items-center">
-          <span className="text-xs text-green-500 mr-2">{riskData.lossTolerance}</span>
-          <p className="text-gray-600">units</p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white rounded-md shadow-sm p-4">
+          <h3 className="text-lg font-semibold mb-2">Volatility Chart</h3>
+          <Line
+            data={volatilityChartData}
+            width={300}
+            height={200}
+            className="mt-4"
+          />
         </div>
-      </div>
 
-      {/* Scenario Analysis */}
-      <div className="mb-4">
-        <h3 className="text-lg font-bold mb-2">Scenario Analysis</h3>
-        <table className="min-w-0 table-auto">
-          <thead>
-            <tr>
-              <th className="text-left px-2">Scenario</th>
-              <th className="text-left px-2">Loss Percentage</th>
-              <th className="text-left px-2">Probability</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td className="text-left px-2">Conservative</td>
-              <td className="text-left px-2">{riskData.scenarios.conservative.lossPercentage}%</td>
-              <td className="text-left px-2">{riskData.scenarios.conservative.probability}</td>
-            </tr>
-            <tr>
-              <td className="text-left px-2">Moderate</td>
-              <td className="text-left px-2">{riskData.scenarios.moderate.lossPercentage}%</td>
-              <td className="text-left px-2">{riskData.scenarios.moderate.probability}</td>
-            </tr>
-            <tr>
-              <td className="text-left px-2">Aggressive</td>
-              <td className="text-left px-2">{riskData.scenarios.aggressive.lossPercentage}%</td>
-              <td className="text-left px-2">{riskData.scenarios.aggressive.probability}</td>
-            </tr>
-          </tbody>
-        </table>
+        <div className="bg-white rounded-md shadow-sm p-4">
+          <h3 className="text-lg font-semibold mb-2">Loss Scenario Simulation</h3>
+          <Line
+            data={lossScenarioData}
+            width={300}
+            height={200}
+            className="mt-4"
+          />
+        </div>
       </div>
     </div>
   );

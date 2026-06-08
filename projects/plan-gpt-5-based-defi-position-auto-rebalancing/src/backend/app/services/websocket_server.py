@@ -2,125 +2,99 @@ import asyncio
 import logging
 import time
 import os
-from typing import Callable, Dict, Any, Optional
+from typing import Dict, Any, Optional
 from collections import deque
-import json
-import aiohttp
+from aiohttp import web_socket_response, ws_connect
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Constants
-MAX_RATE_LIMIT = 10  # Requests per second
-CACHE_TTL = 60  # Cache expiration time in seconds
-RETRY_COUNT = 3
-RETRY_DELAY = 2  # Seconds
+# Rate limiting configuration (example)
+RATE_LIMIT_MAX_REQUESTS = 10
+RATE_LIMIT_WINDOW_SECONDS = 5
+
+# Caching configuration (example)
+CACHE_EXPIRATION_SECONDS = 60
+
+# Retry configuration
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 2
 
 # Environment variable names
-WS_SERVER_URL = "ws://localhost:8765"  # Replace with your WebSocket server URL
-RATE_LIMIT_KEY = "websocket_rate_limit"
+WS_SERVER_URL = os.environ.get("WS_SERVER_URL", "ws://localhost:8000")
+SERVICE_NAME = os.environ.get("SERVICE_NAME", "WebSocketService")
 
 
 class WebSocketService:
     def __init__(self):
-        self.ws: Optional[aiohttp.ClientSession] = None
-        self.connected = False
-        self.rate_limit_lock = asyncio.Lock()
-        self.rate_limit_count = 0
-        self.message_queue = deque()
-        self.cache = {}
-        self.retry_count = 0
+        self.connected_clients: Dict[asyncio.StreamWriter, asyncio.StreamRunner] = {}
+        self.message_queue: deque = deque()
+        self.lock = asyncio.Lock()
 
-    async def connect(self):
-        """Connects to the WebSocket server."""
+    async def connect(self, writer: asyncio.StreamWriter):
+        """Connects a client to the WebSocket server."""
         try:
-            self.ws = aiohttp.ClientSession()
-            ws = await self.ws.ws_connect(WS_SERVER_URL)
-            self.connected = True
-            logging.info("Connected to WebSocket server.")
-            await self.send_message(ws, {"type": "connect"})
-        except aiohttp.ClientError as e:
-            logging.error(f"Error connecting to WebSocket server: {e}")
-            self.connected = False
+            await writer.send(b"Connected")
+            async for msg in writer:
+                try:
+                    message = msg.decode()
+                    logging.info(f"Received message from {writer.name}: {message}")
+                    await self.handle_message(writer, message)
+                except Exception as e:
+                    logging.error(f"Error handling message from {writer.name}: {e}")
+        except Exception as e:
+            logging.error(f"Error during connection: {e}")
+        finally:
+            with self.lock:
+                if writer in self.connected_clients:
+                    del self.connected_clients[writer]
+                    logging.info(f"Client {writer.name} disconnected.")
 
-    async def disconnect(self):
-        """Disconnects from the WebSocket server."""
-        if self.ws and self.connected:
-            try:
-                await self.ws.close()
-                logging.info("Disconnected from WebSocket server.")
-                self.connected = False
-            except aiohttp.ClientError as e:
-                logging.error(f"Error disconnecting from WebSocket server: {e}")
-            finally:
-                self.ws = None
+    async def handle_message(self, writer: asyncio.StreamWriter, message: str):
+        """Handles incoming messages from the WebSocket server."""
+        # Simulate processing the message
+        await self.process_message(writer, message)
 
-    async def send_message(self, ws: aiohttp.WSOcket, message: Dict[str, Any]):
-        """Sends a message to the WebSocket server."""
-        await ws.send(json.dumps(message))
-        logging.debug(f"Sent message: {message}")
-
-    async def receive_message(self, ws: aiohttp.WSOcket) -> Optional[Dict[str, Any]]:
-        """Receives a message from the WebSocket server."""
+    async def process_message(self, writer: asyncio.StreamWriter, message: str):
+        """Simulates processing the message.  Replace with actual logic."""
+        await asyncio.sleep(0.1)  # Simulate processing time
+        response = f"Server received: {message}"
         try:
-            response = await ws.recv()
-            logging.debug(f"Received message: {response}")
-            return json.loads(response)
-        except aiohttp.ClientError as e:
-            logging.error(f"Error receiving message: {e}")
-            return None
+            await writer.send(response.encode())
+        except Exception as e:
+            logging.error(f"Error sending response to {writer.name}: {e}")
 
-    async def process_messages(self):
-        """Processes incoming messages from the WebSocket server."""
-        while self.connected:
-            message = await self.receive_message(self.ws)
-            if message:
-                self.handle_message(message)
+    async def send_to_all(self, message: str):
+        """Sends a message to all connected clients."""
+        with self.lock:
+            for writer in self.connected_clients.values():
+                try:
+                    await writer.send(message.encode())
+                except Exception as e:
+                    logging.error(f"Error sending message to {writer.name}: {e}")
 
-    def handle_message(self, message: Dict[str, Any]):
-        """Handles incoming messages based on their type."""
-        message_type = message.get("type")
-        if message_type == "data":
-            # Simulate processing data
-            logging.info(f"Received data: {message.get('data')}")
-        elif message_type == "connect":
-            logging.info("Received connect message.")
-        elif message_type == "disconnect":
-            logging.info("Received disconnect message.")
-        else:
-            logging.warning(f"Received unknown message type: {message_type}")
-
-    async def send_data(self, data: Any):
-        """Sends data to the WebSocket server, handling rate limiting and retries."""
-        async with self.rate_limit_lock:
-            if self.rate_limit_count >= MAX_RATE_LIMIT:
-                logging.warning("Rate limit exceeded. Dropping message.")
-                return
-
-            self.rate_limit_count += 1
-            try:
-                await self.send_message(self.ws, {"type": "data", "data": data})
-            except aiohttp.ClientError as e:
-                logging.error(f"Error sending data: {e}")
-                self.retry_message(data)
-
-    def retry_message(self, data: Any):
-        """Retries sending a message with exponential backoff."""
-        self.retry_count = 0
-        while self.retry_count < RETRY_COUNT:
-            asyncio.create_task(self.send_data(data))
-            await asyncio.sleep(RETRY_DELAY)
-            self.retry_count += 1
+    async def clear_queue(self):
+        """Clears the message queue."""
+        with self.lock:
+            self.message_queue.clear()
 
     async def run(self):
-        """Runs the WebSocket service."""
-        await self.connect()
-        if not self.connected:
-            return
+        """Main function to run the WebSocket service."""
+        try:
+            logging.info(f"WebSocket Service started for {SERVICE_NAME} at {WS_SERVER_URL}")
+            async with web_socket_response(self.send_to_all) as resp:
+                async for msg in resp:
+                    try:
+                        message = msg.decode()
+                        logging.info(f"Received initial message: {message}")
+                        await self.handle_message(resp, message)
+                    except Exception as e:
+                        logging.error(f"Error processing initial message: {e}")
 
-        asyncio.create_task(self.process_messages())
-        await asyncio.sleep(10)  # Keep the service running for a while
-        await self.disconnect()
+        except Exception as e:
+            logging.error(f"WebSocket Service encountered an error: {e}")
+        finally:
+            logging.info(f"WebSocket Service stopped for {SERVICE_NAME}")
 
 
 if __name__ == "__main__":
