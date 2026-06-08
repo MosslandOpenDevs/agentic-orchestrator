@@ -1,16 +1,34 @@
-import axios, { AxiosResponse, AxiosError } from 'axios';
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 
-interface BaseResponse<T> {
+interface BaseResponse<T> extends AxiosResponse {
   data: T;
-  success: boolean;
-  error?: string;
+}
+
+interface User {
+  id: number;
+  username: string;
+  email: string;
+  // Add other user fields here
+}
+
+interface Portfolio {
+  id: number;
+  name: string;
+  // Add other portfolio fields here
+}
+
+interface AssetPrice {
+  asset_id: string;
+  price: number;
+  // Add other price data fields here
 }
 
 class ApiClient {
+  private axiosInstance: AxiosInstance;
   private baseUrl: string;
-  private axiosInstance: any;
+  private authHeaders: Record<string, string>;
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, authHeaders: Record<string, string>) {
     this.baseUrl = baseUrl;
     this.axiosInstance = axios.create({
       baseURL: this.baseUrl,
@@ -19,91 +37,68 @@ class ApiClient {
       },
     });
 
-    this.axiosInstance.interceptors.request.use(
-      (config) => {
-        // Add authentication headers here if needed
-        // Example: config.headers['Authorization'] = 'Bearer ' + this.authToken;
-        return config;
-      },
-      (error) => {
-        return Promise.reject(error);
-      }
-    );
-
-    this.axiosInstance.interceptors.response.use(
-      (response) => {
-        return response as BaseResponse<any>;
-      },
-      (error) => {
-        if (error.response) {
-          // Handle HTTP errors
-          return Promise.reject(
-            new ApiError(error.response.status, error.response.data?.message || 'HTTP Error')
-          );
-        } else {
-          // Handle non-HTTP errors (e.g., network errors)
-          return Promise.reject(new ApiError(500, 'Request Error'));
-        }
-      }
-    );
+    this.authHeaders = authHeaders;
   }
 
-  async get<T>(endpoint: string): Promise<BaseResponse<T>> {
+  public setAuthHeaders(headers: Record<string, string>) {
+    this.authHeaders = headers;
+  }
+
+  public async getUsers(userId: number): Promise<User[]> {
     try {
-      const response = await this.axiosInstance.get(endpoint);
-      return {
-        data: response.data,
-        success: true,
-        error: undefined,
-      };
-    } catch (error: any) {
-      throw error;
+      const response = await this.axiosInstance.get(`/api/users/${userId}`);
+      return response.data as User[];
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      throw new ApiError('Failed to fetch users', 500, error);
     }
   }
 
-  async post<T>(endpoint: string, data: any): Promise<BaseResponse<T>> {
+  public async getPortfolios(portfolioId: number): Promise<Portfolio[]> {
     try {
-      const response = await this.axiosInstance.post(endpoint, data);
-      return {
-        data: response.data,
-        success: true,
-        error: undefined,
-      };
-    } catch (error: any) {
-      throw error;
+      const response = await this.axiosInstance.get(`/api/portfolios/${portfolioId}`);
+      return response.data as Portfolio[];
+    } catch (error) {
+      console.error('Error fetching portfolios:', error);
+      throw new ApiError('Failed to fetch portfolios', 500, error);
     }
   }
 
-  async put<T>(endpoint: string, data: any): Promise<BaseResponse<T>> {
+  public async getAssetPrice(assetId: string): Promise<AssetPrice> {
     try {
-      const response = await this.axiosInstance.put(endpoint, data);
-      return {
-        data: response.data,
-        success: true,
-        error: undefined,
-      };
-    } catch (error: any) {
-      throw error;
+      const response = await this.axiosInstance.get(`/api/assets/price/${assetId}`);
+      return response.data as AssetPrice;
+    } catch (error) {
+      console.error('Error fetching asset price:', error);
+      throw new ApiError('Failed to fetch asset price', 500, error);
     }
   }
 
-  async delete<T>(endpoint: string): Promise<BaseResponse<T>> {
+  public async registerUser(user: User): Promise<User> {
     try {
-      const response = await this.axiosInstance.delete(endpoint);
-      return {
-        data: response.data,
-        success: true,
-        error: undefined,
-      };
-    } catch (error: any) {
-      throw error;
+      const response = await this.axiosInstance.post('/api/users/auth/register', user);
+      return response.data as User;
+    } catch (error) {
+      console.error('Error registering user:', error);
+      throw new ApiError('Failed to register user', 400, error);
+    }
+  }
+
+  public async loginUser(user: User): Promise<User> {
+    try {
+      const response = await this.axiosInstance.post('/api/users/auth/login', user);
+      return response.data as User;
+    } catch (error) {
+      console.error('Error logging in user:', error);
+      throw new ApiError('Failed to log in user', 401, error);
     }
   }
 }
 
-interface ApiError {
+interface ApiError extends Error {
   statusCode: number;
   message: string;
+  details?: any;
 }
 
 export default ApiClient;

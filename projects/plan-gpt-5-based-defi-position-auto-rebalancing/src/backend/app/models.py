@@ -1,87 +1,73 @@
-from sqlalchemy import Column, String, Float, DateTime, UUID
+from sqlalchemy import Column, Integer, String, Float, DateTime, UUID
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import back_populates, relationship
+from sqlalchemy.orm import back_populates
 
 Base = declarative_base()
 
-class NFTPosition(Base):
+class User(Base):
     """
-    Represents a user's position within the Mossland NFT ecosystem,
-    detailing holdings and DeFi protocol allocations.
+    Represents a Mossland NFT holder.
     """
-    __tablename__ = 'nft_positions'
+    __tablename__ = 'user'
 
     id = Column(UUID, primary_key=True)
-    nftId = Column(String, nullable=False)
-    userAddress = Column(String, nullable=False)
-    protocol = Column(String, nullable=False)
-    asset = Column(String, nullable=False)
-    amount = Column(Float, nullable=False)
-    createdAt = Column(DateTime, server_default=DateTime.utcnow())
-    updated_at = Column(DateTime, onupdate=True)
+    nft_id = Column(String, unique=True)
+    createdAt = Column(DateTime)
 
-    __repr__ = lambda self: f"NFTPosition(id={self.id}, nftId={self.nftId}, userAddress={self.userAddress}, protocol={self.protocol}, asset={self.asset}, amount={self.amount})"
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        if 'id' not in kwargs:
-            self.id = UUID()
-        if 'createdAt' not in kwargs:
-            self.createdAt = DateTime.utcnow()
-        if 'updated_at' not in kwargs:
-            self.updated_at = DateTime.utcnow()
+    def __repr__(self):
+        return f"<User(id={self.id}, nft_id={self.nft_id})>"
 
 
-class RiskProfile(Base):
+class Portfolio(Base):
     """
-    Defines the user's risk tolerance for DeFi portfolio management.
+    Represents a user's DeFi portfolio.
     """
-    __tablename__ = 'risk_profiles'
+    __tablename__ = 'portfolio'
 
     id = Column(UUID, primary_key=True)
-    userId = Column(String, nullable=False)
-    riskTolerance = Column(String, nullable=False)
-    volatilityThreshold = Column(Float, nullable=False)
-    maxLossPercentage = Column(Float, nullable=False)
-    createdAt = Column(DateTime, server_default=DateTime.utcnow())
-    updated_at = Column(DateTime, onupdate=True)
+    userId = Column(String, index=True)
+    risk_profile = Column(String)
+    createdAt = Column(DateTime)
+    updated_at = Column(DateTime, default=DateTime.utcnow)
 
-    __repr__ = lambda self: f"RiskProfile(id={self.id}, userId={self.userId}, riskTolerance={self.riskTolerance}, volatilityThreshold={self.volatilityThreshold}, maxLossPercentage={self.maxLossPercentage})"
+    def __repr__(self):
+        return f"<Portfolio(id={self.id}, userId={self.userId}, risk_profile={self.risk_profile})>"
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        if 'id' not in kwargs:
-            self.id = UUID()
-        if 'createdAt' not in kwargs:
-            self.createdAt = DateTime.utcnow()
-        if 'updated_at' not in kwargs:
-            self.updated_at = DateTime.utcnow()
+    back_populates = {'userId': 'user'}
 
 
-class MarketData(Base):
+class Position(Base):
     """
-    Stores real-time market data for DeFi assets.
+    Represents a single asset holding within a portfolio.
     """
-    __tablename__ = 'market_data'
+    __tablename__ = 'position'
 
     id = Column(UUID, primary_key=True)
-    asset = Column(String, nullable=False)
-    price = Column(Float, nullable=False)
-    volatility = Column(Float, nullable=False)
-    timestamp = Column(DateTime, server_default=DateTime.utcnow())
-    updated_at = Column(DateTime, onupdate=True)
+    portfolioId = Column(String, index=True)
+    asset_id = Column(String)
+    quantity = Column(Float)
+    createdAt = Column(DateTime)
+    updated_at = Column(DateTime, default=DateTime.utcnow)
 
-    __repr__ = lambda self: f"MarketData(id={self.id}, asset={self.asset}, price={self.price}, volatility={self.volatility}, timestamp={self.timestamp})"
+    def __repr__(self):
+        return f"<Position(id={self.id}, portfolioId={self.portfolioId}, asset_id={self.asset_id}, quantity={self.quantity})>"
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        if 'id' not in kwargs:
-            self.id = UUID()
-        if 'timestamp' not in kwargs:
-            self.timestamp = DateTime.utcnow()
-        if 'updated_at' not in kwargs:
-            self.updated_at = DateTime.utcnow()
+    back_populates = {'portfolioId': 'portfolio'}
 
+
+class AIModel(Base):
+    """
+    Represents the AI model used for portfolio optimization.
+    """
+    __tablename__ = 'ai_model'
+
+    id = Column(UUID, primary_key=True)
+    model_version = Column(String)
+
+    def __repr__(self):
+        return f"<AIModel(id={self.id}, model_version={self.model_version})>"
 
 if __name__ == '__main__':
-    Base.metadata.create_all(engine)
+    from sqlalchemy import create_engine
+    engine = create_engine('postgresql://user:password@host:port/database')
+    Base.metadata.create_all(bind=engine)

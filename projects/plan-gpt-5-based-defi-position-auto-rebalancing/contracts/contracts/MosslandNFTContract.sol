@@ -3,54 +3,51 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/utils/introspection/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
-contract MosslandNFTContract is Ownable, AccessControl, ReentrancyGuard {
+contract MosslandNFTContract is Ownable, AccessControl {
     mapping(string => uint256) public tokenIds;
-    mapping(string => address) public owners;
+    EnumerableSet.Controlledसत uint256[] public ownedTokens;
+    event NFTMinted(address owner, string tokenId);
 
-    string public constant NAME = "MosslandNFT";
-    string public constant SYMBOL = "MNS";
-
-    event NFTMinted(uint256 tokenId, address owner, string name, string symbol);
-    event NFTTransferred(uint256 tokenId, address from, address to, address owner);
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner can call this function");
+        _;
+    }
 
     constructor() {
-        AccessControl.grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        owner = msg.sender;
     }
 
-    function mintNFT(string memory _name, string memory _symbol, address _owner) external AccessControl {
-        require(_name != "", "Name cannot be empty");
-        require(_symbol != "", "Symbol cannot be empty");
-        require(_owner != address(0), "Owner address cannot be zero");
+    function mintNFT(address _owner, string memory _metadata) public onlyOwner {
+        // Input Validation
+        require(bytes(_metadata).length > 0, "Metadata cannot be empty");
 
-        uint256 newTokenId = tokenIds.entries().length;
-        tokenIds[stringToBytes32(_name)] = newTokenId;
-        owners[_name] = _owner;
+        uint256 tokenId = tokenIds.entries().length;
 
-        emit NFTMinted(newTokenId, _owner, _name, _symbol);
+        tokenIds[string(tokenId)] = tokenId;
+        ownedTokens.add(tokenId);
+
+        emit NFTMinted(_owner, string(tokenId));
     }
 
-    function transferNFT(uint256 _tokenId, address _from, address _to) external AccessControl {
-        require(_tokenId > 0, "Token ID must be greater than 0");
-        require(tokenIds[_tokenId] > 0, "Token ID does not exist");
-        require(_from != address(0), "From address cannot be zero");
-        require(_to != address(0), "To address cannot be zero");
-        require(owners[_tokenId] != _from, "You cannot transfer your own NFT");
-
-        uint256 oldOwner = owners[_tokenId];
-        tokenIds[_tokenId] = 0; // Mark token as transferred
-        owners[_tokenId] = _to;
-
-        emit NFTTransferred(_tokenId, _from, _to, oldOwner);
+    function transferOwnership(address _newOwner) public onlyOwner {
+        require(_newOwner != owner, "Cannot transfer ownership to yourself");
+        owner = _newOwner;
+        emit TransferOwnership(_newOwner);
     }
 
-    // Helper function to convert string to bytes32 for mapping key
-    function stringToBytes32(string memory _str) internal pure function {
-        bytes32 hash = keccak256(_str);
-        return hash;
+    // AccessControl functions
+    function grantRole(address _target, string memory _role) public onlyOwner {
+        _grantRole(_target, _role);
     }
 
-    // Fallback function to prevent accidental ETH transfers
-    receive() external payable {}
+    function revokeRole(address _target, string memory _role) public {
+        _revokeRole(_target, _role);
+    }
+
+    // Helper function to get the owner
+    function getOwner() public view returns (address) {
+        return owner;
+    }
 }

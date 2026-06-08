@@ -6,120 +6,103 @@ import logging
 import os
 from dotenv import load_dotenv
 import json
-import websockets
+import time
+import uuid
 import asyncio
 
 load_dotenv()
 
 app = FastAPI(
-    title="NFT Risk Assessment Agent",
-    description="A pragmatic tool for NFT risk assessment.",
+    title="Mossland DeFi Portfolio Optimizer",
+    description="Automated DeFi portfolio optimization for Mossland NFT holders using AI, mitigating yield-seeking risk.",
     version="0.1.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[os.getenv("ALLOWED_ORIGINS", "*")],
     allow_credentials=True,
-    allow_methods=["*"],
 )
 
 # Logging setup
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-# Environment variable configuration
-API_KEY = os.getenv("OPENAI_API_KEY")
-COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")
-POSTGRES_URL = os.getenv("POSTGRES_URL")
-WS_HOST = os.getenv("WS_HOST")
-WS_PORT = int(os.getenv("WS_PORT", 8765))
 
-
-# Dummy data models (replace with your actual models)
-class RiskAssessment:
-    def __init__(self, nft_holding: str, defi_position: str, risk_score: float):
-        self.nft_holding = nft_holding
-        self.defi_position = defi_position
-        self.risk_score = risk_score
-
-
-# Dummy database dependency (replace with your PostgreSQL integration)
-def get_db():
-    # Placeholder for database connection
-    return {"data": []}
-
-
-# Health check endpoint
+# Health Check Endpoint
 @app.get("/health")
-def health_check():
+async def health_check():
     return {"status": "ok"}
 
 
-# Dummy API endpoints (replace with your actual API calls)
-@app.get("/api/nft_data")
-def get_nft_data(nft_holding: str):
-    # Simulate fetching data
-    return {"nft_holding": nft_holding, "data": ["some data"]}
+# Dummy Data (Replace with actual AI model integration)
+def get_crypto_data(coin_ids: List[str]) -> dict:
+    """Simulates fetching crypto data from Coingecko."""
+    # Replace with actual API call
+    data = {
+        "Bitcoin": {"price": 30000.0},
+        "Ethereum": {"price": 2000.0},
+        "Solana": {"price": 150.0},
+    }
+    return {coin_id: data.get(coin_id, {"price": 0.0}) for coin_id in coin_ids}
 
 
-@app.get("/api/defi_data")
-def get_defi_data(defi_position: str):
-    # Simulate fetching data
-    return {"defi_position": defi_position, "data": ["some data"]}
+def analyze_portfolio(portfolio: dict) -> str:
+    """Simulates AI analysis of the portfolio."""
+    # Replace with actual AI model analysis
+    return "AI analysis suggests optimizing portfolio based on risk tolerance."
 
 
-# WebSocket server
-async def websocket_handler(websocket, path):
+# API Routes
+@app.get("/portfolio")
+async def get_portfolio():
+    """Retrieves the user's DeFi portfolio."""
+    # In a real application, this would fetch data from the user's wallet.
+    portfolio = {
+        "assets": ["Bitcoin", "Ethereum", "Solana"],
+        "amounts": [100, 50, 20],
+    }
+    return portfolio
+
+
+@app.post("/optimize")
+async def optimize_portfolio(portfolio: dict):
+    """Optimizes the user's DeFi portfolio using AI."""
     try:
-        logger.info("Client connected")
-        while True:
-            message = await websocket.recv()
-            logger.info(f"Received message: {message}")
-            await websocket.send(f"Server received: {message}")
+        analysis_result = analyze_portfolio(portfolio)
+        return {"message": analysis_result}
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-    finally:
-        logger.info("Client disconnected")
+        logger.error(f"Error optimizing portfolio: {e}")
+        raise HTTPException(status_code=500, detail="Failed to optimize portfolio")
 
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket, path):
-    await websocket_handler(websocket, path)
+@app.get("/data")
+async def get_data(coin_ids: List[str] = ["Bitcoin", "Ethereum"]):
+    """Fetches crypto data from Coingecko."""
+    data = get_crypto_data(coin_ids)
+    return data
 
 
-# Exception handlers
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request, exc):
-    return (
-        request.json()
-        .get("data", {})
-        .copy()
-        .update({"message": str(exc)})
-        .json(),
-        400,
-    )
-
-
-# Lifespan events (startup/shutdown)
+# Lifespan Events
 @app.on_event("startup")
 async def startup_event():
     logger.info("Application startup")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Application shutdown")
 
 
-# Example API Router
-@app.get("/")
-def read_root():
-    return {"message": "Welcome to the NFT Risk Assessment Agent"}
-
-
-@app.get("/items/{item_id}")
-def read_item(item_id: str):
-    return {"id": item_id}
+# Example of Rate Limiting (Optional)
+# from fastapi.rate_limiting import RateLimitMiddleware
+# rate_limiter = RateLimitMiddleware(
+#     key_func=lambda x: x.remote_addr,
+#     limit=10,
+#     max_errors=3,
+#     redis_lock_ttl=60,
+# )
+# app.mount("/optimize", rate_limiter)

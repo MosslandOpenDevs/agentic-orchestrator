@@ -1,140 +1,118 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Chart as ChartJs,
-  LineElement,
-  CategoryScale,
-  Filler,
-} from 'chart.js';
-import { Line } from 'react-chartjs-2';
-import { CoingeckoData } from '../types/coingecko';
-import { RiskAssessmentData } from '../types/riskAssessment';
-import { WebSocket } from 'ws';
+import { useDarkMode } from './useDarkMode'; // Assuming this hook exists
+import { CoinGeckoData } from './types'; // Assuming this type exists
+import { fetchData } from './api'; // Assuming this function exists
 
-// Mock data for demonstration purposes
-interface AppState {
-  portfolio: {
-    btc: number;
-    eth: number;
-    usdt: number;
-  };
-  riskAssessment: RiskAssessmentData;
-  loading: boolean;
-  error: string | null;
-}
+// Dummy data for demonstration
+const initialPortfolioData: any = {
+  portfolioId: '1',
+  assets: [
+    { assetId: '1', name: 'ETH', quantity: 10, price: 3000 },
+    { assetId: '2', name: 'BTC', quantity: 5, price: 60000 },
+  ],
+};
 
-const App: React.FC = () => {
-  const [portfolio, setPortfolio] = useState<AppState['portfolio']>({
-    btc: 10.0,
-    eth: 5.0,
-    usdt: 100.0,
-  });
-  const [riskAssessment, setRiskAssessment] = useState<RiskAssessmentData>({
-    riskScore: 0.6,
-    description: 'Moderate Risk',
-  });
+const Dashboard: React.FC = () => {
+  const [portfolioData, setPortfolioData] = useState<any>(initialPortfolioData);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [coinGeckoData, setCoinGeckoData] = useState<CoinGeckoData[] | null>(null);
+  const isDarkMode = useDarkMode();
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchPortfolio = async () => {
       try {
-        // Simulate fetching data
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
-        const coingeckoData: CoingeckoData = {
-          BTC: 30000,
-          ETH: 2000,
-          USDT: 1,
-        };
-
-        setPortfolio({
-          btc: coingeckoData.BTC,
-          eth: coingeckoData.ETH,
-          usdt: coingeckoData.USDT,
-        });
-
-        setRiskAssessment({
-          riskScore: 0.6,
-          description: 'Moderate Risk',
-        });
-
+        const data = await fetchData('portfolioData');
+        setPortfolioData(data);
         setLoading(false);
       } catch (err) {
-        setError(String(err));
+        setError('Failed to load portfolio data.');
         setLoading(false);
       }
     };
 
-    fetchData();
+    const fetchCoinGecko = async () => {
+      try {
+        const data = await fetchData('coinGeckoData');
+        setCoinGeckoData(data);
+      } catch (err) {
+        setError('Failed to load coinGecko data.');
+        setLoading(false);
+      }
+    };
+
+    fetchPortfolio();
+    fetchCoinGecko();
   }, []);
 
   if (loading) {
-    return (
-      <div>
-        Loading...
-      </div>
-    );
+    return <div>Loading...</div>;
   }
 
   if (error) {
-    return (
-      <div>
-        Error: {error}
-      </div>
-    );
+    return <div>Error: {error}</div>;
   }
 
-  const chartData = {
-    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May'],
-    datasets: [
-      {
-        label: 'BTC Price',
-        data: [30000, 32000, 35000, 33000, 31000],
-        borderColor: 'rgb(75, 192, 192)',
-        borderWidth: 1,
-      },
-    ],
-  };
+  const styles = isDarkMode ? 'bg-gray-800 text-gray-100' : 'bg-white text-gray-800';
 
   return (
-    <div className="bg-gray-100 min-h-screen p-4">
+    <div className={`${styles} min-h-screen flex`}>
       <header className="bg-gray-800 text-white p-4 flex items-center justify-between">
-        <h1>Mossland GPT-5 Dashboard</h1>
-        <div>
-          <button className="bg-blue-500 text-white px-4 rounded">
-            Dark Mode
-          </button>
-        </div>
+        <h1>GPT-5 DeFi Rebalancer</h1>
+        <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+          Dark Mode
+        </button>
       </header>
 
-      <main className="p-4">
-        {/* Portfolio Overview */}
-        <div className="mb-4">
-          <h2 className="text-xl font-bold mb-2">Portfolio</h2>
-          <div className="grid grid-cols-3 gap-4">
-            <div className="bg-white rounded p-4 shadow-md">
-              <p>BTC: {portfolio.btc}</p>
-              <p>ETH: {portfolio.eth}</p>
-              <p>USDT: {portfolio.usdt}</p>
-            </div>
-          </div>
-        </div>
+      <aside className="bg-gray-800 text-white p-4">
+        {/* Sidebar content */}
+        <h2>Portfolio Overview</h2>
+        <p>Total Portfolio Value: {portfolioData.assets.reduce((sum, asset) => sum + asset.quantity * asset.price, 0)}</p>
+      </aside>
 
-        {/* Risk Assessment */}
-        <div className="mb-4">
-          <h2 className="text-xl font-bold mb-2">Risk Assessment</h2>
-          <p>Risk Score: {riskAssessment.riskScore.toFixed(2)}</p>
-          <p>{riskAssessment.description}</p>
-        </div>
+      <main className="p-4 flex">
+        {/* Portfolio Details */}
+        <PortfolioDetails portfolioData={portfolioData} />
 
-        {/* Data Visualization */}
-        <div className="mb-4">
-          <h2 className="text-xl font-bold mb-2">BTC Price Chart</h2>
-          <Line data={chartData} />
+        {/* Asset Cards */}
+        <div className="ml-4">
+          {portfolioData.assets.map((asset) => (
+            <AssetCard key={asset.assetId} asset={asset} coinGeckoData={coinGeckoData} />
+          ))}
         </div>
       </main>
     </div>
   );
 };
 
-export default App;
+interface PortfolioDetailsProps {
+  portfolioData: any;
+}
+
+const PortfolioDetails: React.FC<PortfolioDetailsProps> = ({ portfolioData }) => {
+  return (
+    <div className="w-1/2 p-4 border rounded-lg shadow-md">
+      <h2>Portfolio Details</h2>
+      <p>Portfolio ID: {portfolioData.portfolioId}</p>
+    </div>
+  );
+};
+
+interface AssetCardProps {
+  asset: any;
+  coinGeckoData?: CoinGeckoData[];
+}
+
+const AssetCard: React.FC<AssetCardProps> = ({ asset, coinGeckoData }) => {
+  const price = coinGeckoData ? coinGeckoData.find(c => c.id === asset.name)?.current_price : null;
+
+  return (
+    <div className="w-1/2 p-4 border rounded-lg shadow-md">
+      <h3>{asset.name}</h3>
+      <p>Quantity: {asset.quantity}</p>
+      {price ? <p>Price: ${price}</p> : <p>Price: Loading...</p>}
+    </div>
+  );
+};
+
+export default Dashboard;

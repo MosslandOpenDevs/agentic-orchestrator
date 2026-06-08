@@ -3,30 +3,28 @@
  */
 
 
-export interface NFTPosition {
+export interface User {
   id: string;
-  nftId: string;
-  userAddress: string;
-  protocol: string;
-  asset: string;
-  amount: number;
+  nft_id: string;
   createdAt: string;
 }
 
-export interface RiskProfile {
+export interface Portfolio {
   id: string;
   userId: string;
-  riskTolerance: string;
-  volatilityThreshold: number;
-  maxLossPercentage: number;
+  risk_profile: string;
 }
 
-export interface MarketData {
+export interface Position {
   id: string;
-  asset: string;
-  price: number;
-  volatility: number;
-  timestamp: string;
+  portfolioId: string;
+  asset_id: string;
+  quantity: number;
+}
+
+export interface AIModel {
+  id: string;
+  model_version: string;
 }
 
 
