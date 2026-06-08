@@ -1,150 +1,104 @@
-import { ethers, Signer } from 'ethers';
-import { expect } from 'chai';
-import { Contract } from 'ethers';
+import { ethers, Signer } from "ethers";
+import { expect } from "chai";
+import { Contract } from "ethers";
+import { MockProvider } from "hardhat-ether";
 
-// Mock contracts and interfaces for testing
-interface MosslandNFTHolder {
-  address: string;
-  signer: Signer;
-}
+// Replace with your contract's ABI and address
+const contractABI = [
+  // Your contract ABI here
+];
+let contract: Contract;
+let provider: ethers.providers.Provider;
+let mockSigner: Signer;
 
-// Mock implementation for MosslandNFTHolder
-class MockMosslandNFTHolder implements MosslandNFTHolder {
-  address: string;
-  signer: Signer;
+beforeAll(async () => {
+  // Replace with your Hardhat network URL
+  provider = new ethers.providers.JsonRpcProvider("http://localhost:8545");
 
-  constructor(address: string) {
-    this.address = address;
-    this.signer = new ethers.Signer( ethers.utils.defaultProvider );
-  }
-}
+  mockSigner = await ethers.getSigner();
 
-// Mock implementation for Chainlink Price Feed
-class MockChainlinkPriceFeed {
-  price: number;
+  // Deploy the contract (replace with your deployment logic)
+  contract = new ethers.Contract(
+    "0x...", // Replace with your contract address
+    contractABI,
+    mockSigner
+  );
+});
 
-  constructor(price: number) {
-    this.price = price;
-  }
-}
+describe("GPT-5 Based DeFi Position Auto-Rebalancing Agent", () => {
+  describe("Deployment Tests", () => {
+    it("Should deploy successfully", async () => {
+      await expect(contract.deploy()).to.emit("Deployment");
+    });
 
-// Define your contract interface
-interface GPT5RebalancingAgent {
-  connectChainlink: (priceFeed: MockChainlinkPriceFeed) => void;
-  updatePositions: (positions: { [asset: string]: number }) => void;
-  rebalance: () => void;
-  getPositions: () => { [asset: string]: number };
-  setMosslandHolder: (mosslandHolder: MosslandNFTHolder) => void;
-}
-
-// Example Contract (replace with your actual contract)
-contract GPT5RebalancingAgent, Contract {
-  let owner: Signer;
-  let chainlinkPriceFeed: MockChainlinkPriceFeed;
-  let mosslandHolder: MosslandNFTHolder;
-
-  constructor() {}
-
-  mint(): void {}
-
-  connectChainlink(priceFeed: MockChainlinkPriceFeed) {
-    this.chainlinkPriceFeed = priceFeed;
-  }
-
-  updatePositions(positions: { [asset: string]: number }) {
-    // Placeholder implementation
-  }
-
-  rebalance(): void {}
-
-  getPositions(): { [asset: string]: number } {
-    // Placeholder implementation
-    return {};
-  }
-
-  setMosslandHolder(mosslandHolder: MosslandNFTHolder) {
-    this.mosslandHolder = mosslandHolder;
-  }
-}
-
-describe('GPT5RebalancingAgent', () => {
-  let agent: GPT5RebalancingAgent;
-  let owner: Signer;
-
-  beforeAll(async () => {
-    // Replace with your provider URL
-    const provider = ethers.providers.createProvider('http://localhost:8545');
-    const signer = new ethers.Signers.Wallet('your_private_key', provider);
-    owner = signer;
-
-    agent = new GPT5RebalancingAgent();
-    await agent.connectChainlink(new MockChainlinkPriceFeed(100));
-    await agent.setMosslandHolder(new MockMosslandNFTHolder('mossland_address'));
-  });
-
-  describe('Deployment Tests', () => {
-    it('should deploy successfully', async () => {
-      const result = await agent.deployed();
-      expect(result.address).to.not.equal(ethers.zeroAddress);
+    it("Should set the correct contract owner", async () => {
+      const owner = await contract.owner();
+      expect(owner).to.eq(mockSigner.address);
     });
   });
 
-  describe('Public Functions', () => {
-    describe('connectChainlink', () => {
-      it('should connect a Chainlink price feed', async () => {
-        const priceFeed = new MockChainlinkPriceFeed(150);
-        agent.connectChainlink(priceFeed);
-        expect(agent.chainlinkPriceFeed).to.eq(priceFeed);
-      });
+  describe("Public Functions", () => {
+    it("Should correctly handle getEstimatedCost", async () => {
+      const cost = await contract.getEstimatedCost();
+      expect(cost).to.eq("185000");
     });
 
-    describe('updatePositions', () => {
-      it('should update positions', async () => {
-        const positions = { 'ETH': 10, 'USDT': 5 };
-        agent.updatePositions(positions);
-        // Add assertions to verify the positions are updated correctly
-      });
+    it("Should correctly handle updateGPT5APIKey", async () => {
+      const apiKey = "newApiKey";
+      const result = await contract.updateGPT5APIKey(apiKey);
+      expect(result.wait).to.be.true;
     });
 
-    describe('rebalance', () => {
-      it('should rebalance positions', async () => {
-        agent.rebalance();
-        // Add assertions to verify the rebalancing logic
-      });
+    it("Should correctly handle getGPT5APIKey", async () => {
+      const apiKey = await contract.getGPT5APIKey();
+      expect(apiKey).to.not.be.empty;
     });
 
-    describe('getPositions', () => {
-      it('should return current positions', async () => {
-        const positions = agent.getPositions();
-        expect(positions).to.be.an('object');
-        expect(positions).to.not.be.empty;
-      });
+    it("Should correctly handle updateTeamMembers", async () => {
+      const teamMembers = [{ name: "Alice", role: "Engineer" }, { name: "Bob", role: "Engineer" }];
+      const result = await contract.updateTeamMembers(teamMembers);
+      expect(result.wait).to.be.true;
     });
 
-    describe('setMosslandHolder', () => {
-      it('should set the Mossland NFT Holder', async () => {
-        const newHolder = new MockMosslandNFTHolder('new_mossland_address');
-        agent.setMosslandHolder(newHolder);
-        expect(agent.mosslandHolder).to.eq(newHolder);
-      });
+    it("Should correctly handle getTeamMembers", async () => {
+      const teamMembers = await contract.getTeamMembers();
+      expect(teamMembers.length).to.eq(2);
     });
   });
 
-  describe('Access Control', () => {
-    it('should only allow the owner to call certain functions', async () => {
-      // Implement access control logic here (e.g., using access modifiers)
-      // This is a placeholder - you need to implement the actual access control
+  describe("Access Control", () => {
+    it("Only owner can update GPT5 API Key", async () => {
+      const apiKey = "testApiKey";
+      const result = await contract.updateGPT5APIKey(apiKey);
+      expect(result.wait).to.be.true;
+      // Verify that only the owner can call this function
+      const resultUnauthorized = await contract.updateGPT5APIKey(apiKey).catch(() => null);
+      expect(resultUnauthorized).to.eq(null);
+    });
+
+    it("Only owner can update Team Members", async () => {
+      const teamMembers = [{ name: "Alice", role: "Engineer" }, { name: "Bob", role: "Engineer" }];
+      const result = await contract.updateTeamMembers(teamMembers);
+      expect(result.wait).to.be.true;
+      // Verify that only the owner can call this function
+      const resultUnauthorized = await contract.updateTeamMembers(teamMembers).catch(() => null);
+      expect(resultUnauthorized).to.eq(null);
     });
   });
 
-  describe('Edge Cases and Reverts', () => {
-    it('should revert if called by an unauthorized account', async () => {
-      // Implement logic to check if the function is called by the owner
-      // and revert if not
+  describe("Edge Cases and Reverts", () => {
+    it("Should revert if updateGPT5APIKey is called by a non-owner", async () => {
+      const apiKey = "testApiKey";
+      await expect(contract.updateGPT5APIKey(apiKey)).to.be.reverted;
     });
 
-    it('should handle invalid input gracefully (e.g., incorrect data types)', async () => {
-      // Implement checks for invalid input and revert if necessary
+    it("Should revert if updateTeamMembers is called by a non-owner", async () => {
+      const teamMembers = [{ name: "Alice", role: "Engineer" }, { name: "Bob", role: "Engineer" }];
+      await expect(contract.updateTeamMembers(teamMembers)).to.be.reverted;
+    });
+
+    it("Should revert if an invalid cost is passed", async () => {
+      await expect(contract.getEstimatedCost("invalid")).to.be.reverted;
     });
   });
 });

@@ -8,7 +8,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
 class CoingeckoService:
     """
@@ -21,13 +20,15 @@ class CoingeckoService:
 
         Args:
             api_key: The Coingecko API key.
-            rate_limit_delay: Delay in seconds between API calls to respect rate limits.
-            max_retries: Maximum number of retries for transient errors.
+            rate_limit_delay: Delay in seconds between API requests to respect rate limits.
+            max_retries: Maximum number of retries for a failed request.
         """
         self.api_key = api_key
         self.base_url = "https://api.coingecko.com/api/v3"
         self.rate_limit_delay = rate_limit_delay
         self.max_retries = max_retries
+        self.retry_backoff_factor = 2  # Exponential backoff
+        self.retry_exceptions = (RequestException, Exception)
 
     def _make_request(self, endpoint: str, params: Dict = None) -> Dict:
         """
@@ -41,97 +42,68 @@ class CoingeckoService:
             The JSON response from the API.
 
         Raises:
-            requests.exceptions.RequestException: If the request fails.
+            Exception: If the request fails after multiple retries.
         """
-        headers = {"X-CG-Token": self.api_key}
-        try:
-            response = requests.get(endpoint, headers=headers, params=params)
-            response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-            return response.json()
-        except RequestException as e:
-            logger.error(f"Request failed for {endpoint}: {e}")
-            return None
+        retries = 0
+        while retries < self.max_retries:
+            try:
+                response = requests.get(endpoint, params=params, headers={'X-CG-Token': self.api_key})
+                response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+                return response.json()
+            except RequestException as e:
+                logging.error(f"Request failed: {e}")
+                retries += 1
+                if not self.retry_exceptions.__cause__ in [e.__cause__ for e in self.retry_exceptions]:
+                    raise
+                time.sleep(self.retry_backoff_factor * (2 ** retries))
+        raise Exception(f"Failed to fetch data after {self.max_retries} retries.")
 
-    def get_ticker(self, symbol: str) -> Optional[Dict]:
+    def get_ticker(self, coin_id: str) -> Dict:
         """
-        Gets the ticker for a given cryptocurrency symbol.
+        Gets the ticker information for a cryptocurrency.
 
         Args:
-            symbol: The cryptocurrency symbol (e.g., "bitcoin").
+            coin_id: The ID of the cryptocurrency.
 
         Returns:
-            The ticker data as a dictionary, or None if an error occurred.
+            The ticker information.
         """
-        endpoint = f"{self.base_url}/exchange/{symbol}/ticker"
-        data = self._make_request(endpoint)
-        if data and "success" in data and data["success"]:
-            return data["ticker"]
-        else:
-            logger.warning(f"Failed to get ticker for {symbol}: {data}")
-            return None
+        endpoint = f"/coins/{coin_id}/ticker"
+        return self._make_request(endpoint)
 
-    def get_price(self, symbol: str) -> Optional[float]:
+    def get_price(self, coin_id: str) -> float:
         """
-        Gets the current price for a given cryptocurrency symbol.
+        Gets the current price of a cryptocurrency.
 
         Args:
-            symbol: The cryptocurrency symbol.
+            coin_id: The ID of the cryptocurrency.
 
         Returns:
-            The current price as a float, or None if an error occurred.
+            The current price.
         """
-        ticker = self.get_ticker(symbol)
-        if ticker:
-            return ticker["last"]
-        else:
-            return None
+        ticker = self.get_ticker(coin_id)
+        return ticker[0]['price']
 
-    def get_market_caps(self, symbol: str) -> Optional[float]:
+    def get_latest_prices(self, coin_ids: List[str]) -> Dict:
         """
-        Gets the market cap for a given cryptocurrency symbol.
+        Gets the latest prices for a list of cryptocurrencies.
 
         Args:
-            symbol: The cryptocurrency symbol.
+            coin_ids: A list of cryptocurrency IDs.
 
         Returns:
-            The market cap as a float, or None if an error occurred.
+            A dictionary of latest prices.
         """
-        ticker = self.get_ticker(symbol)
-        if ticker:
-            return ticker["market_cap"]
-        else:
-            return None
+        data = {}
+        with ThreadPoolExecutor(max_workers=len(coin_ids)) as executor:
+            results = list(executor.map(self.get_price, coin_ids))
+        for i, coin_id in enumerate(coin_ids):
+            data[coin_id] = results[i]
+        return data
 
-    def get_all_prices(self, symbols: List[str]) -> Dict[str, Optional[float]]:
+    def get_gemini_exchange_rate(self, coin_id: str) -> float:
         """
-        Gets the current prices for a list of cryptocurrency symbols.
-
-        Args:
-            symbols: A list of cryptocurrency symbols.
-
-        Returns:
-            A dictionary where the keys are the symbols and the values are the current prices.
+        Gets the exchange rate for a cryptocurrency on Gemini.
         """
-        results = {}
-        with ThreadPoolExecutor(max_workers=len(symbols)) as executor:
-            futures = [executor.submit(self.get_price, symbol) for symbol in symbols]
-            for future in futures:
-                try:
-                    price = future.result()
-                    if price is not None:
-                        results[future.args[0]] = price
-                except Exception as e:
-                    logger.error(f"Error getting price for {future.args[0]}: {e}")
-        return results
-
-    def get_coin_gecko_coins(self) -> List[str]:
-        """
-        Gets a list of all coin gecko coins.
-        """
-        endpoint = f"{self.base_url}/coins/list"
-        data = self._make_request(endpoint)
-        if data and "coins" in data and data["coins"]:
-            return [coin["id"] for coin in data["coins"]]
-        else:
-            logger.warning(f"Failed to get coin list: {data}")
-            return []
+        endpoint = f"/coins/{coin_id}/last_exchange_rate"
+        return self._make_request(endpoint)['result']

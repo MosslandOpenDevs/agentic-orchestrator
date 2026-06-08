@@ -1,109 +1,102 @@
-from typing import Optional
 from pydantic import BaseModel, Field
-from pydantic import ConfigDict
-from pydantic.validator import validator
+from typing import Optional
+from pydantic import Field
 
-class FieldConfig(ConfigDict):
-    """
-    Configuration for Pydantic fields.
-    """
-    yaml_fingerprint: Optional[str] = None
-    extra: Optional[bool] = False
+class FieldValidator(BaseModel):
+    pass
 
-
-class RiskParameter(BaseModel):
-    """
-    Defines risk parameters for collateral management.
-    """
-    name: str = Field(..., description="Name of the risk parameter", field_config=FieldConfig)
-    value: float = Field(..., description="Value of the risk parameter", field_config=FieldConfig)
-
-    model_config = ConfigDict(example={
-        "name": "LiquidityRatio",
-        "value": 0.8
-    })
-
-
-class PriceFeedUpdate(BaseModel):
-    """
-    Records a price feed update from Chainlink.
-    """
-    symbol: str = Field(..., description="Symbol of the asset", field_config=FieldConfig)
-    price: float = Field(..., description="Price of the asset", field_config=FieldConfig)
-    oracle_id: str = Field(..., description="ID of the Chainlink oracle", field_config=FieldConfig)
-    timestamp: float = Field(..., description="Timestamp of the update", field_config=FieldConfig)
-
-    model_config = ConfigDict(example={
-        "symbol": "ETH/USD",
-        "price": 2000.0,
-        "oracle_id": "chainlink-eth-usd",
-        "timestamp": 1678886400.0
-    })
+class NFTPosition(BaseModel):
+    nft_id: str = Field(..., description="Unique identifier of the NFT", min_length=3)
+    quantity: int = Field(..., description="Number of NFTs held", gt=0)
+    efi_balance: float = Field(..., description="Amount of EFI held associated with this position", gt=0)
+    defi_interactions: list[str] = Field(default=[], description="List of DeFi interactions associated with this position")
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "nft_id": "0x1234567890abcdef",
+                "quantity": 10,
+                "efi_balance": 100.50,
+                "defi_interactions": ["staking", "lending"]
+            }
+        }
 
 
-class NFTCollateral(BaseModel):
-    """
-    Represents an NFT used as collateral, including its details and current ratio.
-    """
-    tokenId: str = Field(..., description="Token ID of the NFT", field_config=FieldConfig)
-    nft_address: str = Field(..., description="Address of the NFT", field_config=FieldConfig)
-    current_ratio: float = Field(..., description="Current ratio of the NFT", field_config=FieldConfig)
-    underlying_asset: str = Field(..., description="Underlying asset of the NFT", field_config=FieldConfig)
+class RiskProfile(BaseModel):
+    risk_tolerance: str = Field(..., description="User's risk tolerance (low, medium, high)", enum=['low', 'medium', 'high'])
+    investment_horizon: int = Field(..., description="User's investment horizon in years", gt=0)
+    financial_goals: list[str] = Field(default=[], description="User's financial goals")
 
-    model_config = ConfigDict(example={
-        "tokenId": "0x1234567890abcdef",
-        "nft_address": "0xfedcba9876543210",
-        "current_ratio": 0.95,
-        "underlying_asset": "ETH"
-    })
+    class Config:
+        schema_extra = {
+            "example": {
+                "risk_tolerance": "medium",
+                "investment_horizon": 5,
+                "financial_goals": ["retirement", "wealth accumulation"]
+            }
+        }
 
 
-class CreateNFTCollateral(BaseModel):
-    """
-    Create request for NFTCollateral.
-    """
-    tokenId: str = Field(..., description="Token ID of the NFT", field_config=FieldConfig)
-    nft_address: str = Field(..., description="Address of the NFT", field_config=FieldConfig)
-    current_ratio: float = Field(..., description="Current ratio of the NFT", field_config=FieldConfig)
-    underlying_asset: str = Field(..., description="Underlying asset of the NFT", field_config=FieldConfig)
+class MarketData(BaseModel):
+    asset_id: str = Field(..., description="Unique identifier of the DeFi asset")
+    price: float = Field(..., description="Current price of the asset", gt=0)
+    volume: float = Field(..., description="Trading volume of the asset", gt=0)
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "asset_id": "ETH",
+                "price": 3000.75,
+                "volume": 100.20
+            }
+        }
 
-    model_config = ConfigDict(example={
-        "tokenId": "0x1234567890abcdef",
-        "nft_address": "0xfedcba9876543210",
-        "current_ratio": 0.95,
-        "underlying_asset": "ETH"
-    })
+class NFTPositionCreate(BaseModel):
+    nft_id: str = Field(..., description="Unique identifier of the NFT", min_length=3)
+    quantity: int = Field(..., description="Number of NFTs held", gt=0)
+    efi_balance: float = Field(..., description="Amount of EFI held associated with this position", gt=0)
+    defi_interactions: list[str] = Field(default=[], description="List of DeFi interactions associated with this position")
 
-
-class UpdateNFTCollateral(BaseModel):
-    """
-    Update request for NFTCollateral.
-    """
-    tokenId: str = Field(..., description="Token ID of the NFT", field_config=FieldConfig)
-    current_ratio: Optional[float] = Field(None, description="Current ratio of the NFT", field_config=FieldConfig)
-    nft_address: Optional[str] = Field(None, description="Address of the NFT", field_config=FieldConfig)
-    underlying_asset: Optional[str] = Field(None, description="Underlying asset of the NFT", field_config=FieldConfig)
-
-    model_config = ConfigDict(example={
-        "tokenId": "0x1234567890abcdef",
-        "current_ratio": 0.98,
-        "nft_address": "0xfedcba9876543210",
-        "underlying_asset": "BTC"
-    })
+    class Config:
+        schema_extra = {
+            "example": {
+                "nft_id": "0x1234567890abcdef",
+                "quantity": 5,
+                "efi_balance": 50.00,
+                "defi_interactions": ["staking"]
+            }
+        }
 
 
-class ResponseNFTCollateral(BaseModel):
-    """
-    Response schema for NFTCollateral.
-    """
-    tokenId: str = Field(..., description="Token ID of the NFT", field_config=FieldConfig)
-    nft_address: str = Field(..., description="Address of the NFT", field_config=FieldConfig)
-    current_ratio: float = Field(..., description="Current ratio of the NFT", field_config=FieldConfig)
-    underlying_asset: str = Field(..., description="Underlying asset of the NFT", field_config=FieldConfig)
+class NFTPositionUpdate(BaseModel):
+    nft_id: str = Field(..., description="Unique identifier of the NFT", min_length=3)
+    quantity: Optional[int] = Field(default=None, description="Number of NFTs held", gt=0)
+    efi_balance: Optional[float] = Field(default=None, description="Amount of EFI held associated with this position", gt=0)
+    defi_interactions: Optional[list[str]] = Field(default=[], description="List of DeFi interactions associated with this position")
 
-    model_config = ConfigDict(example={
-        "tokenId": "0x1234567890abcdef",
-        "nft_address": "0xfedcba9876543210",
-        "current_ratio": 0.95,
-        "underlying_asset": "ETH"
-    })
+    class Config:
+        schema_extra = {
+            "example": {
+                "nft_id": "0x1234567890abcdef",
+                "quantity": 10,
+                "efi_balance": 150.00,
+                "defi_interactions": ["lending", "yield farming"]
+            }
+        }
+
+
+class NFTPositionResponse(BaseModel):
+    nft_id: str
+    quantity: int
+    efi_balance: float
+    defi_interactions: list[str]
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "nft_id": "0x1234567890abcdef",
+                "quantity": 10,
+                "efi_balance": 150.00,
+                "defi_interactions": ["lending", "yield farming"]
+            }
+        }

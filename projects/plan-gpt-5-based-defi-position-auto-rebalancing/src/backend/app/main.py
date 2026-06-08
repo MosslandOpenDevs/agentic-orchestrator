@@ -1,81 +1,97 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import HTTPException
-from typing import List
+from pydantic import BaseModel
 import logging
 import os
+import time
+import uvicorn
+from typing import List
 from datetime import datetime
 
+# Initialize FastAPI app
 app = FastAPI(
-    title="Mossland DTCC/Chainlink Integration",
-    description="A FastAPI application for integrating with DTCC and Chainlink.",
+    title="AI-Powered DeFi Agent",
+    description="A pragmatic implementation for a DeFi agent using AI and blockchain.",
     version="0.1.0",
 )
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust as needed for security
+    allow_origins=["*"],  # Adjust this to specific origins in production
     allow_credentials=True,
-    allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Logging setup
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("app.log"),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger(__name__)
 
-# Environment variable configuration
-env_vars = {
-    "DATABASE_URL": os.environ.get("DATABASE_URL", "postgresql://user:password@host:port/database"),
-    "CHAINLINK_API_KEY": os.environ.get("CHAINLINK_API_KEY", "YOUR_CHAINLINK_API_KEY"),
-    "CHAINLINK_NODE_ID": os.environ.get("CHAINLINK_NODE_ID", "YOUR_CHAINLINK_NODE_ID"),
-    "JWT_SECRET": os.environ.get("JWT_SECRET", "YOUR_JWT_SECRET"),
-}
+# Define a simple model for request data
+class RequestData(BaseModel):
+    prompt: str
+
+# Define a simple model for response data
+class ResponseData(BaseModel):
+    result: str
 
 # Health check endpoint
 @app.get("/health")
-def health_check():
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+async def health_check():
+    return {"status": "ok"}
 
-# Example API route (replace with actual implementation)
-@app.get("/estimate-cost")
-def estimate_cost():
+# Example API endpoint
+@app.post("/api/analyze")
+async def analyze(request_data: RequestData):
     try:
-        labor_cost = float(os.environ.get("LABOR_COST", 350000))
-        infrastructure_cost = float(os.environ.get("INFRA_COST", 15000))
-        software_cost = float(os.environ.get("SOFTWARE_COST", 7500))
-        contingency_cost = float(os.environ.get("CONTINGENCY_COST", 45000))
-        total_cost = labor_cost + infrastructure_cost + software_cost + contingency_cost
-        return {"total_cost": total_cost}
-    except ValueError as e:
-        logger.error(f"Error calculating cost: {e}")
-        raise HTTPException(status_code=500, detail="Error calculating cost")
+        logger.info(f"Received request: {request_data}")
+        # Simulate some processing
+        time.sleep(2)
+        result = f"Analysis result for prompt: {request_data.prompt}"
+        return ResponseData(result=result)
+    except Exception as e:
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=str(e))
 
-# Example Exception Handler
-@app.exception_handler(HTTPException)
-def http_exception_handler(exception):
-    if exception.status_code == 404:
-        return {"message": "Resource not found"}
-    else:
-        logger.exception(exception)
-        return {"message": "Internal Server Error", "detail": str(exception)}
+# Example WebSocket endpoint
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: Request):
+    try:
+        await websocket.accept()
+        while True:
+            message = await websocket.receive_text()
+            await websocket.send_text(f"Server received: {message}")
+            await time.sleep(1)
+    except Exception as e:
+        logger.exception(e)
+        await websocket.close()
 
-# Lifespan events (startup/shutdown)
+# Lifespan events
 @app.on_event("startup")
-def startup_event():
-    logger.info("Application startup complete.")
+async def startup_event():
+    logger.info("Application startup complete")
 
 @app.on_event("shutdown")
-def shutdown_event():
-    logger.info("Application shutdown complete.")
+async def shutdown_event():
+    logger.info("Application shutdown complete")
 
-# Example Dependency (for demonstration purposes)
+# Environment variable configuration
 def get_env_var(key: str):
-    value = os.environ.get(key)
+    value = os.getenv(key)
     if not value:
-        raise ValueError(f"Environment variable '{key}' not set.")
+        raise ValueError(f"Environment variable '{key}' not set")
     return value
+
+# Example of using environment variables
+# API_KEY = get_env_var("OPENAI_API_KEY")
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)

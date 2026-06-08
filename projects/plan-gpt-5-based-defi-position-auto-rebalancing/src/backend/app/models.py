@@ -1,56 +1,87 @@
-from sqlalchemy import Column, String, Float, DateTime, UUID
+from sqlalchemy import Column, Integer, String, Float, DateTime, UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import back_populates, relationship
 
 Base = declarative_base()
 
-class RiskParameter(Base):
-    __tablename__ = 'risk_parameters'
+class NFTPosition(Base):
+    """
+    Represents a user's position within the Mossland NFT ecosystem,
+    detailing holdings and DeFi interactions.
+    """
+    __tablename__ = 'nft_position'
 
     id = Column(UUID, primary_key=True)
-    asset = Column(String, nullable=False)
-    thresholdLow = Column(Float, nullable=False)
-    thresholdHigh = Column(Float, nullable=False)
-    action = Column(String, nullable=False)
-    createdAt = Column(DateTime, server_default=True)
-    updated_at = Column(DateTime, server_default=True, server_expression=True, onupdate=True)
+    nftId = Column(String, nullable=False)
+    userAddress = Column(String, nullable=False)
+    defiProtocol = Column(String)
+    assetToken = Column(String)
+    quantity = Column(Integer, nullable=False)
+    createdAt = Column(DateTime, server_default=DateTime.utcnow())
+    updated_at = Column(DateTime, server_default=DateTime.utcnow(), onupdate=True)
 
-    def __repr__(self):
-        return f"<RiskParameter(id={self.id}, asset='{self.asset}', thresholdLow={self.thresholdLow}, thresholdHigh={self.thresholdHigh}, action='{self.action}')>"
+    __repr__ = lambda self: f"NFTPosition(id={self.id}, nftId={self.nftId}, userAddress={self.userAddress})"
 
-
-class NFTCollateral(Base):
-    __tablename__ = 'nft_collaterals'
-
-    id = Column(UUID, primary_key=True)
-    tokenId = Column(String, nullable=False)
-    asset = Column(String, nullable=False)
-    currentRatio = Column(Float, nullable=False)
-    createdAt = Column(DateTime, server_default=True)
-    updated_at = Column(DateTime, server_default=True, server_expression=True, onupdate=True)
-
-    def __repr__(self):
-        return f"<NFTCollateral(id={self.id}, tokenId='{self.tokenId}', asset='{self.asset}', currentRatio={self.currentRatio})>"
-
-    PriceFeedUpdates = relationship("PriceFeedUpdate", back_populates="nft_collateral")
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if 'id' not in kwargs:
+            self.id = UUID()
+        if 'createdAt' not in kwargs:
+            self.createdAt = DateTime.utcnow()
+        if 'updated_at' not in kwargs:
+            self.updated_at = DateTime.utcnow()
 
 
-class PriceFeedUpdate(Base):
-    __tablename__ = 'price_feed_updates'
+class RiskProfile(Base):
+    """
+    Defines the user's risk tolerance for DeFi portfolio management.
+    """
+    __tablename__ = 'risk_profile'
 
     id = Column(UUID, primary_key=True)
-    asset = Column(String, nullable=False)
+    userId = Column(String, nullable=False)
+    riskLevel = Column(String, nullable=False)
+    volatilityThreshold = Column(Float, nullable=False)
+    lossTolerance = Column(Float, nullable=False)
+    createdAt = Column(DateTime, server_default=DateTime.utcnow())
+    updated_at = Column(DateTime, server_default=DateTime.utcnow(), onupdate=True)
+
+    __repr__ = lambda self: f"RiskProfile(id={self.id}, userId={self.userId}, riskLevel={self.riskLevel})"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if 'id' not in kwargs:
+            self.id = UUID()
+        if 'createdAt' not in kwargs:
+            self.createdAt = DateTime.utcnow()
+        if 'updated_at' not in kwargs:
+            self.updated_at = DateTime.utcnow()
+
+
+class MarketData(Base):
+    """
+    Stores real-time price data for DeFi assets.
+    """
+    __tablename__ = 'market_data'
+
+    id = Column(UUID, primary_key=True)
+    assetToken = Column(String, nullable=False)
     price = Column(Float, nullable=False)
     timestamp = Column(DateTime, nullable=False)
-    createdAt = Column(DateTime, server_default=True)
-    updated_at = Column(DateTime, server_default=True, server_expression=True, onupdate=True)
+    createdAt = Column(DateTime, server_default=DateTime.utcnow())
+    updated_at = Column(DateTime, server_default=DateTime.utcnow(), onupdate=True)
 
-    def __repr__(self):
-        return f"<PriceFeedUpdate(id={self.id}, asset='{self.asset}', price={self.price}, timestamp={self.timestamp})>"
+    __repr__ = lambda self: f"MarketData(id={self.id}, assetToken={self.assetToken}, price={self.price})"
 
-    nft_collateral = relationship("NFTCollateral", back_populates="price_feed_updates")
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if 'id' not in kwargs:
+            self.id = UUID()
+        if 'createdAt' not in kwargs:
+            self.createdAt = DateTime.utcnow()
+        if 'updated_at' not in kwargs:
+            self.updated_at = DateTime.utcnow()
+
 
 if __name__ == '__main__':
-    from sqlalchemy import create_engine
-    engine = create_engine('sqlite:///:memory:')
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(engine)

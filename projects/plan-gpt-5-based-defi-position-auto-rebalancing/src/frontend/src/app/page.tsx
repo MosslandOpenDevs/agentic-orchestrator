@@ -1,118 +1,185 @@
 import React, { useState, useEffect } from 'react';
-import { FaArrowDown, FaArrowUp } from 'react-icons/fa';
-import { Chart } from 'chart.js';
+import { useTailwind } from 'tailwind-rn';
+import { CoingeckoAPI, DefiLlamaAPI } from './api';
+import { WebSocketClient } from 'websocket';
 
-// Tailwind CSS configuration (simplified for brevity)
-const tailwindConfig = {
-  darkMode: 'dark',
-  colors: {
-    'primary': '#569CD6',
-    'secondary': '#FFD700',
-    'accent': '#0070F3',
-    'neutral': {
-      '50': '#F0F4F5',
-      '100': '#E1E8EB',
-      '200': '#CBD5E0',
-      '300': '#A0AEC0',
-      '400': '#718096',
-      '500': '#4E566A',
-      '600': '#1F2429',
-      '700': '#171923',
-      '800': '#0E161B',
-      '900': '#090B12',
-    },
-    'gray': '#9E9E9E',
-  },
+// Mock data for demonstration purposes
+interface NFT {
+  tokenId: string;
+  name: string;
+  nftType: string;
+  quantity: number;
+}
+
+interface Position {
+  nft: NFT;
+  amount: number;
+}
+
+interface RiskAssessmentData {
+  riskLevel: string;
+  potentialLoss: number;
+}
+
+type WebSocketMessage = {
+  type: 'positionUpdate';
+  data: Position;
 };
 
-// Dummy data for demonstration
-interface NFTCollateral {
-  tokenId: string;
-  quantity: number;
-  price: number;
-}
+type AppState = {
+  nftPositions: Position[];
+  cryptoPrices: { [symbol: string]: number };
+  defiLlamaData: { tvl: number };
+  riskAssessment: RiskAssessmentData | null;
+  loading: boolean;
+  darkMode: boolean;
+};
 
-interface RiskMetrics {
-  totalValue: number;
-  riskScore: number;
-}
-
-const CollateralDashboard: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const [nftCollateralData, setNftCollateralData] = useState<NFTCollateral[]>([]);
-  const [riskMetrics, setRiskMetrics] = useState<RiskMetrics>({
-    totalValue: 0,
-    riskScore: 0,
+const App: React.FC = () => {
+  const tailwind = useTailwind();
+  const [state, setState] = useState<AppState>({
+    nftPositions: [],
+    cryptoPrices: {},
+    defiLlamaData: { tvl: 0 },
+    riskAssessment: null,
+    loading: true,
+    darkMode: false,
   });
 
   useEffect(() => {
-    // Simulate data fetching
-    setTimeout(() => {
-      const dummyData: NFTCollateral[] = [
-        { tokenId: 'MSL1', quantity: 10, price: 1000 },
-        { tokenId: 'MSL2', quantity: 5, price: 2000 },
-        { tokenId: 'MSL3', quantity: 20, price: 500 },
-      ];
-      setNftCollateralData(dummyData);
-      setRiskMetrics({
-        totalValue: dummyData.reduce((sum, item) => sum + item.quantity * item.price, 0),
-        riskScore: Math.random() * 100,
-      });
-      setLoading(false);
-    }, 1500);
+    const fetchData = async () => {
+      try {
+        // Mock NFT positions
+        const mockNFTs: NFT[] = [
+          { tokenId: 'Mossland1', name: 'Mossland NFT 1', nftType: 'Land', quantity: 10 },
+          { tokenId: 'Mossland2', name: 'Mossland NFT 2', nftType: 'Land', quantity: 5 },
+        ];
+        const mockPositions: Position[] = mockNFTs.map(nft => ({ nft, amount: Math.floor(Math.random() * 100) }));
+
+        // Fetch crypto prices
+        const cryptoPrices = await CoingeckoAPI.getPrices(['BTC', 'ETH', 'USDT']);
+
+        // Fetch DeFi Llama TVL
+        const defiLlamaData = await DefiLlamaAPI.getTVL();
+
+        // Simulate risk assessment
+        const riskAssessment = { riskLevel: 'Medium', potentialLoss: 50 };
+
+        setState({
+          nftPositions: mockPositions,
+          cryptoPrices,
+          defiLlamaData,
+          riskAssessment,
+          loading: false,
+        });
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setState({ loading: false });
+      }
+    };
+
+    fetchData();
   }, []);
 
-  if (loading) {
-    return <div>Loading...</div>;
+  // WebSocket setup (placeholder)
+  const ws = new WebSocketClient({ port: 8080, rejectUnauthorized: false });
+
+  ws.onopen = () => {
+    console.log('WebSocket connected');
+  };
+
+  ws.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    if (message.type === 'positionUpdate') {
+      setState(prevState => {
+        const newPositions = [...prevState.nftPositions, message.data];
+        return { ...prevState, nftPositions: newPositions };
+      });
+    }
+  };
+
+  ws.onclose = () => {
+    console.log('WebSocket closed');
+  };
+
+  ws.onopen = () => {
+    console.log('WebSocket opened');
+  };
+
+  if (state.loading) {
+    return (
+      <div className={tailwind('flex items-center justify-center h-screen')}>
+        <p className={tailwind('text-xl font-bold')}>Loading...</p>
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-gray-900">
-      <header className="bg-gray-100 dark:bg-gray-900 shadow-md p-4 flex items-center justify-between">
-        <h1>GPT-5 DeFi Position Auto-Rebalancing</h1>
-        <nav>
-          <a href="#" className="text-gray-600 dark:text-gray-400">Overview</a>
-          <a href="#" className="text-gray-600 dark:text-gray-400">Risk Monitoring</a>
-          <a href="#" className="text-gray-600 dark:text-gray-400">Settings</a>
-        </nav>
-      </header>
+    <div className={tailwind('flex h-screen')}>
+      {/* Sidebar */}
+      <aside className={tailwind('bg-gray-200 p-4')}>
+        <h2 className={tailwind('text-lg font-bold mb-2')}>NFT Portfolio</h2>
+        {/* Add navigation links here */}
+      </aside>
 
-      <main className="p-4 flex flex-row">
-        <aside className="w-64 bg-gray-100 dark:bg-gray-800 p-4 border-r">
-          <h2>NFT Collateral</h2>
-          {nftCollateralData.map((item) => (
-            <NFTCollateralCard key={item.tokenId} tokenId={item.tokenId} quantity={item.quantity} price={item.price} />
-          ))}
-        </aside>
+      {/* Main Content */}
+      <main className={tailwind('flex-grow p-4')}>
+        {/* Header */}
+        <header className={tailwind('bg-white shadow-md p-4')}>
+          <h1 className={tailwind('text-3xl font-bold mb-2')}>Mossland DeFi Agent</h1>
+          <button className={tailwind('bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded')} onClick={() => setState({...state, darkMode: !state.darkMode})}>
+            {state.darkMode ? 'Light Mode' : 'Dark Mode'}
+          </button>
+        </header>
 
-        <main className="flex-grow w-full p-4">
-          <h2>Risk Monitoring</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Placeholder for risk metrics chart */}
-            <div className="bg-gray-100 dark:bg-gray-800 rounded-md p-4">
-              <h3>Total Value</h3>
-              <p className="font-bold text-xl">{riskMetrics.totalValue.toFixed(2)}</p>
-            </div>
-            {/* Placeholder for risk score chart */}
-            <div className="bg-gray-100 dark:bg-gray-800 rounded-md p-4">
-              <h3>Risk Score</h3>
-              <p className="font-bold text-xl">{riskMetrics.riskScore.toFixed(2)}</p>
+        {/* Dashboard Content */}
+        <div className={tailwind('p-4')}>
+          {/* NFT Portfolio Overview */}
+          <div className={tailwind('mb-4')}>
+            <h2 className={tailwind('text-2xl font-bold mb-2')}>NFT Positions</h2>
+            {state.nftPositions.map(position => (
+              <div key={position.nft.tokenId} className={tailwind('border rounded-md p-4 mb-2')}>
+                <p className={tailwind('text-lg font-semibold')}>
+                  {position.nft.name} ({position.nft.nftType}) - {position.amount}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* Crypto Prices */}
+          <div className={tailwind('mb-4')}>
+            <h2 className={tailwind('text-2xl font-bold mb-2')}>Crypto Prices</h2>
+            <div className={tailwind('grid grid-cols-3 gap-4')}>
+              {Object.entries(state.cryptoPrices).map(([symbol, price]) => (
+                <div key={symbol} className={tailwind('bg-white rounded-md p-4')}>
+                  <p className={tailwind('text-xl font-semibold')}>{symbol}</p>
+                  <p className={tailwind('text-lg font-normal')}>${price.toFixed(2)}</p>
+                </div>
+              ))}
             </div>
           </div>
-        </main>
+
+          {/* DeFi Llama TVL */}
+          <div className={tailwind('mb-4')}>
+            <h2 className={tailwind('text-2xl font-bold mb-2')}>DeFi Llama TVL</h2>
+            <p className={tailwind('text-lg font-normal')}>${state.defiLlamaData.tvl.toFixed(2)}</p>
+          </div>
+
+          {/* Risk Assessment */}
+          <div className={tailwind('mb-4')}>
+            <h2 className={tailwind('text-2xl font-bold mb-2')}>Risk Assessment</h2>
+            {state.riskAssessment ? (
+              <p className={tailwind('text-lg font-normal')}>
+                Risk Level: {state.riskAssessment.riskLevel}, Potential Loss: ${state.riskAssessment.potentialLoss.toFixed(2)}
+              </p>
+            ) : (
+              <p className={tailwind('text-lg font-normal')}>Risk assessment not available.</p>
+            )}
+          </div>
+        </div>
       </main>
     </div>
   );
 };
 
-const NFTCollateralCard = ({ tokenId, quantity, price }: NFTCollateral) => {
-  return (
-    <div className="bg-gray-100 dark:bg-gray-800 rounded-md p-4 shadow-sm">
-      <h3 className="font-semibold mb-2">{tokenId}</h3>
-      <p className="text-gray-700 dark:text-gray-400">Quantity: {quantity}</p>
-      <p className="text-gray-700 dark:text-gray-400">Price: ${price}</p>
-    </div>
-  );
-};
-
-export default CollateralDashboard;
+export default App;
