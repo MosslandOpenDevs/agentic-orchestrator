@@ -1,159 +1,151 @@
 ```markdown
-# Smart Contract Analysis API Documentation
+# NFT & DeFi Portfolio Management API Documentation
 
 ## 1. Overview
 
-This API provides tools for analyzing smart contracts, generating vulnerability reports, and assessing risk. It leverages GPT-5 to perform advanced analysis and provides a dynamic risk assessment based on contract code. This API is designed for developers, security researchers, and anyone involved in the development and auditing of smart contracts.
+This API provides tools for managing and analyzing an NFT and DeFi portfolio. It allows users to retrieve their NFT positions, access real-time DeFi data, generate rebalancing strategies, and send data for analysis using a GPT-5 model.  This API is designed for integration with a user interface or other applications seeking to manage a user's crypto portfolio.
 
 ## 2. Authentication Details
 
-This API utilizes API key authentication.  You must include an API key in the `X-API-Key` header for all requests.  Contact your administrator to obtain an API key.
+All API endpoints require an API key for authentication. This key should be passed in the `X-API-Key` header of each request.
+
+*   **Key Generation:** API keys can be generated through a secure process (details omitted for brevity – contact support for key generation).
+*   **Security:**  Treat your API key as a password.  Do not share it publicly or commit it to version control.
 
 ## 3. Base URL Configuration
 
-The base URL for all API endpoints is:
+The base URL for all API requests is:
 
-`https://api.example.com/v1`
+`https://api.exampleportfolio.com/v1`
 
-(Replace `https://api.example.com/v1` with the actual base URL of your API)
+(Replace `https://api.exampleportfolio.com/v1` with the actual base URL)
 
 ## 4. API Endpoints
 
-### 4.1 GET /api/contracts
+### 4.1 GET /api/nftPositions
 
-*   **Method:** GET
-*   **Path:** `/api/contracts`
-*   **Description:** Retrieves a list of all smart contracts stored in the system.
-*   **Request Parameters/Body:** None
-*   **Response Format:** JSON Array
-    *   Each element in the array represents a smart contract and contains the following fields:
-        *   `contractAddress`: (String) The contract's Ethereum address.
-        *   `contractName`: (String) The name of the contract.
-        *   `contractVersion`: (String) The version of the contract.
-        *   `creationDate`: (String) The date the contract was created (ISO 8601 format).
-        *   `contractSize`: (Integer) The size of the contract in bytes.
+*   **Method:** `GET`
+*   **Path:** `/api/nftPositions`
+*   **Description:** Retrieves all NFT positions for a given user.
+*   **Request Parameters/Body:**
+    *   `user_id` (required, string): The unique identifier for the user.
+*   **Response Format:** JSON
 *   **Example Request:**
     ```
-    GET /api/contracts
+    GET /api/nftPositions?user_id=user123
     ```
-*   **Example Response:**
+*   **Example Response (200 OK):**
     ```json
     [
       {
-        "contractAddress": "0x1234567890abcdef1234567890abcdef12345678",
-        "contractName": "TokenContract",
-        "contractVersion": "1.0",
-        "creationDate": "2023-10-26T10:00:00Z",
-        "contractSize": 1024
+        "nft_name": "CoolCat #123",
+        "contract_address": "0x...",
+        "quantity": 5,
+        "price_usd": 1500.00,
+        "last_updated": "2023-10-27T10:00:00Z"
       },
       {
-        "contractAddress": "0x9876543210fedcba9876543210fedcba98765432",
-        "contractName": "VotingContract",
-        "contractVersion": "2.1",
-        "creationDate": "2023-10-27T14:30:00Z",
-        "contractSize": 1536
+        "nft_name": "PixelPanda #456",
+        "contract_address": "0x...",
+        "quantity": 10,
+        "price_usd": 75.00,
+        "last_updated": "2023-10-27T10:00:00Z"
       }
     ]
     ```
 
-### 4.2 GET /api/contracts/{contractAddress}
+### 4.2 GET /api/defiData/{protocol}
 
-*   **Method:** GET
-*   **Path:** `/api/contracts/{contractAddress}`
-*   **Description:** Retrieves details for a specific smart contract.
-*   **Request Parameters/Body:** None
-*   **Path Parameter:**
-    *   `contractAddress`: (String) The Ethereum address of the smart contract.
-*   **Response Format:** JSON
-    *   Includes all fields from the `/api/contracts` endpoint response, plus:
-        *   `contractSourceCode`: (String) The source code of the contract.
-*   **Example Request:**
-    ```
-    GET /api/contracts/0x1234567890abcdef1234567890abcdef12345678
-    ```
-*   **Example Response:**
-    ```json
-    {
-      "contractAddress": "0x1234567890abcdef1234567890abcdef12345678",
-      "contractName": "TokenContract",
-      "contractVersion": "1.0",
-      "creationDate": "2023-10-26T10:00:00Z",
-      "contractSize": 1024,
-      "contractSourceCode": "pragma solidity ^0.8.0;\ncontract TokenContract {\n    string public name = \"MyToken\";\n    string public symbol = \"MTK\";\n    uint8 public decimals = 18;\n    uint256 public totalSupply;\n\n    mapping(address => uint256) public balanceOf;\n\n    constructor() { \n        totalSupply = 1000000; \n    }\n}",
-      "compilerVersion": "0.8.15"
-    }
-    ```
-
-### 4.3 POST /api/vulnerabilities
-
-*   **Method:** POST
-*   **Path:** `/api/vulnerabilities`
-*   **Description:** Generates a vulnerability report for a smart contract using GPT-5.
+*   **Method:** `GET`
+*   **Path:** `/api/defiData/{protocol}`
+*   **Description:** Retrieves real-time DeFi data for a specified protocol.
 *   **Request Parameters/Body:**
-    *   `contractAddress`: (String) The Ethereum address of the smart contract.
-    *   `maxTokens`: (Integer, Optional) Maximum number of tokens to generate. Defaults to 500.
+    *   `protocol` (required, string): The DeFi protocol to retrieve data for (e.g., "Uniswap", "Aave", "Chainlink").
 *   **Response Format:** JSON
-    *   `report`: (String) The vulnerability report generated by GPT-5.
-    *   `status`: (String) "success" or "error".
-    *   `tokensGenerated`: (Integer) The number of tokens generated.
 *   **Example Request:**
     ```
-    POST /api/vulnerabilities
-    Content-Type: application/json
-    X-API-Key: YOUR_API_KEY
-
-    {
-      "contractAddress": "0x1234567890abcdef1234567890abcdef12345678",
-      "maxTokens": 1000
-    }
+    GET /api/defiData/Uniswap
     ```
-*   **Example Response (Success):**
+*   **Example Response (200 OK):**
     ```json
     {
-      "report": "Potential reentrancy vulnerability detected in the contract's transfer function.  Consider adding a check to ensure that the recipient address is not the same as the sender address before transferring funds.",
-      "status": "success",
-      "tokensGenerated": 750
+      "protocol": "Uniswap",
+      "liquidity_pools": [
+        {"token_a": "ETH", "token_b": "DAI", "total_value": 10000000.00},
+        {"token_a": "USDC", "token_b": "DAI", "total_value": 5000000.00}
+      ],
+      "timestamp": "2023-10-27T10:00:00Z"
     }
     ```
 
-### 4.4 GET /api/risk/{contractAddress}
+### 4.3 POST /api/rebalance
 
-*   **Method:** GET
-*   **Path:** `/api/risk/{contractAddress}`
-*   **Description:** Retrieves the dynamic risk assessment for a smart contract.
-*   **Request Parameters/Body:** None
-*   **Path Parameter:**
-    *   `contractAddress`: (String) The Ethereum address of the smart contract.
+*   **Method:** `POST`
+*   **Path:** `/api/rebalance`
+*   **Description:** Generates a rebalancing strategy based on the current NFT positions and risk profile.
+*   **Request Parameters/Body:**
+    *   `user_id` (required, string): The unique identifier for the user.
+    *   `risk_profile` (required, string):  The user's risk profile (e.g., "conservative", "moderate", "aggressive").
+    *   `investment_amount` (optional, number): The amount to invest in the rebalancing strategy. Defaults to user's portfolio value.
 *   **Response Format:** JSON
-    *   `riskScore`: (Float) A numerical score representing the overall risk level (0.0 - 1.0).
-    *   `riskCategory`: (String) A categorical risk assessment (e.g., "Low", "Medium", "High").
-    *   `vulnerabilitiesFound`: (Integer) Number of vulnerabilities identified.
-    *   `codeComplexity`: (String) Description of the code complexity.
 *   **Example Request:**
+    ```json
+    POST /api/rebalance
+    {
+      "user_id": "user123",
+      "risk_profile": "moderate",
+      "investment_amount": 10000
+    }
     ```
-    GET /api/risk/0x1234567890abcdef1234567890abcdef12345678
-    ```
-*   **Example Response:**
+*   **Example Response (200 OK):**
     ```json
     {
-      "riskScore": 0.65,
-      "riskCategory": "Medium",
-      "vulnerabilitiesFound": 2,
-      "codeComplexity": "Moderate - Contains complex logic and potential for vulnerabilities."
+      "strategy_name": "Moderate Rebalance",
+      "recommendations": [
+        {"protocol": "Aave", "asset": "ETH", "amount": 2000},
+        {"protocol": "Uniswap", "asset": "DAI", "amount": 1000}
+      ],
+      "timestamp": "2023-10-27T10:00:00Z"
+    }
+    ```
+
+### 4.4 GET /api/gpt5/analyze
+
+*   **Method:** `GET`
+*   **Path:** `/api/gpt5/analyze`
+*   **Description:** Sends data to the GPT-5 API for analysis.  This endpoint is used for advanced portfolio analysis and insights.
+*   **Request Parameters/Body:**
+    *   `user_id` (required, string): The unique identifier for the user.
+    *   `data` (required, string):  A JSON string containing the portfolio data to be analyzed (e.g., NFT positions, DeFi holdings, transaction history).
+*   **Response Format:** JSON
+*   **Example Request:**
+    ```
+    GET /api/gpt5/analyze?user_id=user123&data={"nft_positions": [...], "defi_holdings": [...]}
+    ```
+*   **Example Response (200 OK):**
+    ```json
+    {
+      "analysis_type": "Portfolio Risk Assessment",
+      "results": "Your portfolio is moderately risky. Consider diversifying...",
+      "timestamp": "2023-10-27T10:00:00Z"
     }
     ```
 
 ## 5. Error Codes and Handling
 
 | Code    | Description                               | Action                               |
-| :------ | :---------------------------------------- | :---------------------------------- |
-| 400      | Bad Request - Invalid input parameters   | Check request body and parameters.   |
-| 401      | Unauthorized - Invalid API key          | Provide a valid API key.            |
-| 404      | Not Found - Contract not found            | Verify the contract address.         |
-| 500      | Internal Server Error - API error        | Contact API support.                |
-| 429      | Too Many Requests - Rate Limit Exceeded | Implement retry logic with exponential backoff. |
+| :------ | :--------------------------------------- | :---------------------------------- |
+| 400      | Bad Request - Invalid input parameters   | Validate request body and parameters |
+| 401      | Unauthorized - Invalid API key          | Provide a valid API key            |
+| 404      | Not Found - Resource not found           | Verify endpoint and parameters      |
+| 429      | Too Many Requests - Rate Limit Exceeded | Implement retry logic with exponential backoff |
+| 500      | Internal Server Error                    | Contact support for assistance       |
 
 ## 6. Rate Limiting Info
 
-The API is rate-limited to prevent abuse.  The rate limit is 100 requests per minute per API key.  Exceeding this limit will result in a 429 Too Many Requests error.  Implement retry logic with exponential backoff to handle rate limiting errors.
+The API is rate-limited to prevent abuse and ensure stability.
+
+*   **Requests per Minute:** 60 requests per minute per API key.
+*   **Burst Handling:**  A short burst of requests (e.g., 10 requests in 10 seconds) will be tolerated, but sustained high-volume requests will be throttled.
+*   **Rate Limit Headers:** The `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers will be included in the response to indicate the current rate limit status.
 ```

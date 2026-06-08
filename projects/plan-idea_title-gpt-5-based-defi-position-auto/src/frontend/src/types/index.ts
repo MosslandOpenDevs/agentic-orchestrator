@@ -3,29 +3,32 @@
  */
 
 
-export interface SmartContract {
-  contractAddress: string;
-  contractName: string;
-  contractVersion: string;
-  creationTimestamp: string;
+export interface NFTPosition {
+  id: string;
+  nftId: string;
+  protocol: string;
+  quantity: number;
+  lastUpdated: string;
 }
 
-export interface VulnerabilityReport {
+export interface RiskProfile {
   id: string;
-  contractAddress: string;
-  vulnerabilityType: string;
-  severity: string;
-  description: string;
-  confidenceScore: number;
-  createdAt: string;
+  name: string;
+  maxVolatility: number;
+  liquidityThreshold: number;
 }
 
-export interface RiskAssessment {
+export interface DeFiProtocol {
   id: string;
-  contractAddress: string;
-  assessmentTimestamp: string;
-  overallRiskScore: number;
-  riskFactors: any;
+  name: string;
+  apiEndpoint: string;
+}
+
+export interface RebalancingStrategy {
+  id: string;
+  protocol: string;
+  newQuantity: number;
+  timestamp: string;
 }
 
 

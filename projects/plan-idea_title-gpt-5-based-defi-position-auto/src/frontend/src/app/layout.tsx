@@ -6,7 +6,7 @@ const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'plan-idea_title-gpt-5-based-defi-position-auto',
-  description: 'Okay, let’s get this straight. This “Singularity” approach from Singular Bank is intriguing, but fra',
+  description: 'Okay, let’s do this. This Sahara AI spike is a distraction if we don’t immediately translate it into',
 };
 
 export default function RootLayout({

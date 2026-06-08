@@ -1,129 +1,128 @@
 import React, { useState, useEffect } from 'react';
-import { useTailwind } from 'tailwind-rn'; // Assuming tailwind-rn for React Native
-import { OpenAI } from 'openai';
+import { Chart as ChartJS, Title, Label } from 'chart.js';
+import { Line } from 'react-chartjs-2';
+import { use } from 'react';
 
-type SmartContract = {
-  name: string;
-  address: string;
-  vulnerabilityReports: VulnerabilityReport[];
-  riskAssessment: RiskAssessment | null;
+// Placeholder data - replace with actual data fetching
+interface CryptoData {
+  symbol: string;
+  price: number;
+}
+
+interface RiskAssessmentData {
+  riskLevel: string;
+  potentialLoss: number;
+}
+
+type NFTPosition = {
+  tokenId: string;
+  quantity: number;
+  price: number;
+  defiProtocol: string;
 };
 
-type VulnerabilityReport = {
-  id: string;
-  description: string;
-  severity: 'low' | 'medium' | 'high';
-  gpt5Analysis: string;
+type PortfolioData = {
+  assets: CryptoData[];
+  nftPositions: NFTPosition[];
 };
 
-type RiskAssessment = {
-  id: string;
-  description: string;
-  riskLevel: 'low' | 'medium' | 'high';
-  gpt5Analysis: string;
+type AppState = {
+  portfolio: PortfolioData | null;
+  riskAssessment: RiskAssessmentData | null;
+  loading: boolean;
+  theme: 'light' | 'dark';
 };
 
-const Dashboard = () => {
-  const tailwind = useTailwind();
-  const [smartContracts, setSmartContracts] = useState<SmartContract[]>([]);
+const App: React.FC<AppState> = () => {
+  const [portfolio, setPortfolio] = useState<PortfolioData | null>(null);
+  const [riskAssessment, setRiskAssessment] = useState<RiskAssessmentData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<string>('light');
 
   useEffect(() => {
-    // Simulate fetching data from an API
-    const fetchData = async () => {
-      try {
-        const contracts: SmartContract[] = [
-          {
-            name: 'MosslandToken',
-            address: '0x...',
-            vulnerabilityReports: [
-              { id: '1', description: 'Reentrancy Vulnerability', severity: 'high', gpt5Analysis: 'Potential reentrancy issue detected.' },
-            ],
-            riskAssessment: null,
-          },
-          {
-            name: 'StakingContract',
-            address: '0x...',
-            vulnerabilityReports: [],
-            riskAssessment: null,
-          },
-        ];
-        setSmartContracts(contracts);
-        setLoading(false);
-      } catch (err) {
-        setError(err.message);
-        setLoading(false);
-      }
-    };
+    // Simulate data fetching
+    setTimeout(() => {
+      const fakePortfolioData: PortfolioData = {
+        assets: [
+          { symbol: 'BTC', price: 60000 },
+          { symbol: 'ETH', price: 3000 },
+        ],
+        nftPositions: [
+          { tokenId: 'Mossland1', quantity: 5, price: 100, defiProtocol: 'Uniswap' },
+          { tokenId: 'Mossland2', quantity: 2, price: 150, defiProtocol: 'Sushi' },
+        ],
+      };
+      const fakeRiskAssessmentData: RiskAssessmentData = {
+        riskLevel: 'Medium',
+        potentialLoss: 5,
+      };
 
-    fetchData();
+      setPortfolio(fakePortfolioData);
+      setRiskAssessment(fakeRiskAssessmentData);
+      setLoading(false);
+    }, 2000);
   }, []);
 
-  if (loading) {
-    return (
-      <div className={tailwind('flex justify-center items-center h-screen')}>
-        <p className={tailwind('text-xl')}>Loading...</p>
-      </div>
-    );
-  }
+  const toggleTheme = () => {
+    setTheme(theme === 'light' ? 'dark' : 'light');
+  };
 
-  if (error) {
-    return (
-      <div className={tailwind('flex justify-center items-center h-screen')}>
-        <p className={tailwind('text-red-500 text-xl')}>Error: {error}</p>
-      </div>
-    );
-  }
+  const data = {
+    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May'],
+    datasets: [
+      {
+        label: 'BTC Price',
+        data: [60000, 65000, 62000, 63000, 61000],
+        fill: false,
+        borderColor: 'rgb(255, 99, 132)',
+        tension: 0.4,
+      },
+    ],
+  };
 
   return (
-    <div className={tailwind('flex h-screen')}>
-      {/* Sidebar */}
-      <div className={tailwind('w-64 bg-gray-200 h-full')}>
-        {/* Navigation */}
-        <nav className={tailwind('p-4')}>
-          <h2 className={tailwind('text-xl font-bold')}>Dashboard</h2>
-          <hr className={tailwind('my-2 border-t-2 border-gray-300')}/>
-          {/* Add more navigation items here */}
-        </nav>
-      </div>
+    <div className={`min-h-screen ${theme === 'dark' ? 'dark' : ''}`}>
+      <header className="bg-white shadow-md p-4 flex items-center justify-between">
+        <button onClick={toggleTheme} className="text-gray-500 hover:text-gray-800">
+          Toggle Theme
+        </button>
+        <h1 className="text-xl font-bold">GPT-5 DeFi Rebalancing Agent</h1>
+      </header>
 
-      {/* Main Content */}
-      <div className={tailwind('flex-grow w-full')}>
-        {/* Header */}
-        <div className={tailwind('bg-white shadow-md p-4')}>
-          <h1 className={tailwind('text-3xl font-bold')}>GPT-5 DeFi Position Auto-Rebalancing Agent</h1>
-        </div>
+      <main className="p-4">
+        {loading && <p>Loading data...</p>}
 
-        {/* Smart Contract List */}
-        <div className={tailwind('p-4')}>
-          <h2 className={tailwind('text-2xl font-bold mb-4')}>Smart Contracts</h2>
-          <ul className={tailwind('list-disc list-inside')}>
-            {smartContracts.map((contract) => (
-              <li key={contract.name} className={tailwind('mb-2')}>
-                <p className={tailwind('font-semibold')}>
-                  {contract.name} ({contract.address})
-                </p>
-                {contract.vulnerabilityReports.length > 0 ? (
-                  <p className={tailwind('text-gray-600')}>
-                    {contract.vulnerabilityReports.length} Vulnerabilities Found
-                  </p>
-                ) : (
-                  <p className={tailwind('text-gray-600')}>No Vulnerabilities Found</p>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <section className="mb-4">
+          <h2>Portfolio Overview</h2>
+          <p>Total Portfolio Value: ${portfolio?.assets.reduce((sum, item) => sum + item.price, 0)}</p>
+        </section>
 
-        {/* Data Visualization Placeholders */}
-        <div className={tailwind('p-4')}>
-          <h2 className={tailwind('text-2xl font-bold mb-4')}>Data Visualization</h2>
-          {/* Add charts and graphs here */}
-        </div>
-      </div>
+        <section className="mb-4">
+          <h2>Risk Assessment</h2>
+          <p>Risk Level: {riskAssessment ? riskAssessment.riskLevel : 'N/A'}</p>
+          <p>Potential Loss: ${riskAssessment ? riskAssessment.potentialLoss : 'N/A'}</p>
+        </section>
+
+        <section className="mb-4">
+          <h2>Asset Prices</h2>
+          <Line data={data} />
+        </section>
+
+        {/* Placeholder for NFT Position Details */}
+        <section className="mb-4">
+          <h2>NFT Position Details</h2>
+          {portfolio?.nftPositions.map((pos) => (
+            <div key={pos.tokenId} className="border p-3 rounded-md mb-2">
+              <p>Token ID: {pos.tokenId}</p>
+              <p>Quantity: {pos.quantity}</p>
+              <p>Price: ${pos.price}</p>
+              <p>Defi Protocol: {pos.defiProtocol}</p>
+            </div>
+          ))}
+        </section>
+      </main>
     </div>
   );
 };
 
-export default Dashboard;
+export default App;

@@ -3,81 +3,92 @@
 
 ## 1. System Overview
 
-This system, tentatively named “Contract Sentinel,” aims to leverage GPT-5 for automated smart contract vulnerability analysis and risk assessment within the Ethereum ecosystem. It will provide a user interface for NFT holders to review and approve/reject findings, ultimately informing DeFi position decisions.
+This system, dubbed “AutoRebalance,” is a decentralized position management tool leveraging GPT-5 for strategic DeFi rebalancing. It operates as a client-server application, interacting with the Ethereum blockchain via Layer 2 solutions (initially Polygon) and utilizing the GPT-5 API for advanced analysis.
 
 **High-Level Diagram:**
 
 ```
 +---------------------+     +---------------------+     +---------------------+
-|      Frontend       | --> |      Backend        | --> |   Ethereum Network  |
-| (React)             |     | (FastAPI, GPT-5)    |     | (Smart Contracts)   |
+|      Frontend       | <-> |       Backend        | <-> |     Blockchain      |
+|  (React.js)         |     |  (FastAPI, Python)   |     |   (Ethereum - L2)  |
 +---------------------+     +---------------------+     +---------------------+
        ^                      |
        |                      |
        +----------------------+
-       |   Postgres Database |
+       | GPT-5 API           |
        +----------------------+
 ```
 
 ## 2. Component Architecture
 
-The system comprises the following key components:
+The system is composed of the following key components:
 
-*   **Frontend (React):** Provides the user interface for NFT holders to interact with the system, view vulnerability reports, and approve/reject findings.  Handles user authentication and data presentation.
-*   **Backend (FastAPI):** The core of the system, responsible for handling API requests, interacting with the GPT-5 model, managing the database, and orchestrating the overall workflow.
-*   **GPT-5 Integration:**  An external API call to OpenAI's GPT-5 model, utilizing carefully crafted prompts to analyze smart contract code.
-*   **Postgres Database:** Stores smart contract metadata, vulnerability reports, risk assessment data, user information, and system configuration.
-*   **Ethereum Network:** The target environment for smart contract analysis and interaction.
+*   **Frontend (React.js):**
+    *   User Interface for monitoring NFT holdings, DeFi positions, and rebalancing strategies.
+    *   Handles user interaction and displays data.
+    *   Communicates with the backend API.
+*   **Backend (FastAPI/Python):**
+    *   API Gateway: Handles all incoming requests from the frontend.
+    *   Data Aggregation Module: Fetches real-time DeFi data from external sources.
+    *   GPT-5 Integration Module: Interacts with the GPT-5 API for analysis and strategy generation.
+    *   Blockchain Interaction Module: Utilizes Web3.js to interact with the Ethereum blockchain (Layer 2).
+    *   Rebalancing Engine: Implements the rebalancing logic based on GPT-5 analysis and user risk profile.
+*   **Blockchain (Ethereum - Layer 2):**
+    *   Smart Contracts: (Future - for automated execution of rebalancing strategies). Currently, interacts via Web3.js.
+*   **GPT-5 API:** External API for natural language processing and analysis.
 
 ## 3. Data Flow
 
-1.  **User Interaction:** A user interacts with the Frontend to submit a smart contract address for analysis.
-2.  **API Request:** The Frontend sends a request to the Backend API endpoint `/api/vulnerabilities`.
-3.  **Smart Contract Retrieval:** The Backend retrieves the smart contract’s source code from the Ethereum network (using a suitable Ethereum client library).
-4.  **GPT-5 Analysis:** The Backend constructs a prompt for GPT-5, including the smart contract code, and sends it to the GPT-5 API.
-5.  **Vulnerability Report Generation:** GPT-5 analyzes the code and generates a vulnerability report (potentially including identified vulnerabilities and confidence scores).
-6.  **Data Storage:** The Backend stores the vulnerability report and associated risk assessment data in the Postgres Database.
-7.  **Frontend Display:** The Backend sends the vulnerability report and risk assessment data to the Frontend for display to the user.
-8.  **User Approval/Rejection:** The user reviews the report and approves or rejects the findings via the Frontend.
-9.  **Database Update:** The Backend updates the database to reflect the user's decision.
+1.  **User Interaction:** User interacts with the React frontend.
+2.  **API Request:** Frontend sends a request to the FastAPI backend API (e.g., `/api/rebalance`).
+3.  **Data Retrieval:** Backend retrieves NFT positions from the database, DeFi data from external APIs, and sends data to the GPT-5 API via `/api/gpt5/analyze`.
+4.  **GPT-5 Analysis:** GPT-5 analyzes the data and generates a rebalancing strategy.
+5.  **Rebalancing Logic:** Backend’s Rebalancing Engine applies the strategy, considering user risk profile.
+6.  **Blockchain Interaction (Future):** Backend executes the strategy via smart contracts (Layer 2).
+7.  **Response:** Backend sends the rebalancing strategy or updated positions back to the frontend.
+8.  **Display:** Frontend updates the user interface with the new information.
 
 ## 4. API Design
 
-| Method | Endpoint          | Description                               | Request Body (Example) | Response Body (Example) |
-|--------|-------------------|-------------------------------------------|-------------------------|--------------------------|
-| GET    | `/api/contracts`    | Retrieves a list of all smart contracts.   | None                    | `[ { "contractAddress": "0x...", "name": "..." } ]` |
-| GET    | `/api/contracts/{contractAddress}` | Retrieves details for a specific smart contract. | None                    | `{ "contractAddress": "0x...", "name": "...", "code": "..." }` |
-| POST   | `/api/vulnerabilities` | Generates a vulnerability report.        | `{ "contractAddress": "0x...", "prompt": "Analyze this contract for vulnerabilities..." }` | `{ "reportId": "...", "vulnerabilities": [ { "type": "Reentrancy", "confidence": 0.8 } ] }` |
-| GET    | `/api/risk/{contractAddress}` | Retrieves the dynamic risk assessment.      | None                    | `{ "riskScore": 0.7, "riskDescription": "Moderate risk..." }` |
+| Endpoint             | Method | Description                               | Request Body                  | Response Body                      |
+| -------------------- | ------ | ---------------------------------------- | ----------------------------- | ---------------------------------- |
+| `/api/nftPositions`   | GET    | Retrieves all NFT positions for a user.   | User ID                       | List of NFT positions              |
+| `/api/defiData/{protocol}` | GET    | Retrieves real-time DeFi data.           | Protocol Name                  | DeFi data for the specified protocol |
+| `/api/rebalance`       | POST   | Generates a rebalancing strategy.          | User ID, Risk Profile          | Rebalancing Strategy               |
+| `/api/gpt5/analyze`    | POST   | Sends data to GPT-5 for analysis.         | NFT Positions, DeFi Data      | GPT-5 Analysis Results             |
 
 ## 5. Database Schema (Conceptual)
 
-| Table Name       | Columns                               | Data Type        |
-|------------------|---------------------------------------|------------------|
-| `smart_contracts`| `contract_address`, `name`, `deployed_date`, `code` | VARCHAR, VARCHAR, TIMESTAMP, TEXT |
-| `vulnerability_reports` | `report_id`, `contract_address`, `gpt5_output`, `risk_score`, `user_approval_status` | VARCHAR, VARCHAR, TEXT, FLOAT, BOOLEAN |
-| `users`          | `user_id`, `public_address`, `role`     | VARCHAR, VARCHAR, VARCHAR |
-| `risk_assessments`| `contract_address`, `risk_score`, `risk_description`| VARCHAR, FLOAT, TEXT |
+| Table Name       | Columns                               | Data Type         | Description                               |
+| ---------------- | ------------------------------------- | ----------------- | ---------------------------------------- |
+| `users`          | `id`, `username`, `password`, ...     | `UUID`, `VARCHAR`, | User information                          |
+| `nft_holdings`   | `user_id`, `nft_address`, `quantity`, ...| `UUID`, `VARCHAR`, | NFT holdings information                |
+| `defi_protocols` | `id`, `name`, `chain`, ...            | `UUID`, `VARCHAR`, | DeFi protocol information               |
+| `defi_data`      | `protocol_id`, `timestamp`, `value1`, ...| `UUID`, `TIMESTAMP`, `FLOAT`| Real-time DeFi data                      |
+| `risk_profiles`  | `id`, `name`, `risk_level`, ...        | `UUID`, `VARCHAR`, | User risk profile                       |
 
 ## 6. Security Considerations
 
-*   **EIP-712 Signature Verification:** Mandatory for all smart contract interactions to ensure only authorized users can approve findings.
-*   **GPT-5 Prompt Security:** Carefully crafted prompts to prevent prompt injection attacks and ensure GPT-5 only analyzes code. Input sanitization is critical.
-*   **Rate Limiting:** Implement rate limiting on API endpoints to prevent abuse.
-*   **Data Encryption:** Encrypt sensitive data at rest and in transit.
-*   **Regular Security Audits:** Conduct regular security audits of the entire system.
-*   **Dependency Management:** Maintain up-to-date dependencies to mitigate vulnerabilities.
+*   **Authentication & Authorization:** Secure user authentication (e.g., JWT) and role-based access control.
+*   **Input Validation:** Rigorous input validation on all API endpoints to prevent injection attacks.
+*   **Data Encryption:** Encrypt sensitive data at rest and in transit (HTTPS).
+*   **Blockchain Security:** Secure smart contract development and auditing. Utilize Layer 2 solutions for enhanced security and scalability.
+*   **GPT-5 API Security:** Implement rate limiting and input sanitization to prevent abuse of the GPT-5 API.
+*   **Regular Security Audits:** Conduct regular security audits and penetration testing.
 
 ## 7. Scalability Notes
 
-*   **Asynchronous Processing:** Utilize asynchronous processing for GPT-5 analysis to avoid blocking the API.
-*   **Caching:** Implement caching mechanisms for frequently accessed data (e.g., smart contract metadata).
-*   **Database Scaling:** Utilize database sharding or replication to handle increasing data volumes.
-*   **Horizontal Scaling:** Design the Backend to be horizontally scalable to handle increased API traffic.
+*   **Layer 2 Blockchain:** Utilizing Layer 2 solutions (Optimism/Arbitrum) for scalability and reduced gas costs.
+*   **Database Scaling:** PostgreSQL can be scaled horizontally using replication and sharding.
+*   **Backend Scaling:** Utilize a load balancer and multiple instances of the FastAPI backend.
+*   **Caching:** Implement caching mechanisms to reduce database load and improve response times.
+*   **Asynchronous Operations:** Use asynchronous programming (e.g., asyncio) for I/O-bound operations.
 
 ## 8. Deployment Architecture
 
-*   **Frontend:** Deployed as a static website using a CDN (e.g., Netlify, Vercel).
-*   **Backend:** Deployed on a cloud platform (e.g., AWS, Google Cloud, Azure) using a containerization technology like Docker and Kubernetes.
-*   **GPT-5 API:** Accessed via OpenAI's API.
-*   **Postgres Database:** Managed as a managed service (e.g., AWS RDS, Google Cloud SQL, Azure Database for PostgreSQL).
+*   **Frontend:** Deployed to a CDN (e.g., Netlify, Vercel) for fast delivery.
+*   **Backend:** Deployed to a cloud platform (e.g., AWS, Google Cloud, Azure) using containerization (Docker, Kubernetes).
+*   **Database:** Hosted on a managed PostgreSQL service (e.g., AWS RDS, Google Cloud SQL).
+*   **Blockchain Nodes:** Polygon nodes for initial testing and potentially future integration.
+*   **GPT-5 API:** Accessed via the OpenAI API platform.
+```

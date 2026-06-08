@@ -1,95 +1,77 @@
 from typing import Optional
 from pydantic import BaseModel, Field
 from pydantic import ConfigDict
-from datetime import datetime
+from pydantic.validator import validator
 
 class FieldConfig(ConfigDict):
-    default_color = "#ccc"
-    extra = "forbid"
-
-class SmartContract(BaseModel):
-    id: str = Field(..., description="Unique identifier for the smart contract", color="blue")
-    name: str = Field(..., description="Name of the smart contract", color="green")
-    address: str = Field(..., description="Smart contract address", color="orange")
-    contract_code: str = Field(..., description="Source code of the smart contract", color="purple")
-    creation_date: datetime = Field(..., description="Date the contract was created", color="red")
-    config: dict = Field(..., description="Contract configuration", color="yellow")
-    
-    class Config:
-        schema_extra = {
-            "example": {
-                "id": "0x1234567890abcdef",
-                "name": "Mossland NFT Contract",
-                "address": "0x1234567890abcdef",
-                "contract_code": "contract MosslandNFT { ... }",
-                "creation_date": datetime(2023, 1, 1, 12, 0, 0),
-                "config": {"nft_type": "image", "metadata_schema": "image_metadata"}
-            }
-        }
-
-class VulnerabilityReport(BaseModel):
-    id: str = Field(..., description="Unique identifier for the vulnerability report", color="purple")
-    smart_contract_id: str = Field(..., description="ID of the smart contract being analyzed", color="orange")
-    vulnerability_name: str = Field(..., description="Name of the vulnerability", color="red")
-    severity: str = Field(..., description="Severity of the vulnerability (Critical, High, Medium, Low)", color="green")
-    description: str = Field(..., description="Detailed description of the vulnerability", color="blue")
-    recommendation: str = Field(..., description="Recommended remediation steps", color="yellow")
-    date_reported: datetime = Field(..., description="Date the vulnerability was reported", color="purple")
-    
-    class Config:
-        schema_extra = {
-            "example": {
-                "id": "vr_123",
-                "smart_contract_id": "0x1234567890abcdef",
-                "vulnerability_name": "Reentrancy Vulnerability",
-                "severity": "Critical",
-                "description": "The contract is vulnerable to reentrancy attacks.",
-                "recommendation": "Use the Checks-Effects-Interactions pattern.",
-                "date_reported": datetime(2024, 5, 20, 10, 30, 0),
-            }
-        }
-
-class RiskAssessment(BaseModel):
-    id: str = Field(..., description="Unique identifier for the risk assessment", color="purple")
-    smart_contract_id: str = Field(..., description="ID of the smart contract being assessed", color="orange")
-    risk_score: float = Field(..., description="Overall risk score (0.0 - 1.0)", color="red")
-    vulnerabilities: list[str] = Field(..., description="List of vulnerabilities contributing to the risk score", color="green")
-    recommendations: list[str] = Field(..., description="List of recommendations to mitigate the risk", color="blue")
-    date_assessed: datetime = Field(..., description="Date the risk assessment was performed", color="yellow")
-    
-    class Config:
-        schema_extra = {
-            "example": {
-                "id": "ra_456",
-                "smart_contract_id": "0x1234567890abcdef",
-                "risk_score": 0.8,
-                "vulnerabilities": ["Reentrancy Vulnerability", "Integer Overflow"],
-                "recommendations": ["Use the Checks-Effects-Interactions pattern.", "Implement input validation."],
-                "date_assessed": datetime(2024, 5, 21, 14, 0, 0),
-            }
-        }
-
-class SmartContractResponse(BaseModel):
-    id: str
-    name: str
-    address: str
-    contract_code: str
-    creation_date: datetime
-    config: dict
-
-class VulnerabilityReportResponse(BaseModel):
-    id: str
-    smart_contract_id: str
-    vulnerability_name: str
-    severity: str
+    field_name: str
+    default: any
     description: str
-    recommendation: str
-    date_reported: datetime
+    example: any
 
-class RiskAssessmentResponse(BaseModel):
-    id: str
-    smart_contract_id: str
-    risk_score: float
-    vulnerabilities: list[str]
-    recommendations: list[str]
-    date_assessed: datetime
+class BaseNFTPosition(BaseModel):
+    nft_id: str = Field(..., description="Unique identifier of the Mossland NFT", example="Mossland-123")
+    quantity: int = Field(..., description="Number of NFTs held", example=10)
+    protocol_id: str = Field(..., description="ID of the DeFi protocol holding the NFT", example="ProtocolA")
+
+    @validator('quantity')
+    def quantity_must_be_positive(cls, value):
+        if value <= 0:
+            raise ValueError("Quantity must be a positive integer")
+        return value
+
+class CreateNFTPosition(BaseNFTPosition):
+    pass
+
+class UpdateNFTPosition(BaseNFTPosition):
+    pass
+
+class ResponseNFTPosition(BaseNFTPosition):
+    pass
+
+class BaseRiskProfile(BaseModel):
+    risk_tolerance: str = Field(..., description="User's risk tolerance (e.g., Conservative, Moderate, Aggressive)", example="Moderate")
+
+    config = FieldConfig(field_name="risk_tolerance", default="Moderate", description="Default risk tolerance", example="Moderate")
+
+class CreateRiskProfile(BaseRiskProfile):
+    pass
+
+class UpdateRiskProfile(BaseRiskProfile):
+    pass
+
+class ResponseRiskProfile(BaseRiskProfile):
+    pass
+
+class BaseDeFiProtocol(BaseModel):
+    protocol_id: str = Field(..., description="Unique identifier of the DeFi protocol", example="ProtocolA")
+    name: str = Field(..., description="Name of the DeFi protocol", example="Aave")
+    supported_assets: list = Field(..., description="List of supported assets", example=["USDC", "DAI"])
+
+    config = FieldConfig(field_name="protocol_id", default="ProtocolA", description="Default protocol ID", example="ProtocolA")
+
+class CreateDeFiProtocol(BaseDeFiProtocol):
+    pass
+
+class UpdateDeFiProtocol(BaseDeFiProtocol):
+    pass
+
+class ResponseDeFiProtocol(BaseDeFiProtocol):
+    pass
+
+class BaseRebalancingStrategy(BaseModel):
+    strategy_id: str = Field(..., description="Unique identifier of the rebalancing strategy", example="StrategyGPT5-1")
+    name: str = Field(..., description="Name of the rebalancing strategy", example="GPT-5 Balanced")
+    description: Optional[str] = Field(None, description="Description of the strategy", example="A balanced portfolio based on GPT-5 recommendations")
+    suggested_allocation: dict = Field(..., description="Suggested asset allocation", example={"USDC": 0.5, "DAI": 0.5})
+
+    config = FieldConfig(field_name="strategy_id", default="StrategyGPT5-1", description="Default strategy ID", example="StrategyGPT5-1")
+
+class CreateRebalancingStrategy(BaseRebalancingStrategy):
+    pass
+
+class UpdateRebalancingStrategy(BaseRebalancingStrategy):
+    pass
+
+class ResponseRebalancingStrategy(BaseRebalancingStrategy):
+    pass

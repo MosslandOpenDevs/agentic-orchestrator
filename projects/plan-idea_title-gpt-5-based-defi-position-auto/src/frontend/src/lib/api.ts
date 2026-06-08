@@ -1,39 +1,17 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
+import axios, { AxiosInstance, AxiosRequestConfig, CanceledError } from 'axios';
 
-interface Contract {
-  address: string;
-  name: string;
-  // Add other contract properties here
+interface BaseResponse<T> {
+  data: T;
+  success: boolean;
+  error?: string;
 }
 
-interface VulnerabilityReport {
-  contractAddress: string;
-  vulnerabilities: string[];
-  // Add other vulnerability report properties here
-}
-
-interface RiskAssessment {
-  contractAddress: string;
-  riskScore: number;
-  // Add other risk assessment properties here
-}
-
-interface ApiClient {
-  getContracts(): Promise<Contract[]>;
-  getContract(contractAddress: string): Promise<Contract>;
-  postVulnerabilities(contractAddress: string): Promise<VulnerabilityReport>;
-  getRisk(contractAddress: string): Promise<RiskAssessment>;
-  post(): Promise<void>;
-  put(): Promise<void>;
-  delete(): Promise<void>;
-}
-
-class ApiService implements ApiClient {
+class ApiClient {
   private axiosInstance: AxiosInstance;
   private baseUrl: string;
-  private authToken: string | undefined;
+  private authHeaders: { [key: string]: string };
 
-  constructor(baseUrl: string, authToken?: string) {
+  constructor(baseUrl: string, authHeaders: { [key: string]: string } = {}) {
     this.baseUrl = baseUrl;
     this.axiosInstance = axios.create({
       baseURL: this.baseUrl,
@@ -42,74 +20,75 @@ class ApiService implements ApiClient {
       },
     });
 
-    this.authToken = authToken;
+    this.authHeaders = authHeaders;
+    this.axiosInstance.interceptors.request.use(
+      this.handleRequestInterceptors,
+      this.handleErrorInterceptors
+    );
   }
 
-  async getContracts(): Promise<Contract[]> {
+  private async handleRequestInterceptors(config: AxiosRequestConfig): Promise<AxiosRequestConfig> {
+    // Add authentication headers
+    if (this.authHeaders) {
+      for (const key in this.authHeaders) {
+        if (this.authHeaders.hasOwnProperty(key)) {
+          config.headers[key] = this.authHeaders[key];
+        }
+      }
+    }
+    return config;
+  }
+
+  private async handleErrorInterceptors(error: CanceledError | AxiosError): Promise<AxiosError> {
+    // Handle errors here (e.g., logging, retries)
+    console.error("Axios Error:", error);
+    return Promise.reject(error as AxiosError);
+  }
+
+  async get<T>(endpoint: string): Promise<BaseResponse<T>> {
     try {
-      const response = await this.axiosInstance.get('/api/contracts');
-      return response.data as Contract[];
+      const response = await this.axiosInstance.get(endpoint);
+      return {
+        data: response.data,
+        success: true,
+        error: undefined,
+      } as BaseResponse<T>;
     } catch (error) {
-      console.error('Error fetching contracts:', error);
-      throw new Error('Failed to fetch contracts');
+      console.error("Error fetching data:", error);
+      return {
+        data: null,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      } as BaseResponse<T>;
     }
   }
 
-  async getContract(contractAddress: string): Promise<Contract> {
+  async post<T>(endpoint: string, data: any): Promise<BaseResponse<T>> {
     try {
-      const response = await this.axiosInstance.get(`/api/contracts/${contractAddress}`);
-      return response.data as Contract;
+      const response = await this.axiosInstance.post(endpoint, data);
+      return {
+        data: response.data,
+        success: true,
+        error: undefined,
+      } as BaseResponse<T>;
     } catch (error) {
-      console.error(`Error fetching contract ${contractAddress}:`, error);
-      throw new Error(`Failed to fetch contract ${contractAddress}`);
+      console.error("Error posting data:", error);
+      return {
+        data: null,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      } as BaseResponse<T>;
     }
   }
 
-  async postVulnerabilities(contractAddress: string): Promise<VulnerabilityReport> {
-    try {
-      const response = await this.axiosInstance.post(`/api/vulnerabilities`, { contractAddress });
-      return response.data as VulnerabilityReport;
-    } catch (error) {
-      console.error(`Error generating vulnerability report for ${contractAddress}:`, error);
-      throw new Error(`Failed to generate vulnerability report for ${contractAddress}`);
-    }
+  // Placeholder for rebalance endpoint - implement as needed
+  async rebalance(): Promise<BaseResponse<any>> {
+    return this.post('/api/rebalance', {});
   }
 
-  async getRisk(contractAddress: string): Promise<RiskAssessment> {
-    try {
-      const response = await this.axiosInstance.get(`/api/risk/${contractAddress}`);
-      return response.data as RiskAssessment;
-    } catch (error) {
-      console.error(`Error fetching risk assessment for ${contractAddress}:`, error);
-      throw new Error(`Failed to fetch risk assessment for ${contractAddress}`);
-    }
-  }
-
-  async post(): Promise<void> {
-    try {
-      await this.axiosInstance.post('/api/contracts', {});
-    } catch (error) {
-      console.error('Error posting:', error);
-      throw new Error('Failed to post');
-    }
-  }
-
-  async put(): Promise<void> {
-    try {
-      await this.axiosInstance.put('/api/contracts/1', {});
-    } catch (error) {
-      console.error('Error putting:', error);
-      throw new Error('Failed to put');
-    }
-  }
-
-  async delete(): Promise<void> {
-    try {
-      await this.axiosInstance.delete('/api/contracts/1');
-    } catch (error) {
-      console.error('Error deleting:', error);
-      throw new Error('Failed to delete');
-    }
+  // Placeholder for gpt5/analyze endpoint - implement as needed
+  async analyze(data: any): Promise<BaseResponse<any>> {
+    return this.post('/api/gpt5/analyze', data);
   }
 }
 
