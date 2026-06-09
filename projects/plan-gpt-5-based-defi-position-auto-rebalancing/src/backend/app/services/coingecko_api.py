@@ -4,39 +4,38 @@ import logging
 import requests
 from typing import Dict, Optional, List
 from requests.exceptions import RequestException
-from tenacity import retry, retry_call, retry_wait
-from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, Future
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class CoingeckoService:
     """
     Service for integrating with the Coingecko API.
     """
 
-    def __init__(self, api_key: str, cache_duration: timedelta = timedelta(hours=12)):
+    def __init__(self, api_key: str, rate_limit_delay: int = 1, max_retries: int = 3):
         """
         Initializes the CoingeckoService.
 
         Args:
-            api_key: The Coingecko API key.
-            cache_duration: The duration for which data is cached.
+            api_key: Your Coingecko API key.
+            rate_limit_delay: Delay in seconds between API requests to respect rate limits.
+            max_retries: Maximum number of retries for transient errors.
         """
         self.api_key = api_key
-        self.base_url = "https://api.coingecko.com/api/v3"
-        self.cache = {}
-        self.cache_duration = cache_duration
-        self.retry_count = 3
-        self.retry_wait = timedelta(seconds=5)
+        self.base_url = "https://api.coingecko.com/v3"
+        self.rate_limit_delay = rate_limit_delay
+        self.max_retries = max_retries
 
     def _make_request(self, endpoint: str, params: Dict = None) -> Dict:
         """
         Makes a request to the Coingecko API.
 
         Args:
-            endpoint: The API endpoint.
-            params: The query parameters.
+            endpoint: The API endpoint to request.
+            params: Query parameters to include in the request.
 
         Returns:
             The JSON response from the API.
@@ -44,87 +43,101 @@ class CoingeckoService:
         Raises:
             requests.exceptions.RequestException: If the request fails.
         """
-        url = f"{self.base_url}{endpoint}"
-        headers = {"X-CG-KEY": self.api_key}
+        headers = {"X-CG-VERSION": "v3", "Authorization": f"Bearer {self.api_key}"}
         try:
-            response = requests.get(url, headers=headers, params=params)
+            response = requests.get(endpoint, headers=headers, params=params)
             response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
             return response.json()
         except RequestException as e:
-            logging.error(f"Request failed: {e}")
-            raise
+            logger.error(f"Request failed for {endpoint}: {e}")
+            return None
 
-    @retry(stop=retry_call, delay=retry_wait, retry=retry_count,
-           before=lambda: logging.warning("Retrying request..."),
-           after=lambda req, result, err: logging.info(f"Request {req.url} retried. Error: {err}"))
-    def get_coin_info(self, coin_id: str) -> Dict:
+    def get_ticker(self, symbol: str) -> Optional[Dict]:
         """
-        Gets information about a specific cryptocurrency.
+        Gets the ticker information for a cryptocurrency.
 
         Args:
-            coin_id: The ID of the cryptocurrency.
+            symbol: The cryptocurrency symbol (e.g., "bitcoin").
 
         Returns:
-            The cryptocurrency information.
+            The ticker information as a dictionary, or None if an error occurred.
         """
-        cache_key = f"coin_info_{coin_id}"
-        if cache_key in self.cache and datetime.now() - datetime.fromtimestamp(self.cache[cache_key]['timestamp']) < self.cache_duration:
-            logging.debug(f"Cache hit for coin_info_{coin_id}")
-            return self.cache[cache_key]
+        endpoint = f"{self.base_url}/exchange/{symbol}/tickers"
+        ticker = self._make_request(endpoint)
+        if ticker:
+            return ticker
+        else:
+            return None
 
-        data = self._make_request(f"coins/{coin_id}")
-        self.cache[cache_key] = {"data": data, "timestamp": time.time()}
-        logging.debug(f"Cache miss for coin_info_{coin_id}")
-        return data
-
-    def get_current_price(self, coin_id: str) -> float:
+    def get_price(self, symbol: str) -> Optional[float]:
         """
         Gets the current price of a cryptocurrency.
 
         Args:
-            coin_id: The ID of the cryptocurrency.
+            symbol: The cryptocurrency symbol.
 
         Returns:
-            The current price.
+            The current price as a float, or None if an error occurred.
         """
-        coin_info = self.get_coin_info(coin_id)
-        if "market_data" in coin_info and "current_price" in coin_info["market_data"]:
-            return coin_info["market_data"]["current_price"]
+        ticker = self.get_ticker(symbol)
+        if ticker and "last" in ticker:
+            return ticker["last"]
         else:
-            logging.warning(f"Current price not found for coin_id: {coin_id}")
             return None
 
-    def get_latest_prices(self, coin_ids: List[str]) -> Dict:
+    def get_latest_prices(self, symbols: List[str]) -> Dict[str, Optional[float]]:
         """
         Gets the latest prices for a list of cryptocurrencies.
 
         Args:
-            coin_ids: A list of cryptocurrency IDs.
+            symbols: A list of cryptocurrency symbols.
 
         Returns:
-            A dictionary of latest prices.
+            A dictionary where keys are symbols and values are their latest prices.
         """
-        data = {}
-        for coin_id in coin_ids:
-            price = self.get_current_price(coin_id)
-            if price is not None:
-                data[coin_id] = price
-        return data
+        prices = {}
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(self.get_price, symbol): symbol for symbol in symbols}
+            for future in futures:
+                symbol = futures[future]
+                try:
+                    price = future.result()
+                    if price is not None:
+                        prices[symbol] = price
+                except Future.CancelledError:
+                    logger.warning(f"Task for {symbol} was cancelled.")
+                except Exception as e:
+                    logger.error(f"Error getting price for {symbol}: {e}")
+        return prices
 
-    def get_24h_performance(self, coin_id: str) -> Dict:
+    def get_gemini_exchange_rate(self, symbol: str) -> Optional[float]:
         """
-        Gets the 24h performance data for a cryptocurrency.
+        Gets the exchange rate for a cryptocurrency on Gemini.
 
         Args:
-            coin_id: The ID of the cryptocurrency.
+            symbol: The cryptocurrency symbol.
 
         Returns:
-            The 24h performance data.
+            The exchange rate as a float, or None if an error occurred.
         """
-        return self._make_request(f"coins/{coin_id}/24h_performance")
+        endpoint = f"{self.base_url}/exchanges/gemini/tickers/{symbol}"
+        ticker = self._make_request(endpoint)
+        if ticker and "last" in ticker:
+            return ticker["last"]
+        else:
+            return None
 
-    def get_all_coins(self) -> List[Dict]:
+    def get_coin_market_cap(self) -> Optional[Dict]:
         """
-        Gets a list of all available coins.
+        Gets the total market cap of all cryptocurrencies.
+
+        Returns:
+            The market cap data as a dictionary, or None if an error occurred.
         """
-        return self._make_request("coins/listings")
+        endpoint = f"{self.base_url}/market_chart"
+        params = {"vs_currencies": "usd"}
+        market_cap = self._make_request(endpoint, params)
+        if market_cap and "total" in market_cap:
+            return market_cap
+        else:
+            return None

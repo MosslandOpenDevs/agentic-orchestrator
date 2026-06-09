@@ -1,120 +1,120 @@
 import asyncio
 import logging
 import time
-from typing import Callable, Dict, Optional
+import os
+from typing import Callable, Dict, Any, Optional
+from collections import deque
+from ratelimit import RateLimitException
+import aiohttp
 
-from websockets import connect
-import rate_limiter
-import json
-from cachetools import TTLCache
+# Configuration Constants
+DEFAULT_RATE_LIMIT = 10  # Requests per second
+MAX_RETRIES = 3
+RETRY_DELAY = 1  # Seconds
+CACHE_TTL = 60  # Seconds
 
-# Configure logging
+# Logging Setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Environment variable configuration
-WS_URL = "ws://localhost:8765"  # Replace with your WebSocket server URL
-RATE_LIMIT_MAX = 10  # Maximum requests per window
-RATE_LIMIT_WINDOW = 5  # Time window in seconds
-CACHE_TTL = 60  # Cache TTL in seconds
-CACHE_MAX_SIZE = 100  # Maximum cache size
-
-
 class WebSocketService:
-    def __init__(self):
-        self.connection: Optional[websockets.connect] = None
-        self.rate_limiter = rate_limiter.RateLimiter(max_calls=RATE_LIMIT_MAX, period=RATE_LIMIT_WINDOW)
-        self.cache = TTLCache(maxsize=CACHE_MAX_SIZE, ttl=CACHE_TTL)
-        self.retry_count = 0
-        self.max_retries = 3
-        self.retry_delay = 2  # seconds
+    def __init__(self, url: str, rate_limit: int = DEFAULT_RATE_LIMIT):
+        self.url = url
+        self.rate_limit = rate_limit
+        self.connected = False
+        self.ws = None
+        self.cache = {}  # Simple in-memory cache
+        self.lock = asyncio.Lock()  # For thread-safe caching and rate limiting
+        self.message_queue = deque()  # Queue for messages to be sent
 
-    async def connect(self):
+    def _log(self, level: str, message: str):
+        logging.log(level, message)
+
+    async def _connect(self):
         try:
-            self.connection = await connect(WS_URL)
-            logging.info("Connected to WebSocket server.")
-        except Exception as e:
-            logging.error(f"Failed to connect to WebSocket server: {e}")
+            async with aiohttp.ClientSession() as session:
+                self.ws = await session.ws_connect(self.url)
+                self._log(logging.INFO, f"Connected to WebSocket server at {self.url}")
+                self.connected = True
+        except aiohttp.ClientError as e:
+            self._log(logging.ERROR, f"Failed to connect to WebSocket server: {e}")
+            self.connected = False
             raise
 
-    async def disconnect(self):
-        if self.connection:
+    async def _disconnect(self):
+        if self.ws:
             try:
-                await self.connection.close()
-                logging.info("Disconnected from WebSocket server.")
+                await self.ws.close()
+                self._log(logging.INFO, "Disconnected from WebSocket server.")
+                self.connected = False
             except Exception as e:
-                logging.error(f"Failed to disconnect from WebSocket server: {e}")
+                self._log(logging.ERROR, f"Error during disconnection: {e}")
+            finally:
+                self.ws = None
 
-    async def send_message(self, message: str) -> Optional[str]:
-        if not self.connection:
-            logging.warning("Not connected to WebSocket server. Cannot send message.")
-            return None
-
-        try:
-            await self.rate_limiter.wait()  # Rate limiting
-            await self.connection.send(message)
-            logging.debug(f"Sent message: {message}")
-            return await self.connection.recv()
-        except Exception as e:
-            logging.error(f"Error sending message: {e}")
-            self.retry_count = 0
-            await self.retry_and_reconnect()
-            return None
-
-    async def receive_message(self) -> Optional[str]:
-        if not self.connection:
-            logging.warning("Not connected to WebSocket server. Cannot receive message.")
-            return None
+    async def _send_message(self, message: str):
+        if not self.connected:
+            self._log(logging.WARNING, "Attempted to send message, but not connected.")
+            return
 
         try:
-            response = await self.connection.recv()
-            logging.debug(f"Received message: {response}")
-            return response
+            await self.ws.send(message)
+            self._log(logging.DEBUG, f"Sent message: {message}")
         except Exception as e:
-            logging.error(f"Error receiving message: {e}")
-            self.retry_count = 0
-            await self.retry_and_reconnect()
+            self._log(logging.ERROR, f"Error sending message: {e}")
+
+    async def _receive_message(self):
+        try:
+            message = await self.ws.recv()
+            self._log(logging.DEBUG, f"Received message: {message}")
+            return message
+        except Exception as e:
+            self._log(logging.ERROR, f"Error receiving message: {e}")
             return None
 
-    async def retry_and_reconnect(self):
-        if self.retry_count < self.max_retries:
-            logging.warning(f"Transient failure. Retrying in {self.retry_delay} seconds...")
-            await asyncio.sleep(self.retry_delay)
-            self.retry_count += 1
-            await self.connect()
-        else:
-            logging.error("Max retries reached. Connection failed.")
-            raise Exception("WebSocket connection failed after multiple retries.")
-
-    async def process_data(self, callback: Callable, *args, **kwargs):
+    async def _rate_limited_send(self, message: str):
         try:
-            response = await self.send_message(json.dumps({"type": "data_request", "args": args, "kwargs": kwargs}))
-            if response:
-                data = json.loads(response)
-                return await callback(*data["args"], **data["kwargs"])
-            else:
-                return None
-        except Exception as e:
-            logging.error(f"Error processing data: {e}")
+            await asyncio.sleep(0.1)  # Allow rate limiting to work
+            await self._send_message(message)
+        except RateLimitException:
+            self._log(logging.WARNING, "Rate limit exceeded. Retrying...")
+            await asyncio.sleep(0.5)  # Exponential backoff
+            await self._rate_limited_send(message)
+
+    async def _get_cached_data(self, key: str) -> Optional[Dict[str, Any]]:
+        with self.lock:
+            if key in self.cache:
+                if time.time() - self.cache[key]['timestamp'] < CACHE_TTL:
+                    self._log(logging.DEBUG, f"Data retrieved from cache for key: {key}")
+                    return self.cache[key]['data']
+                else:
+                    self._log(logging.INFO, f"Cache expired for key: {key}. Removing.")
+                    del self.cache[key]
             return None
 
+    def _set_cached_data(self, key: str, data: Dict[str, Any]):
+        with self.lock:
+            self.cache[key] = {'data': data, 'timestamp': time.time()}
 
-if __name__ == "__main__":
-    async def main():
-        ws_service = WebSocketService()
+    async def run(self):
         try:
-            await ws_service.connect()
-            # Example usage
-            # await ws_service.send_message("Hello, WebSocket Server!")
-            # response = await ws_service.receive_message()
-            # print(f"Received: {response}")
-
-            # Simulate data processing
-            # result = await ws_service.process_data(lambda x, y: x + y, 5, 3)
-            # print(f"Result: {result}")
-
+            await self._connect()
+            while self.connected:
+                # Check message queue
+                if self.message_queue:
+                    message = self.message_queue.popleft()
+                    await self._rate_limited_send(message)
+                await asyncio.sleep(0.1)  # Check every 100ms
         except Exception as e:
-            logging.error(f"An error occurred: {e}")
+            self._log(logging.ERROR, f"An unexpected error occurred: {e}")
         finally:
-            await ws_service.disconnect()
+            await self._disconnect()
 
-    asyncio.run(main())
+    def send_message(self, message: str):
+        asyncio.create_task(self._rate_limited_send(message))
+        self.message_queue.append(message)
+
+    def receive_message(self):
+        return asyncio.create_task(self._receive_message())
+
+    def clear_message_queue(self):
+        self.message_queue = deque()

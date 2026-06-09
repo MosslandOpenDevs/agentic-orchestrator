@@ -6,7 +6,7 @@ const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'plan-gpt-5-based-defi-position-auto-rebalancing',
-  description: 'Okay, that’s a solid starting point. We’ll need to prioritize this based on the highest-impact featu',
+  description: 'Okay, let’s get this done. This “Mossland” situation… it smells of a rushed pitch trying to capitali',
 };
 
 export default function RootLayout({

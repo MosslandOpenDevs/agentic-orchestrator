@@ -1,108 +1,106 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import HTTPException
+from fastapi.responses import JSONResponse
 from typing import List
 import logging
 import os
-from dotenv import load_dotenv
-import json
+import uvicorn
+from datetime import datetime
+from uuid import uuid4
 import time
-import uuid
 import asyncio
 
-load_dotenv()
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 app = FastAPI(
-    title="Mossland DeFi Portfolio Optimizer",
-    description="Automated DeFi portfolio optimization for Mossland NFT holders using AI, mitigating yield-seeking risk.",
+    title="Mossland Portfolio Analyzer",
+    description="A portfolio analysis tool leveraging blockchain and AI.",
     version="0.1.0",
 )
 
+# CORS Configuration
+origins = [
+    "http://localhost:3000",  # Adjust as needed
+    "http://localhost:3001",  # Adjust as needed
+    "http://localhost:8080",  # Adjust as needed
+    "*"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("ALLOWED_ORIGINS", "*")],
+    allow_origins=origins,
+    allow_headers=["Access-Control-Allow-Origin"],
     allow_credentials=True,
 )
 
-# Logging setup
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
+
+# Dependency for logging
+def log_request(request: Request):
+    logging.info(f"Incoming request: {request.method} {request.url}")
+    return LogRequestResponseWrapper(request)
+
+
+# Response wrapper for logging
+class LogRequestResponseWrapper:
+    def __init__(self, request: Request):
+        self.request = request
+
+    async def __aenter__(self):
+        pass
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
 
 
 # Health Check Endpoint
 @app.get("/health")
-async def health_check():
-    return {"status": "ok"}
+def health_check():
+    return JSONResponse(status_code=200, content={"status": "ok"})
 
 
-# Dummy Data (Replace with actual AI model integration)
-def get_crypto_data(coin_ids: List[str]) -> dict:
-    """Simulates fetching crypto data from Coingecko."""
-    # Replace with actual API call
-    data = {
-        "Bitcoin": {"price": 30000.0},
-        "Ethereum": {"price": 2000.0},
-        "Solana": {"price": 150.0},
-    }
-    return {coin_id: data.get(coin_id, {"price": 0.0}) for coin_id in coin_ids}
+# Example API Route (Placeholder)
+@app.get("/analyze")
+def analyze_portfolio(data: dict = None):
+    if data is None:
+        raise HTTPException(status_code=400, detail="No data provided")
+    logging.info(f"Received analysis request: {data}")
+    # Simulate some processing
+    time.sleep(1)
+    return JSONResponse(status_code=200, content={"result": "Analysis complete"})
 
 
-def analyze_portfolio(portfolio: dict) -> str:
-    """Simulates AI analysis of the portfolio."""
-    # Replace with actual AI model analysis
-    return "AI analysis suggests optimizing portfolio based on risk tolerance."
-
-
-# API Routes
-@app.get("/portfolio")
-async def get_portfolio():
-    """Retrieves the user's DeFi portfolio."""
-    # In a real application, this would fetch data from the user's wallet.
-    portfolio = {
-        "assets": ["Bitcoin", "Ethereum", "Solana"],
-        "amounts": [100, 50, 20],
-    }
-    return portfolio
-
-
-@app.post("/optimize")
-async def optimize_portfolio(portfolio: dict):
-    """Optimizes the user's DeFi portfolio using AI."""
-    try:
-        analysis_result = analyze_portfolio(portfolio)
-        return {"message": analysis_result}
-    except Exception as e:
-        logger.error(f"Error optimizing portfolio: {e}")
-        raise HTTPException(status_code=500, detail="Failed to optimize portfolio")
-
-
-@app.get("/data")
-async def get_data(coin_ids: List[str] = ["Bitcoin", "Ethereum"]):
-    """Fetches crypto data from Coingecko."""
-    data = get_crypto_data(coin_ids)
-    return data
+# Exception Handler
+@app.exception_handler(HTTPException)
+def http_exception_handler(exception: HTTPException):
+    logging.error(f"HTTP Exception: {exception}")
+    return JSONResponse(status_code=exception.status_code, content={"error": exception.detail},
+                       headers={"Content-Type": "application/json"})
 
 
 # Lifespan Events
 @app.on_event("startup")
 async def startup_event():
-    logger.info("Application startup")
-
+    logging.info("Application startup")
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    logger.info("Application shutdown")
+    logging.info("Application shutdown")
 
 
-# Example of Rate Limiting (Optional)
-# from fastapi.rate_limiting import RateLimitMiddleware
-# rate_limiter = RateLimitMiddleware(
-#     key_func=lambda x: x.remote_addr,
-#     limit=10,
-#     max_errors=3,
-#     redis_lock_ttl=60,
-# )
-# app.mount("/optimize", rate_limiter)
+# Environment Variable Configuration
+def get_env_var(key: str, default: str = None):
+    value = os.getenv(key, default)
+    if value is None:
+        logging.warning(f"Environment variable {key} not set.")
+    return value
+
+
+# Example Usage of Environment Variables
+API_KEY = get_env_var("OPENAI_API_KEY")
+COINGEKO_API_KEY = get_env_var("COINGEKO_API_KEY")
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)

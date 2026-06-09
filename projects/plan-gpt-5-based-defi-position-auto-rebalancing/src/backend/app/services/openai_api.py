@@ -5,157 +5,111 @@ import openai
 import tenacity
 from typing import List, Dict, Optional
 from dataclasses import dataclass
-from datetime import datetime
+from enum import Enum
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-# Environment variable configuration
-openai.api_key = os.environ.get("OPENAI_API_KEY")
-if not openai.api_key:
-    raise ValueError("OPENAI_API_KEY environment variable not set.")
+# Define enum for auth types
+class AuthType(Enum):
+    API_KEY = "api_key"
 
-# Rate limiting configuration (example - adjust as needed)
-RATE_LIMIT_DELAY = 0.5  # seconds
-MAX_RETRIES = 3
-BACKOFF_FACTOR = 2  # Exponential backoff factor
-
-# Caching configuration (example - adjust as needed)
-CACHE_EXPIRATION_TIME = datetime.timedelta(minutes=5)
-
-# Retry configuration
-retry_client = tenacity.RetryClient(retry=tenacity.allow_retry(stop=after_retry, multiplier=BACKOFF_FACTOR))
-
-
+# Define a dataclass for API configuration
 @dataclass
-class OpenAIResponse:
-    """Data class to represent the OpenAI API response."""
-    choices: List[Dict]
-    usage: Dict
-    object: str
+class OpenAIConfig:
+    api_key: str
+    model: str = "gpt-3.5-turbo"
+    max_tokens: int = 2048
+    temperature: float = 0.7
+    top_p: float = 1.0
+    frequency_penalty: float = 0.0
+    presence_penalty: float = 0.0
+    stop: List[str] = ["\n"]
 
-
-@tenacity.retry(retry=retry_client, backend=openai.RateLimitError,
-                retry_kwargs={"wait": RATE_LIMIT_DELAY})
-async def generate_text(prompt: str, model: str = "gpt-3.5-turbo") -> OpenAIResponse:
-    """
-    Generates text using the OpenAI API.
-
-    Args:
-        prompt: The text prompt to send to the API.
-        model: The OpenAI model to use.
-
-    Returns:
-        An OpenAIResponse object containing the generated text.
-    """
-    try:
-        response = await openai.ChatCompletion.acreate(
-            model=model,
-            messages=[
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=150,
-            n=1,
-            stop=None,
+# OpenAI Service Class
+class OpenAIAPI:
+    def __init__(self, config: OpenAIConfig):
+        self.config = config
+        openai.api_key = config.api_key
+        self.cache = {}  # Simple in-memory cache
+        self.retry_config = tenacity.RetryContext(
+            retry=tenacity.retry_http_500_exceptions(
+                stop=tenacity.stop_after_attempts(3),
+                wait=tenacity.wait_exponential(multiplier=1, min=1, max=10)
+            )
         )
-        return OpenAIResponse(choices=response.choices, usage=response.usage, object=response.object)
-    except openai.error.RateLimitError as e:
-        logging.error(f"Rate limit exceeded: {e}")
-        raise
-    except openai.error.OpenAIError as e:
-        logging.error(f"OpenAI API error: {e}")
-        raise
-    except Exception as e:
-        logging.exception(f"An unexpected error occurred: {e}")
-        raise
 
+    def _cache_key(self, prompt: str) -> str:
+        return f"{prompt}-{self.config.model}"
 
-async def analyze_text(text: str, model: str = "gpt-3.5-turbo") -> OpenAIResponse:
-    """
-    Analyzes text using the OpenAI API.
+    def _get_from_cache(self, prompt: str) -> Optional[str]:
+        key = self._cache_key(prompt)
+        if key in self.cache:
+            logging.debug(f"Returning cached response for prompt: {prompt}")
+            return self.cache[key]
+        return None
 
-    Args:
-        text: The text to analyze.
-        model: The OpenAI model to use.
+    def _cache_response(self, prompt: str, response: str) -> None:
+        key = self._cache_key(prompt)
+        self.cache[key] = response
+        logging.debug(f"Caching response for prompt: {prompt}")
 
-    Returns:
-        An OpenAIResponse object containing the analysis results.
-    """
-    try:
-        response = await openai.ChatCompletion.acreate(
-            model=model,
-            messages=[
-                {"role": "user", "content": f"Analyze the following text: {text}"}
-            ],
-            temperature=0.5,
-            max_tokens=200,
-            n=1,
-            stop=None,
-        )
-        return OpenAIResponse(choices=response.choices, usage=response.usage, object=response.object)
-    except openai.error.RateLimitError as e:
-        logging.error(f"Rate limit exceeded: {e}")
-        raise
-    except openai.error.OpenAIError as e:
-        logging.error(f"OpenAI API error: {e}")
-        raise
-    except Exception as e:
-        logging.exception(f"An unexpected error occurred: {e}")
-        raise
-
-
-class OpenAIAPIService:
-    """
-    Service class for integrating with the OpenAI API.
-    """
-
-    def __init__(self):
-        pass
-
-    async def generate(self, prompt: str, model: str = "gpt-3.5-turbo") -> OpenAIResponse:
+    def generate_text(self, prompt: str, **kwargs) -> str:
         """
         Generates text using the OpenAI API.
-
-        Args:
-            prompt: The text prompt to send to the API.
-            model: The OpenAI model to use.
-
-        Returns:
-            An OpenAIResponse object containing the generated text.
         """
-        return await generate_text(prompt, model)
+        try:
+            with tenacity.retry(self.retry_config) as retries:
+                response = openai.ChatCompletion.create(
+                    model=self.config.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    **kwargs
+                )
+                text = response.choices[0].message.content
+                self._cache_response(prompt, text)
+                return text
+        except openai.error.OpenAIError as e:
+            logging.error(f"OpenAI API error: {e}")
+            raise
 
-    async def analyze(self, text: str, model: str = "gpt-3.5-turbo") -> OpenAIResponse:
+    def analyze_text(self, text: str, **kwargs) -> Dict:
         """
         Analyzes text using the OpenAI API.
-
-        Args:
-            text: The text to analyze.
-            model: The OpenAI model to use.
-
-        Returns:
-            An OpenAIResponse object containing the analysis results.
         """
-        return await analyze_text(text, model)
+        try:
+            with tenacity.retry(self.retry_config) as retries:
+                response = openai.Completion.create(
+                    model=self.config.model,
+                    prompt=text,
+                    **kwargs
+                )
+                return response.choices[0].text.strip()
+        except openai.error.OpenAIError as e:
+            logging.error(f"OpenAI API error: {e}")
+            raise
 
+    def clear_cache(self):
+        self.cache = {}
 
 if __name__ == '__main__':
-    async def main():
-        service = OpenAIAPIService()
-        prompt = "Write a short story about a cat."
-        try:
-            response = await service.generate(prompt)
-            print(f"Generated text: {response.choices[0]['content']}")
-        except Exception as e:
-            print(f"Error: {e}")
+    # Example Usage (replace with your actual configuration)
+    config = OpenAIConfig(
+        api_key="YOUR_OPENAI_API_KEY",
+        model="gpt-3.5-turbo",
+        max_tokens=100
+    )
+    api = OpenAIAPI(config)
 
-        text_to_analyze = "The quick brown fox jumps over the lazy dog."
-        try:
-            analysis_response = await service.analyze(text_to_analyze)
-            print(f"Analysis: {analysis_response.choices[0]['content']}")
-        except Exception as e:
-            print(f"Error: {e}")
+    # Generate text
+    try:
+        generated_text = api.generate_text("Write a short story about a cat.")
+        print(f"Generated Text: {generated_text}")
+    except Exception as e:
+        print(f"Error generating text: {e}")
 
-    import asyncio
-    asyncio.run(main())
+    # Analyze text
+    try:
+        analysis_result = api.analyze_text("This is a sample text to analyze.")
+        print(f"Analysis Result: {analysis_result}")
+    except Exception as e:
+        print(f"Error analyzing text: {e}")

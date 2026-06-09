@@ -5,26 +5,30 @@
 
 export interface User {
   id: string;
-  nft_id: string;
-  createdAt: string;
+  riskTolerance: string;
+  mocHolding: any;
 }
 
 export interface Portfolio {
   id: string;
   userId: string;
-  risk_profile: string;
+  holdings: any;
+  riskProfile: string;
+  lastRebalance: string;
 }
 
-export interface Position {
+export interface Asset {
+  id: string;
+  name: string;
+  symbol: string;
+  price: any;
+}
+
+export interface RebalanceRationale {
   id: string;
   portfolioId: string;
-  asset_id: string;
-  quantity: number;
-}
-
-export interface AIModel {
-  id: string;
-  model_version: string;
+  rationaleText: string;
+  timestamp: string;
 }
 
 

@@ -3,165 +3,143 @@
 
 ## 1. Overview
 
-This API provides endpoints for managing users, portfolios, assets, and retrieving asset price data. It's designed to facilitate the creation and management of investment portfolios, allowing users to track their holdings and access real-time asset prices.
+This API provides endpoints for managing and rebalancing a portfolio of assets. It allows users to retrieve portfolio data, initiate rebalancing processes, and obtain information about individual assets. This documentation outlines the available endpoints, request/response formats, and error handling procedures.
 
 ## 2. Authentication Details
 
-All endpoints requiring authentication utilize JSON Web Tokens (JWT).
-
-*   **Registration:** The `/api/users/auth/register` endpoint requires a valid email and password.
-*   **Login:** The `/api/users/auth/login` endpoint requires a valid email and password to generate a JWT.
+All API requests require an API key passed in the `X-API-Key` header.  This key must be provided for every request.  Contact your administrator to obtain a valid API key.
 
 ## 3. Base URL Configuration
 
-The base URL for all API endpoints is:
+The base URL for all API requests is:
 
-`https://api.example.com` (Replace with your actual API base URL)
+`https://api.example.com`
 
 ## 4. Endpoints
 
-### 4.1. GET /api/users/{user_id}
+### 4.1. GET /api/portfolio/{portfolioId}
 
 *   **Method:** GET
-*   **Path:** `/api/users/{user_id}`
-*   **Description:** Retrieves user information based on the provided `user_id`.
+*   **Path:** `/api/portfolio/{portfolioId}`
+*   **Description:** Retrieves portfolio data for a given portfolio ID.
 *   **Request Parameters:**
-    *   `user_id` (Path Parameter):  The unique identifier for the user.  Integer required.
+    *   `portfolioId` (path parameter):  The unique identifier for the portfolio.  Must be an integer.
 *   **Response Format:** JSON
+    *   Example:
+        ```json
+        {
+          "portfolioId": 123,
+          "name": "Growth Portfolio",
+          "totalValue": 150000.00,
+          "assets": [
+            {
+              "assetId": 456,
+              "name": "Apple Inc.",
+              "quantity": 100,
+              "price": 175.00
+            },
+            {
+              "assetId": 789,
+              "name": "Microsoft Corp.",
+              "quantity": 50,
+              "price": 300.00
+            }
+          ]
+        }
+        ```
 *   **Example Request:**
-    ```
-    GET /api/users/123
-    ```
-*   **Example Response (200 OK):**
-    ```json
-    {
-      "id": 123,
-      "email": "user@example.com",
-      "username": "testuser",
-      "created_at": "2023-10-26T10:00:00Z"
-    }
-    ```
 
-### 4.2. GET /api/portfolios/{portfolio_id}
+    ```
+    GET /api/portfolio/123
+    X-API-Key: YOUR_API_KEY
+    ```
+*   **Example Response:** (See JSON example above)
 
-*   **Method:** GET
-*   **Path:** `/api/portfolios/{portfolio_id}`
-*   **Description:** Retrieves portfolio information based on the provided `portfolio_id`.
-*   **Request Parameters:**
-    *   `portfolio_id` (Path Parameter): The unique identifier for the portfolio. Integer required.
-*   **Response Format:** JSON
-*   **Example Request:**
-    ```
-    GET /api/portfolios/456
-    ```
-*   **Example Response (200 OK):**
-    ```json
-    {
-      "id": 456,
-      "name": "My Investments",
-      "user_id": 123,
-      "created_at": "2023-10-25T14:30:00Z"
-    }
-    ```
-
-### 4.3. GET /api/assets/price/{asset_id}
-
-*   **Method:** GET
-*   **Path:** `/api/assets/price/{asset_id}`
-*   **Description:** Retrieves price data for a specific asset based on the provided `asset_id`.
-*   **Request Parameters:**
-    *   `asset_id` (Path Parameter): The unique identifier for the asset. Integer required.
-*   **Response Format:** JSON
-*   **Example Request:**
-    ```
-    GET /api/assets/price/789
-    ```
-*   **Example Response (200 OK):**
-    ```json
-    {
-      "id": 789,
-      "symbol": "AAPL",
-      "name": "Apple Inc.",
-      "price": 175.25,
-      "last_updated": "2023-10-26T11:15:00Z"
-    }
-    ```
-
-### 4.4. POST /api/users/auth/register
+### 4.2. POST /api/rebalance
 
 *   **Method:** POST
-*   **Path:** `/api/users/auth/register`
-*   **Description:** Registers a new user.
-*   **Request Body:** JSON
-    *   `email` (Required): User's email address. String required.
-    *   `password` (Required): User's password. String required.
+*   **Path:** `/api/rebalance`
+*   **Description:** Initiates a rebalancing process for a portfolio. This endpoint requires a JSON payload specifying the desired asset allocation.
+*   **Request Parameters:**
+    *   **Body:** JSON
+        *   `portfolioId` (required): The unique identifier for the portfolio.  Must be an integer.
+        *   `targetAllocation` (required):  A JSON object defining the desired asset allocation.  This should be a percentage breakdown for each asset. Example: `{"Apple Inc.": 20, "Microsoft Corp.": 30}`.
 *   **Response Format:** JSON
-    *   **201 Created:**  Successful registration. Returns the newly created user object.
-    *   **400 Bad Request:**  Invalid input data.
+    *   Success Response:
+        ```json
+        {
+          "status": "success",
+          "message": "Rebalancing initiated successfully.",
+          "rebalanceId": "RB-20231027-001"
+        }
+        ```
+    *   Error Response (Example):
+        ```json
+        {
+          "status": "error",
+          "message": "Invalid target allocation.  Percentages must sum to 100."
+        }
+        ```
 *   **Example Request:**
+
     ```
-    POST /api/users/auth/register
+    POST /api/rebalance
+    X-API-Key: YOUR_API_KEY
     Content-Type: application/json
 
     {
-      "email": "newuser@example.com",
-      "password": "securepassword"
+      "portfolioId": 123,
+      "targetAllocation": {
+        "Apple Inc.": 20,
+        "Microsoft Corp.": 30
+      }
     }
     ```
-*   **Example Response (201 Created):**
-    ```json
-    {
-      "id": 987,
-      "email": "newuser@example.com",
-      "username": "newuser",
-      "created_at": "2023-10-26T12:00:00Z"
-    }
-    ```
+*   **Example Response:** (Successful Rebalance - See JSON example above)
 
-### 4.5. POST /api/users/auth/login
+### 4.3. GET /api/asset/{assetId}
 
-*   **Method:** POST
-*   **Path:** `/api/users/auth/login`
-*   **Description:** Authenticates a user and returns a JWT.
-*   **Request Body:** JSON
-    *   `email` (Required): User's email address. String required.
-    *   `password` (Required): User's password. String required.
+*   **Method:** GET
+*   **Path:** `/api/asset/{assetId}`
+*   **Description:** Retrieves asset data for a given asset ID.
+*   **Request Parameters:**
+    *   `assetId` (path parameter): The unique identifier for the asset. Must be an integer.
 *   **Response Format:** JSON
-    *   **200 OK:** Successful login. Returns the JWT.
-    *   **401 Unauthorized:** Invalid credentials.
+    *   Example:
+        ```json
+        {
+          "assetId": 456,
+          "name": "Apple Inc.",
+          "ticker": "AAPL",
+          "currentPrice": 175.00,
+          "lastTradeDate": "2023-10-27"
+        }
+        ```
 *   **Example Request:**
-    ```
-    POST /api/users/auth/login
-    Content-Type: application/json
 
-    {
-      "email": "user@example.com",
-      "password": "password123"
-    }
     ```
-*   **Example Response (200 OK):**
-    ```json
-    {
-      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxMjMsImV4cCI6MTY5MjU2NTk1Nhs.example_jwt_token"
-    }
+    GET /api/asset/456
+    X-API-Key: YOUR_API_KEY
     ```
+*   **Example Response:** (See JSON example above)
 
 ## 5. Error Codes and Handling
 
-| Code    | Description                       | Response Format |
-| :------ | :-------------------------------- | :-------------- |
-| 400      | Bad Request - Invalid input data | JSON            |
-| 401      | Unauthorized - Invalid credentials | JSON            |
-| 404      | Not Found - Resource not found     | JSON            |
-| 500      | Internal Server Error             | JSON            |
+| Code    | Description                               | Action                               |
+| :------ | :--------------------------------------- | :---------------------------------- |
+| 400      | Bad Request                              | Invalid request body or parameters.  Check the request details for specific error messages. |
+| 401      | Unauthorized                             | Invalid or missing API key.           |
+| 404      | Not Found                               | Portfolio or asset not found.         |
+| 422      | Unprocessable Entity                     | Request body is invalid (e.g., incorrect data types). |
+| 500      | Internal Server Error                    | An unexpected error occurred on the server. |
 
-## 6. Rate Limiting
+## 6. Rate Limiting Info
 
-The API is subject to rate limiting to prevent abuse and ensure fair usage.
+This API is subject to rate limiting to prevent abuse and ensure fair usage.
 
-*   **Limit:** 100 requests per minute per IP address.
-*   **Headers:** Rate limiting information will be returned in the response headers:
-    *   `X-RateLimit-Limit`: The maximum number of requests allowed in the current window.
-    *   `X-RateLimit-Remaining`: The number of requests remaining in the current window.
+*   **Limit:** 100 requests per minute per API key.
+*   **Headers:** Rate limit information will be returned in the response headers:
+    *   `X-RateLimit-Limit`: The maximum number of requests allowed.
+    *   `X-RateLimit-Remaining`: The number of requests remaining.
     *   `X-RateLimit-Reset`: The time (in seconds) until the rate limit resets.
 ```

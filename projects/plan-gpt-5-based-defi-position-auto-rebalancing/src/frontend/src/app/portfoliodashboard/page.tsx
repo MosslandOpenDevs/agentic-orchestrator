@@ -1,99 +1,116 @@
 import React, { useState, useEffect } from 'react';
-import { useServerApi } from '../../utils/serverApi'; // Assuming serverApi is defined elsewhere
-import { NFTPortfolioItem } from '../../types/NFTPortfolioItem';
+import { useSearchParams } from 'next/searchparams';
 
-interface PortfolioDashboardProps {
-  userId: string;
+interface PortfolioHolding {
+  symbol: string;
+  name: string;
+  quantity: number;
+  price: number;
+  totalValue: number;
 }
 
-const PortfolioDashboard: React.FC<PortfolioDashboardProps> = ({ userId }) => {
-  const [portfolioData, setPortfolioData] = useState<NFTPortfolioItem[] | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+interface PortfolioProps {
+  holdings: PortfolioHolding[];
+  performanceData: { [key: string]: number }; // Key: Symbol, Value: Performance Data
+}
+
+const PortfolioDashboard: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const symbol = searchParams.get('symbol');
+
+  const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
+  const [performanceData, setPerformanceData] = useState<PortfolioProps['performanceData']>({});
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const { getPortfolio } = useServerApi();
 
   useEffect(() => {
-    const fetchPortfolio = async () => {
-      setLoading(true);
-      setError(null);
+    // Simulate fetching data
+    const fetchData = async () => {
       try {
-        const data = await getPortfolio(userId);
-        if (data) {
-          setPortfolioData(data);
-        } else {
-          setError('Failed to retrieve portfolio data.');
-        }
-      } catch (err: any) {
-        setError(err.message || 'An error occurred.');
-      } finally {
-        setLoading(false);
+        const data = await fetchPortfolioData();
+        setHoldings(data.holdings);
+        setPerformanceData(data.performanceData);
+        setIsLoading(false);
+      } catch (err) {
+        setError(err.message || 'Failed to fetch portfolio data');
+        setIsLoading(false);
       }
     };
 
-    fetchPortfolio();
-  }, [userId, getPortfolio]);
+    fetchData();
+  }, []);
 
-  if (loading) {
-    return (
-      <div className="bg-gray-100 p-8 rounded-lg shadow-md flex items-center justify-center">
-        <p className="text-gray-600">Loading portfolio...</p>
-      </div>
-    );
+  const fetchPortfolioData = async () => {
+    // Replace with your actual data fetching logic
+    const dummyData = [
+      { symbol: 'AAPL', name: 'Apple Inc.', quantity: 100, price: 170.34, totalValue: 17034 },
+      { symbol: 'MSFT', name: 'Microsoft Corp.', quantity: 50, price: 330.12, totalValue: 16506 },
+      { symbol: 'GOOG', name: 'Alphabet Inc.', quantity: 25, price: 2500.00, totalValue: 62500 },
+    ];
+
+    const performanceData = {
+      AAPL: 1.2,
+      MSFT: 0.8,
+      GOOG: 1.5,
+    };
+
+    return { holdings: dummyData, performanceData };
+  };
+
+  if (isLoading) {
+    return <div>Loading portfolio...</div>;
   }
 
   if (error) {
-    return (
-      <div className="bg-red-100 p-8 rounded-lg shadow-md flex items-center justify-center">
-        <p className="text-gray-600">Error: {error}</p>
-      </div>
-    );
-  }
-
-  if (!portfolioData) {
-    return (
-      <div className="bg-gray-100 p-8 rounded-lg shadow-md flex items-center justify-center">
-        <p className="text-gray-600">No portfolio data available.</p>
-      </div>
-    );
+    return <div>Error: {error}</div>;
   }
 
   return (
-    <div className="bg-gray-100 p-8 rounded-lg shadow-md flex flex-col">
-      <h2 className="text-2xl font-bold mb-4">NFT Portfolio</h2>
+    <div className="container mx-auto p-4">
+      <h1 className="text-2xl font-bold mb-4">Portfolio Overview</h1>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {portfolioData.map((item) => (
-          <div
-            key={item.tokenId}
-            className="bg-white rounded-lg shadow-sm p-4 hover:shadow-lg transition duration-300"
-            aria-label={`NFT: ${item.name}`}
-          >
-            <img
-              src={item.imageUrl}
-              alt={item.name}
-              className="w-full h-32 object-cover rounded-lg mb-2"
-            />
-            <h3 className="text-lg font-semibold mb-2">{item.name}</h3>
-            <p className="text-gray-700">Token ID: {item.tokenId}</p>
-            <p className="text-gray-700">Quantity: {item.quantity}</p>
-            <p className="text-gray-700">Current Value: ${item.currentValue.toFixed(2)}</p>
-          </div>
-        ))}
-      </div>
+      {/* Display Portfolio Holdings */}
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Name</th>
+            <th>Quantity</th>
+            <th>Price</th>
+            <th>Total Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {holdings.map((holding) => (
+            <tr key={holding.symbol}>
+              <td>{holding.symbol}</td>
+              <td>{holding.name}</td>
+              <td>{holding.quantity}</td>
+              <td>${holding.price.toFixed(2)}</td>
+              <td>${holding.totalValue.toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
 
-      {/* Rebalancing Controls (Placeholder) */}
-      <div className="mt-4 p-4 rounded-lg bg-gray-200">
-        <p className="text-gray-700 mb-2">Rebalancing Controls (Placeholder)</p>
-        <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md w-full mt-2">
-          Adjust Portfolio
-        </button>
-      </div>
-
-      {/* NFT Value Predictions (Placeholder) */}
-      <div className="mt-4 p-4 rounded-lg bg-gray-200">
-        <p className="text-gray-700 mb-2">NFT Value Predictions (Placeholder)</p>
+      {/* Show Portfolio Performance */}
+      <div className="mt-4">
+        <h2 className="text-xl font-bold mb-2">Performance</h2>
         <p className="text-gray-700">
-          This section will display predicted NFT values based on market trends.
+          AAPL: {performanceData.AAPL ? performanceData.AAPL.toFixed(2) : 'N/A'}
+        </p>
+        <p className="text-gray-700">
+          MSFT: {performanceData.MSFT ? performanceData.MSFT.toFixed(2) : 'N/A'}
+        </p>
+        <p className="text-gray-700">
+          GOOG: {performanceData.GOOG ? performanceData.GOOG.toFixed(2) : 'N/A'}
+        </p>
+      </div>
+
+      {/* Allow Risk Profile Adjustment (Placeholder) */}
+      <div className="mt-4">
+        <p className="text-gray-700">
+          Risk profile adjustment coming soon!
         </p>
       </div>
     </div>

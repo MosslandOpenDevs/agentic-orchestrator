@@ -1,34 +1,17 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
+import axios, { AxiosInstance, AxiosInterceptorManager, AxiosRequestConfig, CancellationToken } from 'axios';
 
-interface BaseResponse<T> extends AxiosResponse {
-  data: T;
-}
-
-interface User {
-  id: number;
-  username: string;
-  email: string;
-  // Add other user fields here
-}
-
-interface Portfolio {
-  id: number;
-  name: string;
-  // Add other portfolio fields here
-}
-
-interface AssetPrice {
-  asset_id: string;
-  price: number;
-  // Add other price data fields here
+interface BaseError {
+  statusCode: number;
+  message: string;
 }
 
 class ApiClient {
   private axiosInstance: AxiosInstance;
   private baseUrl: string;
-  private authHeaders: Record<string, string>;
+  private interceptors: AxiosInterceptorManager<AxiosInstance>;
+  private authenticationHeaders: Record<string, string>;
 
-  constructor(baseUrl: string, authHeaders: Record<string, string>) {
+  constructor(baseUrl: string, interceptors: AxiosInterceptorManager<AxiosInstance>, authenticationHeaders: Record<string, string>) {
     this.baseUrl = baseUrl;
     this.axiosInstance = axios.create({
       baseURL: this.baseUrl,
@@ -36,69 +19,66 @@ class ApiClient {
         'Content-Type': 'application/json',
       },
     });
-
-    this.authHeaders = authHeaders;
+    this.interceptors = this.axiosInstance.interceptors;
+    this.authenticationHeaders = authenticationHeaders;
   }
 
-  public setAuthHeaders(headers: Record<string, string>) {
-    this.authHeaders = headers;
+  setAuthenticationHeaders(headers: Record<string, string>) {
+    this.authenticationHeaders = headers;
+    this.interceptors.request.use(this.interceptRequestHandler, null, this);
   }
 
-  public async getUsers(userId: number): Promise<User[]> {
+  private interceptRequestHandler(config: AxiosRequestConfig) {
+    if (this.authenticationHeaders) {
+      for (const key in this.authenticationHeaders) {
+        if (this.authenticationHeaders.hasOwnProperty(key)) {
+          config.headers[key] = this.authenticationHeaders[key];
+        }
+      }
+    }
+    return config;
+  }
+
+  async getPortfolio(portfolioId: string): Promise<any> {
     try {
-      const response = await this.axiosInstance.get(`/api/users/${userId}`);
-      return response.data as User[];
-    } catch (error) {
-      console.error('Error fetching users:', error);
-      throw new ApiError('Failed to fetch users', 500, error);
+      const response = await this.axiosInstance.get(`/api/portfolio/${portfolioId}`);
+      return response.data;
+    } catch (error: any) {
+      console.error('Error fetching portfolio:', error);
+      throw new ApiError(error.response?.status, error.message);
     }
   }
 
-  public async getPortfolios(portfolioId: number): Promise<Portfolio[]> {
+  async postRebalance(): Promise<any> {
     try {
-      const response = await this.axiosInstance.get(`/api/portfolios/${portfolioId}`);
-      return response.data as Portfolio[];
-    } catch (error) {
-      console.error('Error fetching portfolios:', error);
-      throw new ApiError('Failed to fetch portfolios', 500, error);
+      const response = await this.axiosInstance.post('/api/rebalance');
+      return response.data;
+    } catch (error: any) {
+      console.error('Error rebalancing portfolio:', error);
+      throw new ApiError(error.response?.status, error.message);
     }
   }
 
-  public async getAssetPrice(assetId: string): Promise<AssetPrice> {
+  async getAsset(assetId: string): Promise<any> {
     try {
-      const response = await this.axiosInstance.get(`/api/assets/price/${assetId}`);
-      return response.data as AssetPrice;
-    } catch (error) {
-      console.error('Error fetching asset price:', error);
-      throw new ApiError('Failed to fetch asset price', 500, error);
-    }
-  }
-
-  public async registerUser(user: User): Promise<User> {
-    try {
-      const response = await this.axiosInstance.post('/api/users/auth/register', user);
-      return response.data as User;
-    } catch (error) {
-      console.error('Error registering user:', error);
-      throw new ApiError('Failed to register user', 400, error);
-    }
-  }
-
-  public async loginUser(user: User): Promise<User> {
-    try {
-      const response = await this.axiosInstance.post('/api/users/auth/login', user);
-      return response.data as User;
-    } catch (error) {
-      console.error('Error logging in user:', error);
-      throw new ApiError('Failed to log in user', 401, error);
+      const response = await this.axiosInstance.get(`/api/asset/${assetId}`);
+      return response.data;
+    } catch (error: any) {
+      console.error('Error fetching asset:', error);
+      throw new ApiError(error.response?.status, error.message);
     }
   }
 }
 
-interface ApiError extends Error {
+class ApiError extends Error {
   statusCode: number;
   message: string;
-  details?: any;
+
+  constructor(statusCode: number, message: string) {
+    super(message);
+    this.statusCode = statusCode;
+    this.message = message;
+  }
 }
 
-export default ApiClient;
+export { ApiClient, ApiError };

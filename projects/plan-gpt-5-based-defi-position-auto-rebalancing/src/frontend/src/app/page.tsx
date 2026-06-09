@@ -1,49 +1,90 @@
 import React, { useState, useEffect } from 'react';
-import { useDarkMode } from './useDarkMode'; // Assuming this hook exists
-import { CoinGeckoData } from './types'; // Assuming this type exists
-import { fetchData } from './api'; // Assuming this function exists
+import { useSearchParams } from 'next/searchparams';
+import { CoinGecko } from '../lib/coinGecko'; // Assuming CoinGecko integration
+import { OpenAI } from '../lib/openai'; // Assuming OpenAI integration
+import { WebSocketClient } from 'websocket';
 
-// Dummy data for demonstration
-const initialPortfolioData: any = {
-  portfolioId: '1',
-  assets: [
-    { assetId: '1', name: 'ETH', quantity: 10, price: 3000 },
-    { assetId: '2', name: 'BTC', quantity: 5, price: 60000 },
-  ],
+// Placeholder components - Replace with actual implementations
+const PortfolioDashboard = () => {
+  return <div>Portfolio Dashboard</div>;
 };
 
-const Dashboard: React.FC = () => {
-  const [portfolioData, setPortfolioData] = useState<any>(initialPortfolioData);
+const RebalanceForm = () => {
+  return <div>Rebalance Form</div>;
+};
+
+const RationaleDisplay = () => {
+  return <div>Rationale Display</div>;
+};
+
+type PortfolioData = {
+  assets: { [key: string]: number };
+};
+
+type RiskTolerance = {
+  conservative: number;
+  moderate: number;
+  aggressive: number;
+};
+
+type RebalanceResult = {
+  recommendations: string[];
+};
+
+const Dashboard = () => {
+  const [searchParams] = useSearchParams();
+  const userId = searchParams.get('userId') || '1'; // Default user ID
+  const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
+  const [riskTolerance, setRiskTolerance] = useState<RiskTolerance | null>(null);
+  const [rebalanceResult, setRebalanceResult] = useState<RebalanceResult | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [coinGeckoData, setCoinGeckoData] = useState<CoinGeckoData[] | null>(null);
-  const isDarkMode = useDarkMode();
 
   useEffect(() => {
     const fetchPortfolio = async () => {
       try {
-        const data = await fetchData('portfolioData');
+        const data = await CoinGecko.getPortfolioData(userId);
         setPortfolioData(data);
-        setLoading(false);
       } catch (err) {
-        setError('Failed to load portfolio data.');
-        setLoading(false);
-      }
-    };
-
-    const fetchCoinGecko = async () => {
-      try {
-        const data = await fetchData('coinGeckoData');
-        setCoinGeckoData(data);
-      } catch (err) {
-        setError('Failed to load coinGecko data.');
-        setLoading(false);
+        setError('Failed to fetch portfolio data: ' + String(err));
       }
     };
 
     fetchPortfolio();
-    fetchCoinGecko();
-  }, []);
+  }, [userId]);
+
+  useEffect(() => {
+    if (portfolioData) {
+      setLoading(false);
+    }
+  }, [portfolioData]);
+
+  const handleRiskToleranceChange = (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const value = event.target.value;
+    setRiskTolerance({
+      conservative: parseInt(value || '0', 10),
+      moderate: parseInt(event.target.value || '0', 10),
+      aggressive: parseInt(event.target.value || '0', 10),
+    });
+  };
+
+  const handleRebalance = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await OpenAI.generateRebalancingRationale(
+        portfolioData,
+        riskTolerance
+      );
+      setRebalanceResult(response);
+    } catch (err) {
+      setError('Failed to generate rebalancing rationale: ' + String(err));
+      setLoading(false);
+    }
+  };
 
   if (loading) {
     return <div>Loading...</div>;
@@ -53,64 +94,28 @@ const Dashboard: React.FC = () => {
     return <div>Error: {error}</div>;
   }
 
-  const styles = isDarkMode ? 'bg-gray-800 text-gray-100' : 'bg-white text-gray-800';
-
   return (
-    <div className={`${styles} min-h-screen flex`}>
-      <header className="bg-gray-800 text-white p-4 flex items-center justify-between">
-        <h1>GPT-5 DeFi Rebalancer</h1>
-        <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
-          Dark Mode
-        </button>
+    <div className="bg-gray-100 min-h-screen p-8">
+      <header className="bg-white shadow-md">
+        <h1 className="text-xl font-bold text-gray-800">Mossland Auto-Rebalance</h1>
       </header>
 
-      <aside className="bg-gray-800 text-white p-4">
-        {/* Sidebar content */}
-        <h2>Portfolio Overview</h2>
-        <p>Total Portfolio Value: {portfolioData.assets.reduce((sum, asset) => sum + asset.quantity * asset.price, 0)}</p>
-      </aside>
+      <main className="mt-8">
+        <section className="mb-4">
+          <PortfolioDashboard />
+          <RebalanceForm onChange={handleRiskToleranceChange} />
+          <button
+            onClick={handleRebalance}
+            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+          >
+            Rebalance
+          </button>
+        </section>
 
-      <main className="p-4 flex">
-        {/* Portfolio Details */}
-        <PortfolioDetails portfolioData={portfolioData} />
-
-        {/* Asset Cards */}
-        <div className="ml-4">
-          {portfolioData.assets.map((asset) => (
-            <AssetCard key={asset.assetId} asset={asset} coinGeckoData={coinGeckoData} />
-          ))}
-        </div>
+        <section className="mb-4">
+          <RationaleDisplay rebalanceResult={rebalanceResult} />
+        </section>
       </main>
-    </div>
-  );
-};
-
-interface PortfolioDetailsProps {
-  portfolioData: any;
-}
-
-const PortfolioDetails: React.FC<PortfolioDetailsProps> = ({ portfolioData }) => {
-  return (
-    <div className="w-1/2 p-4 border rounded-lg shadow-md">
-      <h2>Portfolio Details</h2>
-      <p>Portfolio ID: {portfolioData.portfolioId}</p>
-    </div>
-  );
-};
-
-interface AssetCardProps {
-  asset: any;
-  coinGeckoData?: CoinGeckoData[];
-}
-
-const AssetCard: React.FC<AssetCardProps> = ({ asset, coinGeckoData }) => {
-  const price = coinGeckoData ? coinGeckoData.find(c => c.id === asset.name)?.current_price : null;
-
-  return (
-    <div className="w-1/2 p-4 border rounded-lg shadow-md">
-      <h3>{asset.name}</h3>
-      <p>Quantity: {asset.quantity}</p>
-      {price ? <p>Price: ${price}</p> : <p>Price: Loading...</p>}
     </div>
   );
 };
