@@ -310,6 +310,12 @@ python -m agentic_orchestrator.scheduler health-check
 
 MIT License - see [LICENSE](LICENSE) for details.
 
+## Related Mossland projects
+
+- **[Alpha](https://alpha.moss.land?utm_source=github&utm_medium=referral&utm_campaign=ao-readme)** (`alpha.moss.land`) — Korean crypto × AI media + community. Surfaces channel stance, daily AI briefs, RAG Q&A, AI personas, and a 12-tool MCP server. See also [`MosslandOpenDevs/alpha-mcp`](https://github.com/MosslandOpenDevs/alpha-mcp) for Claude/Cursor/Cline install.
+- **[SignalMap](https://signalmap.moss.land)** (`signalmap.moss.land`) — multi-source narrative pipeline (Korean YouTube + news + macro). Provides the canonical entity/topic/event store consumed by Alpha.
+- **[Mossland Projects index](https://github.com/mossland/Projects)** — full ecosystem timeline since 2018.
+
 ---
 
 *Built for the Mossland ecosystem - human-guided, AI-powered innovation.*
