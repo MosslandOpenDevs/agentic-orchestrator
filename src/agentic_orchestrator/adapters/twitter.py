@@ -8,14 +8,14 @@ for improved reliability and redundancy.
 import asyncio
 import os
 import random
-from datetime import datetime
-from typing import List, Dict, Any, Optional
 import time
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-import httpx
 import feedparser
+import httpx
 
-from .base import BaseAdapter, AdapterConfig, AdapterResult, SignalData
+from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
 
 
 class TwitterAdapter(BaseAdapter):
@@ -33,9 +33,9 @@ class TwitterAdapter(BaseAdapter):
     # Note: Nitter RSS doesn't provide engagement metrics,
     # so these only apply to Twitter API access
     MIN_ENGAGEMENT = {
-        'likes': 5,
-        'retweets': 2,
-        'replies': 0,
+        "likes": 5,
+        "retweets": 2,
+        "replies": 0,
     }
 
     # Twitter/X accounts to monitor (crypto/Web3/AI influencers)
@@ -138,7 +138,7 @@ class TwitterAdapter(BaseAdapter):
                 "accounts_tracked": len(self.TRACKED_ACCOUNTS),
                 "working_instances": len(self._working_instances),
                 "has_api_access": bool(self.twitter_bearer_token),
-            }
+            },
         )
 
     async def _refresh_working_instances(self) -> None:
@@ -156,8 +156,7 @@ class TwitterAdapter(BaseAdapter):
                 try:
                     # Test with a simple request
                     response = await client.get(
-                        f"https://{instance}/VitalikButerin/rss",
-                        follow_redirects=True
+                        f"https://{instance}/VitalikButerin/rss", follow_redirects=True
                     )
                     if response.status_code == 200 and len(response.text) > 100:
                         working.append(instance)
@@ -187,13 +186,11 @@ class TwitterAdapter(BaseAdapter):
             for account in accounts[:15]:  # Limit to 15 accounts per run
                 # Try multiple instances
                 for instance in random.sample(
-                    self._working_instances,
-                    min(3, len(self._working_instances))
+                    self._working_instances, min(3, len(self._working_instances))
                 ):
                     try:
                         response = await client.get(
-                            f"https://{instance}/{account}/rss",
-                            follow_redirects=True
+                            f"https://{instance}/{account}/rss", follow_redirects=True
                         )
 
                         if response.status_code == 200:
@@ -202,17 +199,13 @@ class TwitterAdapter(BaseAdapter):
                             for entry in parsed.entries[:5]:  # Latest 5 tweets
                                 # Extract tweet content
                                 title = entry.get("title", "")[:280]
-                                description = self._clean_html(
-                                    entry.get("description", "")
-                                )[:500]
+                                description = self._clean_html(entry.get("description", ""))[:500]
 
                                 # Determine category based on content
                                 category = self._categorize_tweet(title + " " + description)
 
                                 # Calculate relevance score
-                                relevance = self._calculate_relevance(
-                                    title + " " + description
-                                )
+                                relevance = self._calculate_relevance(title + " " + description)
 
                                 signal = SignalData(
                                     source=self.name,
@@ -230,7 +223,7 @@ class TwitterAdapter(BaseAdapter):
                                         "platform": "twitter",
                                         "account": account,
                                         "relevance_score": relevance,
-                                    }
+                                    },
                                 )
                                 signals.append(signal)
 
@@ -265,9 +258,7 @@ class TwitterAdapter(BaseAdapter):
                         "max_results": 20,
                         "tweet.fields": "created_at,author_id,public_metrics",
                     },
-                    headers={
-                        "Authorization": f"Bearer {self.twitter_bearer_token}"
-                    }
+                    headers={"Authorization": f"Bearer {self.twitter_bearer_token}"},
                 )
 
                 if response.status_code == 200:
@@ -295,7 +286,7 @@ class TwitterAdapter(BaseAdapter):
                             metadata={
                                 "platform": "twitter",
                                 "source_type": "keyword_search",
-                            }
+                            },
                         )
                         signals.append(signal)
 
@@ -317,14 +308,14 @@ class TwitterAdapter(BaseAdapter):
         Returns:
             True if meets threshold
         """
-        likes = metrics.get('like_count', 0) or 0
-        retweets = metrics.get('retweet_count', 0) or 0
-        replies = metrics.get('reply_count', 0) or 0
+        likes = metrics.get("like_count", 0) or 0
+        retweets = metrics.get("retweet_count", 0) or 0
+        replies = metrics.get("reply_count", 0) or 0
 
         # Check individual thresholds
-        if likes >= self.MIN_ENGAGEMENT['likes']:
+        if likes >= self.MIN_ENGAGEMENT["likes"]:
             return True
-        if retweets >= self.MIN_ENGAGEMENT['retweets']:
+        if retweets >= self.MIN_ENGAGEMENT["retweets"]:
             return True
 
         # Check combined engagement
@@ -336,12 +327,30 @@ class TwitterAdapter(BaseAdapter):
         content_lower = content.lower()
 
         crypto_keywords = [
-            "ethereum", "bitcoin", "defi", "nft", "web3", "blockchain",
-            "token", "crypto", "wallet", "staking", "yield", "airdrop"
+            "ethereum",
+            "bitcoin",
+            "defi",
+            "nft",
+            "web3",
+            "blockchain",
+            "token",
+            "crypto",
+            "wallet",
+            "staking",
+            "yield",
+            "airdrop",
         ]
         ai_keywords = [
-            "ai", "gpt", "llm", "openai", "anthropic", "claude",
-            "machine learning", "neural", "chatbot", "agent"
+            "ai",
+            "gpt",
+            "llm",
+            "openai",
+            "anthropic",
+            "claude",
+            "machine learning",
+            "neural",
+            "chatbot",
+            "agent",
         ]
 
         if any(kw in content_lower for kw in crypto_keywords):
@@ -380,8 +389,9 @@ class TwitterAdapter(BaseAdapter):
     def _clean_html(self, html: str) -> str:
         """Remove HTML tags from text."""
         import re
-        clean = re.sub(r'<[^>]+>', '', html)
-        clean = re.sub(r'\s+', ' ', clean)
+
+        clean = re.sub(r"<[^>]+>", "", html)
+        clean = re.sub(r"\s+", " ", clean)
         return clean.strip()
 
     async def health_check(self) -> Dict[str, Any]:

@@ -9,14 +9,14 @@ Collects signals from social platforms:
 
 import asyncio
 import os
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
 import time
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
-import httpx
 import feedparser
+import httpx
 
-from .base import BaseAdapter, AdapterConfig, AdapterResult, SignalData
+from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
 
 
 class SocialMediaAdapter(BaseAdapter):
@@ -28,8 +28,8 @@ class SocialMediaAdapter(BaseAdapter):
 
     # Minimum engagement thresholds for quality filtering
     MIN_ENGAGEMENT = {
-        'reddit': {'score': 10, 'num_comments': 3},
-        'twitter': {'likes': 5, 'retweets': 2},  # Note: Nitter doesn't provide these
+        "reddit": {"score": 10, "num_comments": 3},
+        "twitter": {"likes": 5, "retweets": 2},  # Note: Nitter doesn't provide these
     }
 
     # Subreddits to monitor
@@ -112,7 +112,7 @@ class SocialMediaAdapter(BaseAdapter):
             metadata={
                 "subreddits_count": len(self.SUBREDDITS),
                 "twitter_accounts_count": len(self.TWITTER_ACCOUNTS),
-            }
+            },
         )
 
     async def _get_reddit_token(self) -> Optional[str]:
@@ -131,7 +131,7 @@ class SocialMediaAdapter(BaseAdapter):
                     "https://www.reddit.com/api/v1/access_token",
                     auth=(self.reddit_client_id, self.reddit_client_secret),
                     data={"grant_type": "client_credentials"},
-                    headers={"User-Agent": "Agentic-Orchestrator/0.4.0"}
+                    headers={"User-Agent": "Agentic-Orchestrator/0.4.0"},
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -172,8 +172,8 @@ class SocialMediaAdapter(BaseAdapter):
                         params={"limit": 10},
                         headers={
                             "Authorization": f"Bearer {token}",
-                            "User-Agent": "Agentic-Orchestrator/0.4.0"
-                        }
+                            "User-Agent": "Agentic-Orchestrator/0.4.0",
+                        },
                     )
 
                     if response.status_code == 200:
@@ -202,10 +202,14 @@ class SocialMediaAdapter(BaseAdapter):
                                 source=self.name,
                                 category=category,
                                 title=f"r/{subreddit}: {post_data.get('title', '')[:200]}",
-                                summary=post_data.get("selftext", "")[:500] if post_data.get("selftext") else None,
+                                summary=(
+                                    post_data.get("selftext", "")[:500]
+                                    if post_data.get("selftext")
+                                    else None
+                                ),
                                 url=f"https://reddit.com{post_data.get('permalink', '')}",
                                 raw_data=raw_data,
-                                metadata={"platform": "reddit", "subreddit": subreddit}
+                                metadata={"platform": "reddit", "subreddit": subreddit},
                             )
                             signals.append(signal)
 
@@ -227,7 +231,7 @@ class SocialMediaAdapter(BaseAdapter):
                     response = await client.get(
                         f"https://www.reddit.com/r/{subreddit}/hot.rss",
                         headers={"User-Agent": "Agentic-Orchestrator/0.4.0"},
-                        follow_redirects=True
+                        follow_redirects=True,
                     )
 
                     if response.status_code == 200:
@@ -240,13 +244,17 @@ class SocialMediaAdapter(BaseAdapter):
                                 source=self.name,
                                 category=category,
                                 title=f"r/{subreddit}: {entry.get('title', '')[:200]}",
-                                summary=self._clean_html(entry.get("summary", ""))[:500] if entry.get("summary") else None,
+                                summary=(
+                                    self._clean_html(entry.get("summary", ""))[:500]
+                                    if entry.get("summary")
+                                    else None
+                                ),
                                 url=entry.get("link"),
                                 raw_data={
                                     "type": "reddit_rss",
                                     "subreddit": subreddit,
                                 },
-                                metadata={"platform": "reddit", "subreddit": subreddit}
+                                metadata={"platform": "reddit", "subreddit": subreddit},
                             )
                             signals.append(signal)
 
@@ -267,8 +275,7 @@ class SocialMediaAdapter(BaseAdapter):
                 for instance in self.NITTER_INSTANCES:
                     try:
                         response = await client.get(
-                            f"https://{instance}/{account}/rss",
-                            follow_redirects=True
+                            f"https://{instance}/{account}/rss", follow_redirects=True
                         )
 
                         if response.status_code == 200:
@@ -286,7 +293,7 @@ class SocialMediaAdapter(BaseAdapter):
                                         "account": account,
                                         "nitter_instance": instance,
                                     },
-                                    metadata={"platform": "twitter", "account": account}
+                                    metadata={"platform": "twitter", "account": account},
                                 )
                                 signals.append(signal)
 
@@ -330,7 +337,16 @@ class SocialMediaAdapter(BaseAdapter):
         """Categorize based on subreddit name."""
         subreddit_lower = subreddit.lower()
 
-        if subreddit_lower in ["ethereum", "cryptocurrency", "defi", "web3", "nft", "ethdev", "solana", "cryptotechnology"]:
+        if subreddit_lower in [
+            "ethereum",
+            "cryptocurrency",
+            "defi",
+            "web3",
+            "nft",
+            "ethdev",
+            "solana",
+            "cryptotechnology",
+        ]:
             return "crypto"
         elif subreddit_lower in ["machinelearning", "localllama", "artificial"]:
             return "ai"
@@ -340,15 +356,18 @@ class SocialMediaAdapter(BaseAdapter):
     def _clean_html(self, html: str) -> str:
         """Remove HTML tags from text."""
         import re
-        clean = re.sub(r'<[^>]+>', '', html)
-        clean = re.sub(r'\s+', ' ', clean)
+
+        clean = re.sub(r"<[^>]+>", "", html)
+        clean = re.sub(r"\s+", " ", clean)
         return clean.strip()
 
     async def health_check(self) -> Dict[str, Any]:
         """Check adapter health."""
         base_health = await super().health_check()
 
-        base_health["reddit_api_configured"] = bool(self.reddit_client_id and self.reddit_client_secret)
+        base_health["reddit_api_configured"] = bool(
+            self.reddit_client_id and self.reddit_client_secret
+        )
         base_health["subreddits"] = len(self.SUBREDDITS)
         base_health["twitter_accounts"] = len(self.TWITTER_ACCOUNTS)
 

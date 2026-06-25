@@ -12,26 +12,30 @@ from typing import Dict
 
 class ThinkingStyle(Enum):
     """How the agent approaches problems initially."""
+
     OPTIMISTIC = "optimistic"  # Sees possibilities and opportunities first
-    CAUTIOUS = "cautious"      # Sees risks and problems first
+    CAUTIOUS = "cautious"  # Sees risks and problems first
 
 
 class DecisionStyle(Enum):
     """How the agent makes decisions."""
-    INTUITIVE = "intuitive"    # Quick, pattern-based decisions
+
+    INTUITIVE = "intuitive"  # Quick, pattern-based decisions
     ANALYTICAL = "analytical"  # Data-driven, systematic analysis
 
 
 class CommunicationStyle(Enum):
     """How the agent communicates feedback."""
+
     CHALLENGER = "challenger"  # Direct criticism, tough questions
-    SUPPORTER = "supporter"    # Encouraging, constructive feedback
+    SUPPORTER = "supporter"  # Encouraging, constructive feedback
 
 
 class ActionStyle(Enum):
     """What kind of solutions the agent prefers."""
+
     INNOVATIVE = "innovative"  # Novel, experimental approaches
-    PRAGMATIC = "pragmatic"    # Proven, practical solutions
+    PRAGMATIC = "pragmatic"  # Proven, practical solutions
 
 
 @dataclass
@@ -41,6 +45,7 @@ class Personality:
 
     Combines 4 axes to create unique agent behaviors.
     """
+
     thinking: ThinkingStyle
     decision: DecisionStyle
     communication: CommunicationStyle

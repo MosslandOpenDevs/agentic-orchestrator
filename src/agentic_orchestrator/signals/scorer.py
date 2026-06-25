@@ -3,8 +3,7 @@ Signal scorer for relevance and importance scoring.
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional, Set
-import re
+from typing import Any, Dict, List, Optional, Set
 
 from ..adapters.base import SignalData
 
@@ -55,7 +54,6 @@ class ScoringConfig:
                 "dao": 0.10,
                 "metaverse": 0.15,
                 "gaming": 0.10,
-
                 # AI/ML
                 "llm": 0.12,
                 "gpt": 0.10,
@@ -65,7 +63,6 @@ class ScoringConfig:
                 "ai agent": 0.15,
                 "machine learning": 0.10,
                 "neural": 0.08,
-
                 # Development
                 "launch": 0.10,
                 "release": 0.08,
@@ -73,7 +70,6 @@ class ScoringConfig:
                 "sdk": 0.08,
                 "api": 0.08,
                 "developer": 0.08,
-
                 # Business
                 "startup": 0.10,
                 "funding": 0.12,
@@ -100,28 +96,98 @@ class ScoringConfig:
         if self.sentiment_positive is None:
             self.sentiment_positive = {
                 # English positive
-                "bullish", "growth", "success", "breakthrough", "innovation",
-                "partnership", "launch", "upgrade", "milestone", "achievement",
-                "profit", "rally", "surge", "soar", "boom", "record high",
-                "adoption", "integration", "expansion", "funding", "investment",
-                "promising", "exciting", "revolutionary", "game-changing",
+                "bullish",
+                "growth",
+                "success",
+                "breakthrough",
+                "innovation",
+                "partnership",
+                "launch",
+                "upgrade",
+                "milestone",
+                "achievement",
+                "profit",
+                "rally",
+                "surge",
+                "soar",
+                "boom",
+                "record high",
+                "adoption",
+                "integration",
+                "expansion",
+                "funding",
+                "investment",
+                "promising",
+                "exciting",
+                "revolutionary",
+                "game-changing",
                 # Korean positive
-                "성공", "상승", "호재", "돌파", "혁신", "파트너십", "출시",
-                "성장", "수익", "달성", "급등", "신고가", "도입", "확장",
+                "성공",
+                "상승",
+                "호재",
+                "돌파",
+                "혁신",
+                "파트너십",
+                "출시",
+                "성장",
+                "수익",
+                "달성",
+                "급등",
+                "신고가",
+                "도입",
+                "확장",
             }
 
         if self.sentiment_negative is None:
             self.sentiment_negative = {
                 # English negative
-                "crash", "hack", "scam", "fraud", "rug pull", "exploit",
-                "vulnerability", "failure", "loss", "dump", "plunge", "collapse",
-                "bankrupt", "lawsuit", "investigation", "warning", "risk",
-                "fud", "bear", "correction", "selloff", "panic", "fear",
-                "shutdown", "suspend", "delist", "ban", "sanctions",
+                "crash",
+                "hack",
+                "scam",
+                "fraud",
+                "rug pull",
+                "exploit",
+                "vulnerability",
+                "failure",
+                "loss",
+                "dump",
+                "plunge",
+                "collapse",
+                "bankrupt",
+                "lawsuit",
+                "investigation",
+                "warning",
+                "risk",
+                "fud",
+                "bear",
+                "correction",
+                "selloff",
+                "panic",
+                "fear",
+                "shutdown",
+                "suspend",
+                "delist",
+                "ban",
+                "sanctions",
                 # Korean negative
-                "폭락", "해킹", "사기", "러그풀", "취약점", "실패", "손실",
-                "파산", "소송", "조사", "경고", "위험", "하락", "매도",
-                "정지", "상폐", "제재", "금지",
+                "폭락",
+                "해킹",
+                "사기",
+                "러그풀",
+                "취약점",
+                "실패",
+                "손실",
+                "파산",
+                "소송",
+                "조사",
+                "경고",
+                "위험",
+                "하락",
+                "매도",
+                "정지",
+                "상폐",
+                "제재",
+                "금지",
             }
 
 
@@ -185,7 +251,7 @@ class SignalScorer:
         for signal in signals:
             signal.metadata["score"] = self.score(signal)
             # Add score as attribute for sorting
-            object.__setattr__(signal, 'score', signal.metadata["score"])
+            object.__setattr__(signal, "score", signal.metadata["score"])
         return signals
 
     def _score_keywords(self, text: str) -> float:
@@ -281,20 +347,20 @@ class SignalScorer:
         total = pos_count + neg_count
 
         if total == 0:
-            return 'neutral', 0.5
+            return "neutral", 0.5
 
         # Calculate sentiment
         if neg_count > pos_count + 1:
             # Strongly negative
             confidence = min(0.9, 0.5 + (neg_count - pos_count) * 0.1)
-            return 'negative', confidence
+            return "negative", confidence
         elif pos_count > neg_count + 1:
             # Strongly positive
             confidence = min(0.9, 0.5 + (pos_count - neg_count) * 0.1)
-            return 'positive', confidence
+            return "positive", confidence
         else:
             # Mixed or neutral
-            return 'neutral', 0.5
+            return "neutral", 0.5
 
     def _score_sentiment(self, signal: SignalData) -> float:
         """
@@ -309,9 +375,9 @@ class SignalScorer:
         signal.metadata["sentiment"] = sentiment
         signal.metadata["sentiment_confidence"] = confidence
 
-        if sentiment == 'positive':
+        if sentiment == "positive":
             return 0.05 * confidence  # Slight boost for positive
-        elif sentiment == 'negative':
+        elif sentiment == "negative":
             return -0.03 * confidence  # Slight penalty for negative
         else:
             return 0.0
@@ -331,7 +397,11 @@ class SignalScorer:
             boost += 0.05
 
         # Comments
-        comments = raw_data.get("num_comments", 0) or raw_data.get("comments", 0) or raw_data.get("descendants", 0)
+        comments = (
+            raw_data.get("num_comments", 0)
+            or raw_data.get("comments", 0)
+            or raw_data.get("descendants", 0)
+        )
         if comments > 10:
             boost += 0.02
         if comments > 50:

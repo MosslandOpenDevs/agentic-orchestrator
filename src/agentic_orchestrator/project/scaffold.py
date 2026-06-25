@@ -14,16 +14,15 @@ Orchestrates the complete project generation pipeline:
 
 import json
 import logging
-import asyncio
 import subprocess
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any, List
-from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
-from .parser import PlanParser, ParsedPlan
-from .templates import TemplateManager, TemplateFile, slugify_project_name
-from .generator import ProjectCodeGenerator, GeneratedFile
+from .generator import GeneratedFile, ProjectCodeGenerator
+from .parser import ParsedPlan, PlanParser
+from .templates import TemplateFile, TemplateManager, slugify_project_name
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +30,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ProjectGenerationResult:
     """Result of project generation."""
+
     success: bool
     project_id: Optional[str] = None
     project_path: Optional[str] = None
@@ -141,9 +141,11 @@ class ProjectScaffold:
             else:
                 parsed_plan = self.parser.parse(plan_content, plan_title)
 
-            logger.info(f"Parsed: {len(parsed_plan.entities)} entities, "
-                       f"{len(parsed_plan.api_endpoints)} endpoints, "
-                       f"{len(parsed_plan.ui_components)} UI components")
+            logger.info(
+                f"Parsed: {len(parsed_plan.entities)} entities, "
+                f"{len(parsed_plan.api_endpoints)} endpoints, "
+                f"{len(parsed_plan.ui_components)} UI components"
+            )
 
             # Generate project name
             project_name = self._generate_project_name(parsed_plan.title)
@@ -166,10 +168,7 @@ class ProjectScaffold:
                 generated_files = await self.generator.generate_full_project(
                     parsed_plan, project_name
                 )
-                all_files = [
-                    TemplateFile(path=f.path, content=f.content)
-                    for f in generated_files
-                ]
+                all_files = [TemplateFile(path=f.path, content=f.content) for f in generated_files]
                 logger.info(f"Generated {len(all_files)} production-quality files")
             else:
                 # Fallback: Use template files + basic LLM generation
@@ -181,30 +180,36 @@ class ProjectScaffold:
                 )
                 llm_files = await self._generate_llm_files(parsed_plan, project_name)
                 all_files = template_files + [
-                    TemplateFile(path=f.path, content=f.content)
-                    for f in llm_files
+                    TemplateFile(path=f.path, content=f.content) for f in llm_files
                 ]
                 logger.info(f"Generated {len(all_files)} files (fallback mode)")
 
             # Add PLAN.md (copy of original plan)
-            all_files.append(TemplateFile(
-                path="PLAN.md",
-                content=plan_content or "# Plan\n\nOriginal plan content not available.",
-            ))
+            all_files.append(
+                TemplateFile(
+                    path="PLAN.md",
+                    content=plan_content or "# Plan\n\nOriginal plan content not available.",
+                )
+            )
 
             # Add .moss-project.json with metadata
-            all_files.append(TemplateFile(
-                path=".moss-project.json",
-                content=json.dumps({
-                    "version": "1.0.0",
-                    "generator": "moss-ao",
-                    "createdAt": datetime.utcnow().isoformat(),
-                    "planId": plan_id,
-                    "projectId": project_id,
-                    "techStack": parsed_plan.tech_stack.to_dict(),
-                    "features": parsed_plan.features[:10],
-                }, indent=2),
-            ))
+            all_files.append(
+                TemplateFile(
+                    path=".moss-project.json",
+                    content=json.dumps(
+                        {
+                            "version": "1.0.0",
+                            "generator": "moss-ao",
+                            "createdAt": datetime.utcnow().isoformat(),
+                            "planId": plan_id,
+                            "projectId": project_id,
+                            "techStack": parsed_plan.tech_stack.to_dict(),
+                            "features": parsed_plan.features[:10],
+                        },
+                        indent=2,
+                    ),
+                )
+            )
 
             # Create project directory and files
             project_path = self.templates.create_project_structure(
@@ -226,7 +231,9 @@ class ProjectScaffold:
             if git_success:
                 logger.info(f"Project auto-pushed to GitHub: {project_name}")
             else:
-                logger.warning(f"Git push failed for project: {project_name} (project still created locally)")
+                logger.warning(
+                    f"Git push failed for project: {project_name} (project still created locally)"
+                )
 
             duration = (datetime.utcnow() - start_time).total_seconds()
 
@@ -245,7 +252,7 @@ class ProjectScaffold:
             duration = (datetime.utcnow() - start_time).total_seconds()
 
             # Update project status to error if we created a record
-            if 'project_id' in locals():
+            if "project_id" in locals():
                 await self._update_project_status(
                     project_id=project_id,
                     status="error",
@@ -266,6 +273,7 @@ class ProjectScaffold:
 
         try:
             from ..db.models import Plan
+
             plan = self.db_session.query(Plan).filter(Plan.id == plan_id).first()
             if plan:
                 return {
@@ -288,9 +296,8 @@ class ProjectScaffold:
 
         try:
             from ..db.models import Project
-            project = self.db_session.query(Project).filter(
-                Project.plan_id == plan_id
-            ).first()
+
+            project = self.db_session.query(Project).filter(Project.plan_id == plan_id).first()
             if project:
                 return {
                     "id": project.id,
@@ -315,6 +322,7 @@ class ProjectScaffold:
         Checks for existing projects with same plan_id to prevent duplicates.
         """
         import uuid
+
         project_id = str(uuid.uuid4())[:8]
 
         if not self.db_session:
@@ -324,12 +332,18 @@ class ProjectScaffold:
             from ..db.models import Project
 
             # Check for existing project with same plan_id (prevent duplicates)
-            existing = self.db_session.query(Project).filter(
-                Project.plan_id == plan_id,
-                Project.status.in_(["generating", "ready"]),
-            ).first()
+            existing = (
+                self.db_session.query(Project)
+                .filter(
+                    Project.plan_id == plan_id,
+                    Project.status.in_(["generating", "ready"]),
+                )
+                .first()
+            )
             if existing:
-                logger.warning(f"Project already exists for plan {plan_id}: {existing.id} (status: {existing.status})")
+                logger.warning(
+                    f"Project already exists for plan {plan_id}: {existing.id} (status: {existing.status})"
+                )
                 return existing.id
 
             project = Project(
@@ -358,9 +372,8 @@ class ProjectScaffold:
 
         try:
             from ..db.models import Project
-            project = self.db_session.query(Project).filter(
-                Project.id == project_id
-            ).first()
+
+            project = self.db_session.query(Project).filter(Project.id == project_id).first()
             if project:
                 project.status = status
                 if directory_path:
@@ -382,22 +395,24 @@ class ProjectScaffold:
         # Generate README.md
         logger.info("Generating README.md...")
         readme = await self.generator.generate_readme(parsed_plan, project_name)
-        files.append(GeneratedFile(
-            path="README.md",
-            content=readme,
-            description="Project README",
-        ))
+        files.append(
+            GeneratedFile(
+                path="README.md",
+                content=readme,
+                description="Project README",
+            )
+        )
 
         # Generate architecture documentation
         logger.info("Generating architecture documentation...")
-        architecture = await self.generator.generate_architecture_doc(
-            parsed_plan, project_name
+        architecture = await self.generator.generate_architecture_doc(parsed_plan, project_name)
+        files.append(
+            GeneratedFile(
+                path="docs/ARCHITECTURE.md",
+                content=architecture,
+                description="Architecture documentation",
+            )
         )
-        files.append(GeneratedFile(
-            path="docs/ARCHITECTURE.md",
-            content=architecture,
-            description="Architecture documentation",
-        ))
 
         # Generate API routes if endpoints are defined
         if parsed_plan.api_endpoints:
@@ -433,9 +448,7 @@ class ProjectScaffold:
             # Defense-in-depth: project_name is already slugified, but verify
             # before passing it into a subprocess argument.
             if project_name != slugify_project_name(project_name):
-                logger.error(
-                    "Refusing git operations: unsafe project name %r", project_name
-                )
+                logger.error("Refusing git operations: unsafe project name %r", project_name)
                 return False
 
             # Get the repository root (parent of projects/ directory)

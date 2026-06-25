@@ -2,17 +2,18 @@
 Base adapter class for signal collection.
 """
 
+import asyncio
+import hashlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Any, Optional
-import asyncio
-import hashlib
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
 class AdapterConfig:
     """Configuration for adapters."""
+
     enabled: bool = True
     timeout: int = 30  # seconds
     max_retries: int = 3
@@ -24,6 +25,7 @@ class AdapterConfig:
 @dataclass
 class SignalData:
     """Raw signal data from adapters."""
+
     source: str
     category: str
     title: str
@@ -56,6 +58,7 @@ class SignalData:
 @dataclass
 class AdapterResult:
     """Result from adapter fetch operation."""
+
     adapter_name: str
     success: bool
     signals: List[SignalData] = field(default_factory=list)
@@ -108,10 +111,7 @@ class BaseAdapter(ABC):
 
         for attempt in range(self.config.max_retries):
             try:
-                result = await asyncio.wait_for(
-                    self.fetch(),
-                    timeout=self.config.timeout
-                )
+                result = await asyncio.wait_for(self.fetch(), timeout=self.config.timeout)
                 self._last_fetch = datetime.utcnow()
                 return result
 
@@ -126,7 +126,7 @@ class BaseAdapter(ABC):
         return AdapterResult(
             adapter_name=self.name,
             success=False,
-            error=f"Failed after {self.config.max_retries} attempts: {last_error}"
+            error=f"Failed after {self.config.max_retries} attempts: {last_error}",
         )
 
     def is_enabled(self) -> bool:

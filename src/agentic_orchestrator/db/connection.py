@@ -4,13 +4,13 @@ Database connection management for Agentic Orchestrator.
 Supports both SQLite (development) and PostgreSQL (production).
 """
 
-from contextlib import contextmanager
-from typing import Generator, Optional
-from pathlib import Path
 import os
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Generator, Optional
 
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool, StaticPool
 
 from .models import Base
@@ -28,15 +28,11 @@ class Database:
     def __init__(self, url: Optional[str] = None):
         self.url = url or os.getenv(
             "DATABASE_URL",
-            f"sqlite:///{Path(__file__).parent.parent.parent.parent / 'data' / 'orchestrator.db'}"
+            f"sqlite:///{Path(__file__).parent.parent.parent.parent / 'data' / 'orchestrator.db'}",
         )
 
         self._init_engine()
-        self.SessionLocal = sessionmaker(
-            autocommit=False,
-            autoflush=False,
-            bind=self.engine
-        )
+        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
 
     def _init_engine(self):
         """Initialize the database engine based on URL type."""
@@ -49,7 +45,7 @@ class Database:
                 max_overflow=10,
                 pool_timeout=30,
                 pool_recycle=1800,
-                echo=os.getenv("DB_ECHO", "false").lower() == "true"
+                echo=os.getenv("DB_ECHO", "false").lower() == "true",
             )
         else:
             # SQLite
@@ -62,7 +58,7 @@ class Database:
                 self.url,
                 poolclass=StaticPool,
                 connect_args={"check_same_thread": False},
-                echo=os.getenv("DB_ECHO", "false").lower() == "true"
+                echo=os.getenv("DB_ECHO", "false").lower() == "true",
             )
 
             # Enable foreign keys for SQLite
@@ -110,6 +106,7 @@ class Database:
     def health_check(self) -> bool:
         """Check if database connection is healthy."""
         from sqlalchemy import text
+
         try:
             with self.session() as session:
                 session.execute(text("SELECT 1"))

@@ -9,13 +9,13 @@ Collects signals from GitHub:
 
 import asyncio
 import os
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
 import time
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .base import BaseAdapter, AdapterConfig, AdapterResult, SignalData
+from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
 
 
 class GitHubEventsAdapter(BaseAdapter):
@@ -34,7 +34,6 @@ class GitHubEventsAdapter(BaseAdapter):
         "anthropics/anthropic-sdk-python",
         "ollama/ollama",
         "ggerganov/llama.cpp",
-
         # Web3/Crypto
         "ethereum/go-ethereum",
         "solana-labs/solana",
@@ -44,12 +43,10 @@ class GitHubEventsAdapter(BaseAdapter):
         "wevm/viem",
         "wagmi-dev/wagmi",
         "ethereum/EIPs",
-
         # Infrastructure
         "vercel/next.js",
         "denoland/deno",
         "oven-sh/bun",
-
         # Tools
         "anthropics/claude-code",
     ]
@@ -86,7 +83,7 @@ class GitHubEventsAdapter(BaseAdapter):
         """Get headers for GitHub API requests."""
         headers = {
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Agentic-Orchestrator/0.4.0"
+            "User-Agent": "Agentic-Orchestrator/0.4.0",
         }
         if self.github_token:
             headers["Authorization"] = f"token {self.github_token}"
@@ -124,7 +121,7 @@ class GitHubEventsAdapter(BaseAdapter):
             metadata={
                 "watched_repos": len(self.watched_repos),
                 "topics_count": len(self.TRENDING_TOPICS),
-            }
+            },
         )
 
     async def _fetch_trending_repos(self) -> List[SignalData]:
@@ -140,13 +137,8 @@ class GitHubEventsAdapter(BaseAdapter):
             async with httpx.AsyncClient(timeout=30) as client:
                 response = await client.get(
                     f"{self.base_url}/search/repositories",
-                    params={
-                        "q": query,
-                        "sort": "stars",
-                        "order": "desc",
-                        "per_page": 20
-                    },
-                    headers=self._get_headers()
+                    params={"q": query, "sort": "stars", "order": "desc", "per_page": 20},
+                    headers=self._get_headers(),
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -167,7 +159,7 @@ class GitHubEventsAdapter(BaseAdapter):
                             "topics": repo.get("topics", []),
                             "created_at": repo.get("created_at"),
                         },
-                        metadata={"subtype": "trending"}
+                        metadata={"subtype": "trending"},
                     )
                     signals.append(signal)
 
@@ -193,11 +185,7 @@ class GitHubEventsAdapter(BaseAdapter):
 
         return signals
 
-    async def _fetch_repo_releases(
-        self,
-        client: httpx.AsyncClient,
-        repo: str
-    ) -> List[SignalData]:
+    async def _fetch_repo_releases(self, client: httpx.AsyncClient, repo: str) -> List[SignalData]:
         """Fetch releases for a single repo."""
         signals: List[SignalData] = []
 
@@ -205,7 +193,7 @@ class GitHubEventsAdapter(BaseAdapter):
             response = await client.get(
                 f"{self.base_url}/repos/{repo}/releases",
                 params={"per_page": 3},
-                headers=self._get_headers()
+                headers=self._get_headers(),
             )
 
             if response.status_code == 200:
@@ -236,7 +224,7 @@ class GitHubEventsAdapter(BaseAdapter):
                             "prerelease": release.get("prerelease", False),
                             "published_at": release["published_at"],
                         },
-                        metadata={"subtype": "release"}
+                        metadata={"subtype": "release"},
                     )
                     signals.append(signal)
 
@@ -258,9 +246,9 @@ class GitHubEventsAdapter(BaseAdapter):
                             "q": f"topic:{topic}",
                             "sort": "updated",
                             "order": "desc",
-                            "per_page": 5
+                            "per_page": 5,
                         },
-                        headers=self._get_headers()
+                        headers=self._get_headers(),
                     )
 
                     if response.status_code == 200:
@@ -268,7 +256,20 @@ class GitHubEventsAdapter(BaseAdapter):
 
                         for repo in data.get("items", []):
                             # Determine category
-                            category = "crypto" if topic in ["web3", "defi", "nft", "blockchain", "ethereum", "solana", "smart-contracts"] else "ai"
+                            category = (
+                                "crypto"
+                                if topic
+                                in [
+                                    "web3",
+                                    "defi",
+                                    "nft",
+                                    "blockchain",
+                                    "ethereum",
+                                    "solana",
+                                    "smart-contracts",
+                                ]
+                                else "ai"
+                            )
 
                             signal = SignalData(
                                 source=self.name,
@@ -283,7 +284,7 @@ class GitHubEventsAdapter(BaseAdapter):
                                     "stars": repo["stargazers_count"],
                                     "updated_at": repo.get("updated_at"),
                                 },
-                                metadata={"subtype": "topic", "topic": topic}
+                                metadata={"subtype": "topic", "topic": topic},
                             )
                             signals.append(signal)
 
@@ -299,9 +300,26 @@ class GitHubEventsAdapter(BaseAdapter):
         """Categorize a repo based on its name/path."""
         repo_lower = repo.lower()
 
-        if any(x in repo_lower for x in ["ethereum", "solana", "web3", "blockchain", "defi", "nft", "foundry", "alloy", "viem", "wagmi"]):
+        if any(
+            x in repo_lower
+            for x in [
+                "ethereum",
+                "solana",
+                "web3",
+                "blockchain",
+                "defi",
+                "nft",
+                "foundry",
+                "alloy",
+                "viem",
+                "wagmi",
+            ]
+        ):
             return "crypto"
-        elif any(x in repo_lower for x in ["openai", "anthropic", "langchain", "huggingface", "llm", "ollama"]):
+        elif any(
+            x in repo_lower
+            for x in ["openai", "anthropic", "langchain", "huggingface", "llm", "ollama"]
+        ):
             return "ai"
         elif any(x in repo_lower for x in ["security", "audit"]):
             return "security"
@@ -328,8 +346,7 @@ class GitHubEventsAdapter(BaseAdapter):
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.get(
-                    f"{self.base_url}/rate_limit",
-                    headers=self._get_headers()
+                    f"{self.base_url}/rate_limit", headers=self._get_headers()
                 )
                 if response.status_code == 200:
                     rate_limit = response.json()

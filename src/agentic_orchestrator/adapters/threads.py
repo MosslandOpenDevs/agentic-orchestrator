@@ -7,14 +7,14 @@ No authentication required - extracts embedded JSON data from HTML.
 
 import asyncio
 import json
+import logging
 import re
 import time
-import logging
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .base import BaseAdapter, AdapterConfig, AdapterResult, SignalData
+from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +83,10 @@ class ThreadsAdapter(BaseAdapter):
             metadata={
                 "accounts_tracked": len(self.TRACKED_ACCOUNTS),
                 "accounts_with_errors": len(errors),
-            }
+            },
         )
 
-    async def _fetch_account(
-        self, client: httpx.AsyncClient, account: str
-    ) -> List[SignalData]:
+    async def _fetch_account(self, client: httpx.AsyncClient, account: str) -> List[SignalData]:
         """Fetch threads from a single account's public profile page."""
         signals: List[SignalData] = []
 
@@ -140,12 +138,14 @@ class ThreadsAdapter(BaseAdapter):
                             continue
                         if code:
                             seen_codes.add(code)
-                        posts.append({
-                            "text": text,
-                            "code": code,
-                            "id": post.get("id") or post.get("pk"),
-                            "like_count": post.get("like_count", 0),
-                        })
+                        posts.append(
+                            {
+                                "text": text,
+                                "code": code,
+                                "id": post.get("id") or post.get("pk"),
+                                "like_count": post.get("like_count", 0),
+                            }
+                        )
             except (json.JSONDecodeError, ValueError):
                 continue
 
@@ -202,7 +202,7 @@ class ThreadsAdapter(BaseAdapter):
                 "platform": "threads",
                 "account": account,
                 "relevance_score": relevance,
-            }
+            },
         )
 
     def _categorize_content(self, content: str) -> str:
@@ -210,14 +210,36 @@ class ThreadsAdapter(BaseAdapter):
         content_lower = content.lower()
 
         ai_keywords = [
-            "ai", "gpt", "llm", "openai", "anthropic", "claude",
-            "machine learning", "neural", "chatbot", "agent",
-            "deep learning", "transformer", "gemini", "copilot",
+            "ai",
+            "gpt",
+            "llm",
+            "openai",
+            "anthropic",
+            "claude",
+            "machine learning",
+            "neural",
+            "chatbot",
+            "agent",
+            "deep learning",
+            "transformer",
+            "gemini",
+            "copilot",
         ]
         crypto_keywords = [
-            "ethereum", "bitcoin", "defi", "nft", "web3", "blockchain",
-            "token", "crypto", "wallet", "staking", "yield", "airdrop",
-            "solana", "mossland",
+            "ethereum",
+            "bitcoin",
+            "defi",
+            "nft",
+            "web3",
+            "blockchain",
+            "token",
+            "crypto",
+            "wallet",
+            "staking",
+            "yield",
+            "airdrop",
+            "solana",
+            "mossland",
         ]
 
         if any(kw in content_lower for kw in ai_keywords):

@@ -72,8 +72,7 @@ class TestFileUtils:
         """Test reading markdown files with frontmatter."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file_path = Path(tmpdir) / "test.md"
-            file_path.write_text(
-                """---
+            file_path.write_text("""---
 title: Test
 author: me
 ---
@@ -81,8 +80,7 @@ author: me
 # Content
 
 Body text here.
-"""
-            )
+""")
 
             content, metadata = read_markdown(file_path)
 

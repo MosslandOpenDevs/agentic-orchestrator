@@ -17,26 +17,25 @@ import logging
 import os
 import secrets
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, Query, Depends, BackgroundTasks, HTTPException, Header, status
+from typing import Any, Dict, Optional
+
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-from ..db.connection import get_db, Database
+from ..db.connection import get_db
 from ..db.repositories import (
-    SignalRepository,
-    TrendRepository,
-    IdeaRepository,
+    APIUsageRepository,
     DebateRepository,
+    IdeaRepository,
     PlanRepository,
     ProjectRepository,
-    APIUsageRepository,
-    SystemLogRepository,
+    SignalRepository,
+    TrendRepository,
 )
-
 
 app = FastAPI(
     title="MOSS.AO API",
@@ -56,13 +55,12 @@ def get_session():
     finally:
         session.close()
 
+
 # CORS middleware - whitelist via MOSS_CORS_ORIGINS (comma-separated).
 # Defaults restrict to the production domain and local dev frontends.
 _default_origins = "https://ao.moss.land,http://localhost:3000,http://127.0.0.1:3000"
 _cors_origins = [
-    o.strip()
-    for o in os.environ.get("MOSS_CORS_ORIGINS", _default_origins).split(",")
-    if o.strip()
+    o.strip() for o in os.environ.get("MOSS_CORS_ORIGINS", _default_origins).split(",") if o.strip()
 ]
 if "*" in _cors_origins:
     logger.warning(
@@ -100,9 +98,7 @@ def require_api_key(x_api_key: Optional[str] = Header(default=None)) -> None:
     """
     expected = os.environ.get(_API_KEY_ENV)
     if not expected:
-        logger.error(
-            "Mutating endpoint called but %s is not configured.", _API_KEY_ENV
-        )
+        logger.error("Mutating endpoint called but %s is not configured.", _API_KEY_ENV)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="API authentication is not configured on the server.",
@@ -166,20 +162,24 @@ async def health_check():
 @app.get("/status", response_model=StatusResponse)
 async def system_status(session: Session = Depends(get_session)):
     """Get overall system status with real statistics."""
-    from ..db.models import Signal, DebateSession, Idea, Plan
+
     from sqlalchemy import func
-    from datetime import timedelta
+
+    from ..db.models import DebateSession, Idea, Plan, Signal
 
     # Calculate real stats
     today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
-    signals_today = session.query(func.count(Signal.id)).filter(
-        Signal.collected_at >= today
-    ).scalar() or 0
+    signals_today = (
+        session.query(func.count(Signal.id)).filter(Signal.collected_at >= today).scalar() or 0
+    )
 
-    debates_today = session.query(func.count(DebateSession.id)).filter(
-        DebateSession.started_at >= today
-    ).scalar() or 0
+    debates_today = (
+        session.query(func.count(DebateSession.id))
+        .filter(DebateSession.started_at >= today)
+        .scalar()
+        or 0
+    )
 
     total_ideas = session.query(func.count(Idea.id)).scalar() or 0
     total_plans = session.query(func.count(Plan.id)).scalar() or 0
@@ -297,7 +297,7 @@ async def get_debates(
     if status == "active":
         sessions = repo.get_active_sessions()
         total = len(sessions)
-        sessions = sessions[offset:offset + limit]
+        sessions = sessions[offset : offset + limit]
     else:
         total = repo.count_sessions(
             status=status if status != "active" else None,
@@ -364,7 +364,7 @@ async def get_trends(
         total = len(trends)
 
     # Apply offset
-    paginated = trends[offset:offset + limit]
+    paginated = trends[offset : offset + limit]
 
     return {
         "trends": [t.to_dict() for t in paginated],
@@ -395,7 +395,7 @@ async def get_ideas(
         ideas = repo.get_all(limit=limit, offset=offset)
         total = repo.count_all()
 
-    paginated = ideas if status is None else ideas[offset:offset + limit]
+    paginated = ideas if status is None else ideas[offset : offset + limit]
 
     return {
         "ideas": [i.to_dict() for i in paginated],
@@ -426,7 +426,7 @@ async def get_idea_detail(
     # Get source debate session (via FK or metadata for backward compatibility)
     source_debate_id = idea.debate_session_id
     if not source_debate_id and idea.extra_metadata:
-        source_debate_id = idea.extra_metadata.get('debate_session_id')
+        source_debate_id = idea.extra_metadata.get("debate_session_id")
 
     debates = []
     seen_ids = set()
@@ -437,7 +437,7 @@ async def get_idea_detail(
         if source_debate:
             messages = debate_repo.get_session_messages(source_debate_id)
             debate_dict = source_debate.to_dict()
-            debate_dict['messages'] = [m.to_dict() for m in messages]
+            debate_dict["messages"] = [m.to_dict() for m in messages]
             debates.append(debate_dict)
             seen_ids.add(source_debate_id)
 
@@ -447,7 +447,7 @@ async def get_idea_detail(
         if d.id not in seen_ids:
             messages = debate_repo.get_session_messages(d.id)
             debate_dict = d.to_dict()
-            debate_dict['messages'] = [m.to_dict() for m in messages]
+            debate_dict["messages"] = [m.to_dict() for m in messages]
             debates.append(debate_dict)
             seen_ids.add(d.id)
 
@@ -485,20 +485,22 @@ async def get_idea_lineage(
     # Check if idea has source trend info in metadata
     trend_id = None
     if idea.extra_metadata:
-        trend_id = idea.extra_metadata.get('trend_id')
-        source_signal_ids = idea.extra_metadata.get('source_signal_ids', [])
+        trend_id = idea.extra_metadata.get("trend_id")
+        source_signal_ids = idea.extra_metadata.get("source_signal_ids", [])
 
         # Fetch source signals if IDs are stored
         if source_signal_ids:
             for signal_id in source_signal_ids[:10]:  # Limit to 10
                 signal = session.query(Signal).filter(Signal.id == signal_id).first()
                 if signal:
-                    signals.append({
-                        "id": signal.id,
-                        "title": signal.title,
-                        "score": signal.score,
-                        "source": signal.source,
-                    })
+                    signals.append(
+                        {
+                            "id": signal.id,
+                            "title": signal.title,
+                            "score": signal.score,
+                            "source": signal.source,
+                        }
+                    )
 
     # If we have a trend_id, fetch the trend
     if trend_id:
@@ -515,12 +517,13 @@ async def get_idea_lineage(
     if not signals:
         # Search for signals with similar keywords
         keywords = []
-        if idea.extra_metadata and idea.extra_metadata.get('keywords'):
-            keywords = idea.extra_metadata.get('keywords', [])[:5]
+        if idea.extra_metadata and idea.extra_metadata.get("keywords"):
+            keywords = idea.extra_metadata.get("keywords", [])[:5]
 
         if keywords:
-            from sqlalchemy import or_, func
-            keyword_filters = [Signal.title.ilike(f'%{kw}%') for kw in keywords]
+            from sqlalchemy import or_
+
+            keyword_filters = [Signal.title.ilike(f"%{kw}%") for kw in keywords]
             related_signals = (
                 session.query(Signal)
                 .filter(or_(*keyword_filters))
@@ -529,23 +532,24 @@ async def get_idea_lineage(
                 .all()
             )
             for signal in related_signals:
-                signals.append({
-                    "id": signal.id,
-                    "title": signal.title,
-                    "score": signal.score,
-                    "source": signal.source,
-                })
+                signals.append(
+                    {
+                        "id": signal.id,
+                        "title": signal.title,
+                        "score": signal.score,
+                        "source": signal.source,
+                    }
+                )
 
     # If still no trend found, try to find by name similarity
     if not trend and idea.title:
-        from sqlalchemy import func
         # Simple search by title words
         words = idea.title.split()[:3]
         for word in words:
             if len(word) > 4:  # Skip short words
                 found_trend = (
                     session.query(Trend)
-                    .filter(Trend.name.ilike(f'%{word}%'))
+                    .filter(Trend.name.ilike(f"%{word}%"))
                     .order_by(Trend.score.desc())
                     .first()
                 )
@@ -595,7 +599,7 @@ async def get_plans(
     if status:
         plans = repo.get_by_status(status, limit=limit + offset)
         total = repo.count_by_status(status)
-        paginated = plans[offset:offset + limit]
+        paginated = plans[offset : offset + limit]
     else:
         plans = repo.get_all(limit=limit, offset=offset)
         total = repo.count_all()
@@ -626,7 +630,7 @@ async def get_plan_detail(
         "id": plan.id,
         "idea_id": plan.idea_id,
         "title": plan.title,
-        "title_ko": getattr(plan, 'title_ko', None),
+        "title_ko": getattr(plan, "title_ko", None),
         "version": plan.version,
         "status": plan.status,
         "prd_content": plan.prd_content,
@@ -635,7 +639,7 @@ async def get_plan_detail(
         "business_model_content": plan.business_model_content,
         "project_plan_content": plan.project_plan_content,
         "final_plan": plan.final_plan,
-        "final_plan_ko": getattr(plan, 'final_plan_ko', None),
+        "final_plan_ko": getattr(plan, "final_plan_ko", None),
         "github_issue_url": plan.github_issue_url,
         "created_at": plan.created_at.isoformat() if plan.created_at else None,
         "updated_at": plan.updated_at.isoformat() if plan.updated_at else None,
@@ -674,8 +678,9 @@ async def get_activity(
     Generates activity from real data tables (signals, trends, ideas, debates, plans)
     instead of relying on explicit system logs.
     """
-    from ..db.models import Signal, Trend, Idea, DebateSession, Plan
-    from sqlalchemy import desc, union_all, literal
+    from sqlalchemy import desc
+
+    from ..db.models import DebateSession, Idea, Plan, Signal, Trend
 
     activities = []
 
@@ -688,13 +693,19 @@ async def get_activity(
         .all()
     )
     for signal in recent_signals:
-        activities.append({
-            "timestamp": signal.collected_at,
-            "time": signal.collected_at.strftime("%H:%M:%S") if signal.collected_at else "",
-            "type": "trend",  # signals show as 'trend' type for SIGNAL prefix
-            "message": f"Signal collected: {signal.title[:80]}..." if len(signal.title) > 80 else f"Signal collected: {signal.title}",
-            "source": signal.source,
-        })
+        activities.append(
+            {
+                "timestamp": signal.collected_at,
+                "time": signal.collected_at.strftime("%H:%M:%S") if signal.collected_at else "",
+                "type": "trend",  # signals show as 'trend' type for SIGNAL prefix
+                "message": (
+                    f"Signal collected: {signal.title[:80]}..."
+                    if len(signal.title) > 80
+                    else f"Signal collected: {signal.title}"
+                ),
+                "source": signal.source,
+            }
+        )
 
     # Get recent trends
     recent_trends = (
@@ -705,13 +716,19 @@ async def get_activity(
         .all()
     )
     for trend in recent_trends:
-        activities.append({
-            "timestamp": trend.analyzed_at,
-            "time": trend.analyzed_at.strftime("%H:%M:%S") if trend.analyzed_at else "",
-            "type": "trend",
-            "message": f"Trend analyzed: {trend.name[:60]}... (score: {trend.score:.1f})" if len(trend.name) > 60 else f"Trend analyzed: {trend.name} (score: {trend.score:.1f})",
-            "signal_count": trend.signal_count,
-        })
+        activities.append(
+            {
+                "timestamp": trend.analyzed_at,
+                "time": trend.analyzed_at.strftime("%H:%M:%S") if trend.analyzed_at else "",
+                "type": "trend",
+                "message": (
+                    f"Trend analyzed: {trend.name[:60]}... (score: {trend.score:.1f})"
+                    if len(trend.name) > 60
+                    else f"Trend analyzed: {trend.name} (score: {trend.score:.1f})"
+                ),
+                "signal_count": trend.signal_count,
+            }
+        )
 
     # Get recent ideas
     recent_ideas = (
@@ -722,40 +739,51 @@ async def get_activity(
         .all()
     )
     for idea in recent_ideas:
-        status_emoji = {"promoted": "🚀", "scored": "📊", "archived": "📦"}.get(idea.status, "💡")
-        activities.append({
-            "timestamp": idea.created_at,
-            "time": idea.created_at.strftime("%H:%M:%S") if idea.created_at else "",
-            "type": "idea",
-            "message": f"Idea generated [{idea.status}]: {idea.title[:50]}..." if len(idea.title) > 50 else f"Idea generated [{idea.status}]: {idea.title}",
-            "score": idea.score,
-        })
+        {"promoted": "🚀", "scored": "📊", "archived": "📦"}.get(idea.status, "💡")
+        activities.append(
+            {
+                "timestamp": idea.created_at,
+                "time": idea.created_at.strftime("%H:%M:%S") if idea.created_at else "",
+                "type": "idea",
+                "message": (
+                    f"Idea generated [{idea.status}]: {idea.title[:50]}..."
+                    if len(idea.title) > 50
+                    else f"Idea generated [{idea.status}]: {idea.title}"
+                ),
+                "score": idea.score,
+            }
+        )
 
     # Get recent debates
     recent_debates = (
-        session.query(DebateSession)
-        .order_by(desc(DebateSession.started_at))
-        .limit(10)
-        .all()
+        session.query(DebateSession).order_by(desc(DebateSession.started_at)).limit(10).all()
     )
     for debate in recent_debates:
         if debate.started_at:
-            topic_short = (debate.topic[:40] + "...") if debate.topic and len(debate.topic) > 40 else (debate.topic or "Unknown topic")
-            activities.append({
-                "timestamp": debate.started_at,
-                "time": debate.started_at.strftime("%H:%M:%S"),
-                "type": "debate",
-                "message": f"Debate started: {topic_short}",
-                "phase": debate.phase,
-            })
+            topic_short = (
+                (debate.topic[:40] + "...")
+                if debate.topic and len(debate.topic) > 40
+                else (debate.topic or "Unknown topic")
+            )
+            activities.append(
+                {
+                    "timestamp": debate.started_at,
+                    "time": debate.started_at.strftime("%H:%M:%S"),
+                    "type": "debate",
+                    "message": f"Debate started: {topic_short}",
+                    "phase": debate.phase,
+                }
+            )
         if debate.completed_at:
-            activities.append({
-                "timestamp": debate.completed_at,
-                "time": debate.completed_at.strftime("%H:%M:%S"),
-                "type": "debate",
-                "message": f"Debate completed: {debate.status} - {len(debate.ideas_generated or [])} ideas generated",
-                "status": debate.status,
-            })
+            activities.append(
+                {
+                    "timestamp": debate.completed_at,
+                    "time": debate.completed_at.strftime("%H:%M:%S"),
+                    "type": "debate",
+                    "message": f"Debate completed: {debate.status} - {len(debate.ideas_generated or [])} ideas generated",
+                    "status": debate.status,
+                }
+            )
 
     # Get recent plans
     recent_plans = (
@@ -766,13 +794,19 @@ async def get_activity(
         .all()
     )
     for plan in recent_plans:
-        activities.append({
-            "timestamp": plan.created_at,
-            "time": plan.created_at.strftime("%H:%M:%S") if plan.created_at else "",
-            "type": "plan",
-            "message": f"Plan created [{plan.status}]: {plan.title[:50]}..." if len(plan.title) > 50 else f"Plan created [{plan.status}]: {plan.title}",
-            "version": plan.version,
-        })
+        activities.append(
+            {
+                "timestamp": plan.created_at,
+                "time": plan.created_at.strftime("%H:%M:%S") if plan.created_at else "",
+                "type": "plan",
+                "message": (
+                    f"Plan created [{plan.status}]: {plan.title[:50]}..."
+                    if len(plan.title) > 50
+                    else f"Plan created [{plan.status}]: {plan.title}"
+                ),
+                "version": plan.version,
+            }
+        )
 
     # Sort all activities by timestamp descending
     activities.sort(key=lambda x: x.get("timestamp") or datetime.min, reverse=True)
@@ -793,12 +827,19 @@ async def get_activity(
 @app.get("/adapters")
 async def get_adapters():
     """Get detailed signal adapter information."""
+
     from ..adapters import (
-        RSSAdapter, GitHubEventsAdapter, OnChainAdapter,
-        SocialMediaAdapter, NewsAPIAdapter, TwitterAdapter,
-        DiscordAdapter, LensAdapter, FarcasterAdapter, ThreadsAdapter
+        DiscordAdapter,
+        FarcasterAdapter,
+        GitHubEventsAdapter,
+        LensAdapter,
+        NewsAPIAdapter,
+        OnChainAdapter,
+        RSSAdapter,
+        SocialMediaAdapter,
+        ThreadsAdapter,
+        TwitterAdapter,
     )
-    import asyncio
 
     adapters_info = []
 
@@ -885,35 +926,37 @@ async def get_adapters():
             }
 
             # Add adapter-specific details
-            if hasattr(adapter, 'SUBREDDITS'):
+            if hasattr(adapter, "SUBREDDITS"):
                 info["sources"] = adapter.SUBREDDITS
                 info["source_count"] = len(adapter.SUBREDDITS)
-            elif hasattr(adapter, 'TRACKED_ACCOUNTS'):
+            elif hasattr(adapter, "TRACKED_ACCOUNTS"):
                 info["sources"] = adapter.TRACKED_ACCOUNTS
                 info["source_count"] = len(adapter.TRACKED_ACCOUNTS)
-            elif hasattr(adapter, 'TRACKED_PROTOCOLS'):
+            elif hasattr(adapter, "TRACKED_PROTOCOLS"):
                 info["sources"] = adapter.TRACKED_PROTOCOLS
                 info["source_count"] = len(adapter.TRACKED_PROTOCOLS)
-            elif hasattr(adapter, 'TRACKED_PROFILES'):
+            elif hasattr(adapter, "TRACKED_PROFILES"):
                 info["sources"] = adapter.TRACKED_PROFILES
                 info["source_count"] = len(adapter.TRACKED_PROFILES)
-            elif hasattr(adapter, 'TRACKED_USERS'):
+            elif hasattr(adapter, "TRACKED_USERS"):
                 info["sources"] = adapter.TRACKED_USERS
                 info["source_count"] = len(adapter.TRACKED_USERS)
-            elif hasattr(adapter, 'TRACKED_SERVERS'):
+            elif hasattr(adapter, "TRACKED_SERVERS"):
                 info["sources"] = [s["name"] for s in adapter.TRACKED_SERVERS]
                 info["source_count"] = len(adapter.TRACKED_SERVERS)
 
             adapters_info.append(info)
 
         except Exception as e:
-            adapters_info.append({
-                "name": adapter_info["class"].__name__.replace("Adapter", "").lower(),
-                "category": adapter_info["category"],
-                "description": adapter_info["description"],
-                "enabled": False,
-                "error": str(e),
-            })
+            adapters_info.append(
+                {
+                    "name": adapter_info["class"].__name__.replace("Adapter", "").lower(),
+                    "category": adapter_info["category"],
+                    "description": adapter_info["description"],
+                    "enabled": False,
+                    "error": str(e),
+                }
+            )
 
     return {
         "adapters": adapters_info,
@@ -925,7 +968,7 @@ async def get_adapters():
 @app.get("/agents")
 async def get_agents(phase: Optional[str] = None):
     """Get agent personas information."""
-    from ..personas import get_divergence_agents, get_convergence_agents, get_planning_agents
+    from ..personas import get_convergence_agents, get_divergence_agents, get_planning_agents
 
     def agent_to_dict(agent, phase_name: str) -> dict:
         return {
@@ -972,9 +1015,11 @@ async def get_signals_timeline(
 
     Returns hourly counts for 24h or daily counts for 7d period.
     """
-    from ..db.models import Signal
-    from sqlalchemy import func, extract
     from datetime import timedelta
+
+    from sqlalchemy import extract, func
+
+    from ..db.models import Signal
 
     now = datetime.utcnow()
 
@@ -983,11 +1028,11 @@ async def get_signals_timeline(
         start_time = now - timedelta(hours=24)
         results = (
             session.query(
-                extract('hour', Signal.collected_at).label('hour'),
-                func.count(Signal.id).label('count')
+                extract("hour", Signal.collected_at).label("hour"),
+                func.count(Signal.id).label("count"),
             )
             .filter(Signal.collected_at >= start_time)
-            .group_by(extract('hour', Signal.collected_at))
+            .group_by(extract("hour", Signal.collected_at))
             .all()
         )
 
@@ -996,18 +1041,19 @@ async def get_signals_timeline(
         slots = []
         for i in range(24):
             hour = (now.hour - 23 + i) % 24
-            slots.append({
-                "label": f"{hour:02d}:00",
-                "count": hour_counts.get(hour, 0),
-                "hour": hour,
-            })
+            slots.append(
+                {
+                    "label": f"{hour:02d}:00",
+                    "count": hour_counts.get(hour, 0),
+                    "hour": hour,
+                }
+            )
     else:
         # Get daily counts for last 7 days
         start_time = now - timedelta(days=7)
         results = (
             session.query(
-                func.date(Signal.collected_at).label('date'),
-                func.count(Signal.id).label('count')
+                func.date(Signal.collected_at).label("date"), func.count(Signal.id).label("count")
             )
             .filter(Signal.collected_at >= start_time)
             .group_by(func.date(Signal.collected_at))
@@ -1016,17 +1062,19 @@ async def get_signals_timeline(
 
         # Build daily slots
         date_counts = {str(r.date): r.count for r in results}
-        days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         slots = []
         for i in range(7):
-            date = now - timedelta(days=6-i)
-            date_str = date.strftime('%Y-%m-%d')
-            slots.append({
-                "label": days[date.weekday()],
-                "count": date_counts.get(date_str, 0),
-            })
+            date = now - timedelta(days=6 - i)
+            date_str = date.strftime("%Y-%m-%d")
+            slots.append(
+                {
+                    "label": days[date.weekday()],
+                    "count": date_counts.get(date_str, 0),
+                }
+            )
 
-    total = sum(s['count'] for s in slots)
+    total = sum(s["count"] for s in slots)
 
     return {
         "slots": slots,
@@ -1046,14 +1094,16 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
         - processing: Currently processing items
         - rates: Hourly/daily generation rates
     """
-    from ..db.models import Signal, Trend, Idea, DebateSession, Plan, Project
-    from sqlalchemy import func, desc
     from datetime import timedelta
+
+    from sqlalchemy import desc, func
+
+    from ..db.models import DebateSession, Idea, Plan, Project, Signal, Trend
 
     now = datetime.utcnow()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     last_hour = now - timedelta(hours=1)
-    last_24h = now - timedelta(hours=24)
+    now - timedelta(hours=24)
     last_7d = now - timedelta(days=7)
 
     # Get counts for each stage
@@ -1064,25 +1114,23 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
     total_projects = session.query(func.count(Project.id)).scalar() or 0
 
     # Get hourly rates
-    signals_last_hour = session.query(func.count(Signal.id)).filter(
-        Signal.collected_at >= last_hour
-    ).scalar() or 0
+    signals_last_hour = (
+        session.query(func.count(Signal.id)).filter(Signal.collected_at >= last_hour).scalar() or 0
+    )
 
-    trends_today = session.query(func.count(Trend.id)).filter(
-        Trend.analyzed_at >= today
-    ).scalar() or 0
+    trends_today = (
+        session.query(func.count(Trend.id)).filter(Trend.analyzed_at >= today).scalar() or 0
+    )
 
-    ideas_today = session.query(func.count(Idea.id)).filter(
-        Idea.created_at >= today
-    ).scalar() or 0
+    ideas_today = session.query(func.count(Idea.id)).filter(Idea.created_at >= today).scalar() or 0
 
-    plans_last_7d = session.query(func.count(Plan.id)).filter(
-        Plan.created_at >= last_7d
-    ).scalar() or 0
+    plans_last_7d = (
+        session.query(func.count(Plan.id)).filter(Plan.created_at >= last_7d).scalar() or 0
+    )
 
-    projects_last_7d = session.query(func.count(Project.id)).filter(
-        Project.created_at >= last_7d
-    ).scalar() or 0
+    projects_last_7d = (
+        session.query(func.count(Project.id)).filter(Project.created_at >= last_7d).scalar() or 0
+    )
 
     # Calculate conversion rates
     signals_to_trends = (total_trends / total_signals * 100) if total_signals > 0 else 0
@@ -1102,13 +1150,17 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
         .all()
     )
     for signal in recent_signals:
-        minutes_ago = int((now - signal.collected_at).total_seconds() / 60) if signal.collected_at else 0
-        processing.append({
-            "type": "SIGNAL",
-            "title": signal.title[:60] + "..." if len(signal.title) > 60 else signal.title,
-            "time_ago": f"{minutes_ago}m ago" if minutes_ago > 0 else "just now",
-            "source": signal.source,
-        })
+        minutes_ago = (
+            int((now - signal.collected_at).total_seconds() / 60) if signal.collected_at else 0
+        )
+        processing.append(
+            {
+                "type": "SIGNAL",
+                "title": signal.title[:60] + "..." if len(signal.title) > 60 else signal.title,
+                "time_ago": f"{minutes_ago}m ago" if minutes_ago > 0 else "just now",
+                "source": signal.source,
+            }
+        )
 
     # Active debates
     active_debates = (
@@ -1119,13 +1171,19 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
         .all()
     )
     for debate in active_debates:
-        topic_short = (debate.topic[:50] + "...") if debate.topic and len(debate.topic) > 50 else (debate.topic or "Unknown")
-        processing.append({
-            "type": "DEBATE",
-            "title": topic_short,
-            "time_ago": f"R{debate.round_number}/{debate.max_rounds}",
-            "phase": debate.phase,
-        })
+        topic_short = (
+            (debate.topic[:50] + "...")
+            if debate.topic and len(debate.topic) > 50
+            else (debate.topic or "Unknown")
+        )
+        processing.append(
+            {
+                "type": "DEBATE",
+                "title": topic_short,
+                "time_ago": f"R{debate.round_number}/{debate.max_rounds}",
+                "phase": debate.phase,
+            }
+        )
 
     # Recent trends being analyzed (last 30 minutes)
     recent_trends = (
@@ -1136,13 +1194,17 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
         .all()
     )
     for trend in recent_trends:
-        minutes_ago = int((now - trend.analyzed_at).total_seconds() / 60) if trend.analyzed_at else 0
-        processing.append({
-            "type": "TREND",
-            "title": trend.name[:50] + "..." if len(trend.name) > 50 else trend.name,
-            "time_ago": f"{minutes_ago}m ago",
-            "score": trend.score,
-        })
+        minutes_ago = (
+            int((now - trend.analyzed_at).total_seconds() / 60) if trend.analyzed_at else 0
+        )
+        processing.append(
+            {
+                "type": "TREND",
+                "title": trend.name[:50] + "..." if len(trend.name) > 50 else trend.name,
+                "time_ago": f"{minutes_ago}m ago",
+                "score": trend.score,
+            }
+        )
 
     # Projects being generated
     generating_projects = (
@@ -1153,12 +1215,14 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
         .all()
     )
     for proj in generating_projects:
-        processing.append({
-            "type": "PROJECT",
-            "title": proj.name[:50] + "..." if len(proj.name) > 50 else proj.name,
-            "time_ago": "generating",
-            "status": proj.status,
-        })
+        processing.append(
+            {
+                "type": "PROJECT",
+                "title": proj.name[:50] + "..." if len(proj.name) > 50 else proj.name,
+                "time_ago": "generating",
+                "status": proj.status,
+            }
+        )
 
     return {
         "stages": {
@@ -1185,7 +1249,11 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
             "projects": {
                 "count": total_projects,
                 "rate": f"+{projects_last_7d}/wk",
-                "status": "active" if any(p.status == "generating" for p in generating_projects) else ("idle" if projects_last_7d == 0 else "completed"),
+                "status": (
+                    "active"
+                    if any(p.status == "generating" for p in generating_projects)
+                    else ("idle" if projects_last_7d == 0 else "completed")
+                ),
             },
         },
         "conversion_rates": {
@@ -1236,6 +1304,7 @@ from pathlib import Path as _Path
 
 _JOBS_FILE = _Path(__file__).parent.parent.parent.parent / "data" / "project_jobs.json"
 
+
 def _load_jobs() -> Dict[str, Dict[str, Any]]:
     """Load jobs from disk."""
     try:
@@ -1245,6 +1314,7 @@ def _load_jobs() -> Dict[str, Dict[str, Any]]:
         pass
     return {}
 
+
 def _save_jobs():
     """Persist jobs to disk."""
     try:
@@ -1253,16 +1323,19 @@ def _save_jobs():
     except Exception:
         pass
 
+
 _project_jobs: Dict[str, Dict[str, Any]] = _load_jobs()
 
 
 class GenerateProjectRequest(BaseModel):
     """Request body for project generation."""
+
     force_regenerate: bool = False
 
 
 class GenerateProjectResponse(BaseModel):
     """Response for project generation trigger."""
+
     job_id: str
     status: str
     message: str
@@ -1274,10 +1347,9 @@ async def _generate_project_task(
     force_regenerate: bool,
 ):
     """Background task for project generation."""
-    import asyncio
+    from ..db import get_database
     from ..llm import HybridLLMRouter
     from ..project import ProjectScaffold
-    from ..db import get_database
 
     _project_jobs[job_id]["status"] = "in_progress"
     _project_jobs[job_id]["started_at"] = datetime.utcnow().isoformat()
@@ -1342,7 +1414,7 @@ async def generate_project(
     if plan.status != "approved" and not request.force_regenerate:
         raise HTTPException(
             status_code=400,
-            detail=f"Plan must be approved for project generation. Current status: {plan.status}"
+            detail=f"Plan must be approved for project generation. Current status: {plan.status}",
         )
 
     # Check if project already exists
@@ -1353,7 +1425,7 @@ async def generate_project(
         return GenerateProjectResponse(
             job_id="",
             status="exists",
-            message=f"Project already exists. Use force_regenerate=true to regenerate.",
+            message="Project already exists. Use force_regenerate=true to regenerate.",
         )
 
     if existing and existing.status == "generating":
@@ -1385,6 +1457,7 @@ async def generate_project(
     else:
         # Fallback: run synchronously (for testing)
         import asyncio
+
         asyncio.create_task(_generate_project_task(job_id, plan_id, request.force_regenerate))
 
     return GenerateProjectResponse(
@@ -1416,7 +1489,7 @@ async def get_projects(
     if status:
         projects = repo.get_by_status(status, limit=limit + offset)
         total = repo.count_by_status(status)
-        paginated = projects[offset:offset + limit]
+        paginated = projects[offset : offset + limit]
     else:
         projects = repo.get_all(limit=limit, offset=offset)
         total = repo.count_all()
@@ -1477,11 +1550,13 @@ async def get_plan_project(
 
 class ApprovePlanRequest(BaseModel):
     """Request body for plan approval."""
+
     generate_project: bool = False  # If True, also trigger project generation
 
 
 class ApprovePlanResponse(BaseModel):
     """Response for plan approval."""
+
     plan_id: str
     status: str
     message: str
@@ -1532,11 +1607,10 @@ async def approve_plan(
                     "created_at": datetime.utcnow().isoformat(),
                 }
                 if background_tasks:
-                    background_tasks.add_task(
-                        _generate_project_task, job_id, plan_id, False
-                    )
+                    background_tasks.add_task(_generate_project_task, job_id, plan_id, False)
                 else:
                     import asyncio
+
                     asyncio.create_task(_generate_project_task(job_id, plan_id, False))
                 return ApprovePlanResponse(
                     plan_id=plan_id,
@@ -1559,7 +1633,7 @@ async def approve_plan(
     session.commit()
 
     job_id = None
-    message = f"Plan approved successfully."
+    message = "Plan approved successfully."
 
     # Optionally generate project
     if request.generate_project:
@@ -1571,11 +1645,10 @@ async def approve_plan(
             "created_at": datetime.utcnow().isoformat(),
         }
         if background_tasks:
-            background_tasks.add_task(
-                _generate_project_task, job_id, plan_id, False
-            )
+            background_tasks.add_task(_generate_project_task, job_id, plan_id, False)
         else:
             import asyncio
+
             asyncio.create_task(_generate_project_task(job_id, plan_id, False))
         message = "Plan approved and project generation started."
 

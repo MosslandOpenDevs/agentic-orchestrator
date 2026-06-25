@@ -8,13 +8,13 @@ import asyncio
 import logging
 import sys
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import List, Optional
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
@@ -79,13 +79,13 @@ def _apply_time_decay_to_signals(signals: List, now: datetime = None) -> List:
         decay = _calculate_time_decay(collected_at, now)
 
         # Store decay factor in metadata if possible
-        if hasattr(signal, 'metadata') and isinstance(signal.metadata, dict):
-            signal.metadata['time_decay'] = decay
-        elif hasattr(signal, 'extra_metadata') and isinstance(signal.extra_metadata, dict):
-            signal.extra_metadata['time_decay'] = decay
+        if hasattr(signal, "metadata") and isinstance(signal.metadata, dict):
+            signal.metadata["time_decay"] = decay
+        elif hasattr(signal, "extra_metadata") and isinstance(signal.extra_metadata, dict):
+            signal.extra_metadata["time_decay"] = decay
 
         # Apply decay to score if it exists
-        if hasattr(signal, 'score') and signal.score is not None:
+        if hasattr(signal, "score") and signal.score is not None:
             original_score = signal.score
             signal.score = original_score * decay
 
@@ -167,10 +167,11 @@ def signal_collect():
 async def _analyze_trends_async():
     """Async implementation of trend analysis from signals."""
     import uuid
+
+    from ..db import SignalRepository, TrendRepository, get_database
+    from ..llm import HybridLLMRouter
     from ..trends import TrendAnalyzer
     from ..trends.models import FeedItem
-    from ..llm import HybridLLMRouter
-    from ..db import get_database, TrendRepository, SignalRepository
 
     logger.info("=" * 60)
     logger.info("Starting trend analysis cycle")
@@ -197,11 +198,12 @@ async def _analyze_trends_async():
         logger.info(f"Fetched {len(raw_signals)} candidate signals; diversifying by source")
 
         from collections import defaultdict, deque
+
         by_source: "defaultdict[str, deque]" = defaultdict(deque)
         for s in raw_signals:
-            by_source[s.source or 'unknown'].append(s)
+            by_source[s.source or "unknown"].append(s)
 
-        TARGET_BATCH = 200
+        TARGET_BATCH = 200  # noqa: N806  (constant-like local)
         signals = []
         # Round-robin until we hit the target or every queue empties.
         active_sources = list(by_source.keys())
@@ -214,7 +216,9 @@ async def _analyze_trends_async():
                 if len(signals) >= TARGET_BATCH:
                     break
 
-        source_mix = {src: sum(1 for s in signals if (s.source or 'unknown') == src) for src in by_source}
+        source_mix = {
+            src: sum(1 for s in signals if (s.source or "unknown") == src) for src in by_source
+        }
         logger.info(f"Diversified batch source mix: {source_mix}")
 
         if not signals:
@@ -227,30 +231,36 @@ async def _analyze_trends_async():
         logger.info(f"Applied time decay to {len(signals)} signals")
 
         # Log decay distribution
-        decay_buckets = {'fresh': 0, 'recent': 0, 'moderate': 0, 'old': 0}
+        decay_buckets = {"fresh": 0, "recent": 0, "moderate": 0, "old": 0}
         for s in signals:
-            decay = s.metadata.get('time_decay', 1.0) if hasattr(s, 'metadata') and isinstance(s.metadata, dict) else 1.0
+            decay = (
+                s.metadata.get("time_decay", 1.0)
+                if hasattr(s, "metadata") and isinstance(s.metadata, dict)
+                else 1.0
+            )
             if decay >= 0.9:
-                decay_buckets['fresh'] += 1
+                decay_buckets["fresh"] += 1
             elif decay >= 0.6:
-                decay_buckets['recent'] += 1
+                decay_buckets["recent"] += 1
             elif decay >= 0.4:
-                decay_buckets['moderate'] += 1
+                decay_buckets["moderate"] += 1
             else:
-                decay_buckets['old'] += 1
+                decay_buckets["old"] += 1
         logger.info(f"Signal freshness: {decay_buckets}")
 
         # Convert signals to FeedItem format
         feed_items = []
         for s in signals:
-            feed_items.append(FeedItem(
-                title=s.title or "",
-                link=s.url or "",
-                summary=s.summary or "",
-                source=s.source or "unknown",
-                category=s.category or "other",
-                published=s.collected_at or datetime.utcnow(),
-            ))
+            feed_items.append(
+                FeedItem(
+                    title=s.title or "",
+                    link=s.url or "",
+                    summary=s.summary or "",
+                    source=s.source or "unknown",
+                    category=s.category or "other",
+                    published=s.collected_at or datetime.utcnow(),
+                )
+            )
 
         logger.info(f"Converted {len(feed_items)} signals to FeedItems")
 
@@ -266,25 +276,27 @@ async def _analyze_trends_async():
                 name_en, name_ko = await _ensure_bilingual(trend.topic)
                 desc_en, description_ko = await _ensure_bilingual(trend.summary)
 
-                trend_repo.create({
-                    'id': str(uuid.uuid4())[:8],
-                    'period': trend.time_period,
-                    'name': name_en or trend.topic,
-                    'name_ko': name_ko,
-                    'description': desc_en or trend.summary,
-                    'description_ko': description_ko,
-                    'score': trend.score,
-                    'signal_count': trend.article_count,
-                    'category': trend.category,
-                    'keywords': trend.keywords,
-                    'analysis_data': {
-                        'web3_relevance': trend.web3_relevance,
-                        'idea_seeds': trend.idea_seeds,
-                        'sources': trend.sources,
-                        'sample_headlines': trend.sample_headlines,
-                    },
-                    'analyzed_at': datetime.utcnow(),
-                })
+                trend_repo.create(
+                    {
+                        "id": str(uuid.uuid4())[:8],
+                        "period": trend.time_period,
+                        "name": name_en or trend.topic,
+                        "name_ko": name_ko,
+                        "description": desc_en or trend.summary,
+                        "description_ko": description_ko,
+                        "score": trend.score,
+                        "signal_count": trend.article_count,
+                        "category": trend.category,
+                        "keywords": trend.keywords,
+                        "analysis_data": {
+                            "web3_relevance": trend.web3_relevance,
+                            "idea_seeds": trend.idea_seeds,
+                            "sources": trend.sources,
+                            "sample_headlines": trend.sample_headlines,
+                        },
+                        "analyzed_at": datetime.utcnow(),
+                    }
+                )
                 saved_count += 1
             except Exception as e:
                 logger.warning(f"Failed to save trend '{trend.topic}': {e}")
@@ -316,63 +328,121 @@ def _generate_debate_topic(signals: list) -> str:
 
     # Category keywords for topic generation with action verbs
     category_themes = {
-        'defi': {
-            'name': 'DeFi',
-            'keywords': ['tvl', 'yield', 'liquidity', 'swap', 'lending', 'aave', 'uniswap', 'compound', 'curve', 'staking', 'protocol'],
-            'actions': ['수익률 최적화', '유동성 공급', '프로토콜 통합', '리스크 관리']
+        "defi": {
+            "name": "DeFi",
+            "keywords": [
+                "tvl",
+                "yield",
+                "liquidity",
+                "swap",
+                "lending",
+                "aave",
+                "uniswap",
+                "compound",
+                "curve",
+                "staking",
+                "protocol",
+            ],
+            "actions": ["수익률 최적화", "유동성 공급", "프로토콜 통합", "리스크 관리"],
         },
-        'nft': {
-            'name': 'NFT/메타버스',
-            'keywords': ['nft', 'metaverse', 'opensea', 'blur', 'collection', 'mint', 'digital asset', 'virtual'],
-            'actions': ['자산 가치화', 'NFT 유틸리티 확장', '메타버스 연동', '크리에이터 경제']
+        "nft": {
+            "name": "NFT/메타버스",
+            "keywords": [
+                "nft",
+                "metaverse",
+                "opensea",
+                "blur",
+                "collection",
+                "mint",
+                "digital asset",
+                "virtual",
+            ],
+            "actions": ["자산 가치화", "NFT 유틸리티 확장", "메타버스 연동", "크리에이터 경제"],
         },
-        'market': {
-            'name': '시장 분석',
-            'keywords': ['price', 'bitcoin', 'btc', 'eth', 'market', 'trading', 'volume', 'bull', 'bear'],
-            'actions': ['투자 전략', '시장 대응', '포트폴리오 최적화', '리스크 헤지']
+        "market": {
+            "name": "시장 분석",
+            "keywords": [
+                "price",
+                "bitcoin",
+                "btc",
+                "eth",
+                "market",
+                "trading",
+                "volume",
+                "bull",
+                "bear",
+            ],
+            "actions": ["투자 전략", "시장 대응", "포트폴리오 최적화", "리스크 헤지"],
         },
-        'regulation': {
-            'name': '규제/컴플라이언스',
-            'keywords': ['regulation', 'sec', 'law', 'policy', 'government', 'ban', 'legal', 'compliance'],
-            'actions': ['규제 대응', '컴플라이언스 강화', '리스크 완화', '투명성 확보']
+        "regulation": {
+            "name": "규제/컴플라이언스",
+            "keywords": [
+                "regulation",
+                "sec",
+                "law",
+                "policy",
+                "government",
+                "ban",
+                "legal",
+                "compliance",
+            ],
+            "actions": ["규제 대응", "컴플라이언스 강화", "리스크 완화", "투명성 확보"],
         },
-        'gaming': {
-            'name': '게임/GameFi',
-            'keywords': ['game', 'gaming', 'play', 'p2e', 'earn', 'esports', 'player'],
-            'actions': ['P2E 모델 혁신', '게임 이코노미 설계', '사용자 경험 개선', '커뮤니티 성장']
+        "gaming": {
+            "name": "게임/GameFi",
+            "keywords": ["game", "gaming", "play", "p2e", "earn", "esports", "player"],
+            "actions": ["P2E 모델 혁신", "게임 이코노미 설계", "사용자 경험 개선", "커뮤니티 성장"],
         },
-        'ai': {
-            'name': 'AI/자동화',
-            'keywords': ['ai', 'artificial', 'machine', 'learning', 'gpt', 'llm', 'agent', 'automation', 'model'],
-            'actions': ['AI 에이전트 개발', '자동화 시스템 구축', '지능형 서비스', '데이터 분석']
+        "ai": {
+            "name": "AI/자동화",
+            "keywords": [
+                "ai",
+                "artificial",
+                "machine",
+                "learning",
+                "gpt",
+                "llm",
+                "agent",
+                "automation",
+                "model",
+            ],
+            "actions": ["AI 에이전트 개발", "자동화 시스템 구축", "지능형 서비스", "데이터 분석"],
         },
-        'dao': {
-            'name': 'DAO/거버넌스',
-            'keywords': ['dao', 'governance', 'vote', 'proposal', 'treasury', 'community', 'decentralized'],
-            'actions': ['거버넌스 개선', '커뮤니티 참여 확대', '의사결정 최적화', '투명성 강화']
+        "dao": {
+            "name": "DAO/거버넌스",
+            "keywords": [
+                "dao",
+                "governance",
+                "vote",
+                "proposal",
+                "treasury",
+                "community",
+                "decentralized",
+            ],
+            "actions": ["거버넌스 개선", "커뮤니티 참여 확대", "의사결정 최적화", "투명성 강화"],
         },
-        'security': {
-            'name': '보안',
-            'keywords': ['security', 'hack', 'exploit', 'audit', 'vulnerability', 'protection'],
-            'actions': ['보안 강화', '스마트 컨트랙트 감사', '위협 탐지', '자산 보호']
+        "security": {
+            "name": "보안",
+            "keywords": ["security", "hack", "exploit", "audit", "vulnerability", "protection"],
+            "actions": ["보안 강화", "스마트 컨트랙트 감사", "위협 탐지", "자산 보호"],
         },
     }
 
     # Collect all text for analysis
-    all_text = ' '.join([s.title.lower() for s in signals if s.title])
+    all_text = " ".join([s.title.lower() for s in signals if s.title])
 
     # Find dominant theme with scoring
     theme_scores = {}
     for theme_key, theme_data in category_themes.items():
-        score = sum(1 for kw in theme_data['keywords'] if kw in all_text)
+        score = sum(1 for kw in theme_data["keywords"] if kw in all_text)
         if score > 0:
             theme_scores[theme_key] = (theme_data, score)
 
     # Get top theme
     if theme_scores:
         top_theme_key, (theme_data, _) = max(theme_scores.items(), key=lambda x: x[1][1])
-        theme_name = theme_data['name']
-        action = theme_data['actions'][0]  # Primary action
+        theme_name = theme_data["name"]
+        action = theme_data["actions"][0]  # Primary action
 
         # Extract key entity from highest scored signal
         top_signal = signals[0]
@@ -380,30 +450,37 @@ def _generate_debate_topic(signals: list) -> str:
         # Extract meaningful phrases
         title = top_signal.title or ""
         # Remove common prefixes and get core content
-        title_clean = title.replace(':', ' - ').replace('|', ' - ')
-        title_parts = [p.strip() for p in title_clean.split(' - ') if len(p.strip()) > 5]
+        title_clean = title.replace(":", " - ").replace("|", " - ")
+        title_parts = [p.strip() for p in title_clean.split(" - ") if len(p.strip()) > 5]
 
         if title_parts:
             # Use the most informative part
-            key_entity = max(title_parts[:2], key=len)[:60] if title_parts else ''
+            key_entity = max(title_parts[:2], key=len)[:60] if title_parts else ""
 
             # Generate descriptive topic
-            return f"[{theme_name}] {key_entity}에 대한 Mossland의 {action} 전략 및 구체적 실행 방안"
+            return (
+                f"[{theme_name}] {key_entity}에 대한 Mossland의 {action} 전략 및 구체적 실행 방안"
+            )
         else:
             return f"[{theme_name}] 최신 트렌드 기반 Mossland {action} 전략 - MVP 개발 방향 논의"
 
     # Fallback: use top signal's source and create actionable topic
     top_signal = signals[0]
-    source = getattr(top_signal, 'source', 'MARKET').upper() if hasattr(top_signal, 'source') else 'MARKET'
-    title_short = (top_signal.title or '시장 동향')[:50]
+    source = (
+        getattr(top_signal, "source", "MARKET").upper()
+        if hasattr(top_signal, "source")
+        else "MARKET"
+    )
+    title_short = (top_signal.title or "시장 동향")[:50]
 
     return f"[{source}] {title_short} - Mossland 생태계 연동 및 신규 서비스 개발 방안"
 
 
 def _load_backlog_config() -> dict:
     """Load backlog-control settings (idea de-duplication + GitHub issue cap)."""
-    import yaml
     from pathlib import Path
+
+    import yaml
 
     defaults = {
         "dedup_enabled": True,
@@ -432,10 +509,10 @@ def _idea_title_fingerprint(title: str, prefix_tokens: int = 6) -> str:
     """
     import re
 
-    text = re.sub(r'^\s*\[(idea|plan)\]\s*', '', (title or '').lower())
-    text = re.sub(r'[^a-z0-9가-힣]+', ' ', text).strip()
+    text = re.sub(r"^\s*\[(idea|plan)\]\s*", "", (title or "").lower())
+    text = re.sub(r"[^a-z0-9가-힣]+", " ", text).strip()
     tokens = text.split()
-    return ' '.join(tokens[:prefix_tokens])
+    return " ".join(tokens[:prefix_tokens])
 
 
 async def _auto_score_and_save_ideas(
@@ -470,8 +547,9 @@ async def _auto_score_and_save_ideas(
         max_per_cycle: Maximum ideas to promote per cycle
     """
     import uuid
-    from ..scoring import IdeaScorer
+
     from ..db import IdeaRepository, PlanRepository
+    from ..scoring import IdeaScorer
     from ..translation import ContentTranslator
 
     logger.info("=" * 40)
@@ -519,6 +597,7 @@ async def _auto_score_and_save_ideas(
     github_client = None
     try:
         from ..github_client import GitHubClient, Labels
+
         github_client = GitHubClient()
         logger.info("GitHub integration enabled")
     except Exception as e:
@@ -531,8 +610,8 @@ async def _auto_score_and_save_ideas(
     for idea in ideas:
         try:
             # Build idea content string
-            idea_title = getattr(idea, 'title', str(idea)[:100])
-            idea_content = getattr(idea, 'content', getattr(idea, 'description', str(idea)))
+            idea_title = getattr(idea, "title", str(idea)[:100])
+            idea_content = getattr(idea, "content", getattr(idea, "description", str(idea)))
             idea_summary = idea_content[:500] if idea_content else idea_title
 
             # De-duplicate: skip ideas whose title fingerprint already exists in
@@ -554,18 +633,18 @@ async def _auto_score_and_save_ideas(
 
             # Create idea in database
             idea_id = str(uuid.uuid4())[:8]
-            status = 'pending'
+            status = "pending"
 
-            if decision == 'promote' and promoted_count < max_per_cycle:
-                status = 'promoted'
+            if decision == "promote" and promoted_count < max_per_cycle:
+                status = "promoted"
                 promoted_count += 1
                 logger.info(f"Auto-promoting: {idea_title[:50]}... (score: {score.total:.1f})")
-            elif decision == 'archive':
-                status = 'archived'
+            elif decision == "archive":
+                status = "archived"
                 archived_count += 1
                 logger.info(f"Archived: {idea_title[:50]}... (score: {score.total:.1f})")
             else:
-                status = 'scored'
+                status = "scored"
                 pending_count += 1
                 logger.info(f"Scored (pending): {idea_title[:50]}... (score: {score.total:.1f})")
 
@@ -597,10 +676,10 @@ async def _auto_score_and_save_ideas(
 """
                     # Determine labels based on status
                     issue_labels = [Labels.TYPE_IDEA, Labels.GENERATED_BY_ORCHESTRATOR]
-                    if status == 'promoted':
+                    if status == "promoted":
                         issue_labels.append(Labels.PROMOTE_TO_PLAN)
-                    elif status == 'archived':
-                        issue_labels.append('archived')
+                    elif status == "archived":
+                        issue_labels.append("archived")
                     else:
                         issue_labels.append(Labels.STATUS_BACKLOG)
 
@@ -611,7 +690,9 @@ async def _auto_score_and_save_ideas(
                     )
                     github_issue_url = issue.html_url
                     github_issue_id = issue.number
-                    logger.info(f"Created GitHub Issue #{issue.number} for idea: {idea_title[:50]}...")
+                    logger.info(
+                        f"Created GitHub Issue #{issue.number} for idea: {idea_title[:50]}..."
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to create GitHub Issue for idea: {e}")
 
@@ -633,28 +714,30 @@ async def _auto_score_and_save_ideas(
                 desc_en, desc_ko = idea_content, idea_content
 
             # Save idea to database (main fields: English, *_ko fields: Korean)
-            db_idea = idea_repo.create({
-                'id': idea_id,
-                'title': title_en or idea_title[:500],
-                'title_ko': title_ko or idea_title[:500],
-                'summary': summary_en or idea_summary,
-                'summary_ko': summary_ko or idea_summary,
-                'description': desc_en or idea_content,
-                'description_ko': desc_ko or idea_content,
-                'source_type': 'debate',
-                'debate_session_id': debate_session_id,
-                'status': status,
-                'score': score.total,
-                'github_issue_id': github_issue_id,
-                'github_issue_url': github_issue_url,
-                'extra_metadata': {
-                    'auto_score': score.to_dict(),
-                    'debate_topic': topic,
-                },
-            })
+            idea_repo.create(
+                {
+                    "id": idea_id,
+                    "title": title_en or idea_title[:500],
+                    "title_ko": title_ko or idea_title[:500],
+                    "summary": summary_en or idea_summary,
+                    "summary_ko": summary_ko or idea_summary,
+                    "description": desc_en or idea_content,
+                    "description_ko": desc_ko or idea_content,
+                    "source_type": "debate",
+                    "debate_session_id": debate_session_id,
+                    "status": status,
+                    "score": score.total,
+                    "github_issue_id": github_issue_id,
+                    "github_issue_url": github_issue_url,
+                    "extra_metadata": {
+                        "auto_score": score.to_dict(),
+                        "debate_topic": topic,
+                    },
+                }
+            )
 
             # If promoted, create a draft plan
-            if status == 'promoted':
+            if status == "promoted":
                 plan_github_url = None
                 plan_github_id = None
 
@@ -676,7 +759,11 @@ async def _auto_score_and_save_ideas(
 ---
 *Auto-generated by MOSS.AO Orchestrator*
 """
-                        plan_labels = [Labels.TYPE_PLAN, Labels.GENERATED_BY_ORCHESTRATOR, Labels.STATUS_BACKLOG]
+                        plan_labels = [
+                            Labels.TYPE_PLAN,
+                            Labels.GENERATED_BY_ORCHESTRATOR,
+                            Labels.STATUS_BACKLOG,
+                        ]
                         plan_issue = github_client.create_issue(
                             title=f"[Plan] {idea_title[:100]}",
                             body=plan_body,
@@ -692,7 +779,9 @@ async def _auto_score_and_save_ideas(
                     # Translate plan title (bilingual)
                     plan_title_original = f"Plan: {idea_title[:200]}"
                     try:
-                        plan_title_en, plan_title_ko = await translator.ensure_bilingual(plan_title_original)
+                        plan_title_en, plan_title_ko = await translator.ensure_bilingual(
+                            plan_title_original
+                        )
                     except Exception as e:
                         logger.warning(f"Plan title translation failed: {e}")
                         plan_title_en, plan_title_ko = plan_title_original, plan_title_original
@@ -702,44 +791,56 @@ async def _auto_score_and_save_ideas(
                     # Determine plan status based on score
                     # High-scoring plans (>= 8.0) are auto-approved for project generation
                     project_config = _load_project_config()
-                    auto_gen_min_score = project_config.get("auto_generate", {}).get("min_score", 8.0)
-                    plan_status = 'approved' if score.total >= auto_gen_min_score else 'draft'
+                    auto_gen_min_score = project_config.get("auto_generate", {}).get(
+                        "min_score", 8.0
+                    )
+                    plan_status = "approved" if score.total >= auto_gen_min_score else "draft"
 
                     # Translate final_plan content if available
                     plan_final_content_en = final_plan_content
                     plan_final_content_ko = None
                     if final_plan_content:
                         try:
-                            plan_final_content_en, plan_final_content_ko = await translator.ensure_bilingual(final_plan_content)
+                            plan_final_content_en, plan_final_content_ko = (
+                                await translator.ensure_bilingual(final_plan_content)
+                            )
                         except Exception as e:
                             logger.warning(f"Final plan translation failed: {e}")
                             plan_final_content_en = final_plan_content
 
-                    plan_repo.create({
-                        'id': plan_id,
-                        'idea_id': idea_id,
-                        'debate_session_id': debate_session_id,
-                        'title': plan_title_en or plan_title_original,
-                        'title_ko': plan_title_ko or plan_title_original,
-                        'version': 1,
-                        'status': plan_status,
-                        'final_plan': plan_final_content_en,
-                        'final_plan_ko': plan_final_content_ko,
-                        'github_issue_id': plan_github_id,
-                        'github_issue_url': plan_github_url,
-                        'extra_metadata': {
-                            'auto_promoted': True,
-                            'promotion_score': score.total,
-                            'auto_approved': plan_status == 'approved',
-                        },
-                    })
-                    logger.info(f"Created {plan_status} plan for promoted idea: {idea_id} (score: {score.total:.1f})")
+                    plan_repo.create(
+                        {
+                            "id": plan_id,
+                            "idea_id": idea_id,
+                            "debate_session_id": debate_session_id,
+                            "title": plan_title_en or plan_title_original,
+                            "title_ko": plan_title_ko or plan_title_original,
+                            "version": 1,
+                            "status": plan_status,
+                            "final_plan": plan_final_content_en,
+                            "final_plan_ko": plan_final_content_ko,
+                            "github_issue_id": plan_github_id,
+                            "github_issue_url": plan_github_url,
+                            "extra_metadata": {
+                                "auto_promoted": True,
+                                "promotion_score": score.total,
+                                "auto_approved": plan_status == "approved",
+                            },
+                        }
+                    )
+                    logger.info(
+                        f"Created {plan_status} plan for promoted idea: {idea_id} (score: {score.total:.1f})"
+                    )
                     if plan_final_content_en:
-                        logger.info(f"Plan includes final_plan content: {len(plan_final_content_en)} chars")
+                        logger.info(
+                            f"Plan includes final_plan content: {len(plan_final_content_en)} chars"
+                        )
 
                     # Auto-generate project for high-scoring plans
-                    if plan_status == 'approved':
-                        logger.info(f"Plan score {score.total:.1f} >= {auto_gen_min_score}, triggering auto project generation")
+                    if plan_status == "approved":
+                        logger.info(
+                            f"Plan score {score.total:.1f} >= {auto_gen_min_score}, triggering auto project generation"
+                        )
                         try:
                             await _auto_generate_project(
                                 plan_id=plan_id,
@@ -748,7 +849,9 @@ async def _auto_score_and_save_ideas(
                                 db_session=db_session,
                             )
                         except Exception as e:
-                            logger.warning(f"Auto project generation failed for plan {plan_id}: {e}")
+                            logger.warning(
+                                f"Auto project generation failed for plan {plan_id}: {e}"
+                            )
                             # Don't fail the whole process if project generation fails
 
                 except Exception as e:
@@ -777,8 +880,9 @@ async def _auto_score_and_save_ideas(
 
 def _load_project_config() -> dict:
     """Load project generation configuration from config.yaml."""
-    import yaml
     from pathlib import Path
+
+    import yaml
 
     config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
     default_config = {
@@ -832,8 +936,8 @@ async def _auto_generate_project(
     Returns:
         True if project was generated successfully
     """
+    from ..db import PlanRepository, ProjectRepository
     from ..project import ProjectScaffold
-    from ..db import ProjectRepository, PlanRepository
 
     # Load project config
     project_config = _load_project_config()
@@ -845,7 +949,9 @@ async def _auto_generate_project(
 
     min_score = auto_config.get("min_score", 8.0)
     if plan_score < min_score:
-        logger.info(f"Plan score {plan_score:.1f} below threshold {min_score}, skipping auto-generation")
+        logger.info(
+            f"Plan score {plan_score:.1f} below threshold {min_score}, skipping auto-generation"
+        )
         return False
 
     logger.info("=" * 40)
@@ -867,7 +973,7 @@ async def _auto_generate_project(
         if plan and plan.status != "approved":
             plan_repo.update_status(plan_id, "approved")
             db_session.flush()
-            logger.info(f"Updated plan status to 'approved' for auto-generation")
+            logger.info("Updated plan status to 'approved' for auto-generation")
 
         # Generate project
         scaffold = ProjectScaffold(
@@ -913,10 +1019,10 @@ def _generate_debate_topic_from_trend(trend) -> tuple[str, str]:
     context_parts = [f"트렌드 요약: {trend.description or trend.name}"]
 
     analysis_data = trend.analysis_data or {}
-    if analysis_data.get('web3_relevance'):
+    if analysis_data.get("web3_relevance"):
         context_parts.append(f"Web3 관련성: {analysis_data['web3_relevance']}")
-    if analysis_data.get('idea_seeds'):
-        seeds = analysis_data['idea_seeds']
+    if analysis_data.get("idea_seeds"):
+        seeds = analysis_data["idea_seeds"]
         if isinstance(seeds, list):
             context_parts.append(f"아이디어 시드: {', '.join(seeds[:5])}")
 
@@ -930,9 +1036,11 @@ def _generate_debate_topic_from_trend(trend) -> tuple[str, str]:
 
 def _load_debate_config():
     """Load debate configuration from config.yaml."""
-    from ..debate.protocol import DebateProtocolConfig
-    import yaml
     from pathlib import Path
+
+    import yaml
+
+    from ..debate.protocol import DebateProtocolConfig
 
     config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
     try:
@@ -963,10 +1071,9 @@ def _load_debate_config():
 
 async def _run_debate_async(topic: Optional[str] = None):
     """Async implementation of debate execution."""
+    from ..db import DebateRepository, SignalRepository, TrendRepository, get_database
+    from ..debate import run_multi_stage_debate
     from ..llm import HybridLLMRouter
-    from ..debate import MultiStageDebate, run_multi_stage_debate
-    from ..signals import SignalStorage
-    from ..db import get_database, SignalRepository, DebateRepository, TrendRepository
 
     logger.info("=" * 60)
     logger.info("Starting multi-stage debate cycle")
@@ -974,8 +1081,10 @@ async def _run_debate_async(topic: Optional[str] = None):
 
     # Load debate configuration
     debate_config = _load_debate_config()
-    logger.info(f"Debate config: {debate_config.divergence_agents_per_round} divergence agents/round, "
-                f"{debate_config.divergence_rounds} rounds")
+    logger.info(
+        f"Debate config: {debate_config.divergence_agents_per_round} divergence agents/round, "
+        f"{debate_config.divergence_rounds} rounds"
+    )
 
     start_time = datetime.utcnow()
     debate_session = None
@@ -991,6 +1100,7 @@ async def _run_debate_async(topic: Optional[str] = None):
         recovery_db = get_database()
         recovery_session = recovery_db.get_session()
         from sqlalchemy import text as _sql_text
+
         result = recovery_session.execute(
             _sql_text(
                 "UPDATE debate_sessions "
@@ -1008,7 +1118,9 @@ async def _run_debate_async(topic: Optional[str] = None):
         recovery_session.commit()
         recovered = result.rowcount or 0
         if recovered:
-            logger.warning(f"Startup recovery: marked {recovered} stale active debate sessions as failed")
+            logger.warning(
+                f"Startup recovery: marked {recovered} stale active debate sessions as failed"
+            )
         recovery_session.close()
     except Exception as recovery_err:
         logger.warning(f"Startup orphan recovery skipped: {recovery_err}")
@@ -1051,25 +1163,30 @@ async def _run_debate_async(topic: Optional[str] = None):
 
         # Add context from recent signals
         context_signals = signal_repo.get_recent(limit=20)
-        context += "\n".join([
-            f"- [{s.source}] {s.title}: {s.summary[:200] if s.summary else 'No summary'}"
-            for s in context_signals
-        ])
+        context += "\n".join(
+            [
+                f"- [{s.source}] {s.title}: {s.summary[:200] if s.summary else 'No summary'}"
+                for s in context_signals
+            ]
+        )
 
         # Create debate session in database BEFORE starting
         import uuid
+
         session_id = str(uuid.uuid4())[:8]
-        debate_session = debate_repo.create_session({
-            'id': session_id,
-            'topic': topic,
-            'context': context,
-            'phase': 'divergence',
-            'round_number': 1,
-            'max_rounds': 3,
-            'status': 'active',
-            'participants': [],
-            'started_at': start_time,
-        })
+        debate_session = debate_repo.create_session(
+            {
+                "id": session_id,
+                "topic": topic,
+                "context": context,
+                "phase": "divergence",
+                "round_number": 1,
+                "max_rounds": 3,
+                "status": "active",
+                "participants": [],
+                "started_at": start_time,
+            }
+        )
         session.commit()
         logger.info(f"Created debate session: {session_id}")
 
@@ -1093,16 +1210,18 @@ async def _run_debate_async(topic: Optional[str] = None):
             logger.info(f"[{msg.phase.value}] {msg.agent_name}: {msg.message_type.value}")
             all_participants.add(msg.agent_name)
             try:
-                debate_repo.add_message({
-                    'session_id': session_id,
-                    'agent_id': msg.agent_id,
-                    'agent_name': msg.agent_name,
-                    'agent_handle': getattr(msg, 'agent_handle', None),
-                    'message_type': msg.message_type.value,
-                    'content': msg.content if hasattr(msg, 'content') else '',
-                    'token_count': getattr(msg, 'token_count', 0),
-                    'model_used': getattr(msg, 'model', None),
-                })
+                debate_repo.add_message(
+                    {
+                        "session_id": session_id,
+                        "agent_id": msg.agent_id,
+                        "agent_name": msg.agent_name,
+                        "agent_handle": getattr(msg, "agent_handle", None),
+                        "message_type": msg.message_type.value,
+                        "content": msg.content if hasattr(msg, "content") else "",
+                        "token_count": getattr(msg, "token_count", 0),
+                        "model_used": getattr(msg, "model", None),
+                    }
+                )
                 session.commit()
             except Exception as e:
                 logger.error(f"Failed to save debate message: {e}", exc_info=True)
@@ -1112,13 +1231,15 @@ async def _run_debate_async(topic: Optional[str] = None):
                     pass
 
         def on_phase_complete(result):
-            logger.info(f"Phase {result.phase.value} completed: {result.duration_seconds:.1f}s, ${result.total_cost:.4f}")
+            logger.info(
+                f"Phase {result.phase.value} completed: {result.duration_seconds:.1f}s, ${result.total_cost:.4f}"
+            )
             # Update session phase
             try:
                 debate_repo.update_session(
                     session_id,
                     phase=result.phase.value,
-                    round_number=result.round_number if hasattr(result, 'round_number') else 1,
+                    round_number=result.round_number if hasattr(result, "round_number") else 1,
                     participants=list(all_participants),
                 )
                 session.commit()
@@ -1141,9 +1262,9 @@ async def _run_debate_async(topic: Optional[str] = None):
             ideas_data = [idea.to_dict() for idea in result.all_ideas] if result.all_ideas else []
             debate_repo.update_session(
                 session_id,
-                status='completed',
-                phase='planning',
-                outcome='completed',
+                status="completed",
+                phase="planning",
+                outcome="completed",
                 final_plan=result.final_plan,
                 ideas_generated=ideas_data,
                 summary=f"Generated {len(result.all_ideas)} ideas, selected {len(result.selected_ideas)}",
@@ -1173,7 +1294,9 @@ async def _run_debate_async(topic: Optional[str] = None):
         logger.info("Debate results summary:")
         logger.info(f"  Session ID: {result.session_id}")
         logger.info(f"  Topic: {result.topic}")
-        logger.info(f"  Final plan length: {len(result.final_plan) if result.final_plan else 0} chars")
+        logger.info(
+            f"  Final plan length: {len(result.final_plan) if result.final_plan else 0} chars"
+        )
 
         duration = (datetime.utcnow() - start_time).total_seconds()
         logger.info(f"Debate completed in {duration:.1f}s")
@@ -1193,16 +1316,18 @@ async def _run_debate_async(topic: Optional[str] = None):
         # it and the session sat in DB as status='active' forever, requiring
         # manual cleanup. KeyboardInterrupt is also a BaseException — same
         # logic applies.
-        logger.error(f"Debate execution failed: {type(e).__name__}: {e}",
-                     exc_info=not isinstance(e, asyncio.CancelledError))
+        logger.error(
+            f"Debate execution failed: {type(e).__name__}: {e}",
+            exc_info=not isinstance(e, asyncio.CancelledError),
+        )
         if debate_session and db:
             try:
                 cleanup_session = db.get_session()
                 cleanup_repo = DebateRepository(cleanup_session)
                 cleanup_repo.update_session(
                     debate_session.id,
-                    status='failed',
-                    outcome='cancelled' if isinstance(e, asyncio.CancelledError) else 'error',
+                    status="failed",
+                    outcome="cancelled" if isinstance(e, asyncio.CancelledError) else "error",
                     summary=f"{type(e).__name__}: {str(e)[:200]}",
                     completed_at=datetime.utcnow(),
                 )
@@ -1220,7 +1345,7 @@ def run_debate(topic: Optional[str] = None):
 
 def _process_backlog():
     """Implementation of backlog processing."""
-    from ..db import get_database, IdeaRepository, PlanRepository
+    from ..db import IdeaRepository, PlanRepository, get_database
 
     logger.info("=" * 60)
     logger.info("Starting backlog processing cycle")
@@ -1234,11 +1359,11 @@ def _process_backlog():
         plan_repo = PlanRepository(db.get_session())
 
         # Get pending ideas
-        pending_ideas = idea_repo.get_by_status('pending')
+        pending_ideas = idea_repo.get_by_status("pending")
         logger.info(f"Found {len(pending_ideas)} pending ideas")
 
         # Get approved plans awaiting implementation
-        approved_plans = plan_repo.get_by_status('approved')
+        approved_plans = plan_repo.get_by_status("approved")
         logger.info(f"Found {len(approved_plans)} approved plans")
 
         # Get ideas by status for summary
@@ -1247,9 +1372,9 @@ def _process_backlog():
 
         # Generate report
         stats = {
-            'pending_ideas': len(pending_ideas),
-            'approved_plans': len(approved_plans),
-            'idea_counts': idea_counts,
+            "pending_ideas": len(pending_ideas),
+            "approved_plans": len(approved_plans),
+            "idea_counts": idea_counts,
         }
 
         # Retention sweep — keep DB lean. Signals already auto-cleanup at
@@ -1258,9 +1383,10 @@ def _process_backlog():
         # does not grow unboundedly. Numbers chosen to keep ~3-6 months
         # of history available for analytics while bounding row counts.
         from ..db import (
-            TrendRepository,
             DebateRepository,
+            TrendRepository,
         )
+
         retention_session = db.get_session()
         try:
             trend_repo = TrendRepository(retention_session)
@@ -1269,8 +1395,8 @@ def _process_backlog():
             trends_deleted = trend_repo.delete_older_than(days=180)
             sessions_deleted = debate_repo_r.delete_older_than(days=180)
             retention_session.commit()
-            stats['trends_deleted'] = trends_deleted
-            stats['debate_sessions_deleted'] = sessions_deleted
+            stats["trends_deleted"] = trends_deleted
+            stats["debate_sessions_deleted"] = sessions_deleted
             logger.info(
                 f"Retention: pruned {trends_deleted} trends, "
                 f"{sessions_deleted} debate sessions (older than 180 days)"
@@ -1300,17 +1426,17 @@ def process_backlog():
 
 async def _health_check_async():
     """Async implementation of health check."""
-    from ..llm import HybridLLMRouter
-    from ..db import get_database
     from ..cache import get_cache
+    from ..db import get_database
+    from ..llm import HybridLLMRouter
     from ..providers.ollama import OllamaProvider
 
     logger.info("Running system health check...")
 
     health_status = {
-        'timestamp': datetime.utcnow().isoformat(),
-        'status': 'healthy',
-        'components': {},
+        "timestamp": datetime.utcnow().isoformat(),
+        "status": "healthy",
+        "components": {},
     }
 
     try:
@@ -1318,62 +1444,62 @@ async def _health_check_async():
         try:
             db = get_database()
             db.get_session()
-            health_status['components']['database'] = {'status': 'healthy'}
+            health_status["components"]["database"] = {"status": "healthy"}
             logger.info("Database: healthy")
         except Exception as e:
-            health_status['components']['database'] = {'status': 'unhealthy', 'error': str(e)}
-            health_status['status'] = 'degraded'
+            health_status["components"]["database"] = {"status": "unhealthy", "error": str(e)}
+            health_status["status"] = "degraded"
             logger.error(f"Database: unhealthy - {e}")
 
         # Check cache
         try:
             cache = get_cache()
-            cache.set('health_check', 'ok', ttl=60)
-            result = cache.get('health_check')
+            cache.set("health_check", "ok", ttl=60)
+            result = cache.get("health_check")
             cache_health = cache.health_check()
-            if result == 'ok':
-                health_status['components']['cache'] = {
-                    'status': 'healthy',
-                    'type': cache_health.get('type', 'unknown'),
+            if result == "ok":
+                health_status["components"]["cache"] = {
+                    "status": "healthy",
+                    "type": cache_health.get("type", "unknown"),
                 }
                 logger.info(f"Cache: healthy ({cache_health.get('type', 'unknown')})")
             else:
-                health_status['components']['cache'] = {'status': 'degraded'}
+                health_status["components"]["cache"] = {"status": "degraded"}
                 logger.warning("Cache: degraded")
         except Exception as e:
-            health_status['components']['cache'] = {'status': 'unhealthy', 'error': str(e)}
+            health_status["components"]["cache"] = {"status": "unhealthy", "error": str(e)}
             logger.warning(f"Cache: unhealthy - {e}")
 
         # Check Ollama
         try:
             ollama = OllamaProvider()
             ollama_health = await ollama.health_check()
-            if ollama_health.get('status') == 'healthy':
-                health_status['components']['ollama'] = {
-                    'status': 'healthy',
-                    'models': ollama_health.get('models', []),
+            if ollama_health.get("status") == "healthy":
+                health_status["components"]["ollama"] = {
+                    "status": "healthy",
+                    "models": ollama_health.get("models", []),
                 }
                 logger.info(f"Ollama: healthy ({len(ollama_health.get('models', []))} models)")
             else:
-                health_status['components']['ollama'] = {'status': 'degraded'}
-                health_status['status'] = 'degraded'
+                health_status["components"]["ollama"] = {"status": "degraded"}
+                health_status["status"] = "degraded"
                 logger.warning("Ollama: degraded")
         except Exception as e:
-            health_status['components']['ollama'] = {'status': 'unhealthy', 'error': str(e)}
-            health_status['status'] = 'degraded'
+            health_status["components"]["ollama"] = {"status": "unhealthy", "error": str(e)}
+            health_status["status"] = "degraded"
             logger.error(f"Ollama: unhealthy - {e}")
 
         # Check LLM router
         try:
             router = HybridLLMRouter()
             router_health = await router.health_check()
-            health_status['components']['llm_router'] = {
-                'status': router_health.get('status', 'unknown'),
-                'budget': router_health.get('budget', {}),
+            health_status["components"]["llm_router"] = {
+                "status": router_health.get("status", "unknown"),
+                "budget": router_health.get("budget", {}),
             }
             logger.info(f"LLM Router: {router_health.get('status')}")
         except Exception as e:
-            health_status['components']['llm_router'] = {'status': 'unhealthy', 'error': str(e)}
+            health_status["components"]["llm_router"] = {"status": "unhealthy", "error": str(e)}
             logger.error(f"LLM Router: unhealthy - {e}")
 
         # Log final status
@@ -1382,14 +1508,14 @@ async def _health_check_async():
         # Store health status in cache
         try:
             cache = get_cache()
-            cache.set('system_health', health_status, ttl=300)
+            cache.set("system_health", health_status, ttl=300)
         except Exception:
             pass
 
     except Exception as e:
         logger.error(f"Health check failed: {e}", exc_info=True)
-        health_status['status'] = 'unhealthy'
-        health_status['error'] = str(e)
+        health_status["status"] = "unhealthy"
+        health_status["error"] = str(e)
 
     return health_status
 
@@ -1397,5 +1523,5 @@ async def _health_check_async():
 def health_check():
     """Check system health."""
     result = asyncio.run(_health_check_async())
-    if result['status'] != 'healthy':
+    if result["status"] != "healthy":
         sys.exit(1)

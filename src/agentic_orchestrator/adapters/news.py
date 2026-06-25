@@ -9,13 +9,13 @@ Collects signals from news APIs:
 
 import asyncio
 import os
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
 import time
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .base import BaseAdapter, AdapterConfig, AdapterResult, SignalData
+from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
 
 
 class NewsAPIAdapter(BaseAdapter):
@@ -100,7 +100,7 @@ class NewsAPIAdapter(BaseAdapter):
             metadata={
                 "newsapi_configured": bool(self.newsapi_key),
                 "cryptopanic_configured": bool(self.cryptopanic_key),
-            }
+            },
         )
 
     async def _fetch_newsapi(self) -> List[SignalData]:
@@ -124,8 +124,8 @@ class NewsAPIAdapter(BaseAdapter):
                             "sortBy": "relevancy",
                             "language": "en",
                             "pageSize": 10,
-                            "apiKey": self.newsapi_key
-                        }
+                            "apiKey": self.newsapi_key,
+                        },
                     )
 
                     if response.status_code == 200:
@@ -136,7 +136,11 @@ class NewsAPIAdapter(BaseAdapter):
                                 source=self.name,
                                 category=query_config["category"],
                                 title=article.get("title", "")[:300],
-                                summary=article.get("description", "")[:500] if article.get("description") else None,
+                                summary=(
+                                    article.get("description", "")[:500]
+                                    if article.get("description")
+                                    else None
+                                ),
                                 url=article.get("url"),
                                 raw_data={
                                     "type": "newsapi",
@@ -145,7 +149,7 @@ class NewsAPIAdapter(BaseAdapter):
                                     "author": article.get("author"),
                                     "published_at": article.get("publishedAt"),
                                 },
-                                metadata={"platform": "newsapi", "query": query_config["query"]}
+                                metadata={"platform": "newsapi", "query": query_config["query"]},
                             )
                             signals.append(signal)
 
@@ -172,7 +176,7 @@ class NewsAPIAdapter(BaseAdapter):
                         "public": "true",
                         "filter": "hot",
                         "kind": "news",
-                    }
+                    },
                 )
 
                 if response.status_code == 200:
@@ -183,7 +187,11 @@ class NewsAPIAdapter(BaseAdapter):
                         votes = post.get("votes", {})
                         positive = votes.get("positive", 0)
                         negative = votes.get("negative", 0)
-                        sentiment = "bullish" if positive > negative else "bearish" if negative > positive else "neutral"
+                        sentiment = (
+                            "bullish"
+                            if positive > negative
+                            else "bearish" if negative > positive else "neutral"
+                        )
 
                         signal = SignalData(
                             source=self.name,
@@ -200,7 +208,7 @@ class NewsAPIAdapter(BaseAdapter):
                                 "currencies": [c.get("code") for c in post.get("currencies", [])],
                                 "created_at": post.get("created_at"),
                             },
-                            metadata={"platform": "cryptopanic", "sentiment": sentiment}
+                            metadata={"platform": "cryptopanic", "sentiment": sentiment},
                         )
                         signals.append(signal)
 
@@ -242,23 +250,65 @@ class NewsAPIAdapter(BaseAdapter):
 
                         # Filter for relevant stories
                         relevant_keywords = [
-                            "ai", "llm", "gpt", "openai", "anthropic", "machine learning",
-                            "blockchain", "crypto", "ethereum", "bitcoin", "web3", "defi",
-                            "startup", "vc", "funding", "launch",
+                            "ai",
+                            "llm",
+                            "gpt",
+                            "openai",
+                            "anthropic",
+                            "machine learning",
+                            "blockchain",
+                            "crypto",
+                            "ethereum",
+                            "bitcoin",
+                            "web3",
+                            "defi",
+                            "startup",
+                            "vc",
+                            "funding",
+                            "launch",
                         ]
 
                         if not any(kw in title for kw in relevant_keywords):
                             continue
 
                         # Categorize
-                        category = "ai" if any(kw in title for kw in ["ai", "llm", "gpt", "openai", "anthropic", "machine learning"]) else "crypto" if any(kw in title for kw in ["blockchain", "crypto", "ethereum", "bitcoin", "web3", "defi"]) else "dev"
+                        category = (
+                            "ai"
+                            if any(
+                                kw in title
+                                for kw in [
+                                    "ai",
+                                    "llm",
+                                    "gpt",
+                                    "openai",
+                                    "anthropic",
+                                    "machine learning",
+                                ]
+                            )
+                            else (
+                                "crypto"
+                                if any(
+                                    kw in title
+                                    for kw in [
+                                        "blockchain",
+                                        "crypto",
+                                        "ethereum",
+                                        "bitcoin",
+                                        "web3",
+                                        "defi",
+                                    ]
+                                )
+                                else "dev"
+                            )
+                        )
 
                         signal = SignalData(
                             source=self.name,
                             category=category,
                             title=f"HN: {story.get('title', '')}",
                             summary=None,
-                            url=story.get("url") or f"https://news.ycombinator.com/item?id={story.get('id')}",
+                            url=story.get("url")
+                            or f"https://news.ycombinator.com/item?id={story.get('id')}",
                             raw_data={
                                 "type": "hackernews",
                                 "hn_id": story.get("id"),
@@ -267,7 +317,7 @@ class NewsAPIAdapter(BaseAdapter):
                                 "by": story.get("by"),
                                 "time": story.get("time"),
                             },
-                            metadata={"platform": "hackernews"}
+                            metadata={"platform": "hackernews"},
                         )
                         signals.append(signal)
 
@@ -287,7 +337,9 @@ class NewsAPIAdapter(BaseAdapter):
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.get("https://hacker-news.firebaseio.com/v0/topstories.json")
-                base_health["hackernews_status"] = "connected" if response.status_code == 200 else "error"
+                base_health["hackernews_status"] = (
+                    "connected" if response.status_code == 200 else "error"
+                )
         except Exception as e:
             base_health["hackernews_status"] = f"error: {e}"
 

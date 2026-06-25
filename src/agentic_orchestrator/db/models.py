@@ -5,28 +5,25 @@ Defines the database schema for signals, trends, ideas, debates, plans,
 API usage tracking, and system logs.
 """
 
-from datetime import datetime
-from typing import Optional, List, Dict, Any
+import enum
 import uuid
+from datetime import datetime
+from typing import Any, Dict
 
 from sqlalchemy import (
+    JSON,
     Column,
-    String,
-    Text,
-    Integer,
-    Float,
-    Boolean,
-    DateTime,
     Date,
+    DateTime,
+    Float,
     ForeignKey,
     Index,
-    JSON,
-    Enum as SQLEnum,
+    Integer,
+    String,
+    Text,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-import enum
-
 
 Base = declarative_base()
 
@@ -50,14 +47,14 @@ class SignalCategory(str, enum.Enum):
 
 
 class IdeaStatus(str, enum.Enum):
-    PENDING = "pending"      # Awaiting scoring
-    SCORED = "scored"        # Scored but not yet promoted (middle score)
-    PROMOTED = "promoted"    # Auto-promoted to planning (high score)
+    PENDING = "pending"  # Awaiting scoring
+    SCORED = "scored"  # Scored but not yet promoted (middle score)
+    PROMOTED = "promoted"  # Auto-promoted to planning (high score)
     IN_DEBATE = "in_debate"  # Currently being debated
-    SELECTED = "selected"    # Manually selected for planning
-    REJECTED = "rejected"    # Manually rejected
-    PLANNED = "planned"      # Plan created
-    ARCHIVED = "archived"    # Archived (low score or old)
+    SELECTED = "selected"  # Manually selected for planning
+    REJECTED = "rejected"  # Manually rejected
+    PLANNED = "planned"  # Plan created
+    ARCHIVED = "archived"  # Archived (low score or old)
 
 
 class DebatePhase(str, enum.Enum):
@@ -215,7 +212,9 @@ class Idea(Base):
     source_type = Column(String(20), nullable=False)  # traditional, trend_based
     source_trend_id = Column(String(36), ForeignKey("trends.id"))
     source_signals = Column(JSON)  # List of signal IDs
-    debate_session_id = Column(String(36), ForeignKey("debate_sessions.id"), nullable=True, index=True)
+    debate_session_id = Column(
+        String(36), ForeignKey("debate_sessions.id"), nullable=True, index=True
+    )
     status = Column(String(20), default="pending", index=True)
     github_issue_id = Column(Integer)
     github_issue_url = Column(Text)
@@ -227,7 +226,9 @@ class Idea(Base):
     # Relationships
     source_trend = relationship("Trend", back_populates="ideas")
     source_debate = relationship("DebateSession", foreign_keys=[debate_session_id])
-    debate_sessions = relationship("DebateSession", back_populates="idea", foreign_keys="DebateSession.idea_id")
+    debate_sessions = relationship(
+        "DebateSession", back_populates="idea", foreign_keys="DebateSession.idea_id"
+    )
     plans = relationship("Plan", back_populates="idea")
 
     def to_dict(self) -> Dict[str, Any]:
@@ -254,7 +255,9 @@ class DebateSession(Base):
     __tablename__ = "debate_sessions"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    idea_id = Column(String(36), ForeignKey("ideas.id"), nullable=True, index=True)  # nullable for standalone debates
+    idea_id = Column(
+        String(36), ForeignKey("ideas.id"), nullable=True, index=True
+    )  # nullable for standalone debates
     topic = Column(Text)  # Topic for standalone debates (when no idea_id)
     context = Column(Text)  # Context/background for the debate
     phase = Column(String(20), nullable=False, index=True)  # divergence, convergence, planning
@@ -275,7 +278,9 @@ class DebateSession(Base):
 
     # Relationships
     idea = relationship("Idea", back_populates="debate_sessions", foreign_keys=[idea_id])
-    messages = relationship("DebateMessage", back_populates="session", order_by="DebateMessage.created_at")
+    messages = relationship(
+        "DebateMessage", back_populates="session", order_by="DebateMessage.created_at"
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -464,9 +469,7 @@ class SystemLog(Base):
     trace = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
-    __table_args__ = (
-        Index("idx_logs_level_source", "level", "source"),
-    )
+    __table_args__ = (Index("idx_logs_level_source", "level", "source"),)
 
     def to_dict(self) -> Dict[str, Any]:
         return {

@@ -7,17 +7,16 @@ Includes throttling and cooling support to prevent overheating.
 
 import asyncio
 import json
+import logging
 import os
 import time
-import yaml
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any, List, AsyncIterator
-
-import logging
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 import httpx
+import yaml
 
 from .base import ProviderError
 
@@ -51,6 +50,7 @@ def load_throttle_config() -> Dict[str, Any]:
 @dataclass
 class ThrottleState:
     """State for request throttling."""
+
     request_count: int = 0
     last_request_time: float = 0.0
     is_cooling: bool = False
@@ -61,6 +61,7 @@ class ThrottleState:
 @dataclass
 class OllamaConfig:
     """Ollama configuration."""
+
     base_url: str = "http://localhost:11434"
     default_model: str = "gemma3:4b"
     timeout: int = 300  # 5 minutes for large models
@@ -72,6 +73,7 @@ class OllamaConfig:
 @dataclass
 class OllamaResponse:
     """Response from Ollama."""
+
     content: str
     model: str
     total_duration: Optional[int] = None  # nanoseconds
@@ -164,7 +166,9 @@ class OllamaProvider:
                 cooling_wait = state.cooling_until - now
 
         if cooling_wait > 0:
-            logger.info(f"[Ollama] Cooling period: waiting {cooling_wait:.1f}s for GPU to cool down...")
+            logger.info(
+                f"[Ollama] Cooling period: waiting {cooling_wait:.1f}s for GPU to cool down..."
+            )
             await asyncio.sleep(cooling_wait)
             async with state._lock:
                 state.is_cooling = False
@@ -194,7 +198,9 @@ class OllamaProvider:
                 cooling_seconds = throttle_config.get("cooling_period_seconds", 30)
                 state.is_cooling = True
                 state.cooling_until = time.time() + cooling_seconds
-                logger.info(f"[Ollama] Scheduling cooling period after {requests_before_cooling} requests ({cooling_seconds}s)")
+                logger.info(
+                    f"[Ollama] Scheduling cooling period after {requests_before_cooling} requests ({cooling_seconds}s)"
+                )
 
     @property
     def name(self) -> str:
@@ -208,7 +214,7 @@ class OllamaProvider:
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         stream: bool = False,
-        **kwargs
+        **kwargs,
     ) -> OllamaResponse:
         """
         Generate text using Ollama.
@@ -235,7 +241,7 @@ class OllamaProvider:
             "stream": False,
             "options": {
                 "temperature": temperature,
-            }
+            },
         }
 
         if system:
@@ -262,7 +268,7 @@ class OllamaProvider:
                     if response.status_code == 503:
                         last_503_body = response.text[:200]
                         if attempt < self._max_503_retries:
-                            backoff = self._503_backoff_base * (2 ** attempt)
+                            backoff = self._503_backoff_base * (2**attempt)
                             logger.warning(
                                 f"[Ollama] 503 from server "
                                 f"(attempt {attempt + 1}/{self._max_503_retries + 1}); "
@@ -287,14 +293,14 @@ class OllamaProvider:
                         done=data.get("done", True),
                     )
 
-            except httpx.TimeoutException:
-                raise ProviderError(f"Ollama timeout after {timeout}s")
+            except httpx.TimeoutException as e:
+                raise ProviderError(f"Ollama timeout after {timeout}s") from e
             except httpx.HTTPStatusError as e:
-                raise ProviderError(f"Ollama HTTP error: {e.response.status_code}")
+                raise ProviderError(f"Ollama HTTP error: {e.response.status_code}") from e
             except ProviderError:
                 raise
             except Exception as e:
-                raise ProviderError(f"Ollama error: {e}")
+                raise ProviderError(f"Ollama error: {e}") from e
 
     async def generate_stream(
         self,
@@ -302,7 +308,7 @@ class OllamaProvider:
         model: Optional[str] = None,
         system: Optional[str] = None,
         temperature: float = 0.7,
-        **kwargs
+        **kwargs,
     ) -> AsyncIterator[str]:
         """
         Stream text generation.
@@ -318,7 +324,7 @@ class OllamaProvider:
             "stream": True,
             "options": {
                 "temperature": temperature,
-            }
+            },
         }
 
         if system:
@@ -327,9 +333,7 @@ class OllamaProvider:
         try:
             async with httpx.AsyncClient(timeout=self.config.timeout) as client:
                 async with client.stream(
-                    "POST",
-                    f"{self.config.base_url}/api/generate",
-                    json=payload
+                    "POST", f"{self.config.base_url}/api/generate", json=payload
                 ) as response:
                     response.raise_for_status()
                     async for line in response.aiter_lines():
@@ -344,7 +348,7 @@ class OllamaProvider:
                                 continue
 
         except Exception as e:
-            raise ProviderError(f"Ollama stream error: {e}")
+            raise ProviderError(f"Ollama stream error: {e}") from e
 
     async def chat(
         self,
@@ -352,7 +356,7 @@ class OllamaProvider:
         model: Optional[str] = None,
         system: Optional[str] = None,
         temperature: float = 0.7,
-        **kwargs
+        **kwargs,
     ) -> OllamaResponse:
         """
         Chat completion using Ollama.
@@ -383,17 +387,14 @@ class OllamaProvider:
             "stream": False,
             "options": {
                 "temperature": temperature,
-            }
+            },
         }
 
         timeout = self.config.throttle.get("request_timeout", self.config.timeout)
 
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(
-                    f"{self.config.base_url}/api/chat",
-                    json=payload
-                )
+                response = await client.post(f"{self.config.base_url}/api/chat", json=payload)
                 response.raise_for_status()
                 data = response.json()
 
@@ -404,11 +405,11 @@ class OllamaProvider:
                     load_duration=data.get("load_duration"),
                     prompt_eval_count=data.get("prompt_eval_count"),
                     eval_count=data.get("eval_count"),
-                    done=data.get("done", True)
+                    done=data.get("done", True),
                 )
 
         except Exception as e:
-            raise ProviderError(f"Ollama chat error: {e}")
+            raise ProviderError(f"Ollama chat error: {e}") from e
 
     async def get_available_models(self) -> List[str]:
         """Get list of available models from Ollama."""
@@ -418,9 +419,7 @@ class OllamaProvider:
                 response.raise_for_status()
                 data = response.json()
 
-                self._available_models = [
-                    model["name"] for model in data.get("models", [])
-                ]
+                self._available_models = [model["name"] for model in data.get("models", [])]
                 return self._available_models
 
         except Exception as e:
@@ -432,8 +431,7 @@ class OllamaProvider:
         try:
             async with httpx.AsyncClient(timeout=3600) as client:  # 1 hour timeout
                 response = await client.post(
-                    f"{self.config.base_url}/api/pull",
-                    json={"name": model}
+                    f"{self.config.base_url}/api/pull", json={"name": model}
                 )
                 return response.status_code == 200
 
