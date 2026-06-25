@@ -252,7 +252,7 @@ pm2 save
 토론 에이전트 설정 (`config.yaml`의 `debate.test_mode: false`):
 - Divergence: 8 에이전트/라운드, 3라운드
 - Convergence: 4 에이전트/라운드, 2라운드
-- Planning: 5 에이전트/라운드, 2라운드
+- Planning: 3 에이전트/라운드, 2라운드 (단일 GPU Ollama 타임아웃 방지를 위해 5→3으로 하향)
 - **예상 시간**: ~30분+
 
 ## 개발 워크플로우
@@ -349,7 +349,7 @@ const getLocalizedText = (en: string | null, ko: string | null): string => {
 - 콘텐츠 언어 자동 감지 (한글/영어)
 - 한글 원본 → 영어 번역 (main field) + 한글 유지 (`*_ko` field)
 - 영어 원본 → 영어 유지 (main field) + 한글 번역 (`*_ko` field)
-- LLM: `qwen3.5:9b` (로컬, 무료)
+- LLM: `gemma3:4b` (로컬, 무료)
 
 ## 자주 발생하는 문제와 해결책
 
@@ -428,7 +428,7 @@ npm run build 2>&1 | head -50  # 오류 확인
 
 **해결:**
 ```bash
-# 현재 운영 모델은 qwen3.5:9b(채팅) + qwen3-embedding:0.6b(임베딩) 두 개뿐이며
+# 현재 운영 모델은 gemma3:4b(채팅) + qwen3-embedding:0.6b(임베딩) 두 개뿐이며
 # 둘 다 ~8GB GPU에 상주하도록 설계되어 있어 일반적으로 언로드할 필요가 없다.
 # VRAM 점유 확인:
 curl -s "$OLLAMA_HOST/api/ps"
@@ -598,8 +598,10 @@ GPU(~8 GB)에 상주하는 모델은 두 개뿐이며 스왑이 발생하지 않
 
 | 작업 | 모델 | 용도 |
 |------|------|------|
-| 모든 채팅 / 생성 / 평가 / 모더레이션 / 번역 / 요약 | `qwen3.5:9b` | Divergence, Convergence, Planning, 트렌드 분석, 분류, 필터링 등 |
+| 모든 채팅 / 생성 / 평가 / 모더레이션 / 번역 / 요약 | `gemma3:4b` | Divergence, Convergence, Planning, 트렌드 분석, 분류, 필터링 등 |
 | 임베딩 / 의미 검색 | `qwen3-embedding:0.6b` | RAG 인덱싱, 유사도 비교 |
+
+> 실제 모델 정의는 `src/agentic_orchestrator/llm/hierarchy.py`의 `LOCAL_MODELS`, 프로젝트 생성 모델은 `config.yaml`의 `project.llm`을 단일 소스로 참조합니다.
 
 ### 생성되는 프로젝트 구조
 
@@ -626,10 +628,10 @@ project:
     min_score: 8.0        # 자동 생성 최소 점수
     max_concurrent: 1     # 동시 생성 제한
   llm:
-    parsing: "qwen3.5:4b"
-    code_generation: "qwen3.5:9b"
-    architecture: "qwen3.5:9b"
-    fallback: "qwen3.5:4b"
+    parsing: "gemma3:4b"
+    code_generation: "gemma3:4b"
+    architecture: "gemma3:4b"
+    fallback: "gemma3:4b"
   output_dir: "projects"
 ```
 
