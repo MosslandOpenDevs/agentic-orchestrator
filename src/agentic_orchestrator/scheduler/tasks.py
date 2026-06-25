@@ -400,6 +400,44 @@ def _generate_debate_topic(signals: list) -> str:
     return f"[{source}] {title_short} - Mossland 생태계 연동 및 신규 서비스 개발 방안"
 
 
+def _load_backlog_config() -> dict:
+    """Load backlog-control settings (idea de-duplication + GitHub issue cap)."""
+    import yaml
+    from pathlib import Path
+
+    defaults = {
+        "dedup_enabled": True,
+        "dedup_prefix_tokens": 6,
+        "max_open_ideas": 800,
+    }
+    config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+        backlog_config = config.get("backlog", {}) or {}
+        for key, value in defaults.items():
+            backlog_config.setdefault(key, value)
+        return backlog_config
+    except Exception as e:
+        logger.warning(f"Failed to load backlog config, using defaults: {e}")
+        return defaults
+
+
+def _idea_title_fingerprint(title: str, prefix_tokens: int = 6) -> str:
+    """Normalize an idea title to a comparable fingerprint for de-duplication.
+
+    Lowercases, drops a leading ``[Idea]``/``[Plan]`` tag and punctuation, then
+    keeps the first ``prefix_tokens`` word tokens so trivially-reworded copies of
+    the same idea collapse to one fingerprint.
+    """
+    import re
+
+    text = re.sub(r'^\s*\[(idea|plan)\]\s*', '', (title or '').lower())
+    text = re.sub(r'[^a-z0-9가-힣]+', ' ', text).strip()
+    tokens = text.split()
+    return ' '.join(tokens[:prefix_tokens])
+
+
 async def _auto_score_and_save_ideas(
     router,
     ideas: list,
@@ -449,6 +487,34 @@ async def _auto_score_and_save_ideas(
     plan_repo = PlanRepository(db_session)
     translator = ContentTranslator(router=router)
 
+    # Backlog controls: de-duplicate ideas and cap the GitHub mirror so the same
+    # idea isn't posted dozens of times and the tracker doesn't grow unbounded
+    # (root cause of the historical 2,800+ issue flood). SQLite stays the source
+    # of truth; only the GitHub mirror is paused when the cap is reached.
+    backlog_config = _load_backlog_config()
+    dedup_enabled = bool(backlog_config.get("dedup_enabled", True))
+    dedup_tokens = int(backlog_config.get("dedup_prefix_tokens", 6))
+    max_open_ideas = int(backlog_config.get("max_open_ideas", 800))
+
+    seen_fingerprints: set[str] = set()
+    open_idea_count = 0
+    try:
+        open_idea_count = idea_repo.count_all()
+        for existing in idea_repo.get_all(limit=5000):
+            fp = _idea_title_fingerprint(getattr(existing, "title", "") or "", dedup_tokens)
+            if fp:
+                seen_fingerprints.add(fp)
+    except Exception as e:
+        logger.warning(f"Could not load existing ideas for dedup/cap: {e}")
+
+    backlog_full = max_open_ideas > 0 and open_idea_count >= max_open_ideas
+    if backlog_full:
+        logger.warning(
+            f"Idea backlog at {open_idea_count} (cap {max_open_ideas}); new ideas "
+            f"will be scored and stored but NOT posted to GitHub this cycle."
+        )
+    dedup_skipped = 0
+
     # Initialize GitHub client (optional - won't fail if not configured)
     github_client = None
     try:
@@ -468,6 +534,16 @@ async def _auto_score_and_save_ideas(
             idea_title = getattr(idea, 'title', str(idea)[:100])
             idea_content = getattr(idea, 'content', getattr(idea, 'description', str(idea)))
             idea_summary = idea_content[:500] if idea_content else idea_title
+
+            # De-duplicate: skip ideas whose title fingerprint already exists in
+            # the backlog or earlier in this batch.
+            fingerprint = _idea_title_fingerprint(idea_title, dedup_tokens)
+            if dedup_enabled and fingerprint and fingerprint in seen_fingerprints:
+                dedup_skipped += 1
+                logger.info(f"Skipping duplicate idea: {idea_title[:60]}")
+                continue
+            if fingerprint:
+                seen_fingerprints.add(fingerprint)
 
             # Score the idea
             score_context = f"토론 주제: {topic}\n\n{context[:500]}"
@@ -493,10 +569,11 @@ async def _auto_score_and_save_ideas(
                 pending_count += 1
                 logger.info(f"Scored (pending): {idea_title[:50]}... (score: {score.total:.1f})")
 
-            # Create GitHub Issue for the idea (if GitHub is configured)
+            # Create GitHub Issue for the idea (if GitHub is configured and the
+            # backlog cap has not been reached)
             github_issue_url = None
             github_issue_id = None
-            if github_client:
+            if github_client and not backlog_full:
                 try:
                     # Build issue body
                     issue_body = f"""## Idea Summary
@@ -582,7 +659,7 @@ async def _auto_score_and_save_ideas(
                 plan_github_id = None
 
                 # Create GitHub Issue for the plan
-                if github_client:
+                if github_client and not backlog_full:
                     try:
                         plan_body = f"""## Plan for: {idea_title}
 
@@ -690,7 +767,10 @@ async def _auto_score_and_save_ideas(
         except Exception:
             pass
 
-    logger.info(f"Auto-scoring complete: {promoted_count} promoted, {archived_count} archived, {pending_count} pending")
+    logger.info(
+        f"Auto-scoring complete: {promoted_count} promoted, {archived_count} archived, "
+        f"{pending_count} pending, {dedup_skipped} duplicates skipped"
+    )
     if github_client:
         logger.info("GitHub Issues created for all processed ideas")
 

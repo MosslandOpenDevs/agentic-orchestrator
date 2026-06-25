@@ -81,3 +81,7 @@ data/backup/
 # Async job state
 data/jobs.json
 data/orchestrator.db.bak*
+
+# Auto-generated project scaffolds (LLM output, not hand-authored source).
+# Regenerated from plans on demand; keeping them out of git avoids repo bloat.
+projects/

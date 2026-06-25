@@ -1179,6 +1179,64 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
 
         return min(score, 10.0)
 
+    @staticmethod
+    def _parse_idea_json(content: str) -> Optional[Dict[str, Any]]:
+        """Best-effort extraction of the idea JSON object from an LLM response.
+
+        Tries a fenced ```json block, then any fenced block, then the first
+        balanced ``{...}`` span, and tolerates trailing commas. Returns None if
+        no JSON object can be recovered. This is what makes the author-provided
+        ``idea_title`` reliably available instead of falling back to scraping a
+        raw line from the body.
+        """
+        import json
+        import re
+
+        candidates: List[str] = []
+        fenced_json = re.search(r'```json\s*([\s\S]*?)\s*```', content, re.IGNORECASE)
+        if fenced_json:
+            candidates.append(fenced_json.group(1))
+        fenced_any = re.search(r'```\s*([\s\S]*?)\s*```', content)
+        if fenced_any:
+            candidates.append(fenced_any.group(1))
+        brace = re.search(r'\{[\s\S]*\}', content)
+        if brace:
+            candidates.append(brace.group(0))
+
+        for raw in candidates:
+            raw = raw.strip()
+            if not raw:
+                continue
+            # Try as-is, then with trailing commas stripped (a common LLM defect).
+            for attempt in (raw, re.sub(r',\s*([}\]])', r'\1', raw)):
+                try:
+                    parsed = json.loads(attempt)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if isinstance(parsed, dict):
+                    return parsed
+        return None
+
+    @staticmethod
+    def _is_json_noise_line(line: str) -> bool:
+        """True for lines that are raw JSON structure (keys, braces, brackets).
+
+        Prevents the text fallback from promoting a line such as
+        ``"idea_title": "..."`` or ``"tech_stack": [...]`` into a title — the
+        defect that produced thousands of malformed GitHub issue titles.
+        """
+        import re
+
+        s = line.strip().strip(',')
+        if not s:
+            return False
+        if s[0] in '{}[]':
+            return True
+        # A ``"key": value`` JSON property line.
+        if re.match(r'^"[^"]+"\s*:', s):
+            return True
+        return False
+
     def _extract_idea_from_response(
         self,
         content: str,
@@ -1197,24 +1255,27 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         import re
         import json
 
-        # First, try to extract from JSON format
-        json_match = re.search(r'```json\s*([\s\S]*?)\s*```', content)
-        if json_match:
-            try:
-                idea_json = json.loads(json_match.group(1))
-                title = idea_json.get('idea_title', '')
-
+        # First, try to extract the structured idea_title from a JSON object in
+        # the response. The author-provided idea_title is authoritative: if it is
+        # present we MUST use it rather than scraping a raw line from the body,
+        # which is what produced thousands of malformed '"week1": ...' titles.
+        idea_json = self._parse_idea_json(content)
+        if idea_json is not None:
+            title = str(idea_json.get('idea_title') or '').strip()
+            if title:
                 # Validate JSON-based idea
                 is_valid, errors = self._validate_idea_content(content)
                 if not is_valid:
                     logger.warning(f"Idea validation failed for {agent.name}: {errors}")
                     # Continue anyway but log the issues
 
-                # Score title quality
+                # Score title quality (informational; does not gate acceptance)
                 title_score = self._score_title_quality(title)
                 logger.info(f"Title quality score for '{title[:50]}...': {title_score}/10")
 
-                if len(title) >= 30 and title_score >= 4.0:
+                # A short or low-scoring idea_title is still vastly better than a
+                # scraped JSON fragment, so accept any non-trivial author title.
+                if len(title) >= 15:
                     return Idea(
                         id=f"idea-{self.session_id}-{round_num}-{agent.id}",
                         title=title[:200],
@@ -1225,16 +1286,15 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
                         metadata={
                             "format": "json",
                             "title_score": title_score,
+                            "low_quality_title": title_score < 4.0 or len(title) < 30,
                             "validation_errors": errors if not is_valid else [],
                             "proposal": idea_json.get('proposal', {}),
                             "kpis": idea_json.get('kpis', []),
                         }
                     )
-                else:
-                    logger.warning(f"Title too short or low quality: '{title}' (score: {title_score})")
-
-            except json.JSONDecodeError as e:
-                logger.debug(f"JSON parsing failed, falling back to text extraction: {e}")
+                logger.warning(
+                    f"JSON idea_title too short ('{title}'), trying text extraction"
+                )
 
         # Fallback to text-based extraction
         lines = content.strip().split("\n")
@@ -1244,7 +1304,14 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
             'core analysis', 'opportunity', 'risk', 'proposal', 'priority', 'execution', 'overview', 'goals',
             'summary', 'conclusion', 'background', 'status', 'analysis', 'strategy', 'plan', 'schedule',
             'expected results', 'expected outcomes', 'reference', 'appendix', 'introduction',
-            'key points', 'key insights'
+            'key points', 'key insights',
+            # Korean section-header PHRASES (the English-only list let '핵심 분석'
+            # etc. leak as titles). Kept as multi-token phrases — NOT bare words
+            # like '분석'/'전략' — so legitimate titles containing those words are
+            # not wrongly skipped by is_generic_header's substring match.
+            '핵심 분석', '핵심분석', '기회/리스크', '구체적 제안', '실행 로드맵',
+            '실행 계획', '성공 지표', '성과 지표', '프로젝트 개요', '기술 아키텍처',
+            '향후 확장', '향후 계획',
         ]
 
         def is_generic_header(text: str) -> bool:
@@ -1304,6 +1371,8 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         if not title:
             for line in lines:
                 line = line.strip()
+                if self._is_json_noise_line(line):
+                    continue
                 if is_generic_header(line):
                     continue
                 if line.startswith("##") and "idea" not in line.lower():
@@ -1322,6 +1391,8 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
             for line in lines:
                 line = line.strip()
                 if line.startswith("#") or line.startswith("*") or line.startswith("-"):
+                    continue
+                if self._is_json_noise_line(line):
                     continue
                 if is_generic_header(line):
                     continue
