@@ -126,7 +126,9 @@ Prioritize trends with:
             response = llm_response.content
 
             response_len = len(response) if response else 0
-            logger.info(f"[{period}] LLM response received: {response_len} chars (model: {llm_response.model})")
+            logger.info(
+                f"[{period}] LLM response received: {response_len} chars (model: {llm_response.model})"
+            )
 
             if not response or not response.strip():
                 logger.error(f"[{period}] Empty response from LLM! repr={repr(response)}")

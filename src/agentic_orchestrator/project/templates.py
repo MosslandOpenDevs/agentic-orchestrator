@@ -8,11 +8,10 @@ Provides boilerplate code and configuration for:
 """
 
 import logging
-import os
 import re
-from pathlib import Path, PurePosixPath
-from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +56,7 @@ def slugify_project_name(name: str, fallback: str = "project") -> str:
         safe = safe[:50].rsplit("-", 1)[0] or safe[:50]
     return safe or fallback
 
+
 # Supported technology stacks
 SUPPORTED_STACKS = {
     "frontend": ["nextjs", "react", "vue"],
@@ -69,6 +69,7 @@ SUPPORTED_STACKS = {
 @dataclass
 class TemplateFile:
     """A template file to be generated."""
+
     path: str
     content: str
     is_binary: bool = False
@@ -77,6 +78,7 @@ class TemplateFile:
 @dataclass
 class StackTemplate:
     """Template for a technology stack."""
+
     name: str
     files: List[TemplateFile]
     dependencies: Dict[str, str]
@@ -529,7 +531,7 @@ asyncio_mode = "auto"
             ),
             TemplateFile(
                 path="src/backend/app/main.py",
-                content=f'''"""FastAPI application entry point."""
+                content='''"""FastAPI application entry point."""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -551,13 +553,13 @@ app.add_middleware(
 @app.get("/")
 async def root():
     """Root endpoint."""
-    return {{"message": "Welcome to the API"}}
+    return {"message": "Welcome to the API"}
 
 
 @app.get("/health")
 async def health():
     """Health check endpoint."""
-    return {{"status": "healthy"}}
+    return {"status": "healthy"}
 ''',
             ),
             TemplateFile(
@@ -894,9 +896,7 @@ pub struct Initialize {}
 
         # Refuse to write into a symlinked project directory (symlink attack).
         if project_dir.is_symlink():
-            raise ValueError(
-                f"Refusing to write into symlinked project directory: {project_dir}"
-            )
+            raise ValueError(f"Refusing to write into symlinked project directory: {project_dir}")
 
         project_dir.mkdir(parents=True, exist_ok=True)
         project_root = project_dir.resolve()
@@ -924,9 +924,7 @@ pub struct Initialize {}
 
             parent = file_path.parent
             if parent.is_symlink():
-                logger.warning(
-                    "Skipping file under symlinked directory: %s", parent
-                )
+                logger.warning("Skipping file under symlinked directory: %s", parent)
                 skipped += 1
                 continue
             if file_path.is_symlink():
@@ -937,7 +935,9 @@ pub struct Initialize {}
             parent.mkdir(parents=True, exist_ok=True)
 
             if file.is_binary:
-                file_path.write_bytes(file.content.encode() if isinstance(file.content, str) else file.content)
+                file_path.write_bytes(
+                    file.content.encode() if isinstance(file.content, str) else file.content
+                )
             else:
                 file_path.write_text(file.content)
 

@@ -2,10 +2,10 @@
 Signal storage utilities for persistence and retrieval.
 """
 
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
-from pathlib import Path
 import json
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from ..db.connection import db
 from ..db.models import Signal
@@ -38,11 +38,7 @@ class SignalStorage:
         with db.session() as session:
             repo = SignalRepository(session)
             return repo.get_recent(
-                hours=hours,
-                limit=limit,
-                source=source,
-                category=category,
-                min_score=min_score
+                hours=hours, limit=limit, source=source, category=category, min_score=min_score
             )
 
     def get_by_source(self, source: str, limit: int = 50) -> List[Signal]:
@@ -97,18 +93,20 @@ class SignalStorage:
                     if not data.get("source") or not data.get("title"):
                         continue
 
-                    repo.create({
-                        "source": data.get("source", "unknown"),
-                        "category": data.get("category", "other"),
-                        "title": data.get("title", ""),
-                        "summary": data.get("summary"),
-                        "url": data.get("url"),
-                        "score": data.get("score", 0.0),
-                        "sentiment": data.get("sentiment"),
-                        "topics": data.get("topics", []),
-                        "entities": data.get("entities", []),
-                        "raw_data": data.get("raw_data"),
-                    })
+                    repo.create(
+                        {
+                            "source": data.get("source", "unknown"),
+                            "category": data.get("category", "other"),
+                            "title": data.get("title", ""),
+                            "summary": data.get("summary"),
+                            "url": data.get("url"),
+                            "score": data.get("score", 0.0),
+                            "sentiment": data.get("sentiment"),
+                            "topics": data.get("topics", []),
+                            "entities": data.get("entities", []),
+                            "raw_data": data.get("raw_data"),
+                        }
+                    )
                     stored += 1
                 except Exception:
                     continue
@@ -151,9 +149,7 @@ class SignalStorage:
 
             for signal_data in data:
                 # Check if already exists
-                existing = session.query(Signal).filter(
-                    Signal.id == signal_data.get("id")
-                ).first()
+                existing = session.query(Signal).filter(Signal.id == signal_data.get("id")).first()
 
                 if not existing:
                     repo.create(signal_data)
@@ -171,10 +167,11 @@ class SignalStorage:
 
         with db.session() as session:
             # Query signals for the day
-            signals = session.query(Signal).filter(
-                Signal.collected_at >= start,
-                Signal.collected_at < end
-            ).all()
+            signals = (
+                session.query(Signal)
+                .filter(Signal.collected_at >= start, Signal.collected_at < end)
+                .all()
+            )
 
             # Calculate statistics
             by_source = {}
@@ -219,20 +216,32 @@ class SignalStorage:
 
         elif format == "csv":
             import csv
+
             with open(export_file, "w", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=[
-                    "id", "source", "category", "title", "url", "score", "collected_at"
-                ])
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=[
+                        "id",
+                        "source",
+                        "category",
+                        "title",
+                        "url",
+                        "score",
+                        "collected_at",
+                    ],
+                )
                 writer.writeheader()
                 for signal in signals:
-                    writer.writerow({
-                        "id": signal.id,
-                        "source": signal.source,
-                        "category": signal.category,
-                        "title": signal.title,
-                        "url": signal.url,
-                        "score": signal.score,
-                        "collected_at": signal.collected_at,
-                    })
+                    writer.writerow(
+                        {
+                            "id": signal.id,
+                            "source": signal.source,
+                            "category": signal.category,
+                            "title": signal.title,
+                            "url": signal.url,
+                            "score": signal.score,
+                            "collected_at": signal.collected_at,
+                        }
+                    )
 
         return export_file

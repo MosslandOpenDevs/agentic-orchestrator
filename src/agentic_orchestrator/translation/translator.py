@@ -8,10 +8,9 @@ Automatically detects source language and translates accordingly:
 """
 
 import logging
-from typing import Optional, Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from ..llm.router import HybridLLMRouter
-from ..db.models import Idea, Plan
 
 logger = logging.getLogger(__name__)
 
@@ -66,19 +65,19 @@ Output only the translated Korean text, nothing else."""
             'ko' if Korean, 'en' if English
         """
         if not text:
-            return 'en'
+            return "en"
 
         # Count Korean characters (Hangul syllables range)
-        korean_chars = sum(1 for c in text if '\uac00' <= c <= '\ud7af')
+        korean_chars = sum(1 for c in text if "\uac00" <= c <= "\ud7af")
         # Count ASCII letters
         ascii_chars = sum(1 for c in text if c.isascii() and c.isalpha())
 
         total_chars = korean_chars + ascii_chars
         if total_chars == 0:
-            return 'en'
+            return "en"
 
         korean_ratio = korean_chars / total_chars
-        return 'ko' if korean_ratio > 0.3 else 'en'
+        return "ko" if korean_ratio > 0.3 else "en"
 
     async def translate_to_english(self, text: str) -> str:
         """
@@ -94,7 +93,7 @@ Output only the translated Korean text, nothing else."""
             return ""
 
         # Skip if already mostly English
-        if self._detect_language(text) == 'en':
+        if self._detect_language(text) == "en":
             logger.info("Text appears to already be English, skipping translation")
             return text
 
@@ -121,7 +120,7 @@ English translation:"""
 
             # Remove any wrapper text the model might add
             if translated.lower().startswith("english translation:"):
-                translated = translated[len("English translation:"):].strip()
+                translated = translated[len("English translation:") :].strip()
 
             # Remove markdown separator markers that the model might add
             if translated.startswith("---"):
@@ -154,7 +153,7 @@ English translation:"""
             return ""
 
         # Skip if already mostly Korean
-        if self._detect_language(text) == 'ko':
+        if self._detect_language(text) == "ko":
             logger.info("Text appears to already be Korean, skipping translation")
             return text
 
@@ -181,7 +180,7 @@ Korean translation:"""
 
             # Remove any wrapper text the model might add
             if translated.startswith("Korean translation:"):
-                translated = translated[len("Korean translation:"):].strip()
+                translated = translated[len("Korean translation:") :].strip()
 
             # Remove markdown separator markers that the model might add
             if translated.startswith("---"):
@@ -215,7 +214,7 @@ Korean translation:"""
 
         source_lang = self._detect_language(text)
 
-        if source_lang == 'ko':
+        if source_lang == "ko":
             # Original is Korean, translate to English
             korean_text = text
             english_text = await self.translate_to_english(text)
@@ -242,22 +241,22 @@ Korean translation:"""
         result = dict(idea_data)
 
         # Process title
-        if idea_data.get('title'):
-            en, ko = await self.ensure_bilingual(idea_data['title'])
-            result['title'] = en if en else idea_data['title']
-            result['title_ko'] = ko if ko else idea_data['title']
+        if idea_data.get("title"):
+            en, ko = await self.ensure_bilingual(idea_data["title"])
+            result["title"] = en if en else idea_data["title"]
+            result["title_ko"] = ko if ko else idea_data["title"]
 
         # Process summary
-        if idea_data.get('summary'):
-            en, ko = await self.ensure_bilingual(idea_data['summary'])
-            result['summary'] = en if en else idea_data['summary']
-            result['summary_ko'] = ko if ko else idea_data['summary']
+        if idea_data.get("summary"):
+            en, ko = await self.ensure_bilingual(idea_data["summary"])
+            result["summary"] = en if en else idea_data["summary"]
+            result["summary_ko"] = ko if ko else idea_data["summary"]
 
         # Process description
-        if idea_data.get('description'):
-            en, ko = await self.ensure_bilingual(idea_data['description'])
-            result['description'] = en if en else idea_data['description']
-            result['description_ko'] = ko if ko else idea_data['description']
+        if idea_data.get("description"):
+            en, ko = await self.ensure_bilingual(idea_data["description"])
+            result["description"] = en if en else idea_data["description"]
+            result["description_ko"] = ko if ko else idea_data["description"]
 
         return result
 
@@ -274,15 +273,15 @@ Korean translation:"""
         result = dict(plan_data)
 
         # Process title
-        if plan_data.get('title'):
-            en, ko = await self.ensure_bilingual(plan_data['title'])
-            result['title'] = en if en else plan_data['title']
-            result['title_ko'] = ko if ko else plan_data['title']
+        if plan_data.get("title"):
+            en, ko = await self.ensure_bilingual(plan_data["title"])
+            result["title"] = en if en else plan_data["title"]
+            result["title_ko"] = ko if ko else plan_data["title"]
 
         # Process final_plan (can be long)
-        if plan_data.get('final_plan'):
-            en, ko = await self.ensure_bilingual(plan_data['final_plan'])
-            result['final_plan'] = en if en else plan_data['final_plan']
-            result['final_plan_ko'] = ko if ko else plan_data['final_plan']
+        if plan_data.get("final_plan"):
+            en, ko = await self.ensure_bilingual(plan_data["final_plan"])
+            result["final_plan"] = en if en else plan_data["final_plan"]
+            result["final_plan_ko"] = ko if ko else plan_data["final_plan"]
 
         return result

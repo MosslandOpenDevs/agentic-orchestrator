@@ -10,18 +10,18 @@ Provides adapters for collecting signals from various sources:
 - News APIs
 """
 
-from .base import BaseAdapter, AdapterConfig, AdapterResult, SignalData
-from .rss import RSSAdapter
-from .github_events import GitHubEventsAdapter
-from .onchain import OnChainAdapter
-from .social import SocialMediaAdapter
-from .news import NewsAPIAdapter
-from .twitter import TwitterAdapter
-from .discord import DiscordAdapter
-from .lens import LensAdapter
-from .farcaster import FarcasterAdapter
+from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
 from .coingecko import CoingeckoAdapter
+from .discord import DiscordAdapter
+from .farcaster import FarcasterAdapter
+from .github_events import GitHubEventsAdapter
+from .lens import LensAdapter
+from .news import NewsAPIAdapter
+from .onchain import OnChainAdapter
+from .rss import RSSAdapter
+from .social import SocialMediaAdapter
 from .threads import ThreadsAdapter
+from .twitter import TwitterAdapter
 
 __all__ = [
     # Base

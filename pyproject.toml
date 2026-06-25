@@ -8,7 +8,9 @@ version = "0.6.8"
 description = "Autonomous orchestration system for Mossland micro Web3 service development"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.10"
+# The project generator emits f-strings that reuse the outer quote inside the
+# replacement field (PEP 701), which is only valid syntax on Python 3.12+.
+requires-python = ">=3.12"
 authors = [
     {name = "Mossland", email = "dev@mossland.org"}
 ]
@@ -18,9 +20,8 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 
 dependencies = [
@@ -68,10 +69,22 @@ asyncio_mode = "auto"
 
 [tool.black]
 line-length = 100
-target-version = ["py310"]
+target-version = ["py312"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
-select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
-ignore = ["E501"]
+target-version = "py312"
+
+[tool.ruff.lint]
+# Bug-catching + import hygiene rules. `UP` (pyupgrade) is intentionally not
+# enforced: the codebase consistently uses typing.List/Dict/Optional style, and
+# mass-rewriting annotations would be churn with no behavior change.
+select = ["E", "F", "W", "I", "N", "B", "C4"]
+ignore = [
+    "E501",  # line length — not enforced (long URLs/prompts are common)
+    "B008",  # FastAPI Depends()/Query() in argument defaults is the required pattern
+    "E402",  # a few modules import after runtime setup (logging/sys.path) on purpose
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # package re-exports are not "unused"

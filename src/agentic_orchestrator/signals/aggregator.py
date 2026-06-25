@@ -3,23 +3,23 @@ Signal aggregator for collecting and processing signals from all adapters.
 """
 
 import asyncio
+import hashlib
 import logging
 from datetime import datetime
-from typing import List, Dict, Any, Optional
-import hashlib
+from typing import Any, Dict, List, Optional
 
-from ..adapters.base import BaseAdapter, AdapterResult, SignalData
-from ..adapters.rss import RSSAdapter
-from ..adapters.github_events import GitHubEventsAdapter
-from ..adapters.onchain import OnChainAdapter
-from ..adapters.social import SocialMediaAdapter
-from ..adapters.news import NewsAPIAdapter
-from ..adapters.twitter import TwitterAdapter
-from ..adapters.discord import DiscordAdapter
-from ..adapters.lens import LensAdapter
-from ..adapters.farcaster import FarcasterAdapter
+from ..adapters.base import AdapterResult, BaseAdapter, SignalData
 from ..adapters.coingecko import CoingeckoAdapter
+from ..adapters.discord import DiscordAdapter
+from ..adapters.farcaster import FarcasterAdapter
+from ..adapters.github_events import GitHubEventsAdapter
+from ..adapters.lens import LensAdapter
+from ..adapters.news import NewsAPIAdapter
+from ..adapters.onchain import OnChainAdapter
+from ..adapters.rss import RSSAdapter
+from ..adapters.social import SocialMediaAdapter
 from ..adapters.threads import ThreadsAdapter
+from ..adapters.twitter import TwitterAdapter
 from ..db.connection import db
 from ..db.models import Signal
 from ..db.repositories import SignalRepository
@@ -110,7 +110,9 @@ class SignalAggregator:
         all_signals = self.scorer.score_batch(all_signals)
 
         # Sort by score
-        all_signals.sort(key=lambda s: getattr(s, 'score', 0) if hasattr(s, 'score') else 0, reverse=True)
+        all_signals.sort(
+            key=lambda s: getattr(s, "score", 0) if hasattr(s, "score") else 0, reverse=True
+        )
 
         # Save to database
         if save_to_db:
@@ -152,8 +154,8 @@ class SignalAggregator:
         Returns:
             (is_valid, reason)
         """
-        title = signal.title or ''
-        summary = signal.summary or ''
+        title = signal.title or ""
+        summary = signal.summary or ""
 
         # Minimum title length check (10 characters)
         if len(title.strip()) < 10:
@@ -165,10 +167,21 @@ class SignalAggregator:
 
         # Spam/ad pattern detection
         spam_patterns = [
-            'click here', 'buy now', 'free money', 'giveaway',
-            '무료', '할인', '이벤트', '경품', 'airdrop claim',
-            '100x guaranteed', 'limited time', 'act now',
-            'send btc', 'send eth', 'dm for',
+            "click here",
+            "buy now",
+            "free money",
+            "giveaway",
+            "무료",
+            "할인",
+            "이벤트",
+            "경품",
+            "airdrop claim",
+            "100x guaranteed",
+            "limited time",
+            "act now",
+            "send btc",
+            "send eth",
+            "dm for",
         ]
         title_lower = title.lower()
         summary_lower = summary.lower()
@@ -201,10 +214,10 @@ class SignalAggregator:
         other_count = 0
 
         for char in text:
-            if '\uAC00' <= char <= '\uD7A3' or '\u1100' <= char <= '\u11FF':
+            if "\uac00" <= char <= "\ud7a3" or "\u1100" <= char <= "\u11ff":
                 # Korean syllables or Jamo
                 korean_count += 1
-            elif 'a' <= char.lower() <= 'z':
+            elif "a" <= char.lower() <= "z":
                 english_count += 1
             elif char.isalpha():
                 other_count += 1
@@ -239,14 +252,37 @@ class SignalAggregator:
         if not existing_signals:
             return False
 
-        new_title = new_signal.title or ''
+        new_title = new_signal.title or ""
         new_tokens = set(new_title.lower().split())
 
         # Remove common stop words
         stop_words = {
-            'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be',
-            'to', 'of', 'and', 'in', 'on', 'for', 'with', 'at',
-            '의', '을', '를', '이', '가', '은', '는', '에', '와', '과',
+            "the",
+            "a",
+            "an",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "to",
+            "of",
+            "and",
+            "in",
+            "on",
+            "for",
+            "with",
+            "at",
+            "의",
+            "을",
+            "를",
+            "이",
+            "가",
+            "은",
+            "는",
+            "에",
+            "와",
+            "과",
         }
         new_tokens = new_tokens - stop_words
 
@@ -254,7 +290,7 @@ class SignalAggregator:
             return False  # Too few tokens to compare meaningfully
 
         for existing in existing_signals:
-            existing_title = existing.title or ''
+            existing_title = existing.title or ""
             existing_tokens = set(existing_title.lower().split()) - stop_words
 
             if len(existing_tokens) < 3:
@@ -308,7 +344,9 @@ class SignalAggregator:
                 filtered_count += 1
                 logger.debug(f"Filtered signal: {reason} - '{signal.title[:50]}'")
 
-        logger.info(f"Content validation: {len(hash_deduped)} -> {len(validated)} (filtered {filtered_count})")
+        logger.info(
+            f"Content validation: {len(hash_deduped)} -> {len(validated)} (filtered {filtered_count})"
+        )
 
         # Phase 3: Semantic deduplication
         final_signals: List[SignalData] = []
@@ -320,7 +358,9 @@ class SignalAggregator:
             else:
                 semantic_dupes += 1
 
-        logger.info(f"Semantic dedup: {len(validated)} -> {len(final_signals)} (dupes: {semantic_dupes})")
+        logger.info(
+            f"Semantic dedup: {len(validated)} -> {len(final_signals)} (dupes: {semantic_dupes})"
+        )
 
         return final_signals
 
@@ -371,9 +411,7 @@ class SignalAggregator:
             for signal in signals:
                 try:
                     # Check if signal already exists (by content hash)
-                    existing = session.query(Signal).filter(
-                        Signal.id == signal.id
-                    ).first()
+                    existing = session.query(Signal).filter(Signal.id == signal.id).first()
 
                     if not existing:
                         title_ko = None
@@ -388,20 +426,22 @@ class SignalAggregator:
                             except Exception as e:
                                 logger.warning(f"Translation failed for signal: {e}")
 
-                        repo.create({
-                            "id": signal.id,
-                            "source": signal.source,
-                            "category": signal.category,
-                            "title": signal.title,
-                            "title_ko": title_ko,
-                            "summary": signal.summary,
-                            "summary_ko": summary_ko,
-                            "url": signal.url,
-                            "raw_data": signal.raw_data,
-                            "score": getattr(signal, 'score', 0.0),
-                            "topics": signal.metadata.get("topics", []),
-                            "collected_at": signal.collected_at,
-                        })
+                        repo.create(
+                            {
+                                "id": signal.id,
+                                "source": signal.source,
+                                "category": signal.category,
+                                "title": signal.title,
+                                "title_ko": title_ko,
+                                "summary": signal.summary,
+                                "summary_ko": summary_ko,
+                                "url": signal.url,
+                                "raw_data": signal.raw_data,
+                                "score": getattr(signal, "score", 0.0),
+                                "topics": signal.metadata.get("topics", []),
+                                "collected_at": signal.collected_at,
+                            }
+                        )
                         saved_count += 1
 
                 except Exception as e:
@@ -421,11 +461,7 @@ class SignalAggregator:
         with db.session() as session:
             repo = SignalRepository(session)
             return repo.get_recent(
-                hours=hours,
-                limit=limit,
-                source=source,
-                category=category,
-                min_score=min_score
+                hours=hours, limit=limit, source=source, category=category, min_score=min_score
             )
 
     async def health_check(self) -> Dict[str, Any]:
@@ -433,7 +469,7 @@ class SignalAggregator:
         health = {
             "status": "healthy",
             "last_collection": self._last_collection.isoformat() if self._last_collection else None,
-            "adapters": {}
+            "adapters": {},
         }
 
         for adapter in self.adapters:
@@ -476,5 +512,7 @@ class SignalAggregator:
                 "enabled_adapters": len([a for a in self.adapters if a.is_enabled()]),
                 "signals_by_source": repo.count_by_source(),
                 "signals_by_category": repo.count_by_category(),
-                "last_collection": self._last_collection.isoformat() if self._last_collection else None,
+                "last_collection": (
+                    self._last_collection.isoformat() if self._last_collection else None
+                ),
             }

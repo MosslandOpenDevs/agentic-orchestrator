@@ -11,20 +11,19 @@ Usage:
 
 import asyncio
 import logging
-import sys
 from datetime import datetime
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
 
 async def migrate_ideas():
     """Migrate all ideas to have bilingual content."""
-    from ..db import get_database, IdeaRepository
+    from ..db import IdeaRepository, get_database
     from ..translation import ContentTranslator
 
     db = get_database()
@@ -84,13 +83,15 @@ async def migrate_ideas():
             session.rollback()
             continue
 
-    logger.info(f"Ideas migration complete: {migrated} migrated, {skipped} skipped, {failed} failed")
+    logger.info(
+        f"Ideas migration complete: {migrated} migrated, {skipped} skipped, {failed} failed"
+    )
     return migrated, skipped, failed
 
 
 async def migrate_plans():
     """Migrate all plans to have bilingual content."""
-    from ..db import get_database, PlanRepository
+    from ..db import PlanRepository, get_database
     from ..translation import ContentTranslator
 
     db = get_database()
@@ -144,22 +145,25 @@ async def migrate_plans():
             session.rollback()
             continue
 
-    logger.info(f"Plans migration complete: {migrated} migrated, {skipped} skipped, {failed} failed")
+    logger.info(
+        f"Plans migration complete: {migrated} migrated, {skipped} skipped, {failed} failed"
+    )
     return migrated, skipped, failed
 
 
 async def migrate_trends():
     """Migrate all trends to have bilingual content."""
-    from ..db import get_database, TrendRepository
+    from ..db import TrendRepository, get_database
     from ..translation import ContentTranslator
 
     db = get_database()
     session = db.get_session()
-    trend_repo = TrendRepository(session)
+    TrendRepository(session)
     translator = ContentTranslator()
 
     # Get all trends
     from ..db.models import Trend
+
     trends = session.query(Trend).all()
     total = len(trends)
     logger.info(f"Found {total} trends to process")
@@ -176,7 +180,9 @@ async def migrate_trends():
                 skipped += 1
                 continue
 
-            logger.info(f"[{idx}/{total}] Processing trend {trend.id}: {trend.name[:50] if trend.name else 'N/A'}...")
+            logger.info(
+                f"[{idx}/{total}] Processing trend {trend.id}: {trend.name[:50] if trend.name else 'N/A'}..."
+            )
 
             # Process name
             if trend.name and not trend.name_ko:
@@ -205,7 +211,9 @@ async def migrate_trends():
             session.rollback()
             continue
 
-    logger.info(f"Trends migration complete: {migrated} migrated, {skipped} skipped, {failed} failed")
+    logger.info(
+        f"Trends migration complete: {migrated} migrated, {skipped} skipped, {failed} failed"
+    )
     return migrated, skipped, failed
 
 
@@ -238,9 +246,15 @@ async def main():
     logger.info("\n" + "=" * 60)
     logger.info("Migration Summary")
     logger.info("=" * 60)
-    logger.info(f"Trends:  {trends_result[0]} migrated, {trends_result[1]} skipped, {trends_result[2]} failed")
-    logger.info(f"Ideas:   {ideas_result[0]} migrated, {ideas_result[1]} skipped, {ideas_result[2]} failed")
-    logger.info(f"Plans:   {plans_result[0]} migrated, {plans_result[1]} skipped, {plans_result[2]} failed")
+    logger.info(
+        f"Trends:  {trends_result[0]} migrated, {trends_result[1]} skipped, {trends_result[2]} failed"
+    )
+    logger.info(
+        f"Ideas:   {ideas_result[0]} migrated, {ideas_result[1]} skipped, {ideas_result[2]} failed"
+    )
+    logger.info(
+        f"Plans:   {plans_result[0]} migrated, {plans_result[1]} skipped, {plans_result[2]} failed"
+    )
     logger.info(f"Duration: {duration:.1f} seconds")
     logger.info("=" * 60)
 

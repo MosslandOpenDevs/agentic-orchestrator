@@ -5,22 +5,23 @@ Provides data access layer for all models with common CRUD operations
 and specialized queries.
 """
 
-from datetime import datetime, timedelta, date
-from typing import List, Optional, Dict, Any
+from datetime import date, datetime, timedelta
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, and_, or_
 
 from .models import (
-    Signal,
-    Trend,
-    Idea,
-    DebateSession,
+    AgentState,
+    APIUsage,
     DebateMessage,
+    DebateSession,
+    Idea,
     Plan,
     Project,
-    APIUsage,
+    Signal,
     SystemLog,
-    AgentState,
+    Trend,
 )
 
 
@@ -63,8 +64,7 @@ class SignalRepository(BaseRepository):
         since = datetime.utcnow() - timedelta(hours=hours)
 
         query = self.session.query(Signal).filter(
-            Signal.collected_at >= since,
-            Signal.score >= min_score
+            Signal.collected_at >= since, Signal.score >= min_score
         )
 
         if source:
@@ -81,7 +81,7 @@ class SignalRepository(BaseRepository):
         offset: int = 0,
         source: Optional[str] = None,
         category: Optional[str] = None,
-        min_score: float = 0.0
+        min_score: float = 0.0,
     ) -> List[Signal]:
         """Get recent signals with optional filters and SQL-level pagination."""
         query = self._build_recent_query(hours, source, category, min_score)
@@ -98,8 +98,7 @@ class SignalRepository(BaseRepository):
         since = datetime.utcnow() - timedelta(hours=hours)
 
         query = self.session.query(func.count(Signal.id)).filter(
-            Signal.collected_at >= since,
-            Signal.score >= min_score
+            Signal.collected_at >= since, Signal.score >= min_score
         )
 
         if source:
@@ -132,11 +131,9 @@ class SignalRepository(BaseRepository):
     def count_by_source(self) -> Dict[str, int]:
         """Get signal count by source."""
         results = (
-            self.session.query(Signal.source, func.count(Signal.id))
-            .group_by(Signal.source)
-            .all()
+            self.session.query(Signal.source, func.count(Signal.id)).group_by(Signal.source).all()
         )
-        return {source: count for source, count in results}
+        return dict(results)
 
     def count_by_category(self) -> Dict[str, int]:
         """Get signal count by category."""
@@ -145,17 +142,14 @@ class SignalRepository(BaseRepository):
             .group_by(Signal.category)
             .all()
         )
-        return {category: count for category, count in results}
+        return dict(results)
 
     def search(self, query: str, limit: int = 50) -> List[Signal]:
         """Search signals by title or summary."""
         pattern = f"%{query}%"
         return (
             self.session.query(Signal)
-            .filter(or_(
-                Signal.title.ilike(pattern),
-                Signal.summary.ilike(pattern)
-            ))
+            .filter(or_(Signal.title.ilike(pattern), Signal.summary.ilike(pattern)))
             .order_by(desc(Signal.collected_at))
             .limit(limit)
             .all()
@@ -271,12 +265,8 @@ class IdeaRepository(BaseRepository):
 
     def count_by_status(self) -> Dict[str, int]:
         """Get idea count by status."""
-        results = (
-            self.session.query(Idea.status, func.count(Idea.id))
-            .group_by(Idea.status)
-            .all()
-        )
-        return {status: count for status, count in results}
+        results = self.session.query(Idea.status, func.count(Idea.id)).group_by(Idea.status).all()
+        return dict(results)
 
     def get_recent(self, days: int = 7, limit: int = 50) -> List[Idea]:
         """Get recent ideas."""
@@ -297,9 +287,7 @@ class IdeaRepository(BaseRepository):
         """Count recent ideas."""
         since = datetime.utcnow() - timedelta(days=days)
         return (
-            self.session.query(func.count(Idea.id))
-            .filter(Idea.created_at >= since)
-            .scalar() or 0
+            self.session.query(func.count(Idea.id)).filter(Idea.created_at >= since).scalar() or 0
         )
 
     def get_all(self, limit: int = 100, offset: int = 0) -> List[Idea]:
@@ -332,11 +320,7 @@ class DebateRepository(BaseRepository):
 
     def get_session_by_id(self, session_id: str) -> Optional[DebateSession]:
         """Get debate session by ID."""
-        return (
-            self.session.query(DebateSession)
-            .filter(DebateSession.id == session_id)
-            .first()
-        )
+        return self.session.query(DebateSession).filter(DebateSession.id == session_id).first()
 
     def get_sessions_by_idea(self, idea_id: str) -> List[DebateSession]:
         """Get all debate sessions for an idea."""
@@ -375,10 +359,7 @@ class DebateRepository(BaseRepository):
         )
 
     def complete_session(
-        self,
-        session_id: str,
-        outcome: str,
-        summary: Optional[str] = None
+        self, session_id: str, outcome: str, summary: Optional[str] = None
     ) -> Optional[DebateSession]:
         """Mark a session as completed."""
         debate = self.get_session_by_id(session_id)
@@ -398,7 +379,7 @@ class DebateRepository(BaseRepository):
             .group_by(DebateMessage.agent_id)
             .all()
         )
-        return {agent_id: count for agent_id, count in results}
+        return dict(results)
 
     def get_all_sessions(
         self,
@@ -413,12 +394,7 @@ class DebateRepository(BaseRepository):
             query = query.filter(DebateSession.status == status)
         if phase:
             query = query.filter(DebateSession.phase == phase)
-        return (
-            query.order_by(desc(DebateSession.started_at))
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
+        return query.order_by(desc(DebateSession.started_at)).offset(offset).limit(limit).all()
 
     def count_sessions(
         self,
@@ -433,11 +409,7 @@ class DebateRepository(BaseRepository):
             query = query.filter(DebateSession.phase == phase)
         return query.scalar() or 0
 
-    def update_session(
-        self,
-        session_id: str,
-        **kwargs
-    ) -> Optional[DebateSession]:
+    def update_session(self, session_id: str, **kwargs) -> Optional[DebateSession]:
         """Update debate session fields."""
         debate = self.get_session_by_id(session_id)
         if debate:
@@ -452,7 +424,8 @@ class DebateRepository(BaseRepository):
         cutoff = datetime.utcnow() - timedelta(days=days)
         # Delete child messages first to avoid orphaning if cascade isn't set.
         old_session_ids = [
-            sid for (sid,) in self.session.query(DebateSession.id)
+            sid
+            for (sid,) in self.session.query(DebateSession.id)
             .filter(DebateSession.started_at < cutoff)
             .all()
         ]
@@ -461,9 +434,11 @@ class DebateRepository(BaseRepository):
         self.session.query(DebateMessage).filter(
             DebateMessage.session_id.in_(old_session_ids)
         ).delete(synchronize_session=False)
-        result = self.session.query(DebateSession).filter(
-            DebateSession.id.in_(old_session_ids)
-        ).delete(synchronize_session=False)
+        result = (
+            self.session.query(DebateSession)
+            .filter(DebateSession.id.in_(old_session_ids))
+            .delete(synchronize_session=False)
+        )
         self.session.flush()
         return result
 
@@ -525,11 +500,7 @@ class PlanRepository(BaseRepository):
 
     def count_by_status(self, status: str) -> int:
         """Count plans by status."""
-        return (
-            self.session.query(func.count(Plan.id))
-            .filter(Plan.status == status)
-            .scalar() or 0
-        )
+        return self.session.query(func.count(Plan.id)).filter(Plan.status == status).scalar() or 0
 
     def get_all(self, limit: int = 100, offset: int = 0) -> List[Plan]:
         """Get all plans with pagination."""
@@ -605,9 +576,8 @@ class ProjectRepository(BaseRepository):
     def count_by_status(self, status: str) -> int:
         """Count projects by status."""
         return (
-            self.session.query(func.count(Project.id))
-            .filter(Project.status == status)
-            .scalar() or 0
+            self.session.query(func.count(Project.id)).filter(Project.status == status).scalar()
+            or 0
         )
 
     def get_all(self, limit: int = 100, offset: int = 0) -> List[Project]:
@@ -636,23 +606,14 @@ class APIUsageRepository(BaseRepository):
     """Repository for API usage tracking."""
 
     def record(
-        self,
-        provider: str,
-        model: str,
-        input_tokens: int,
-        output_tokens: int,
-        cost: float
+        self, provider: str, model: str, input_tokens: int, output_tokens: int, cost: float
     ) -> APIUsage:
         """Record API usage."""
         today = date.today()
 
         usage = (
             self.session.query(APIUsage)
-            .filter(
-                APIUsage.date == today,
-                APIUsage.provider == provider,
-                APIUsage.model == model
-            )
+            .filter(APIUsage.date == today, APIUsage.provider == provider, APIUsage.model == model)
             .first()
         )
 
@@ -670,7 +631,7 @@ class APIUsageRepository(BaseRepository):
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 cost_usd=cost,
-                request_count=1
+                request_count=1,
             )
             self.session.add(usage)
 
@@ -685,7 +646,7 @@ class APIUsageRepository(BaseRepository):
                 func.sum(APIUsage.cost_usd).label("total_cost"),
                 func.sum(APIUsage.input_tokens).label("total_input"),
                 func.sum(APIUsage.output_tokens).label("total_output"),
-                func.sum(APIUsage.request_count).label("total_requests")
+                func.sum(APIUsage.request_count).label("total_requests"),
             )
             .filter(APIUsage.date == today)
             .first()
@@ -694,7 +655,7 @@ class APIUsageRepository(BaseRepository):
             "total_cost": float(results.total_cost or 0),
             "total_input_tokens": int(results.total_input or 0),
             "total_output_tokens": int(results.total_output or 0),
-            "total_requests": int(results.total_requests or 0)
+            "total_requests": int(results.total_requests or 0),
         }
 
     def get_today_by_provider(self) -> Dict[str, Dict[str, Any]]:
@@ -706,7 +667,7 @@ class APIUsageRepository(BaseRepository):
                 func.sum(APIUsage.cost_usd).label("cost"),
                 func.sum(APIUsage.input_tokens).label("input_tokens"),
                 func.sum(APIUsage.output_tokens).label("output_tokens"),
-                func.sum(APIUsage.request_count).label("requests")
+                func.sum(APIUsage.request_count).label("requests"),
             )
             .filter(APIUsage.date == today)
             .group_by(APIUsage.provider)
@@ -717,7 +678,7 @@ class APIUsageRepository(BaseRepository):
                 "cost": float(r.cost or 0),
                 "input_tokens": int(r.input_tokens or 0),
                 "output_tokens": int(r.output_tokens or 0),
-                "requests": int(r.requests or 0)
+                "requests": int(r.requests or 0),
             }
             for r in results
         }
@@ -739,7 +700,7 @@ class APIUsageRepository(BaseRepository):
             self.session.query(
                 APIUsage.date,
                 func.sum(APIUsage.cost_usd).label("cost"),
-                func.sum(APIUsage.request_count).label("requests")
+                func.sum(APIUsage.request_count).label("requests"),
             )
             .filter(APIUsage.date >= since)
             .group_by(APIUsage.date)
@@ -750,7 +711,7 @@ class APIUsageRepository(BaseRepository):
             {
                 "date": r.date.isoformat(),
                 "cost": float(r.cost or 0),
-                "requests": int(r.requests or 0)
+                "requests": int(r.requests or 0),
             }
             for r in results
         ]
@@ -765,25 +726,25 @@ class SystemLogRepository(BaseRepository):
         source: str,
         message: str,
         details: Optional[Dict[str, Any]] = None,
-        trace: Optional[str] = None
+        trace: Optional[str] = None,
     ) -> SystemLog:
         """Create a log entry."""
         log_entry = SystemLog(
-            level=level,
-            source=source,
-            message=message,
-            details=details,
-            trace=trace
+            level=level, source=source, message=message, details=details, trace=trace
         )
         self.session.add(log_entry)
         self.session.flush()
         return log_entry
 
-    def info(self, source: str, message: str, details: Optional[Dict[str, Any]] = None) -> SystemLog:
+    def info(
+        self, source: str, message: str, details: Optional[Dict[str, Any]] = None
+    ) -> SystemLog:
         """Log info message."""
         return self.log("info", source, message, details)
 
-    def warn(self, source: str, message: str, details: Optional[Dict[str, Any]] = None) -> SystemLog:
+    def warn(
+        self, source: str, message: str, details: Optional[Dict[str, Any]] = None
+    ) -> SystemLog:
         """Log warning message."""
         return self.log("warn", source, message, details)
 
@@ -792,16 +753,13 @@ class SystemLogRepository(BaseRepository):
         source: str,
         message: str,
         details: Optional[Dict[str, Any]] = None,
-        trace: Optional[str] = None
+        trace: Optional[str] = None,
     ) -> SystemLog:
         """Log error message."""
         return self.log("error", source, message, details, trace)
 
     def get_recent(
-        self,
-        limit: int = 100,
-        level: Optional[str] = None,
-        source: Optional[str] = None
+        self, limit: int = 100, level: Optional[str] = None, source: Optional[str] = None
     ) -> List[SystemLog]:
         """Get recent logs with optional filters."""
         query = self.session.query(SystemLog)
@@ -818,10 +776,7 @@ class SystemLogRepository(BaseRepository):
         since = datetime.utcnow() - timedelta(hours=hours)
         return (
             self.session.query(SystemLog)
-            .filter(
-                SystemLog.level == "error",
-                SystemLog.created_at >= since
-            )
+            .filter(SystemLog.level == "error", SystemLog.created_at >= since)
             .order_by(desc(SystemLog.created_at))
             .limit(limit)
             .all()
@@ -847,7 +802,9 @@ class AgentStateRepository(BaseRepository):
             self.session.flush()
         return state
 
-    def update_status(self, agent_id: str, status: str, current_task: Optional[str] = None) -> Optional[AgentState]:
+    def update_status(
+        self, agent_id: str, status: str, current_task: Optional[str] = None
+    ) -> Optional[AgentState]:
         """Update agent status."""
         state = self.session.query(AgentState).filter(AgentState.id == agent_id).first()
         if state:
@@ -859,7 +816,9 @@ class AgentStateRepository(BaseRepository):
             self.session.flush()
         return state
 
-    def increment_stats(self, agent_id: str, messages: int = 0, tokens: int = 0) -> Optional[AgentState]:
+    def increment_stats(
+        self, agent_id: str, messages: int = 0, tokens: int = 0
+    ) -> Optional[AgentState]:
         """Increment agent statistics."""
         state = self.session.query(AgentState).filter(AgentState.id == agent_id).first()
         if state:
@@ -871,11 +830,7 @@ class AgentStateRepository(BaseRepository):
 
     def get_active_agents(self) -> List[AgentState]:
         """Get all active agents."""
-        return (
-            self.session.query(AgentState)
-            .filter(AgentState.status == "active")
-            .all()
-        )
+        return self.session.query(AgentState).filter(AgentState.status == "active").all()
 
     def get_all(self) -> List[AgentState]:
         """Get all agent states."""

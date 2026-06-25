@@ -1,16 +1,15 @@
 """Tests for signal aggregation and scoring system."""
 
-import pytest
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from agentic_orchestrator.adapters.base import (
-    SignalData,
     AdapterConfig,
     AdapterResult,
+    SignalData,
 )
 from agentic_orchestrator.signals.scorer import (
-    SignalScorer,
     ScoringConfig,
+    SignalScorer,
 )
 
 
@@ -288,9 +287,13 @@ class TestSignalScorer:
         """Test score is always in valid range."""
         scorer = SignalScorer()
         signals = [
-            SignalData(source="rss", category="crypto", title="ETH DeFi Web3 NFT blockchain"),  # High keywords
+            SignalData(
+                source="rss", category="crypto", title="ETH DeFi Web3 NFT blockchain"
+            ),  # High keywords
             SignalData(source="rss", category="other", title="x"),  # Minimal content
-            SignalData(source="rss", category="ai", title="GPT Claude LLM OpenAI Anthropic AI agent"),  # AI keywords
+            SignalData(
+                source="rss", category="ai", title="GPT Claude LLM OpenAI Anthropic AI agent"
+            ),  # AI keywords
         ]
         for signal in signals:
             score = scorer.score(signal)
@@ -308,7 +311,7 @@ class TestSignalScorer:
         assert len(scored) == 3
         # score_batch adds score attribute
         for signal in scored:
-            assert hasattr(signal, 'score') or 'score' in signal.metadata
+            assert hasattr(signal, "score") or "score" in signal.metadata
 
     def test_ai_keywords_boost(self):
         """Test AI-related keywords boost score."""
@@ -404,9 +407,18 @@ class TestSignalAggregation:
     def test_deduplicate_signals(self):
         """Test deduplicating signals by ID."""
         signals = [
-            SignalData(source="rss", category="crypto", title="Same title", url="https://example.com/1"),
-            SignalData(source="rss", category="crypto", title="Same title", url="https://example.com/1"),  # Duplicate
-            SignalData(source="rss", category="crypto", title="Different title", url="https://example.com/2"),
+            SignalData(
+                source="rss", category="crypto", title="Same title", url="https://example.com/1"
+            ),
+            SignalData(
+                source="rss", category="crypto", title="Same title", url="https://example.com/1"
+            ),  # Duplicate
+            SignalData(
+                source="rss",
+                category="crypto",
+                title="Different title",
+                url="https://example.com/2",
+            ),
         ]
 
         # Deduplicate by ID

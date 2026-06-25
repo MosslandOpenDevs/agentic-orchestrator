@@ -3,11 +3,10 @@ API Budget controller for managing LLM costs.
 """
 
 import os
-from dataclasses import dataclass, field
-from datetime import datetime, date
-from typing import Dict, Any, Optional
+from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
-import json
+from typing import Any, Dict, Optional
 
 from ..db.connection import db
 from ..db.repositories import APIUsageRepository
@@ -16,6 +15,7 @@ from ..db.repositories import APIUsageRepository
 @dataclass
 class UsageBudget:
     """Budget configuration."""
+
     daily_limit_usd: float = 1.0  # Conservative daily limit
     monthly_limit_usd: float = 30.0  # ~$1/day * 30 days
     warning_threshold: float = 0.7  # Warn at 70%
@@ -25,6 +25,7 @@ class UsageBudget:
 @dataclass
 class ProviderPricing:
     """Pricing per 1M tokens."""
+
     input: float
     output: float
 
@@ -46,16 +47,13 @@ class BudgetController:
         "claude-opus-4-5": ProviderPricing(input=15.0, output=75.0),
         "claude-sonnet-4": ProviderPricing(input=3.0, output=15.0),
         "claude-haiku-3-5": ProviderPricing(input=0.80, output=4.0),
-
         # OpenAI models
         "gpt-5.2": ProviderPricing(input=2.5, output=10.0),
         "gpt-5.2-chat-latest": ProviderPricing(input=2.5, output=10.0),
         "gpt-4o": ProviderPricing(input=2.5, output=10.0),
-
         # Gemini models
         "gemini-3-pro": ProviderPricing(input=1.25, output=5.0),
         "gemini-3-flash": ProviderPricing(input=0.075, output=0.30),
-
         # Local (free)
         "ollama": ProviderPricing(input=0.0, output=0.0),
     }
@@ -92,11 +90,7 @@ class BudgetController:
         if estimated_output_tokens == 0:
             estimated_output_tokens = int(estimated_input_tokens * 0.5)
 
-        estimated_cost = self.estimate_cost(
-            model,
-            estimated_input_tokens,
-            estimated_output_tokens
-        )
+        estimated_cost = self.estimate_cost(model, estimated_input_tokens, estimated_output_tokens)
 
         today_usage = self.get_today_usage()
         return (today_usage["total_cost"] + estimated_cost) <= self.budget.daily_limit_usd
@@ -145,7 +139,7 @@ class BudgetController:
                 model=model,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
-                cost=cost
+                cost=cost,
             )
 
         return self.get_today_usage()
@@ -190,9 +184,15 @@ class BudgetController:
         daily_percent = today["daily_used_percent"]
         monthly_percent = month["monthly_used_percent"]
 
-        if daily_percent >= self.budget.critical_threshold * 100 or monthly_percent >= self.budget.critical_threshold * 100:
+        if (
+            daily_percent >= self.budget.critical_threshold * 100
+            or monthly_percent >= self.budget.critical_threshold * 100
+        ):
             status = "critical"
-        elif daily_percent >= self.budget.warning_threshold * 100 or monthly_percent >= self.budget.warning_threshold * 100:
+        elif (
+            daily_percent >= self.budget.warning_threshold * 100
+            or monthly_percent >= self.budget.warning_threshold * 100
+        ):
             status = "warning"
         else:
             status = "healthy"
