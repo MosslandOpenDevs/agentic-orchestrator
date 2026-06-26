@@ -45,7 +45,10 @@ export function IdeaNetwork({ ideas, onIdeaClick, showLabels = true }: IdeaNetwo
 
     ideas.forEach((idea, index) => {
       const angle = (index / ideas.length) * 2 * Math.PI - Math.PI / 2;
-      const r = radius * (0.6 + Math.random() * 0.4);
+      // Deterministic per-node radial jitter (stable across renders, no impure
+      // Math.random in render): hash the index into the [0, 1) range.
+      const jitter = ((Math.sin(index * 12.9898) * 43758.5453) % 1 + 1) % 1;
+      const r = radius * (0.6 + jitter * 0.4);
 
       nodes.push({
         id: idea.id,

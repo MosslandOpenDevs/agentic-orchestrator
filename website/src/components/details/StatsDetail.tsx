@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ApiClient } from '@/lib/api';
+import { ApiClient, type StatusResponse } from '@/lib/api';
 import type { ModalData } from '../modals/ModalProvider';
 
 interface StatsDetailProps {
@@ -33,7 +33,7 @@ interface UsageData {
 export function StatsDetail({ data }: StatsDetailProps) {
   const [loading, setLoading] = useState(true);
   const [usage, setUsage] = useState<UsageData | null>(null);
-  const [statusData, setStatusData] = useState<any>(null);
+  const [statusData, setStatusData] = useState<StatusResponse | null>(null);
 
   useEffect(() => {
     async function fetchData() {

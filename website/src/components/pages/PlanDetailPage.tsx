@@ -11,7 +11,7 @@ interface PlanDetailPageProps {
 }
 
 export function PlanDetailPage({ id }: PlanDetailPageProps) {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
   const [plan, setPlan] = useState<ApiPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

@@ -16,16 +16,19 @@ const IDLE_POLL_INTERVAL = 30000;
 export default function DebatesPage() {
   const { t, locale } = useI18n();
   const { openModal } = useModal();
-  const [debates, setDebates] = useState<ApiDebate[]>([]);
-  const [loading, setLoading] = useState(true);
+  // `null` means "not loaded yet" so we can derive `loading` during render
+  // instead of syncing a separate loading flag via an effect.
+  const [debates, setDebates] = useState<ApiDebate[] | null>(null);
   const [filter, setFilter] = useState<{ status?: string; phase?: string }>({});
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [hasActiveDebate, setHasActiveDebate] = useState(false);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  const fetchDebates = useCallback(async (showLoading = false) => {
-    if (showLoading) setLoading(true);
+  // Derived render values (no effect needed)
+  const loading = debates === null;
+  const debateList = debates ?? [];
 
+  const fetchDebates = useCallback(async () => {
     const response = await ApiClient.getDebates({
       limit: 50,
       status: filter.status,
@@ -39,29 +42,32 @@ export default function DebatesPage() {
       setHasActiveDebate(active);
       setLastUpdate(new Date());
     }
-    if (showLoading) setLoading(false);
   }, [filter]);
 
-  // Initial fetch
-  useEffect(() => {
-    fetchDebates(true);
-  }, [fetchDebates]);
-
-  // Polling effect
+  // Fetch on mount / filter change and poll for updates. The interval cadence
+  // adapts to whether a debate is currently active. Fetches are scheduled
+  // (immediate kick-off + interval) rather than called synchronously so the
+  // effect body never triggers a synchronous state update.
   useEffect(() => {
     // Clear existing interval
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
     }
 
+    // Kick off an immediate fetch, then poll.
+    const kickoff = setTimeout(() => {
+      fetchDebates();
+    }, 0);
+
     // Set polling interval based on active debates
     const interval = hasActiveDebate ? ACTIVE_POLL_INTERVAL : IDLE_POLL_INTERVAL;
 
     pollingRef.current = setInterval(() => {
-      fetchDebates(false);
+      fetchDebates();
     }, interval);
 
     return () => {
+      clearTimeout(kickoff);
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
       }
@@ -238,7 +244,7 @@ export default function DebatesPage() {
         </TerminalWindow>
 
         {/* Debates List */}
-        <TerminalWindow title={`DEBATE_SESSIONS (${debates.length})`}>
+        <TerminalWindow title={`DEBATE_SESSIONS (${debateList.length})`}>
           {loading ? (
             <div className="text-center py-12">
               <div className="text-[#ff6b35] animate-pulse">
@@ -246,7 +252,7 @@ export default function DebatesPage() {
                 <span className="cursor-blink">_</span>
               </div>
             </div>
-          ) : debates.length === 0 ? (
+          ) : debateList.length === 0 ? (
             <div className="text-center py-12">
               <div className="text-4xl mb-4">💬</div>
               <div className="text-[#8b949e] mb-2">{t('debates.noDebates')}</div>
@@ -256,7 +262,7 @@ export default function DebatesPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {debates.map((debate, idx) => (
+              {debateList.map((debate, idx) => (
                 <motion.div
                   key={debate.id}
                   initial={{ opacity: 0, x: -20 }}

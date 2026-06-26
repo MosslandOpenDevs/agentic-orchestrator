@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useI18n } from '@/lib/i18n';
 import { ApiClient } from '@/lib/api';
+import type { ApiSignal, ApiTrend, ApiProject } from '@/lib/api';
 import { formatLocalDate } from '@/lib/date';
 import { clickableProps } from '@/lib/a11y';
 import type { ModalData } from '../modals/ModalProvider';
@@ -13,11 +14,26 @@ interface PipelineDetailProps {
   data: ModalData;
 }
 
+// Common shape shared by every item rendered in the recent-items list.
+// Signals/trends/projects are normalized to this; ideas/plans satisfy it directly.
+interface PipelineItem {
+  id: string;
+  title: string;
+  status: string;
+  created_at: string | null;
+}
+
+interface StageData {
+  items: PipelineItem[];
+  total: number;
+  statusCounts?: Record<string, number>;
+}
+
 export function PipelineDetail({ data }: PipelineDetailProps) {
   const router = useRouter();
   const { locale } = useI18n();
   const [loading, setLoading] = useState(true);
-  const [stageData, setStageData] = useState<any>(null);
+  const [stageData, setStageData] = useState<StageData | null>(null);
   const stageId = data.stageId as string;
   const stageName = data.stageName as string;
   const count = data.count as number;
@@ -31,7 +47,7 @@ export function PipelineDetail({ data }: PipelineDetailProps) {
           const response = await ApiClient.getSignals({ limit: 5 });
           if (response.data) {
             setStageData({
-              items: response.data.signals.map((s: any) => ({
+              items: response.data.signals.map((s: ApiSignal) => ({
                 id: s.id,
                 title: s.title,
                 status: s.source,
@@ -44,7 +60,7 @@ export function PipelineDetail({ data }: PipelineDetailProps) {
           const response = await ApiClient.getTrends();
           if (response.data) {
             setStageData({
-              items: response.data.trends.slice(0, 5).map((t: any) => ({
+              items: response.data.trends.slice(0, 5).map((t: ApiTrend) => ({
                 id: t.id,
                 title: t.name,
                 status: t.period,
@@ -74,7 +90,7 @@ export function PipelineDetail({ data }: PipelineDetailProps) {
           const response = await ApiClient.getProjects({ limit: 5 });
           if (response.data) {
             setStageData({
-              items: response.data.projects.map((p: any) => ({
+              items: response.data.projects.map((p: ApiProject) => ({
                 id: p.id,
                 title: p.name,
                 status: p.status,
@@ -146,12 +162,12 @@ export function PipelineDetail({ data }: PipelineDetailProps) {
       </div>
 
       {/* Recent Items */}
-      {stageData?.items?.length > 0 && (
+      {(stageData?.items?.length ?? 0) > 0 && (
         <div className="space-y-2">
           <div className="text-[10px] text-[#8b949e] uppercase tracking-wider">
             Recent {stageName}
           </div>
-          {stageData.items.map((item: any, idx: number) => (
+          {stageData?.items?.map((item: PipelineItem, idx: number) => (
             <motion.div
               key={item.id}
               initial={{ opacity: 0, x: -10 }}

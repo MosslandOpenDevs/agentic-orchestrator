@@ -44,9 +44,13 @@ export function TrendHeatmap({ trends, onCellClick }: TrendHeatmapProps) {
         cat => trend.category?.toLowerCase().includes(cat.toLowerCase())
       ) || 'Other';
 
+      // When a trend has no analyzed_at date, derive a stable day bucket from
+      // its id so rendering stays pure and idempotent (no Math.random()).
+      const fallbackDayIndex =
+        Array.from(trend.id).reduce((acc, ch) => acc + ch.charCodeAt(0), 0) % 7;
       const dayIndex = trend.analyzed_at
         ? new Date(trend.analyzed_at).getDay()
-        : Math.floor(Math.random() * 7);
+        : fallbackDayIndex;
       const day = DAYS[dayIndex === 0 ? 6 : dayIndex - 1]; // Convert Sunday=0 to index 6
 
       if (grouped[category] && grouped[category][day]) {

@@ -198,7 +198,7 @@ export interface ApiDebate {
   summary: string | null;
   outcome: string | null;
   final_plan: string | null;
-  ideas_generated: any[];
+  ideas_generated: Record<string, unknown>[];
   total_tokens: number;
   total_cost: number;
   started_at: string | null;

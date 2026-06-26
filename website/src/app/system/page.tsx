@@ -368,7 +368,7 @@ export default function SystemPage() {
         {viewMode === 'tech' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="grid md:grid-cols-2 gap-6">
-              {techStack.map((stack, idx) => (
+              {techStack.map((stack) => (
                 <TerminalWindow key={stack.category} title={stack.category.toUpperCase().replace(/ /g, '_')}>
                   <div className="space-y-2">
                     {stack.items.map((item) => (
