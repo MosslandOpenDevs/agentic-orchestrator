@@ -1,6 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import { APP_VERSION, APP_CODENAME } from '@/lib/version';
 
 const socialLinks = [
   {
@@ -131,7 +132,7 @@ export function Footer() {
             © 2025, 2026 MOSSLAND. ALL RIGHTS RESERVED.
           </div>
           <div className="flex items-center gap-4 text-[10px] text-[#6b7280]">
-            <span>v0.5.1 "Bilingual"</span>
+            <span>v{APP_VERSION}{APP_CODENAME ? ` "${APP_CODENAME}"` : ''}</span>
             <span className="text-[#21262d]">|</span>
             <span className="flex items-center gap-1">
               <span className="status-dot online" style={{ width: 4, height: 4 }} />

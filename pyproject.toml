@@ -28,17 +28,18 @@ dependencies = [
     "pyyaml>=6.0",
     "python-dotenv>=1.0.0",
     "click>=8.0.0",
-    "httpx>=0.25.0",
+    "httpx>=0.27.0",
     "openai>=1.0.0",
-    "google-generativeai>=0.3.0",
-    "anthropic>=0.18.0",
+    # Current Google GenAI SDK; legacy "google-generativeai" is EOL.
+    "google-genai>=1.0",
+    "anthropic>=0.40.0",
     "rich>=13.0.0",
     "feedparser>=6.0.0",
     # Imported across db/ and api/ but were missing from the dependency list,
     # which broke `pip install` based test collection on CI.
     "sqlalchemy>=2.0",
-    "fastapi>=0.110",
-    "uvicorn[standard]>=0.24.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30.0",
 ]
 
 [project.optional-dependencies]
