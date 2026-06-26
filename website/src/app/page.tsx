@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { APP_VERSION } from '@/lib/version';
@@ -27,14 +28,13 @@ const ASCII_LOGO = `
 `;
 
 export default function Dashboard() {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
   const { openModal } = useModal();
   const [stats, setStats] = useState<SystemStats>(mockStats);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [pipeline, setPipeline] = useState<PipelineStage[]>(mockPipeline);
   const [adapters, setAdapters] = useState<AdapterInfo[]>([]);
   const [projects, setProjects] = useState<ApiProject[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isActivityLoading, setIsActivityLoading] = useState(true);
   const [isAdapterModalOpen, setIsAdapterModalOpen] = useState(false);
   const [isAdaptersLoading, setIsAdaptersLoading] = useState(false);
@@ -57,7 +57,6 @@ export default function Dashboard() {
       } catch (error) {
         console.error('Failed to load dashboard data:', error);
       } finally {
-        setIsLoading(false);
         setIsActivityLoading(false);
       }
     }
@@ -204,12 +203,12 @@ export default function Dashboard() {
               </div>
               {projects.length > 3 && (
                 <div className="mt-3 pt-3 border-t border-[#21262d] text-center">
-                  <a
+                  <Link
                     href="/projects"
                     className="text-xs text-[#00ffff] hover:text-[#39ff14] transition-colors"
                   >
                     {locale === 'ko' ? '모든 프로젝트 보기' : 'View all projects'} →
-                  </a>
+                  </Link>
                 </div>
               )}
             </TerminalWindow>
@@ -291,7 +290,7 @@ export default function Dashboard() {
                     <div className="text-[#00ffff] text-xs mb-2">
                       <span className="text-[#bd93f9]">@</span> Local Models (Ollama)
                     </div>
-                    {['qwen3.5:9b', 'qwen3-embedding:0.6b'].map((model, idx) => (
+                    {['gemma3:4b', 'qwen3-embedding:0.6b'].map((model, idx) => (
                       <div key={model} className="flex items-center justify-between py-1 ml-4">
                         <span className="text-[#c0c0c0] text-xs">{model}</span>
                         <div className="flex items-center gap-2">

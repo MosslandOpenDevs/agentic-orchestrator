@@ -14,7 +14,7 @@ interface ProjectWithPlan extends ApiProject {
 }
 
 export default function ProjectsPage() {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
   const { openModal } = useModal();
   const [projects, setProjects] = useState<ProjectWithPlan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -214,7 +214,7 @@ export default function ProjectsPage() {
         <div className="mt-3 grid grid-cols-2 md:grid-cols-2 gap-2 text-xs">
           <div className="p-2 border border-[#21262d] rounded">
             <div className="text-[#8b949e]">{locale === 'ko' ? '채팅 / 생성' : 'Chat / Gen'}</div>
-            <div className="text-[#bd93f9] font-mono">qwen3.5:9b</div>
+            <div className="text-[#bd93f9] font-mono">gemma3:4b</div>
           </div>
           <div className="p-2 border border-[#21262d] rounded">
             <div className="text-[#8b949e]">{locale === 'ko' ? '임베딩' : 'Embedding'}</div>

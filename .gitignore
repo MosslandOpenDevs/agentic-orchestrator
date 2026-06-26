@@ -84,4 +84,6 @@ data/orchestrator.db.bak*
 
 # Auto-generated project scaffolds (LLM output, not hand-authored source).
 # Regenerated from plans on demand; keeping them out of git avoids repo bloat.
-projects/
+# Anchored to the repo root so it does NOT also ignore nested dirs such as
+# website/src/app/projects/ (the frontend Projects page).
+/projects/
