@@ -87,6 +87,13 @@ class TestWrapperStripping:
         out = await t.translate_to_korean("Please translate this English sentence to Korean")
         assert out == "안녕하세요"
 
+    async def test_strips_lowercase_prefix_en_to_ko(self):
+        # Prefix removal is case-insensitive (consistent with KO→EN).
+        router = FakeRouter(reply="korean translation: 안녕하세요")
+        t = ContentTranslator(router=router)
+        out = await t.translate_to_korean("Please translate this English sentence to Korean")
+        assert out == "안녕하세요"
+
     async def test_translation_failure_returns_empty(self):
         class BoomRouter:
             async def route(self, **kwargs):

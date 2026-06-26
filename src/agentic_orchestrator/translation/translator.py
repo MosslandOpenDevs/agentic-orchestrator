@@ -178,8 +178,9 @@ Korean translation:"""
 
             translated = response.content.strip()
 
-            # Remove any wrapper text the model might add
-            if translated.startswith("Korean translation:"):
+            # Remove any wrapper text the model might add (case-insensitive,
+            # matching translate_to_english's handling of the prefix).
+            if translated.lower().startswith("korean translation:"):
                 translated = translated[len("Korean translation:") :].strip()
 
             # Remove markdown separator markers that the model might add
