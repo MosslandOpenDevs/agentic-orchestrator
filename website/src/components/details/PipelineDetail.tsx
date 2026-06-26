@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useI18n } from '@/lib/i18n';
 import { ApiClient } from '@/lib/api';
 import { formatLocalDate } from '@/lib/date';
+import { clickableProps } from '@/lib/a11y';
 import type { ModalData } from '../modals/ModalProvider';
 
 interface PipelineDetailProps {
@@ -157,7 +158,7 @@ export function PipelineDetail({ data }: PipelineDetailProps) {
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: idx * 0.05 }}
               className="p-3 bg-[#0d1117] rounded border border-[#21262d] hover:border-[#39ff14]/50 transition-colors cursor-pointer"
-              onClick={() => {
+              {...clickableProps(() => {
                 // Navigate to the appropriate page
                 if (stageId === 'signals') {
                   router.push('/transparency/signals');
@@ -170,7 +171,7 @@ export function PipelineDetail({ data }: PipelineDetailProps) {
                 } else if (stageId === 'projects') {
                   router.push('/projects');
                 }
-              }}
+              }, item.title)}
             >
               <div className="flex justify-between items-start">
                 <div className="flex-1 min-w-0">

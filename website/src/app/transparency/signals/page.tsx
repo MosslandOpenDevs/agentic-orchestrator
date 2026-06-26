@@ -6,6 +6,7 @@ import { useI18n } from '@/lib/i18n';
 import { ApiClient, type ApiSignal } from '@/lib/api';
 import { useModal } from '@/components/modals/useModal';
 import { TerminalWindow, TerminalBadge } from '@/components/TerminalWindow';
+import { clickableProps } from '@/lib/a11y';
 
 export default function SignalsPage() {
   const { t } = useI18n();
@@ -143,7 +144,7 @@ export default function SignalsPage() {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: idx * 0.02 }}
-                  onClick={() => handleSignalClick(signal)}
+                  {...clickableProps(() => handleSignalClick(signal), signal.title)}
                   className="card-cli p-4 cursor-pointer hover:border-[#00ffff] transition-colors"
                 >
                   <div className="flex items-start gap-4">

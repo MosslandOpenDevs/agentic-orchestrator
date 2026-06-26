@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
+import { clickableProps } from '@/lib/a11y';
 import type { ApiIdea } from '@/lib/api';
 
 interface IdeaNetworkProps {
@@ -180,7 +181,7 @@ export function IdeaNetwork({ ideas, onIdeaClick, showLabels = true }: IdeaNetwo
                     className="cursor-pointer"
                     onMouseEnter={() => setHoveredNode(node.id)}
                     onMouseLeave={() => setHoveredNode(null)}
-                    onClick={() => handleNodeClick(node.id)}
+                    {...clickableProps(() => handleNodeClick(node.id), node.title)}
                   />
 
                   {/* Score Label */}

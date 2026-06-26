@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
+import { clickableProps } from '@/lib/a11y';
 import type { ApiIdea } from '@/lib/api';
 
 interface IdeaComparisonProps {
@@ -110,7 +111,7 @@ export function IdeaComparison({
               key={idea.id}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
-              onClick={() => toggleSelect(idea.id)}
+              {...clickableProps(() => toggleSelect(idea.id), idea.title)}
               className={`
                 p-2 rounded border cursor-pointer transition-colors
                 ${isSelected
