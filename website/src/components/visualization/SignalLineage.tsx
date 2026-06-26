@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
+import { clickableProps } from '@/lib/a11y';
 
 interface SignalNode {
   id: string;
@@ -95,9 +96,9 @@ export function SignalLineage({ lineage, onNodeClick }: SignalLineageProps) {
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: idx * 0.05 }}
-                  onClick={() => onNodeClick?.('signal', signal.id)}
+                  {...(onNodeClick ? clickableProps(() => onNodeClick('signal', signal.id), signal.title) : {})}
                   className={`
-                    p-2 rounded border bg-black/20 cursor-pointer
+                    p-2 rounded border bg-black/20 ${onNodeClick ? 'cursor-pointer' : ''}
                     hover:bg-[#00ffff]/10 transition-colors
                     ${getScoreColor(signal.score)}
                   `}
@@ -146,9 +147,9 @@ export function SignalLineage({ lineage, onNodeClick }: SignalLineageProps) {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: 0.4 }}
-                onClick={() => onNodeClick?.('trend', lineage.trend!.id)}
+                {...(onNodeClick ? clickableProps(() => onNodeClick('trend', lineage.trend!.id), lineage.trend.name) : {})}
                 className={`
-                  p-3 rounded border-2 bg-[#bd93f9]/10 cursor-pointer
+                  p-3 rounded border-2 bg-[#bd93f9]/10 ${onNodeClick ? 'cursor-pointer' : ''}
                   hover:bg-[#bd93f9]/20 transition-colors border-[#bd93f9]
                 `}
               >
@@ -182,9 +183,9 @@ export function SignalLineage({ lineage, onNodeClick }: SignalLineageProps) {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: 0.6 }}
-                onClick={() => onNodeClick?.('idea', lineage.idea.id)}
+                {...(onNodeClick ? clickableProps(() => onNodeClick('idea', lineage.idea.id), lineage.idea.title) : {})}
                 className={`
-                  p-3 rounded border-2 bg-[#39ff14]/10 cursor-pointer
+                  p-3 rounded border-2 bg-[#39ff14]/10 ${onNodeClick ? 'cursor-pointer' : ''}
                   hover:bg-[#39ff14]/20 transition-colors border-[#39ff14]
                 `}
               >
@@ -216,8 +217,8 @@ export function SignalLineage({ lineage, onNodeClick }: SignalLineageProps) {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.7 + idx * 0.1 }}
-                      onClick={() => onNodeClick?.('plan', plan.id)}
-                      className="p-2 rounded border border-[#00ffff] bg-[#00ffff]/10 cursor-pointer hover:bg-[#00ffff]/20 transition-colors"
+                      {...(onNodeClick ? clickableProps(() => onNodeClick('plan', plan.id), plan.title) : {})}
+                      className={`p-2 rounded border border-[#00ffff] bg-[#00ffff]/10 ${onNodeClick ? 'cursor-pointer' : ''} hover:bg-[#00ffff]/20 transition-colors`}
                     >
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-[#00ffff] font-bold">v{plan.version}</span>

@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
+import { clickableProps } from '@/lib/a11y';
 import type { ApiTrend } from '@/lib/api';
 
 interface TrendHeatmapProps {
@@ -139,13 +140,18 @@ export function TrendHeatmap({ trends, onCellClick }: TrendHeatmapProps) {
                   animate={{ scale: 1 }}
                   transition={{ delay: rowIdx * 0.05 + cellIdx * 0.02 }}
                   className={`
-                    flex-1 h-6 m-0.5 rounded cursor-pointer transition-all
+                    flex-1 h-6 m-0.5 rounded transition-all
                     ${getHeatColor(cell.value)}
-                    ${cell.trends.length > 0 ? 'hover:ring-2 hover:ring-[#00ffff]' : ''}
+                    ${cell.trends.length > 0 ? 'cursor-pointer hover:ring-2 hover:ring-[#00ffff]' : ''}
                   `}
                   onMouseEnter={() => setHoveredCell(cell)}
                   onMouseLeave={() => setHoveredCell(null)}
-                  onClick={() => cell.trends.length > 0 && onCellClick?.(cell.category, cell.day)}
+                  {...(cell.trends.length > 0
+                    ? clickableProps(
+                        () => onCellClick?.(cell.category, cell.day),
+                        `${cell.category} - ${cell.day}`
+                      )
+                    : {})}
                 >
                   {cell.trends.length > 0 && (
                     <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-black/70">

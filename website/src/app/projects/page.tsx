@@ -7,6 +7,7 @@ import { ApiClient, type ApiProject, type ApiPlan } from '@/lib/api';
 import { formatLocalDateTime } from '@/lib/date';
 import { TerminalWindow, TerminalBadge } from '@/components/TerminalWindow';
 import { useModal } from '@/components/modals/useModal';
+import { clickableProps } from '@/lib/a11y';
 
 interface ProjectWithPlan extends ApiProject {
   plan?: ApiPlan | null;
@@ -144,7 +145,7 @@ export default function ProjectsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
                 className="p-4 hover:bg-[#161b22] cursor-pointer transition-colors"
-                onClick={() => openModal('project', { id: project.id, title: project.name })}
+                {...clickableProps(() => openModal('project', { id: project.id, title: project.name }), project.name)}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">

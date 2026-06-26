@@ -9,6 +9,7 @@ import { SignalTimeline } from '@/components/visualization/SignalTimeline';
 import { SignalSourceQuality } from '@/components/visualization/SignalSourceQuality';
 import { CostDashboard } from '@/components/visualization/CostDashboard';
 import { useModal } from '@/components/modals/useModal';
+import { clickableProps } from '@/lib/a11y';
 
 type ViewMode = 'status' | 'signals' | 'tech';
 
@@ -333,7 +334,7 @@ export default function SystemPage() {
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.01 }}
-                      onClick={() => openModal('signal', { ...signal, title: signal.title })}
+                      {...clickableProps(() => openModal('signal', { ...signal, title: signal.title }), signal.title)}
                       className="p-3 rounded border border-[#21262d] hover:border-[#00ffff] cursor-pointer transition-colors bg-black/20"
                     >
                       <div className="flex items-start gap-3">

@@ -7,6 +7,7 @@ import { ApiClient, type ApiDebate } from '@/lib/api';
 import { formatLocalDate } from '@/lib/date';
 import { useModal } from '@/components/modals/useModal';
 import { TerminalWindow, TerminalBadge } from '@/components/TerminalWindow';
+import { clickableProps } from '@/lib/a11y';
 
 export default function DebatesPage() {
   const { t, locale } = useI18n();
@@ -153,7 +154,7 @@ export default function DebatesPage() {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: idx * 0.02 }}
-                  onClick={() => handleDebateClick(debate)}
+                  {...clickableProps(() => handleDebateClick(debate), `${t('debates.session')} #${debate.id.slice(0, 8)}`)}
                   className="card-cli p-4 cursor-pointer hover:border-[#ff6b35] transition-colors"
                 >
                   <div className="flex items-center gap-4">
