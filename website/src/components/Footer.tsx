@@ -58,14 +58,14 @@ export function Footer() {
               <span className="text-[#39ff14] font-bold tracking-wider glow-green">
                 MOSS
               </span>
-              <span className="text-[#6b7280]">::</span>
+              <span className="text-[#8b949e]">::</span>
               <span className="text-[#00ffff]">AO</span>
             </div>
-            <p className="text-[10px] text-[#6b7280] leading-relaxed">
+            <p className="text-[10px] text-[#8b949e] leading-relaxed">
               Multi-agent AI orchestration system<br />
               for the Mossland ecosystem
             </p>
-            <div className="mt-3 text-[10px] text-[#6b7280]">
+            <div className="mt-3 text-[10px] text-[#8b949e]">
               <span className="text-[#bd93f9]"># </span>
               Building the Invisible Bridge
             </div>
@@ -74,7 +74,7 @@ export function Footer() {
           {/* Center - Links */}
           <div className="flex justify-center">
             <div className="space-y-2">
-              <div className="text-[10px] text-[#6b7280] uppercase tracking-wider mb-3">
+              <div className="text-[10px] text-[#8b949e] uppercase tracking-wider mb-3">
                 Quick Links
               </div>
               <a
@@ -106,7 +106,7 @@ export function Footer() {
 
           {/* Right - Social */}
           <div className="flex flex-col items-end">
-            <div className="text-[10px] text-[#6b7280] uppercase tracking-wider mb-3">
+            <div className="text-[10px] text-[#8b949e] uppercase tracking-wider mb-3">
               Connect
             </div>
             <div className="flex items-center gap-2">
@@ -116,7 +116,7 @@ export function Footer() {
                   href={link.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="p-2 border border-[#21262d] text-[#6b7280] hover:border-[#39ff14] hover:text-[#39ff14] transition-all"
+                  className="p-2 border border-[#21262d] text-[#8b949e] hover:border-[#39ff14] hover:text-[#39ff14] transition-all"
                   aria-label={link.name}
                 >
                   {link.icon}
@@ -128,10 +128,10 @@ export function Footer() {
 
         {/* Bottom bar */}
         <div className="mt-8 pt-4 border-t border-[#21262d] flex flex-wrap items-center justify-between gap-4">
-          <div className="text-[10px] text-[#6b7280]">
+          <div className="text-[10px] text-[#8b949e]">
             © 2025, 2026 MOSSLAND. ALL RIGHTS RESERVED.
           </div>
-          <div className="flex items-center gap-4 text-[10px] text-[#6b7280]">
+          <div className="flex items-center gap-4 text-[10px] text-[#8b949e]">
             <span>v{APP_VERSION}{APP_CODENAME ? ` "${APP_CODENAME}"` : ''}</span>
             <span className="text-[#21262d]">|</span>
             <span className="flex items-center gap-1">

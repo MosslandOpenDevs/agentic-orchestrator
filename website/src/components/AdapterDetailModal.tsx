@@ -93,7 +93,7 @@ export function AdapterDetailModal({
               </div>
               <button
                 onClick={onClose}
-                className="text-[#6b7280] hover:text-[#c0c0c0] transition-colors text-xl"
+                className="text-[#8b949e] hover:text-[#c0c0c0] transition-colors text-xl"
               >
                 ×
               </button>
@@ -104,7 +104,7 @@ export function AdapterDetailModal({
               {/* Adapter List */}
               <div className="w-1/3 border-r border-[#30363d] overflow-y-auto">
                 {isLoading ? (
-                  <div className="p-4 text-center text-[#6b7280]">
+                  <div className="p-4 text-center text-[#8b949e]">
                     <motion.span
                       animate={{ opacity: [0.3, 1, 0.3] }}
                       transition={{ duration: 1.5, repeat: Infinity }}
@@ -133,7 +133,7 @@ export function AdapterDetailModal({
                             <span className="status-dot offline ml-auto" style={{ width: 6, height: 6 }} />
                           )}
                         </div>
-                        <div className="text-[10px] text-[#6b7280] truncate">
+                        <div className="text-[10px] text-[#8b949e] truncate">
                           {locale === 'ko' ? adapter.description : adapter.description_en}
                         </div>
                         {adapter.source_count && (
@@ -158,7 +158,7 @@ export function AdapterDetailModal({
                         <h3 className={`text-lg font-mono ${categoryColors[selectedAdapter.category] || 'text-[#c0c0c0]'}`}>
                           {selectedAdapter.name}
                         </h3>
-                        <p className="text-xs text-[#6b7280]">
+                        <p className="text-xs text-[#8b949e]">
                           {locale === 'ko' ? selectedAdapter.description : selectedAdapter.description_en}
                         </p>
                       </div>
@@ -169,23 +169,23 @@ export function AdapterDetailModal({
                       <div className="text-[#bd93f9] text-xs mb-2"># Status</div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div className="flex justify-between">
-                          <span className="text-[#6b7280]">enabled:</span>
+                          <span className="text-[#8b949e]">enabled:</span>
                           <span className={selectedAdapter.enabled ? 'text-[#39ff14]' : 'text-[#ff6b35]'}>
                             {selectedAdapter.enabled ? 'true' : 'false'}
                           </span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-[#6b7280]">category:</span>
+                          <span className="text-[#8b949e]">category:</span>
                           <span className={categoryColors[selectedAdapter.category]}>{selectedAdapter.category}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-[#6b7280]">last_fetch:</span>
+                          <span className="text-[#8b949e]">last_fetch:</span>
                           <span className="text-[#c0c0c0]">
                             {selectedAdapter.last_fetch || 'never'}
                           </span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-[#6b7280]">source_count:</span>
+                          <span className="text-[#8b949e]">source_count:</span>
                           <span className="text-[#f1fa8c]">{selectedAdapter.source_count || 0}</span>
                         </div>
                       </div>
@@ -198,7 +198,7 @@ export function AdapterDetailModal({
                         <div className="space-y-1 text-xs font-mono">
                           {Object.entries(selectedAdapter.health).map(([key, value]) => (
                             <div key={key} className="flex justify-between">
-                              <span className="text-[#6b7280]">{key}:</span>
+                              <span className="text-[#8b949e]">{key}:</span>
                               <span className={
                                 value === true || value === 'connected' || value === 'healthy'
                                   ? 'text-[#39ff14]'
@@ -242,7 +242,7 @@ export function AdapterDetailModal({
                     )}
                   </div>
                 ) : (
-                  <div className="h-full flex items-center justify-center text-[#6b7280] text-sm">
+                  <div className="h-full flex items-center justify-center text-[#8b949e] text-sm">
                     {locale === 'ko'
                       ? '왼쪽에서 어댑터를 선택하세요'
                       : 'Select an adapter from the list'
@@ -254,7 +254,7 @@ export function AdapterDetailModal({
 
             {/* Footer */}
             <div className="p-3 border-t border-[#30363d] flex justify-between items-center text-xs">
-              <div className="text-[#6b7280]">
+              <div className="text-[#8b949e]">
                 {adapters.filter(a => a.enabled).length} / {adapters.length} enabled
               </div>
               <div className="flex gap-2">

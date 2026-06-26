@@ -136,14 +136,14 @@ export function AgentDetail({ data }: AgentDetailProps) {
       {/* Description */}
       {agent.description && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.agentDescription')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.agentDescription')}</div>
           <p className="text-sm text-[#c0c0c0] leading-relaxed">{agent.description}</p>
         </div>
       )}
 
       {/* Personality Traits */}
       <div className="card-cli p-4">
-        <div className="text-xs text-[#6b7280] uppercase mb-4">{t('detail.personalityProfile')}</div>
+        <div className="text-xs text-[#8b949e] uppercase mb-4">{t('detail.personalityProfile')}</div>
         <div className="space-y-4">
           {personalityTraits.map((trait, idx) => (
             <motion.div
@@ -165,7 +165,7 @@ export function AgentDetail({ data }: AgentDetailProps) {
 
       {/* Role Perspective */}
       <div className="card-cli p-4">
-        <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.rolePerspective')}</div>
+        <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.rolePerspective')}</div>
         <div className="text-sm text-[#c0c0c0]">
           {t(`role.${agent.role}.perspective`)}
         </div>
@@ -173,14 +173,14 @@ export function AgentDetail({ data }: AgentDetailProps) {
 
       {/* Personality Radar (ASCII style) */}
       <div className="card-cli p-4">
-        <div className="text-xs text-[#6b7280] uppercase mb-4">{t('detail.traitRadar')}</div>
+        <div className="text-xs text-[#8b949e] uppercase mb-4">{t('detail.traitRadar')}</div>
         <div className="grid grid-cols-2 gap-4 text-center">
           {personalityTraits.map((trait) => {
             const value = agent.personality[trait.key as keyof typeof agent.personality];
             const bars = Math.round(value);
             return (
               <div key={trait.key} className="space-y-1">
-                <div className="text-xs text-[#6b7280]">{trait.label}</div>
+                <div className="text-xs text-[#8b949e]">{trait.label}</div>
                 <div className="text-[#39ff14] font-mono text-sm">
                   {'█'.repeat(bars)}
                   <span className="text-[#21262d]">{'░'.repeat(10 - bars)}</span>

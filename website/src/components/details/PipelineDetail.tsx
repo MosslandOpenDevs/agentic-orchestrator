@@ -98,8 +98,8 @@ export function PipelineDetail({ data }: PipelineDetailProps) {
 
   const statusColors = {
     active: { bg: 'bg-[#39ff14]/10', text: 'text-[#39ff14]', border: 'border-[#39ff14]' },
-    completed: { bg: 'bg-[#6b7280]/10', text: 'text-[#c0c0c0]', border: 'border-[#6b7280]' },
-    idle: { bg: 'bg-[#21262d]', text: 'text-[#6b7280]', border: 'border-[#21262d]' },
+    completed: { bg: 'bg-[#8b949e]/10', text: 'text-[#c0c0c0]', border: 'border-[#8b949e]' },
+    idle: { bg: 'bg-[#21262d]', text: 'text-[#8b949e]', border: 'border-[#21262d]' },
   };
 
   const colors = statusColors[status as keyof typeof statusColors] || statusColors.idle;
@@ -120,13 +120,13 @@ export function PipelineDetail({ data }: PipelineDetailProps) {
       {/* Stage Header */}
       <div className={`text-center p-4 rounded border ${colors.border} ${colors.bg}`}>
         <div className={`text-3xl font-bold ${colors.text}`}>{count}</div>
-        <div className="text-sm text-[#6b7280] uppercase tracking-wider">{stageName}</div>
+        <div className="text-sm text-[#8b949e] uppercase tracking-wider">{stageName}</div>
         <div className="mt-2">
           <span className={`
             text-[10px] px-2 py-0.5 rounded uppercase tracking-wider
             ${status === 'active' ? 'bg-[#39ff14]/20 text-[#39ff14]' : ''}
-            ${status === 'completed' ? 'bg-[#6b7280]/20 text-[#c0c0c0]' : ''}
-            ${status === 'idle' ? 'bg-[#21262d] text-[#6b7280]' : ''}
+            ${status === 'completed' ? 'bg-[#8b949e]/20 text-[#c0c0c0]' : ''}
+            ${status === 'idle' ? 'bg-[#21262d] text-[#8b949e]' : ''}
           `}>
             {status}
           </span>
@@ -134,7 +134,7 @@ export function PipelineDetail({ data }: PipelineDetailProps) {
       </div>
 
       {/* Stage Description */}
-      <div className="text-xs text-[#6b7280]">
+      <div className="text-xs text-[#8b949e]">
         <span className="text-[#bd93f9]"># </span>
         {stageId === 'signals' && 'Raw signals collected from various sources (RSS, GitHub, OnChain, etc.)'}
         {stageId === 'trends' && 'Analyzed trends extracted from collected signals'}
@@ -147,7 +147,7 @@ export function PipelineDetail({ data }: PipelineDetailProps) {
       {/* Recent Items */}
       {stageData?.items?.length > 0 && (
         <div className="space-y-2">
-          <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">
+          <div className="text-[10px] text-[#8b949e] uppercase tracking-wider">
             Recent {stageName}
           </div>
           {stageData.items.map((item: any, idx: number) => (
@@ -183,7 +183,7 @@ export function PipelineDetail({ data }: PipelineDetailProps) {
                       ${item.status === 'pending' ? 'bg-[#00ffff]/10 text-[#00ffff]' : ''}
                       ${item.status === 'approved' ? 'bg-[#39ff14]/10 text-[#39ff14]' : ''}
                       ${item.status === 'rejected' ? 'bg-[#ff5555]/10 text-[#ff5555]' : ''}
-                      ${!['pending', 'approved', 'rejected'].includes(item.status) ? 'bg-[#6b7280]/10 text-[#6b7280]' : ''}
+                      ${!['pending', 'approved', 'rejected'].includes(item.status) ? 'bg-[#8b949e]/10 text-[#8b949e]' : ''}
                     `}>
                       {item.status}
                     </span>
@@ -212,7 +212,7 @@ export function PipelineDetail({ data }: PipelineDetailProps) {
             {stageId === 'projects' && '📦'}
             {stageId === 'dev' && '🚀'}
           </div>
-          <div className="text-sm text-[#6b7280]">No items in this stage</div>
+          <div className="text-sm text-[#8b949e]">No items in this stage</div>
           <div className="text-[10px] text-[#3b3b3b] mt-1">
             {stageId === 'signals' && 'Run signal collection to gather data'}
             {stageId === 'trends' && 'Run trend analysis to identify patterns'}
@@ -227,14 +227,14 @@ export function PipelineDetail({ data }: PipelineDetailProps) {
       {/* Status Counts for Ideas */}
       {stageId === 'ideas' && stageData?.statusCounts && (
         <div className="border-t border-[#21262d] pt-4">
-          <div className="text-[10px] text-[#6b7280] mb-2 uppercase tracking-wider">
+          <div className="text-[10px] text-[#8b949e] mb-2 uppercase tracking-wider">
             Status breakdown
           </div>
           <div className="grid grid-cols-3 gap-2">
             {Object.entries(stageData.statusCounts).map(([status, count]) => (
               <div key={status} className="text-center p-2 bg-[#0d1117] rounded">
                 <div className="text-sm font-bold text-[#c0c0c0]">{count as number}</div>
-                <div className="text-[10px] text-[#6b7280]">{status}</div>
+                <div className="text-[10px] text-[#8b949e]">{status}</div>
               </div>
             ))}
           </div>

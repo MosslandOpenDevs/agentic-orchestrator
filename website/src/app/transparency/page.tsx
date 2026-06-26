@@ -136,7 +136,7 @@ export default function TransparencyPage() {
           <h1 className="text-2xl md:text-3xl font-bold text-[#39ff14] mb-2">
             {t('transparency.title')}
           </h1>
-          <p className="text-sm text-[#6b7280]">
+          <p className="text-sm text-[#8b949e]">
             {t('transparency.subtitle')}
           </p>
         </motion.div>
@@ -191,7 +191,7 @@ export default function TransparencyPage() {
                           <div className={`text-2xl font-bold ${colors.text}`}>
                             {loading ? '...' : section.stat}
                           </div>
-                          <div className="text-[10px] text-[#6b7280]">
+                          <div className="text-[10px] text-[#8b949e]">
                             {section.statLabel}
                           </div>
                         </div>
@@ -201,11 +201,11 @@ export default function TransparencyPage() {
                     <h3 className={`text-lg font-bold mb-2 ${colors.text}`}>
                       {section.title}
                     </h3>
-                    <p className="text-sm text-[#6b7280] leading-relaxed">
+                    <p className="text-sm text-[#8b949e] leading-relaxed">
                       {section.description}
                     </p>
 
-                    <div className="mt-4 flex items-center text-xs text-[#6b7280]">
+                    <div className="mt-4 flex items-center text-xs text-[#8b949e]">
                       <span>{t('transparency.viewDetails')}</span>
                       <span className="ml-2">→</span>
                     </div>
@@ -224,7 +224,7 @@ export default function TransparencyPage() {
           className="mt-8"
         >
           <TerminalWindow title="INFO">
-            <div className="text-xs text-[#6b7280] space-y-2">
+            <div className="text-xs text-[#8b949e] space-y-2">
               <p>
                 <span className="text-[#00ffff]">$</span> {t('transparency.info1')}
               </p>

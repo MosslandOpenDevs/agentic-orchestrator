@@ -117,19 +117,19 @@ export function DebateDetail({ data }: DebateDetailProps) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="card-cli p-3 text-center">
           <div className="text-2xl font-bold text-[#ff6b35]">{messages.length}</div>
-          <div className="text-xs text-[#6b7280]">{t('detail.messages')}</div>
+          <div className="text-xs text-[#8b949e]">{t('detail.messages')}</div>
         </div>
         <div className="card-cli p-3 text-center">
           <div className="text-2xl font-bold text-[#00ffff]">{debate.participants.length}</div>
-          <div className="text-xs text-[#6b7280]">{t('detail.participants')}</div>
+          <div className="text-xs text-[#8b949e]">{t('detail.participants')}</div>
         </div>
         <div className="card-cli p-3 text-center">
           <div className="text-2xl font-bold text-[#bd93f9]">{debate.round_number}</div>
-          <div className="text-xs text-[#6b7280]">{t('detail.currentRound')}</div>
+          <div className="text-xs text-[#8b949e]">{t('detail.currentRound')}</div>
         </div>
         <div className="card-cli p-3 text-center">
           <div className="text-2xl font-bold text-[#39ff14]">{debate.max_rounds}</div>
-          <div className="text-xs text-[#6b7280]">{t('detail.maxRounds')}</div>
+          <div className="text-xs text-[#8b949e]">{t('detail.maxRounds')}</div>
         </div>
       </div>
 
@@ -161,7 +161,7 @@ export function DebateDetail({ data }: DebateDetailProps) {
 
       {/* Participants */}
       <div className="card-cli p-4">
-        <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.participants')}</div>
+        <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.participants')}</div>
         <div className="flex flex-wrap gap-2">
           {debate.participants.map((participant, idx) => (
             <motion.span
@@ -229,23 +229,23 @@ export function DebateDetail({ data }: DebateDetailProps) {
       {/* Outcome */}
       {debate.outcome && (
         <div className="card-cli p-4 border-l-2 border-[#39ff14]">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.outcome')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.outcome')}</div>
           <p className="text-sm text-[#c0c0c0] leading-relaxed">{debate.outcome}</p>
         </div>
       )}
 
       {/* Timestamps */}
       <div className="card-cli p-4">
-        <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.timestamps')}</div>
+        <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.timestamps')}</div>
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div>
-            <span className="text-[#6b7280]">{t('detail.startedAt')}: </span>
+            <span className="text-[#8b949e]">{t('detail.startedAt')}: </span>
             <span className="text-[#c0c0c0]">
               {formatLocalDateTime(debate.started_at, locale)}
             </span>
           </div>
           <div>
-            <span className="text-[#6b7280]">{t('detail.completedAt')}: </span>
+            <span className="text-[#8b949e]">{t('detail.completedAt')}: </span>
             <span className="text-[#c0c0c0]">
               {debate.completed_at ? formatLocalDateTime(debate.completed_at, locale) : t('detail.inProgress')}
             </span>

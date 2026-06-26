@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { TerminalWindow } from '@/components/TerminalWindow';
 import { useModal } from '@/components/modals/useModal';
+import { clickableProps } from '@/lib/a11y';
 import { ApiClient } from '@/lib/api';
 
 interface AgentFromApi {
@@ -91,18 +92,18 @@ function AgentCard({ agent, index, phase, onClick }: AgentCardProps) {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.02 }}
-      onClick={onClick}
+      {...clickableProps(onClick, agent.name)}
       className={`card-cli p-3 border ${colors.border} hover:border-opacity-100 transition-all cursor-pointer hover:bg-[#21262d]/50`}
     >
       <div className="flex items-start justify-between mb-2">
         <div>
           <span className={`${colors.accent} text-xs font-bold`}>{agent.name}</span>
-          <div className="text-[10px] text-[#6b7280]">{agent.role}</div>
+          <div className="text-[10px] text-[#8b949e]">{agent.role}</div>
         </div>
         <div className="status-dot online" style={{ width: 6, height: 6 }} />
       </div>
       {expertise && (
-        <div className="text-[10px] text-[#6b7280] mb-2">
+        <div className="text-[10px] text-[#8b949e] mb-2">
           <span className="text-[#bd93f9]">expertise:</span> {expertise}
         </div>
       )}
@@ -203,7 +204,7 @@ export default function AgentsPage() {
           <h1 className="text-[#39ff14] text-xl font-bold glow-green">
             {t('agents.pageTitle').toUpperCase()}
           </h1>
-          <p className="text-[#6b7280] text-xs mt-1">
+          <p className="text-[#8b949e] text-xs mt-1">
             {t('agents.pageSubtitle')}
             {usingFallback && <span className="text-[#f1fa8c] ml-2">{t('agents.cachedData')}</span>}
           </p>
@@ -230,9 +231,9 @@ export default function AgentsPage() {
                   <div className="flex items-center gap-2 mb-2">
                     <span className="tag tag-cyan">{t('agents.phaseNum.1')}</span>
                     <span className="text-[#00ffff] text-xs font-bold">{t('agents.phase.divergence')}</span>
-                    <span className="text-[#6b7280] text-xs">- {t('agents.phaseDesc.divergence')} ({divergenceAgents.length} {t('agents.agents')})</span>
+                    <span className="text-[#8b949e] text-xs">- {t('agents.phaseDesc.divergence')} ({divergenceAgents.length} {t('agents.agents')})</span>
                   </div>
-                  <p className="text-[10px] text-[#6b7280]">
+                  <p className="text-[10px] text-[#8b949e]">
                     {t('agents.phaseInfo.divergence')}
                   </p>
                 </div>
@@ -262,9 +263,9 @@ export default function AgentsPage() {
                   <div className="flex items-center gap-2 mb-2">
                     <span className="tag tag-purple">{t('agents.phaseNum.2')}</span>
                     <span className="text-[#bd93f9] text-xs font-bold">{t('agents.phase.convergence')}</span>
-                    <span className="text-[#6b7280] text-xs">- {t('agents.phaseDesc.convergence')} ({convergenceAgents.length} {t('agents.agents')})</span>
+                    <span className="text-[#8b949e] text-xs">- {t('agents.phaseDesc.convergence')} ({convergenceAgents.length} {t('agents.agents')})</span>
                   </div>
-                  <p className="text-[10px] text-[#6b7280]">
+                  <p className="text-[10px] text-[#8b949e]">
                     {t('agents.phaseInfo.convergence')}
                   </p>
                 </div>
@@ -294,9 +295,9 @@ export default function AgentsPage() {
                   <div className="flex items-center gap-2 mb-2">
                     <span className="tag tag-green">{t('agents.phaseNum.3')}</span>
                     <span className="text-[#39ff14] text-xs font-bold">{t('agents.phase.planning')}</span>
-                    <span className="text-[#6b7280] text-xs">- {t('agents.phaseDesc.planning')} ({planningAgents.length} {t('agents.agents')})</span>
+                    <span className="text-[#8b949e] text-xs">- {t('agents.phaseDesc.planning')} ({planningAgents.length} {t('agents.agents')})</span>
                   </div>
-                  <p className="text-[10px] text-[#6b7280]">
+                  <p className="text-[10px] text-[#8b949e]">
                     {t('agents.phaseInfo.planning')}
                   </p>
                 </div>
@@ -328,13 +329,13 @@ export default function AgentsPage() {
                 <div className="space-y-3">
                   <div>
                     <span className="text-[#00ffff] text-xs font-bold">{t('agents.thinkingStyle')}</span>
-                    <div className="text-[10px] text-[#6b7280] mt-1">
+                    <div className="text-[10px] text-[#8b949e] mt-1">
                       <span className="text-[#39ff14]">{t('agents.optimistic')}</span> vs <span className="text-[#ff5555]">{t('agents.cautious')}</span>
                     </div>
                   </div>
                   <div>
                     <span className="text-[#bd93f9] text-xs font-bold">{t('agents.decisionStyle')}</span>
-                    <div className="text-[10px] text-[#6b7280] mt-1">
+                    <div className="text-[10px] text-[#8b949e] mt-1">
                       <span className="text-[#f1fa8c]">{t('agents.intuitive')}</span> vs <span className="text-[#00ffff]">{t('agents.analytical')}</span>
                     </div>
                   </div>
@@ -342,13 +343,13 @@ export default function AgentsPage() {
                 <div className="space-y-3">
                   <div>
                     <span className="text-[#ff6b35] text-xs font-bold">{t('agents.communicationStyle')}</span>
-                    <div className="text-[10px] text-[#6b7280] mt-1">
+                    <div className="text-[10px] text-[#8b949e] mt-1">
                       <span className="text-[#ff6b35]">{t('agents.challenger')}</span> vs <span className="text-[#39ff14]">{t('agents.supporter')}</span>
                     </div>
                   </div>
                   <div>
                     <span className="text-[#f1fa8c] text-xs font-bold">{t('agents.actionStyle')}</span>
-                    <div className="text-[10px] text-[#6b7280] mt-1">
+                    <div className="text-[10px] text-[#8b949e] mt-1">
                       <span className="text-[#bd93f9]">{t('agents.innovative')}</span> vs <span className="text-[#c0c0c0]">{t('agents.pragmatic')}</span>
                     </div>
                   </div>

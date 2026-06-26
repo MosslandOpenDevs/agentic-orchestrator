@@ -52,7 +52,7 @@ export function IdeaComparison({
     if (score >= 8) return 'text-[#39ff14]';
     if (score >= 6) return 'text-[#00ffff]';
     if (score >= 4) return 'text-[#ff6b35]';
-    return 'text-[#6b7280]';
+    return 'text-[#8b949e]';
   };
 
   const getStatusColor = (status: string) => {
@@ -64,7 +64,7 @@ export function IdeaComparison({
       case 'in-development':
         return 'bg-[#ff6b35]/20 text-[#ff6b35]';
       case 'archived':
-        return 'bg-[#6b7280]/20 text-[#6b7280]';
+        return 'bg-[#8b949e]/20 text-[#8b949e]';
       default:
         return 'bg-[#bd93f9]/20 text-[#bd93f9]';
     }
@@ -83,11 +83,11 @@ export function IdeaComparison({
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="text-xs text-[#6b7280] uppercase tracking-wider">
+        <span className="text-xs text-[#8b949e] uppercase tracking-wider">
           {t('ideaComparison.title')}
         </span>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-[#6b7280]">
+          <span className="text-xs text-[#8b949e]">
             {selectedIds.length}/{maxCompare} {t('ideaComparison.selected')}
           </span>
           {selectedIds.length >= 2 && (
@@ -115,7 +115,7 @@ export function IdeaComparison({
                 p-2 rounded border cursor-pointer transition-colors
                 ${isSelected
                   ? 'border-[#39ff14] bg-[#39ff14]/10'
-                  : 'border-[#21262d] bg-black/20 hover:border-[#6b7280]'
+                  : 'border-[#21262d] bg-black/20 hover:border-[#8b949e]'
                 }
               `}
             >
@@ -149,7 +149,7 @@ export function IdeaComparison({
 
               {/* Header Row */}
               <div className="grid gap-2" style={{ gridTemplateColumns: `120px repeat(${selectedIdeas.length}, 1fr)` }}>
-                <div className="text-xs text-[#6b7280]">{t('ideaComparison.metric')}</div>
+                <div className="text-xs text-[#8b949e]">{t('ideaComparison.metric')}</div>
                 {selectedIdeas.map((idea) => (
                   <div key={idea.id} className="text-xs text-[#c0c0c0] font-bold line-clamp-2">
                     {idea.title.slice(0, 30)}...
@@ -169,7 +169,7 @@ export function IdeaComparison({
                     className="grid gap-2 py-2 border-b border-[#21262d]/50 last:border-0"
                     style={{ gridTemplateColumns: `120px repeat(${selectedIdeas.length}, 1fr)` }}
                   >
-                    <div className="text-xs text-[#6b7280]">{metric.label}</div>
+                    <div className="text-xs text-[#8b949e]">{metric.label}</div>
                     {selectedIdeas.map((idea) => {
                       const value = metric.getValue(idea);
                       const isBest = metric.format === 'score' && value === bestValue;
@@ -195,7 +195,7 @@ export function IdeaComparison({
                             <span className="text-xs text-[#c0c0c0]">{value}</span>
                           )}
                           {metric.format === 'date' && (
-                            <span className="text-xs text-[#6b7280]">{value}</span>
+                            <span className="text-xs text-[#8b949e]">{value}</span>
                           )}
                         </div>
                       );
@@ -207,7 +207,7 @@ export function IdeaComparison({
               {/* Summary Row */}
               <div className="mt-4 pt-3 border-t border-[#21262d]">
                 <div className="grid gap-2" style={{ gridTemplateColumns: `120px repeat(${selectedIdeas.length}, 1fr)` }}>
-                  <div className="text-xs text-[#6b7280]">{t('ideaComparison.summary')}</div>
+                  <div className="text-xs text-[#8b949e]">{t('ideaComparison.summary')}</div>
                   {selectedIdeas.map((idea) => (
                     <div key={idea.id} className="text-xs text-[#c0c0c0] line-clamp-3">
                       {idea.summary}
@@ -241,16 +241,16 @@ export function IdeaComparison({
           className="flex items-center justify-center gap-4 text-xs"
         >
           <div className="flex items-center gap-2">
-            <span className="text-[#6b7280]">{t('ideaComparison.avgScore')}:</span>
+            <span className="text-[#8b949e]">{t('ideaComparison.avgScore')}:</span>
             <span className={`font-bold ${getScoreColor(
               selectedIdeas.reduce((sum, i) => sum + i.score, 0) / selectedIdeas.length
             )}`}>
               {(selectedIdeas.reduce((sum, i) => sum + i.score, 0) / selectedIdeas.length).toFixed(1)}
             </span>
           </div>
-          <span className="text-[#6b7280]">|</span>
+          <span className="text-[#8b949e]">|</span>
           <div className="flex items-center gap-2">
-            <span className="text-[#6b7280]">{t('ideaComparison.bestScore')}:</span>
+            <span className="text-[#8b949e]">{t('ideaComparison.bestScore')}:</span>
             <span className="font-bold text-[#39ff14]">
               {Math.max(...selectedIdeas.map((i) => i.score)).toFixed(1)}
             </span>
@@ -289,7 +289,7 @@ export function IdeaComparisonMini({
               w-6 h-6 rounded text-[10px] font-bold transition-colors
               ${selected.includes(idea.id)
                 ? 'bg-[#39ff14] text-black'
-                : 'bg-[#21262d] text-[#6b7280] hover:bg-[#6b7280]/20'
+                : 'bg-[#21262d] text-[#8b949e] hover:bg-[#8b949e]/20'
               }
             `}
           >

@@ -248,7 +248,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
                 ${activeTab === tab.key
                   ? 'text-[#39ff14] border-[#39ff14]'
                   : hasContent
-                    ? 'text-[#6b7280] border-transparent hover:text-[#c0c0c0]'
+                    ? 'text-[#8b949e] border-transparent hover:text-[#c0c0c0]'
                     : 'text-[#3b3b3b] border-transparent cursor-not-allowed'
                 }
               `}
@@ -274,7 +274,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
             </pre>
           </motion.div>
         ) : (
-          <div className="text-center py-12 text-[#6b7280]">
+          <div className="text-center py-12 text-[#8b949e]">
             {t('detail.noContent')}
           </div>
         )}
@@ -282,16 +282,16 @@ export function PlanDetail({ data }: PlanDetailProps) {
 
       {/* Metadata */}
       <div className="card-cli p-4">
-        <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.metadata')}</div>
+        <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.metadata')}</div>
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div>
-            <span className="text-[#6b7280]">{t('detail.createdAt')}: </span>
+            <span className="text-[#8b949e]">{t('detail.createdAt')}: </span>
             <span className="text-[#c0c0c0]">
               {formatLocalDateTime(plan.created_at, locale)}
             </span>
           </div>
           <div>
-            <span className="text-[#6b7280]">{t('detail.updatedAt')}: </span>
+            <span className="text-[#8b949e]">{t('detail.updatedAt')}: </span>
             <span className="text-[#c0c0c0]">
               {formatLocalDateTime(plan.updated_at, locale)}
             </span>
@@ -302,7 +302,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
       {/* Links */}
       {plan.github_issue_url && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.links')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.links')}</div>
           <a
             href={plan.github_issue_url}
             target="_blank"
@@ -317,7 +317,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
 
       {/* Project Generation Section */}
       <div className="card-cli p-4">
-        <div className="text-xs text-[#6b7280] uppercase mb-3">
+        <div className="text-xs text-[#8b949e] uppercase mb-3">
           {locale === 'ko' ? '프로젝트 생성' : 'Project Generation'}
         </div>
 
@@ -337,7 +337,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
                 {projectState.project.name}
               </span>
             </div>
-            <div className="text-xs text-[#6b7280]">
+            <div className="text-xs text-[#8b949e]">
               <span>{locale === 'ko' ? '경로: ' : 'Path: '}</span>
               <code className="text-[#00ffff]">{projectState.project.directory_path}</code>
             </div>
@@ -354,13 +354,13 @@ export function PlanDetail({ data }: PlanDetailProps) {
                 )}
               </div>
             )}
-            <div className="text-xs text-[#6b7280]">
+            <div className="text-xs text-[#8b949e]">
               {locale === 'ko' ? '생성된 파일: ' : 'Files generated: '}
               <span className="text-[#39ff14]">{projectState.project.files_generated}</span>
             </div>
             <button
               onClick={() => handleGenerateProject()}
-              className="w-full mt-2 px-4 py-2 text-sm border border-[#6b7280] text-[#6b7280] hover:border-[#00ffff] hover:text-[#00ffff] rounded transition-colors"
+              className="w-full mt-2 px-4 py-2 text-sm border border-[#8b949e] text-[#8b949e] hover:border-[#00ffff] hover:text-[#00ffff] rounded transition-colors"
             >
               $ regenerate --force
             </button>
@@ -385,7 +385,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
 
             {/* Progress Steps */}
             <div className="border border-[#21262d] rounded p-3 space-y-2">
-              <div className="text-xs text-[#6b7280] uppercase mb-2">
+              <div className="text-xs text-[#8b949e] uppercase mb-2">
                 {locale === 'ko' ? '생성 단계' : 'Generation Steps'}
               </div>
               {[
@@ -398,10 +398,10 @@ export function PlanDetail({ data }: PlanDetailProps) {
               ].map((item, idx) => (
                 <div key={item.step} className="flex items-center gap-2 text-xs">
                   <span className="w-4 text-center">{item.icon}</span>
-                  <span className={idx < 2 ? 'text-[#39ff14]' : 'text-[#6b7280]'}>
+                  <span className={idx < 2 ? 'text-[#39ff14]' : 'text-[#8b949e]'}>
                     {idx < 2 ? '✓' : idx === 2 ? '●' : '○'}
                   </span>
-                  <span className={idx <= 2 ? 'text-[#c0c0c0]' : 'text-[#6b7280]'}>
+                  <span className={idx <= 2 ? 'text-[#c0c0c0]' : 'text-[#8b949e]'}>
                     {locale === 'ko' ? item.ko : item.en}
                   </span>
                 </div>
@@ -409,7 +409,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
             </div>
 
             {/* LLM Models Info */}
-            <div className="text-xs text-[#6b7280]">
+            <div className="text-xs text-[#8b949e]">
               <span>{locale === 'ko' ? '사용 모델: ' : 'Models: '}</span>
               <span className="text-[#bd93f9]">qwen3.5:9b</span>
               <span className="mx-1">+</span>
@@ -450,7 +450,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
 
         {/* Plan not approved */}
         {!projectState.project && !projectState.generating && plan.status !== 'approved' && (
-          <div className="text-[#6b7280] text-sm">
+          <div className="text-[#8b949e] text-sm">
             {locale === 'ko'
               ? '프로젝트 생성은 승인된 플랜에서만 가능합니다.'
               : 'Project generation is only available for approved plans.'}

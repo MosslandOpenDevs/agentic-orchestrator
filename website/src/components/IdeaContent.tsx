@@ -229,7 +229,7 @@ export function IdeaContent({ content, contentKo }: IdeaContentProps) {
               <div key={idx} className="bg-black/20 rounded p-2 flex items-center justify-between">
                 <div>
                   <div className="text-xs text-[#c0c0c0]">{kpi.metric}</div>
-                  <div className="text-[10px] text-[#6b7280]">{kpi.measurement}</div>
+                  <div className="text-[10px] text-[#8b949e]">{kpi.measurement}</div>
                 </div>
                 <div className="text-sm font-bold text-[#39ff14]">{kpi.target}</div>
               </div>

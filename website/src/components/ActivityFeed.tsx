@@ -40,7 +40,7 @@ export function ActivityFeed({ activities, isLoading = false }: ActivityFeedProp
     plan: { color: 'text-[#bd93f9]', prefix: 'PLAN', icon: '◇' },
     debate: { color: 'text-[#ff6b35]', prefix: 'DEBATE', icon: '◉' },
     dev: { color: 'text-[#39ff14]', prefix: 'DEV', icon: '●' },
-    system: { color: 'text-[#6b7280]', prefix: 'SYS', icon: '○' },
+    system: { color: 'text-[#8b949e]', prefix: 'SYS', icon: '○' },
   };
 
   return (
@@ -49,7 +49,7 @@ export function ActivityFeed({ activities, isLoading = false }: ActivityFeedProp
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-[#bd93f9] text-xs">#</span>
-          <span className="text-[#6b7280] text-xs">Real-time activity stream</span>
+          <span className="text-[#8b949e] text-xs">Real-time activity stream</span>
         </div>
         <motion.div
           className="flex items-center gap-1.5"
@@ -85,7 +85,7 @@ export function ActivityFeed({ activities, isLoading = false }: ActivityFeedProp
                 className="flex items-start gap-2 py-1 hover:bg-[#21262d]/50 px-1 -mx-1 transition-colors"
               >
                 {/* Timestamp */}
-                <span className="text-[#6b7280] shrink-0 tabular-nums">
+                <span className="text-[#8b949e] shrink-0 tabular-nums">
                   [{activity.time}]
                 </span>
 
@@ -110,14 +110,14 @@ export function ActivityFeed({ activities, isLoading = false }: ActivityFeedProp
           animate={{ opacity: [0.3, 1, 0.3] }}
           transition={{ duration: 1, repeat: Infinity }}
         >
-          <span className="text-[#6b7280]">[--:--:--]</span>
+          <span className="text-[#8b949e]">[--:--:--]</span>
           <span>▋</span>
         </motion.div>
       </div>
 
       {/* Footer */}
       <div className="mt-3 pt-2 border-t border-[#21262d] flex items-center justify-between text-[10px]">
-        <span className="text-[#6b7280]">
+        <span className="text-[#8b949e]">
           {isLoading ? 'Loading events...' : `Showing last ${activities.length} events`}
         </span>
         <div className="flex items-center gap-3">

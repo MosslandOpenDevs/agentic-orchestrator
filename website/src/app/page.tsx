@@ -11,6 +11,7 @@ import { ActivityFeed } from '@/components/ActivityFeed';
 import { TerminalWindow, TerminalBadge } from '@/components/TerminalWindow';
 import { AdapterDetailModal } from '@/components/AdapterDetailModal';
 import { useModal } from '@/components/modals/useModal';
+import { clickableProps } from '@/lib/a11y';
 import { rssCategories, aiProviders, mockStats, mockPipeline } from '@/data/mock';
 import { fetchSystemStats, fetchActivity, fetchPipeline, fetchAdapters, ApiClient, type ApiProject } from '@/lib/api';
 import { formatLocalDateTime } from '@/lib/date';
@@ -97,7 +98,7 @@ export default function Dashboard() {
             {ASCII_LOGO}
           </pre>
           <div className="text-center mt-2">
-            <span className="text-[#6b7280] text-xs">
+            <span className="text-[#8b949e] text-xs">
               Multi-Agent AI Orchestration System v{APP_VERSION}
             </span>
           </div>
@@ -155,7 +156,10 @@ export default function Dashboard() {
                   return (
                     <motion.div
                       key={project.id}
-                      onClick={() => openModal('project', { id: project.id, title: project.name })}
+                      {...clickableProps(
+                        () => openModal('project', { id: project.id, title: project.name }),
+                        project.name
+                      )}
                       className="p-3 rounded border border-[#21262d] hover:border-[#39ff14] cursor-pointer transition-colors bg-black/20"
                       whileHover={{ scale: 1.02 }}
                     >
@@ -190,7 +194,7 @@ export default function Dashboard() {
                         )}
                       </div>
                       {project.created_at && (
-                        <div className="text-[10px] text-[#6b7280] mt-2">
+                        <div className="text-[10px] text-[#8b949e] mt-2">
                           {formatLocalDateTime(project.created_at, locale)}
                         </div>
                       )}
@@ -239,7 +243,7 @@ export default function Dashboard() {
                   className="w-full text-left hover:bg-[#21262d]/30 -m-3 p-3 rounded transition-colors"
                 >
                   <div className="space-y-2">
-                    <div className="text-[#6b7280] text-xs mb-3 flex justify-between items-center">
+                    <div className="text-[#8b949e] text-xs mb-3 flex justify-between items-center">
                       <span>
                         <span className="text-[#bd93f9]"># </span>
                         Signal adapters configuration
@@ -260,7 +264,7 @@ export default function Dashboard() {
                     ))}
                     <div className="border-t border-[#21262d] pt-3 mt-3">
                       <div className="flex justify-between items-center">
-                        <span className="text-[#6b7280] text-xs">total_adapters:</span>
+                        <span className="text-[#8b949e] text-xs">total_adapters:</span>
                         <span className="text-[#39ff14] font-bold">9</span>
                       </div>
                     </div>
@@ -277,7 +281,7 @@ export default function Dashboard() {
             >
               <TerminalWindow title="llm.status">
                 <div className="space-y-2">
-                  <div className="text-[#6b7280] text-xs mb-3">
+                  <div className="text-[#8b949e] text-xs mb-3">
                     <span className="text-[#bd93f9]"># </span>
                     LLM provider status (hybrid routing)
                   </div>
@@ -324,11 +328,11 @@ export default function Dashboard() {
 
                   <div className="border-t border-[#21262d] pt-3 mt-3">
                     <div className="flex justify-between items-center text-xs">
-                      <span className="text-[#6b7280]">daily_budget:</span>
+                      <span className="text-[#8b949e]">daily_budget:</span>
                       <span className="text-[#f1fa8c]">$50.00</span>
                     </div>
                     <div className="flex justify-between items-center text-xs">
-                      <span className="text-[#6b7280]">used_today:</span>
+                      <span className="text-[#8b949e]">used_today:</span>
                       <span className="text-[#39ff14]">$12.45</span>
                     </div>
                   </div>
@@ -349,7 +353,7 @@ export default function Dashboard() {
             href="https://github.com/MosslandOpenDevs/agentic-orchestrator"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 text-xs text-[#6b7280] hover:text-[#39ff14] transition-colors"
+            className="inline-flex items-center gap-2 text-xs text-[#8b949e] hover:text-[#39ff14] transition-colors"
           >
             <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>

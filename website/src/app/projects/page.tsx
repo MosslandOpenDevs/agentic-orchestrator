@@ -71,7 +71,7 @@ export default function ProjectsPage() {
           <h1 className="text-2xl font-bold text-[#39ff14] mb-2">
             {locale === 'ko' ? '프로젝트' : 'Projects'}
           </h1>
-          <p className="text-[#6b7280] text-sm">
+          <p className="text-[#8b949e] text-sm">
             {locale === 'ko'
               ? 'Plan에서 자동 생성된 프로젝트 스캐폴드'
               : 'Auto-generated project scaffolds from approved Plans'}
@@ -89,11 +89,11 @@ export default function ProjectsPage() {
               onClick={() => setStatusFilter(status)}
               className={`
                 card-cli p-4 text-left transition-all
-                ${isActive ? 'border-[#39ff14] bg-[#39ff14]/5' : 'hover:border-[#6b7280]'}
+                ${isActive ? 'border-[#39ff14] bg-[#39ff14]/5' : 'hover:border-[#8b949e]'}
               `}
             >
               <div className="text-2xl font-bold text-[#c0c0c0]">{count}</div>
-              <div className="text-xs text-[#6b7280] uppercase">
+              <div className="text-xs text-[#8b949e] uppercase">
                 {status === 'all'
                   ? (locale === 'ko' ? '전체' : 'Total')
                   : status === 'ready'
@@ -123,13 +123,13 @@ export default function ProjectsPage() {
           </div>
         ) : filteredProjects.length === 0 ? (
           <div className="text-center py-12">
-            <div className="text-[#6b7280] text-4xl mb-4">📁</div>
-            <div className="text-[#6b7280]">
+            <div className="text-[#8b949e] text-4xl mb-4">📁</div>
+            <div className="text-[#8b949e]">
               {locale === 'ko'
                 ? '프로젝트가 없습니다'
                 : 'No projects yet'}
             </div>
-            <div className="text-[#6b7280] text-sm mt-2">
+            <div className="text-[#8b949e] text-sm mt-2">
               {locale === 'ko'
                 ? '승인된 Plan에서 프로젝트를 생성하세요'
                 : 'Generate projects from approved Plans'}
@@ -172,12 +172,12 @@ export default function ProjectsPage() {
                       {project.name}
                     </h3>
                     {project.directory_path && (
-                      <div className="text-xs text-[#6b7280] mt-1 font-mono truncate">
+                      <div className="text-xs text-[#8b949e] mt-1 font-mono truncate">
                         <span className="text-[#00ffff]">→</span> {project.directory_path}
                       </div>
                     )}
                   </div>
-                  <div className="text-right text-xs text-[#6b7280] whitespace-nowrap">
+                  <div className="text-right text-xs text-[#8b949e] whitespace-nowrap">
                     <div>
                       {project.files_generated > 0 && (
                         <span className="text-[#39ff14]">{project.files_generated} files</span>
@@ -196,27 +196,27 @@ export default function ProjectsPage() {
 
       {/* Info Section */}
       <div className="card-cli p-4">
-        <div className="text-xs text-[#6b7280] uppercase mb-3">
+        <div className="text-xs text-[#8b949e] uppercase mb-3">
           {locale === 'ko' ? '프로젝트 생성 파이프라인' : 'Project Generation Pipeline'}
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-[#c0c0c0]">Plan</span>
-          <span className="text-[#6b7280]">→</span>
+          <span className="text-[#8b949e]">→</span>
           <span className="text-[#00ffff]">{locale === 'ko' ? '마크다운 파싱' : 'Parse Markdown'}</span>
-          <span className="text-[#6b7280]">→</span>
+          <span className="text-[#8b949e]">→</span>
           <span className="text-[#bd93f9]">{locale === 'ko' ? '스택 감지' : 'Detect Stack'}</span>
-          <span className="text-[#6b7280]">→</span>
+          <span className="text-[#8b949e]">→</span>
           <span className="text-[#ff6b35]">{locale === 'ko' ? 'LLM 코드 생성' : 'LLM Code Gen'}</span>
-          <span className="text-[#6b7280]">→</span>
+          <span className="text-[#8b949e]">→</span>
           <span className="text-[#39ff14]">{locale === 'ko' ? '프로젝트' : 'Project'}</span>
         </div>
         <div className="mt-3 grid grid-cols-2 md:grid-cols-2 gap-2 text-xs">
           <div className="p-2 border border-[#21262d] rounded">
-            <div className="text-[#6b7280]">{locale === 'ko' ? '채팅 / 생성' : 'Chat / Gen'}</div>
+            <div className="text-[#8b949e]">{locale === 'ko' ? '채팅 / 생성' : 'Chat / Gen'}</div>
             <div className="text-[#bd93f9] font-mono">qwen3.5:9b</div>
           </div>
           <div className="p-2 border border-[#21262d] rounded">
-            <div className="text-[#6b7280]">{locale === 'ko' ? '임베딩' : 'Embedding'}</div>
+            <div className="text-[#8b949e]">{locale === 'ko' ? '임베딩' : 'Embedding'}</div>
             <div className="text-[#00ffff] font-mono">qwen3-embedding:0.6b</div>
           </div>
         </div>

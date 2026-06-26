@@ -52,7 +52,7 @@ export function Pipeline({ stages }: PipelineProps) {
       glow: 'shadow-[0_0_15px_rgba(57,255,20,0.3)]',
     },
     completed: {
-      border: 'border-[#6b7280]',
+      border: 'border-[#8b949e]',
       bg: 'bg-[#21262d]',
       text: 'text-[#c0c0c0]',
       glow: '',
@@ -60,7 +60,7 @@ export function Pipeline({ stages }: PipelineProps) {
     idle: {
       border: 'border-[#21262d]',
       bg: 'bg-[#0d1117]',
-      text: 'text-[#6b7280]',
+      text: 'text-[#8b949e]',
       glow: '',
     },
   };
@@ -166,7 +166,7 @@ export function Pipeline({ stages }: PipelineProps) {
                   </span>
 
                   {/* Stage name */}
-                  <span className="text-[10px] text-[#6b7280] mt-1 uppercase tracking-wider">
+                  <span className="text-[10px] text-[#8b949e] mt-1 uppercase tracking-wider">
                     {stage.name}
                   </span>
 
@@ -221,7 +221,7 @@ export function Pipeline({ stages }: PipelineProps) {
                     </div>
                     {/* Conversion rate label */}
                     {conversionRates && (
-                      <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[8px] text-[#6b7280] whitespace-nowrap">
+                      <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[8px] text-[#8b949e] whitespace-nowrap">
                         {index === 0 && `${conversionRates.signals_to_trends}%`}
                         {index === 1 && `${conversionRates.trends_to_ideas}%`}
                         {index === 2 && `${conversionRates.ideas_to_plans}%`}
@@ -239,7 +239,7 @@ export function Pipeline({ stages }: PipelineProps) {
       {/* Conversion rates summary */}
       {conversionRates && (
         <div className="mt-6 pt-3 border-t border-[#21262d]">
-          <div className="text-[10px] text-[#6b7280] text-center mb-2">
+          <div className="text-[10px] text-[#8b949e] text-center mb-2">
             {t('pipeline.conversionRates')}
           </div>
           <div className="flex justify-center items-center gap-2 text-xs text-[#c0c0c0]">
@@ -257,7 +257,7 @@ export function Pipeline({ stages }: PipelineProps) {
       {/* Currently processing */}
       {liveData?.processing && liveData.processing.length > 0 && (
         <div className="mt-4 pt-3 border-t border-[#21262d]">
-          <div className="text-[10px] text-[#6b7280] uppercase tracking-wider mb-2">
+          <div className="text-[10px] text-[#8b949e] uppercase tracking-wider mb-2">
             {t('pipeline.currentlyProcessing')}
           </div>
           <div className="space-y-1.5 max-h-24 overflow-y-auto">
@@ -280,7 +280,7 @@ export function Pipeline({ stages }: PipelineProps) {
                     [{item.type}]
                   </span>
                   <span className="text-[#c0c0c0] flex-1 truncate">{item.title}</span>
-                  <span className="text-[#6b7280] text-[10px]">({item.time_ago})</span>
+                  <span className="text-[#8b949e] text-[10px]">({item.time_ago})</span>
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -292,15 +292,15 @@ export function Pipeline({ stages }: PipelineProps) {
       <div className="mt-4 pt-3 border-t border-[#21262d] flex flex-wrap justify-center gap-4 text-[10px]">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 bg-[#39ff14]" />
-          <span className="text-[#6b7280] uppercase tracking-wider">{t('pipeline.active')}</span>
+          <span className="text-[#8b949e] uppercase tracking-wider">{t('pipeline.active')}</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 bg-[#6b7280]" />
-          <span className="text-[#6b7280] uppercase tracking-wider">{t('pipeline.completed')}</span>
+          <div className="w-2 h-2 bg-[#8b949e]" />
+          <span className="text-[#8b949e] uppercase tracking-wider">{t('pipeline.completed')}</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 border border-[#21262d]" />
-          <span className="text-[#6b7280] uppercase tracking-wider">{t('pipeline.idle')}</span>
+          <span className="text-[#8b949e] uppercase tracking-wider">{t('pipeline.idle')}</span>
         </div>
       </div>
     </div>

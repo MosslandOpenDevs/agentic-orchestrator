@@ -81,7 +81,7 @@ const AGENT_STYLES: Record<string, AgentStyle> = {
   product_manager: { color: '#bd93f9', bgColor: 'rgba(189, 147, 249, 0.1)', borderColor: '#bd93f9' },
   community_builder: { color: '#ff6b35', bgColor: 'rgba(255, 107, 53, 0.1)', borderColor: '#ff6b35' },
   tech_lead: { color: '#39ff14', bgColor: 'rgba(57, 255, 20, 0.1)', borderColor: '#39ff14' },
-  default: { color: '#c0c0c0', bgColor: 'rgba(192, 192, 192, 0.1)', borderColor: '#6b7280' },
+  default: { color: '#c0c0c0', bgColor: 'rgba(192, 192, 192, 0.1)', borderColor: '#8b949e' },
 };
 
 export function LiveDebateViewer({
@@ -163,7 +163,7 @@ export function LiveDebateViewer({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-[#6b7280] uppercase tracking-wider">
+          <span className="text-xs text-[#8b949e] uppercase tracking-wider">
             {t('liveDebate.title')}
           </span>
           {isLive && (
@@ -178,7 +178,7 @@ export function LiveDebateViewer({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-[#6b7280]">
+          <span className="text-xs text-[#8b949e]">
             {messages.length} {t('liveDebate.messages')}
           </span>
           {!autoScroll && (
@@ -200,12 +200,12 @@ export function LiveDebateViewer({
         <span className={`px-2 py-0.5 rounded ${
           debate.status === 'in-progress' ? 'bg-[#ff6b35]/20 text-[#ff6b35]' :
           debate.status === 'completed' ? 'bg-[#39ff14]/20 text-[#39ff14]' :
-          'bg-[#6b7280]/20 text-[#6b7280]'
+          'bg-[#8b949e]/20 text-[#8b949e]'
         }`}>
           {debate.status}
         </span>
         <span className="text-[#bd93f9]">{debate.phase}</span>
-        <span className="text-[#6b7280]">
+        <span className="text-[#8b949e]">
           R{debate.round_number}/{debate.max_rounds}
         </span>
         <span className="text-[#00ffff]">
@@ -247,11 +247,11 @@ export function LiveDebateViewer({
                       <span className="text-xs" style={{ color: style.color }}>
                         @{msg.agent_handle || msg.agent_name}
                       </span>
-                      <span className="text-[10px] text-[#6b7280]">
+                      <span className="text-[10px] text-[#8b949e]">
                         {getMessageTypeIcon(msg.message_type)} {msg.message_type}
                       </span>
                     </div>
-                    <span className="text-[10px] text-[#6b7280]">
+                    <span className="text-[10px] text-[#8b949e]">
                       {formatTime(msg.created_at)}
                     </span>
                   </div>
@@ -292,11 +292,11 @@ export function LiveDebateViewer({
                     key={i}
                     animate={{ opacity: [0.3, 1, 0.3] }}
                     transition={{ repeat: Infinity, duration: 1, delay: i * 0.2 }}
-                    className="w-2 h-2 bg-[#6b7280] rounded-full"
+                    className="w-2 h-2 bg-[#8b949e] rounded-full"
                   />
                 ))}
               </div>
-              <span className="text-xs text-[#6b7280]">
+              <span className="text-xs text-[#8b949e]">
                 {t('liveDebate.agentsThinking')}
               </span>
             </motion.div>
@@ -308,7 +308,7 @@ export function LiveDebateViewer({
 
       {/* Participant Legend */}
       <div className="pt-3 border-t border-[#21262d]">
-        <div className="text-xs text-[#6b7280] uppercase mb-2">
+        <div className="text-xs text-[#8b949e] uppercase mb-2">
           {t('liveDebate.participants')}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -325,7 +325,7 @@ export function LiveDebateViewer({
                 style={{ backgroundColor: style.bgColor, color: style.color }}
               >
                 <span>@{participant}</span>
-                <span className="text-[#6b7280]">({msgCount})</span>
+                <span className="text-[#8b949e]">({msgCount})</span>
               </div>
             );
           })}
@@ -357,9 +357,9 @@ export function LiveDebateIndicator({
           LIVE
         </motion.span>
       ) : (
-        <span className="text-xs text-[#6b7280]">{t('liveDebate.ended')}</span>
+        <span className="text-xs text-[#8b949e]">{t('liveDebate.ended')}</span>
       )}
-      <span className="text-xs text-[#6b7280]">{messageCount} msgs</span>
+      <span className="text-xs text-[#8b949e]">{messageCount} msgs</span>
     </div>
   );
 }

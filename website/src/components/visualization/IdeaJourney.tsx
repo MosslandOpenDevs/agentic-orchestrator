@@ -134,7 +134,7 @@ export function IdeaJourney({ idea, debates, plans }: IdeaJourneyProps) {
                       {step.label}
                     </div>
                     {step.details && (
-                      <div className="text-[10px] text-[#6b7280] truncate">
+                      <div className="text-[10px] text-[#8b949e] truncate">
                         {step.details}
                       </div>
                     )}
@@ -173,7 +173,7 @@ export function IdeaJourney({ idea, debates, plans }: IdeaJourneyProps) {
         {Object.entries(typeColors).map(([type, colors]) => (
           <div key={type} className="flex items-center gap-1">
             <div className={`w-2 h-2 rounded-full ${colors.bg} ${colors.border} border`} />
-            <span className="text-[#6b7280] uppercase">{type}</span>
+            <span className="text-[#8b949e] uppercase">{type}</span>
           </div>
         ))}
       </div>
