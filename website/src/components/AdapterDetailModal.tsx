@@ -30,11 +30,19 @@ export function AdapterDetailModal({
   const selectedAdapter =
     adapters.find((a) => a.name === selectedName) ?? adapters[0] ?? null;
 
+  // Clear the selection as part of closing (replaces the old reset-on-close
+  // effect) so the next open starts on the first adapter again. Event-based, so
+  // it doesn't re-introduce a setState-in-effect.
+  const handleClose = useCallback(() => {
+    setSelectedName(null);
+    onClose();
+  }, [onClose]);
+
   // Escape to close + Tab focus trap within the dialog.
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose();
+        handleClose();
         return;
       }
       if (event.key === 'Tab' && dialogRef.current) {
@@ -63,7 +71,7 @@ export function AdapterDetailModal({
         }
       }
     },
-    [onClose]
+    [handleClose]
   );
 
   useEffect(() => {
@@ -109,7 +117,7 @@ export function AdapterDetailModal({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={handleClose}
             className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
           />
 
@@ -135,7 +143,7 @@ export function AdapterDetailModal({
                 <span className="tag tag-cyan">{adapters.length} adapters</span>
               </div>
               <button
-                onClick={onClose}
+                onClick={handleClose}
                 aria-label={locale === 'ko' ? '닫기' : 'Close'}
                 className="text-[#8b949e] hover:text-[#c0c0c0] transition-colors text-xl"
               >
