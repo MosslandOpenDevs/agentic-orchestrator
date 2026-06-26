@@ -433,7 +433,7 @@ async def get_idea_detail(
         source_debate = debate_repo.get_session_by_id(source_debate_id)
         if source_debate:
             messages = debate_repo.get_session_messages(source_debate_id)
-            debate_dict = source_debate.to_dict()
+            debate_dict = source_debate.to_dict(message_count=len(messages))
             debate_dict["messages"] = [m.to_dict() for m in messages]
             debates.append(debate_dict)
             seen_ids.add(source_debate_id)
@@ -443,7 +443,7 @@ async def get_idea_detail(
     for d in linked_debates:
         if d.id not in seen_ids:
             messages = debate_repo.get_session_messages(d.id)
-            debate_dict = d.to_dict()
+            debate_dict = d.to_dict(message_count=len(messages))
             debate_dict["messages"] = [m.to_dict() for m in messages]
             debates.append(debate_dict)
             seen_ids.add(d.id)

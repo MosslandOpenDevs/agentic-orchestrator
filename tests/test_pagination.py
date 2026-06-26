@@ -161,3 +161,41 @@ class TestMessageCountNoNPlusOne:
         body = client.get("/debates").json()
         target = next(d for d in body["debates"] if d["id"] == sessions[0].id)
         assert target["message_count"] == 3
+
+    def test_idea_detail_nested_debate_message_count(self, client, db):
+        """Regression: /ideas/{id} serializes nested debates; their message_count
+        must reflect the loaded messages, not default to 0."""
+        idea = Idea(
+            title="Idea with debate",
+            summary="s",
+            source_type="debate",
+            status="promoted",
+            score=8.0,
+        )
+        db.add(idea)
+        db.commit()
+        sess = DebateSession(
+            idea_id=idea.id,
+            phase="planning",
+            round_number=1,
+            max_rounds=3,
+            status="completed",
+        )
+        db.add(sess)
+        db.commit()
+        for _ in range(2):
+            db.add(
+                DebateMessage(
+                    session_id=sess.id,
+                    agent_id="a",
+                    agent_name="A",
+                    message_type="propose",
+                    content="c",
+                )
+            )
+        db.commit()
+        body = client.get(f"/ideas/{idea.id}").json()
+        assert len(body["debates"]) >= 1
+        nested = body["debates"][0]
+        assert nested["message_count"] == 2
+        assert len(nested["messages"]) == 2
