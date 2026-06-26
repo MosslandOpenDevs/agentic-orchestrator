@@ -19,23 +19,16 @@ export function AdapterDetailModal({
   isLoading,
 }: AdapterDetailModalProps) {
   const { locale } = useI18n();
-  const [selectedAdapter, setSelectedAdapter] = useState<AdapterInfo | null>(null);
+  const [selectedName, setSelectedName] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = 'adapter-detail-modal-title';
 
-  // Auto-select first adapter when adapters load
-  useEffect(() => {
-    if (adapters.length > 0 && !selectedAdapter) {
-      setSelectedAdapter(adapters[0]);
-    }
-  }, [adapters, selectedAdapter]);
-
-  // Reset selection when modal closes
-  useEffect(() => {
-    if (!isOpen) {
-      setSelectedAdapter(null);
-    }
-  }, [isOpen]);
+  // Derive the selected adapter rather than syncing it through effects (which
+  // tripped react-hooks/set-state-in-effect): use the explicitly-selected
+  // adapter, otherwise fall back to the first. A stale name (adapter no longer
+  // in the list) also falls back gracefully.
+  const selectedAdapter =
+    adapters.find((a) => a.name === selectedName) ?? adapters[0] ?? null;
 
   // Escape to close + Tab focus trap within the dialog.
   const handleKeyDown = useCallback(
@@ -168,7 +161,7 @@ export function AdapterDetailModal({
                     {adapters.map((adapter) => (
                       <button
                         key={adapter.name}
-                        onClick={() => setSelectedAdapter(adapter)}
+                        onClick={() => setSelectedName(adapter.name)}
                         className={`w-full p-3 text-left hover:bg-[#21262d]/50 transition-colors ${
                           selectedAdapter?.name === adapter.name ? 'bg-[#21262d]' : ''
                         }`}
