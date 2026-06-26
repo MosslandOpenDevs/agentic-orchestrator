@@ -112,6 +112,7 @@ export function IdeaComparison({
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               {...clickableProps(() => toggleSelect(idea.id), idea.title)}
+              aria-pressed={isSelected}
               className={`
                 p-2 rounded border cursor-pointer transition-colors
                 ${isSelected
