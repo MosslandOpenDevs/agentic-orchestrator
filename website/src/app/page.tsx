@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
+import { APP_VERSION } from '@/lib/version';
 import { SystemStatus } from '@/components/SystemStatus';
 import { StatsGrid } from '@/components/Stats';
 import { Pipeline } from '@/components/Pipeline';
@@ -97,7 +98,7 @@ export default function Dashboard() {
           </pre>
           <div className="text-center mt-2">
             <span className="text-[#6b7280] text-xs">
-              Multi-Agent AI Orchestration System v0.5.1
+              Multi-Agent AI Orchestration System v{APP_VERSION}
             </span>
           </div>
         </motion.div>

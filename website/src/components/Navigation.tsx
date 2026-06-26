@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useI18n, LanguageToggle } from '@/lib/i18n';
+import { APP_VERSION } from '@/lib/version';
 import { useState } from 'react';
 
 export function Navigation() {
@@ -31,7 +32,7 @@ export function Navigation() {
           <span className="text-[#6b7280]">::</span>
           <span className="text-[#00ffff] text-sm">AO</span>
           <span className="hidden sm:inline-block text-[#6b7280] text-xs ml-2">
-            v0.6.0
+            v{APP_VERSION}
           </span>
         </Link>
 
