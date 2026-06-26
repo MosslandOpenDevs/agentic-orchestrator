@@ -8,7 +8,7 @@ API usage tracking, and system logs.
 import enum
 import uuid
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from sqlalchemy import (
     JSON,
@@ -282,7 +282,14 @@ class DebateSession(Base):
         "DebateMessage", back_populates="session", order_by="DebateMessage.created_at"
     )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, message_count: Optional[int] = None) -> Dict[str, Any]:
+        """Serialize the session.
+
+        ``message_count`` should be supplied by the caller (e.g. via a bulk
+        ``COUNT ... GROUP BY`` query) so that serializing a list of sessions does
+        not lazy-load every session's messages just to count them (an N+1). When
+        omitted it defaults to 0 rather than triggering a relationship load.
+        """
         return {
             "id": self.id,
             "idea_id": self.idea_id,
@@ -301,7 +308,7 @@ class DebateSession(Base):
             "total_cost": self.total_cost,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "message_count": len(self.messages) if self.messages else 0,
+            "message_count": message_count if message_count is not None else 0,
         }
 
 

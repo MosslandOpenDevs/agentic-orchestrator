@@ -8,6 +8,7 @@ Collects signals from Discord servers via:
 """
 
 import asyncio
+import logging
 import os
 import time
 from datetime import datetime, timedelta
@@ -16,6 +17,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+
+logger = logging.getLogger(__name__)
 
 
 class DiscordAdapter(BaseAdapter):
@@ -226,7 +229,7 @@ class DiscordAdapter(BaseAdapter):
                         await asyncio.sleep(0.5)
 
                 except Exception as e:
-                    print(f"Error fetching from {server['name']}: {e}")
+                    logger.warning(f"Error fetching from {server['name']}: {e}")
 
         return signals
 
@@ -288,7 +291,7 @@ class DiscordAdapter(BaseAdapter):
                     await asyncio.sleep(1)
 
         except Exception as e:
-            print(f"Error fetching public Discord data: {e}")
+            logger.warning(f"Error fetching public Discord data: {e}")
 
         return signals
 

@@ -9,6 +9,7 @@ Collects market signals from Coingecko API:
 """
 
 import asyncio
+import logging
 import os
 import time
 from typing import Any, Dict, List, Optional
@@ -16,6 +17,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+
+logger = logging.getLogger(__name__)
 
 
 class CoingeckoAdapter(BaseAdapter):
@@ -206,7 +209,7 @@ class CoingeckoAdapter(BaseAdapter):
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching trending: {e}")
+            logger.warning(f"Error fetching trending: {e}")
 
         return signals
 
@@ -327,7 +330,7 @@ class CoingeckoAdapter(BaseAdapter):
                             signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching top movers: {e}")
+            logger.warning(f"Error fetching top movers: {e}")
 
         return signals
 
@@ -392,7 +395,7 @@ class CoingeckoAdapter(BaseAdapter):
                     signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching global stats: {e}")
+            logger.warning(f"Error fetching global stats: {e}")
 
         return signals
 
@@ -451,7 +454,7 @@ class CoingeckoAdapter(BaseAdapter):
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching tracked coins: {e}")
+            logger.warning(f"Error fetching tracked coins: {e}")
 
         return signals
 

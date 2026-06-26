@@ -306,12 +306,12 @@ async def get_debates(
 
     paginated = sessions
 
-    # Build response with message counts
-    debates = []
-    for debate in paginated:
-        debate_dict = debate.to_dict()
-        debate_dict["message_count"] = len(debate.messages) if debate.messages else 0
-        debates.append(debate_dict)
+    # Build response with message counts fetched in a single bulk query
+    # (avoids an N+1 that would lazy-load every session's full message list).
+    message_counts = repo.count_messages_for_sessions([s.id for s in paginated])
+    debates = [
+        debate.to_dict(message_count=message_counts.get(debate.id, 0)) for debate in paginated
+    ]
 
     return {
         "debates": debates,
@@ -336,7 +336,7 @@ async def get_debate_detail(
     messages = repo.get_session_messages(session_id)
 
     return {
-        "debate": debate.to_dict(),
+        "debate": debate.to_dict(message_count=len(messages)),
         "messages": [m.to_dict() for m in messages],
         "message_count": len(messages),
     }
@@ -353,21 +353,20 @@ async def get_trends(
     """Get trend analysis results."""
     repo = TrendRepository(session)
 
+    # DB-level pagination: push offset/limit into the query instead of fetching
+    # `limit + offset` rows and slicing in memory.
     if category:
-        trends = repo.get_by_category(category, limit=limit + offset)
-        total = len(trends)
+        trends = repo.get_by_category(category, limit=limit, offset=offset)
+        total = repo.count_by_category(category)
     elif period == "all":
-        trends = repo.get_all(limit=limit + offset)
+        trends = repo.get_all(limit=limit, offset=offset)
         total = repo.count_all()
     else:
-        trends = repo.get_latest(period=period, limit=limit + offset)
-        total = len(trends)
-
-    # Apply offset
-    paginated = trends[offset : offset + limit]
+        trends = repo.get_latest(period=period, limit=limit, offset=offset)
+        total = repo.count_by_period(period)
 
     return {
-        "trends": [t.to_dict() for t in paginated],
+        "trends": [t.to_dict() for t in trends],
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -389,16 +388,14 @@ async def get_ideas(
     status_counts = repo.count_by_status()
 
     if status:
-        ideas = repo.get_by_status(status, limit=limit + offset)
+        ideas = repo.get_by_status(status, limit=limit, offset=offset)
         total = status_counts.get(status, 0)
     else:
         ideas = repo.get_all(limit=limit, offset=offset)
         total = repo.count_all()
 
-    paginated = ideas if status is None else ideas[offset : offset + limit]
-
     return {
-        "ideas": [i.to_dict() for i in paginated],
+        "ideas": [i.to_dict() for i in ideas],
         "total": total,
         "limit": limit,
         "offset": offset,

@@ -8,6 +8,7 @@ Collects signals from GitHub:
 """
 
 import asyncio
+import logging
 import os
 import time
 from datetime import datetime, timedelta
@@ -16,6 +17,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+
+logger = logging.getLogger(__name__)
 
 
 class GitHubEventsAdapter(BaseAdapter):
@@ -164,7 +167,7 @@ class GitHubEventsAdapter(BaseAdapter):
                     signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching trending repos: {e}")
+            logger.warning(f"Error fetching trending repos: {e}")
 
         return signals
 
@@ -229,7 +232,7 @@ class GitHubEventsAdapter(BaseAdapter):
                     signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching releases for {repo}: {e}")
+            logger.warning(f"Error fetching releases for {repo}: {e}")
 
         return signals
 
@@ -292,7 +295,7 @@ class GitHubEventsAdapter(BaseAdapter):
                     await asyncio.sleep(0.5)
 
                 except Exception as e:
-                    print(f"Error fetching topic {topic}: {e}")
+                    logger.warning(f"Error fetching topic {topic}: {e}")
 
         return signals
 
