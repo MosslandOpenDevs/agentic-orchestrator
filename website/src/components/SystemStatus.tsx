@@ -51,10 +51,10 @@ export function SystemStatus({ lastRun, nextRun }: SystemStatusProps) {
         {/* Last Run */}
         <div className="flex items-center gap-2">
           <span className="text-[#8b949e] text-xs">last_run:</span>
-          <span className="text-[#c0c0c0] text-xs">
+          <span className="text-[#c0c0c0] text-xs" suppressHydrationWarning>
             {formatDistanceToNow(lastRunDate, { addSuffix: true, locale: dateLocale })}
           </span>
-          <span className="text-[#8b949e] text-[10px]">
+          <span className="text-[#8b949e] text-[10px]" suppressHydrationWarning>
             ({format(lastRunDate, 'HH:mm:ss')})
           </span>
         </div>
@@ -64,7 +64,7 @@ export function SystemStatus({ lastRun, nextRun }: SystemStatusProps) {
         {/* Next Run */}
         <div className="flex items-center gap-2">
           <span className="text-[#8b949e] text-xs">next_run:</span>
-          <span className="text-[#00ffff] text-xs">
+          <span className="text-[#00ffff] text-xs" suppressHydrationWarning>
             {nextRunLabel}
           </span>
         </div>

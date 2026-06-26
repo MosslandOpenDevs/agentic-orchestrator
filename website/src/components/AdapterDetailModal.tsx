@@ -19,29 +19,30 @@ export function AdapterDetailModal({
   isLoading,
 }: AdapterDetailModalProps) {
   const { locale } = useI18n();
-  const [selectedAdapter, setSelectedAdapter] = useState<AdapterInfo | null>(null);
+  const [selectedName, setSelectedName] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = 'adapter-detail-modal-title';
 
-  // Auto-select first adapter when adapters load
-  useEffect(() => {
-    if (adapters.length > 0 && !selectedAdapter) {
-      setSelectedAdapter(adapters[0]);
-    }
-  }, [adapters, selectedAdapter]);
+  // Derive the selected adapter rather than syncing it through effects (which
+  // tripped react-hooks/set-state-in-effect): use the explicitly-selected
+  // adapter, otherwise fall back to the first. A stale name (adapter no longer
+  // in the list) also falls back gracefully.
+  const selectedAdapter =
+    adapters.find((a) => a.name === selectedName) ?? adapters[0] ?? null;
 
-  // Reset selection when modal closes
-  useEffect(() => {
-    if (!isOpen) {
-      setSelectedAdapter(null);
-    }
-  }, [isOpen]);
+  // Clear the selection as part of closing (replaces the old reset-on-close
+  // effect) so the next open starts on the first adapter again. Event-based, so
+  // it doesn't re-introduce a setState-in-effect.
+  const handleClose = useCallback(() => {
+    setSelectedName(null);
+    onClose();
+  }, [onClose]);
 
   // Escape to close + Tab focus trap within the dialog.
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose();
+        handleClose();
         return;
       }
       if (event.key === 'Tab' && dialogRef.current) {
@@ -70,7 +71,7 @@ export function AdapterDetailModal({
         }
       }
     },
-    [onClose]
+    [handleClose]
   );
 
   useEffect(() => {
@@ -116,7 +117,7 @@ export function AdapterDetailModal({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={handleClose}
             className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
           />
 
@@ -142,7 +143,7 @@ export function AdapterDetailModal({
                 <span className="tag tag-cyan">{adapters.length} adapters</span>
               </div>
               <button
-                onClick={onClose}
+                onClick={handleClose}
                 aria-label={locale === 'ko' ? '닫기' : 'Close'}
                 className="text-[#8b949e] hover:text-[#c0c0c0] transition-colors text-xl"
               >
@@ -168,7 +169,7 @@ export function AdapterDetailModal({
                     {adapters.map((adapter) => (
                       <button
                         key={adapter.name}
-                        onClick={() => setSelectedAdapter(adapter)}
+                        onClick={() => setSelectedName(adapter.name)}
                         className={`w-full p-3 text-left hover:bg-[#21262d]/50 transition-colors ${
                           selectedAdapter?.name === adapter.name ? 'bg-[#21262d]' : ''
                         }`}
