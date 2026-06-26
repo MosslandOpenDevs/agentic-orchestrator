@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from ..timeutil import utcnow
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
 
 logger = logging.getLogger(__name__)
@@ -197,7 +198,7 @@ class DiscordAdapter(BaseAdapter):
                             if msg_id in self._seen_messages:
                                 continue
 
-                            self._seen_messages[msg_id] = datetime.utcnow()
+                            self._seen_messages[msg_id] = utcnow()
 
                             content = msg.get("content", "")
                             if not content or len(content) < 20:
@@ -297,7 +298,7 @@ class DiscordAdapter(BaseAdapter):
 
     def _clean_cache(self) -> None:
         """Remove old entries from message cache."""
-        cutoff = datetime.utcnow() - timedelta(hours=24)
+        cutoff = utcnow() - timedelta(hours=24)
         self._seen_messages = {k: v for k, v in self._seen_messages.items() if v > cutoff}
 
     async def health_check(self) -> Dict[str, Any]:

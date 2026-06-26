@@ -5,12 +5,13 @@ Provides data access layer for all models with common CRUD operations
 and specialized queries.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session
 
+from ..timeutil import utcnow
 from .models import (
     AgentState,
     APIUsage,
@@ -61,7 +62,7 @@ class SignalRepository(BaseRepository):
         min_score: float = 0.0,
     ):
         """Build base query for recent signals with filters."""
-        since = datetime.utcnow() - timedelta(hours=hours)
+        since = utcnow() - timedelta(hours=hours)
 
         query = self.session.query(Signal).filter(
             Signal.collected_at >= since, Signal.score >= min_score
@@ -95,7 +96,7 @@ class SignalRepository(BaseRepository):
         min_score: float = 0.0,
     ) -> int:
         """Count recent signals matching filters."""
-        since = datetime.utcnow() - timedelta(hours=hours)
+        since = utcnow() - timedelta(hours=hours)
 
         query = self.session.query(func.count(Signal.id)).filter(
             Signal.collected_at >= since, Signal.score >= min_score
@@ -157,7 +158,7 @@ class SignalRepository(BaseRepository):
 
     def delete_older_than(self, days: int) -> int:
         """Delete signals older than specified days."""
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = utcnow() - timedelta(days=days)
         result = self.session.query(Signal).filter(Signal.collected_at < cutoff).delete()
         self.session.flush()
         return result
@@ -226,7 +227,7 @@ class TrendRepository(BaseRepository):
 
     def delete_older_than(self, days: int) -> int:
         """Delete trends older than specified days."""
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = utcnow() - timedelta(days=days)
         result = self.session.query(Trend).filter(Trend.analyzed_at < cutoff).delete()
         self.session.flush()
         return result
@@ -274,7 +275,7 @@ class IdeaRepository(BaseRepository):
         idea = self.get_by_id(idea_id)
         if idea:
             idea.status = status
-            idea.updated_at = datetime.utcnow()
+            idea.updated_at = utcnow()
             self.session.flush()
         return idea
 
@@ -285,7 +286,7 @@ class IdeaRepository(BaseRepository):
 
     def get_recent(self, days: int = 7, limit: int = 50) -> List[Idea]:
         """Get recent ideas."""
-        since = datetime.utcnow() - timedelta(days=days)
+        since = utcnow() - timedelta(days=days)
         return (
             self.session.query(Idea)
             .filter(Idea.created_at >= since)
@@ -300,7 +301,7 @@ class IdeaRepository(BaseRepository):
 
     def count_recent(self, days: int = 30) -> int:
         """Count recent ideas."""
-        since = datetime.utcnow() - timedelta(days=days)
+        since = utcnow() - timedelta(days=days)
         return (
             self.session.query(func.count(Idea.id)).filter(Idea.created_at >= since).scalar() or 0
         )
@@ -382,7 +383,7 @@ class DebateRepository(BaseRepository):
             debate.status = "completed"
             debate.outcome = outcome
             debate.summary = summary
-            debate.completed_at = datetime.utcnow()
+            debate.completed_at = utcnow()
             self.session.flush()
         return debate
 
@@ -452,7 +453,7 @@ class DebateRepository(BaseRepository):
 
     def delete_older_than(self, days: int) -> int:
         """Delete debate sessions (and their cascaded messages) older than days."""
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = utcnow() - timedelta(days=days)
         # Delete child messages first to avoid orphaning if cascade isn't set.
         old_session_ids = [
             sid
@@ -521,7 +522,7 @@ class PlanRepository(BaseRepository):
         plan = self.get_by_id(plan_id)
         if plan:
             plan.status = status
-            plan.updated_at = datetime.utcnow()
+            plan.updated_at = utcnow()
             self.session.flush()
         return plan
 
@@ -596,7 +597,7 @@ class ProjectRepository(BaseRepository):
             if generation_log is not None:
                 project.generation_log = generation_log
             if status == "ready":
-                project.completed_at = datetime.utcnow()
+                project.completed_at = utcnow()
             self.session.flush()
         return project
 
@@ -623,7 +624,7 @@ class ProjectRepository(BaseRepository):
 
     def get_recent(self, days: int = 7, limit: int = 50) -> List[Project]:
         """Get recently created projects."""
-        since = datetime.utcnow() - timedelta(days=days)
+        since = utcnow() - timedelta(days=days)
         return (
             self.session.query(Project)
             .filter(Project.created_at >= since)
@@ -653,7 +654,7 @@ class APIUsageRepository(BaseRepository):
             usage.output_tokens += output_tokens
             usage.cost_usd += cost
             usage.request_count += 1
-            usage.updated_at = datetime.utcnow()
+            usage.updated_at = utcnow()
         else:
             usage = APIUsage(
                 date=today,
@@ -804,7 +805,7 @@ class SystemLogRepository(BaseRepository):
 
     def get_errors(self, hours: int = 24, limit: int = 50) -> List[SystemLog]:
         """Get recent errors."""
-        since = datetime.utcnow() - timedelta(hours=hours)
+        since = utcnow() - timedelta(hours=hours)
         return (
             self.session.query(SystemLog)
             .filter(SystemLog.level == "error", SystemLog.created_at >= since)
@@ -815,7 +816,7 @@ class SystemLogRepository(BaseRepository):
 
     def delete_older_than(self, days: int) -> int:
         """Delete logs older than specified days."""
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = utcnow() - timedelta(days=days)
         result = self.session.query(SystemLog).filter(SystemLog.created_at < cutoff).delete()
         self.session.flush()
         return result
@@ -842,8 +843,8 @@ class AgentStateRepository(BaseRepository):
             state.status = status
             state.current_task = current_task
             if status == "active":
-                state.last_active_at = datetime.utcnow()
-            state.updated_at = datetime.utcnow()
+                state.last_active_at = utcnow()
+            state.updated_at = utcnow()
             self.session.flush()
         return state
 
@@ -855,7 +856,7 @@ class AgentStateRepository(BaseRepository):
         if state:
             state.total_messages += messages
             state.total_tokens += tokens
-            state.updated_at = datetime.utcnow()
+            state.updated_at = utcnow()
             self.session.flush()
         return state
 

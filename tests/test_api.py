@@ -1,7 +1,5 @@
 """Tests for FastAPI endpoints."""
 
-from datetime import datetime
-
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -18,6 +16,7 @@ from agentic_orchestrator.db.models import (
     Signal,
     Trend,
 )
+from agentic_orchestrator.timeutil import utcnow
 
 # Create test database
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -67,7 +66,7 @@ def sample_signals(test_db):
             title="Bitcoin hits new high",
             summary="BTC reaches $100k",
             score=9.5,
-            collected_at=datetime.utcnow(),
+            collected_at=utcnow(),
         ),
         Signal(
             source="github",
@@ -75,7 +74,7 @@ def sample_signals(test_db):
             title="New AI model released",
             summary="GPT-5 announced",
             score=8.5,
-            collected_at=datetime.utcnow(),
+            collected_at=utcnow(),
         ),
         Signal(
             source="rss",
@@ -83,7 +82,7 @@ def sample_signals(test_db):
             title="ETH upgrade complete",
             summary="Ethereum 3.0 live",
             score=7.5,
-            collected_at=datetime.utcnow(),
+            collected_at=utcnow(),
         ),
     ]
     for signal in signals:
@@ -103,7 +102,7 @@ def sample_trends(test_db):
             score=9.0,
             signal_count=5,
             category="crypto",
-            analyzed_at=datetime.utcnow(),
+            analyzed_at=utcnow(),
         ),
         Trend(
             period="24h",
@@ -112,7 +111,7 @@ def sample_trends(test_db):
             score=8.5,
             signal_count=3,
             category="ai",
-            analyzed_at=datetime.utcnow(),
+            analyzed_at=utcnow(),
         ),
     ]
     for trend in trends:

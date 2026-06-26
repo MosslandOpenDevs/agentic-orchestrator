@@ -6,10 +6,10 @@ Analyzes feed items to identify trending topics using local LLM (Ollama).
 
 import json
 import re
-from datetime import datetime
 from typing import Optional
 
 from ..llm.router import HybridLLMRouter
+from ..timeutil import utcnow
 from ..utils.config import Config, load_config
 from ..utils.logging import get_logger
 from .models import FeedItem, Trend, TrendAnalysis
@@ -93,7 +93,7 @@ Prioritize trends with:
         if not items:
             logger.warning(f"[{period}] No items to analyze - returning empty analysis")
             return TrendAnalysis(
-                date=datetime.utcnow(),
+                date=utcnow(),
                 period=period,
                 trends=[],
                 raw_article_count=0,
@@ -133,7 +133,7 @@ Prioritize trends with:
             if not response or not response.strip():
                 logger.error(f"[{period}] Empty response from LLM! repr={repr(response)}")
                 return TrendAnalysis(
-                    date=datetime.utcnow(),
+                    date=utcnow(),
                     period=period,
                     trends=[],
                     raw_article_count=len(analysis_items),
@@ -151,7 +151,7 @@ Prioritize trends with:
                 logger.warning(f"[{period}] No trends parsed! Response preview: {response[:500]}")
 
             return TrendAnalysis(
-                date=datetime.utcnow(),
+                date=utcnow(),
                 period=period,
                 trends=trends,
                 raw_article_count=len(analysis_items),
@@ -165,7 +165,7 @@ Prioritize trends with:
 
             logger.error(f"[{period}] Traceback: {traceback.format_exc()}")
             return TrendAnalysis(
-                date=datetime.utcnow(),
+                date=utcnow(),
                 period=period,
                 trends=[],
                 raw_article_count=len(analysis_items),
@@ -420,7 +420,7 @@ Focus on actionable insights and Web3 opportunities. Be specific and detailed. W
         ]
 
         return TrendAnalysis(
-            date=datetime.utcnow(),
+            date=utcnow(),
             period=period,
             trends=mock_trends,
             raw_article_count=len(items),

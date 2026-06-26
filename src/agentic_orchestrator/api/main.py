@@ -24,6 +24,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..timeutil import utcnow
+
 logger = logging.getLogger(__name__)
 
 from ..db.connection import get_db
@@ -154,7 +156,7 @@ async def health_check():
     """Check API health status."""
     return HealthResponse(
         status="healthy",
-        timestamp=datetime.utcnow().isoformat(),
+        timestamp=utcnow().isoformat(),
         version="0.5.0",
     )
 
@@ -168,7 +170,7 @@ async def system_status(session: Session = Depends(get_session)):
     from ..db.models import DebateSession, Idea, Plan, Signal
 
     # Calculate real stats
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
     signals_today = (
         session.query(func.count(Signal.id)).filter(Signal.collected_at >= today).scalar() or 0
@@ -190,7 +192,7 @@ async def system_status(session: Session = Depends(get_session)):
 
     return StatusResponse(
         status="operational" if db_healthy else "degraded",
-        timestamp=datetime.utcnow().isoformat(),
+        timestamp=utcnow().isoformat(),
         components={
             "api": {"status": "healthy"},
             "database": {"status": "healthy" if db_healthy else "unhealthy"},
@@ -1018,7 +1020,7 @@ async def get_signals_timeline(
 
     from ..db.models import Signal
 
-    now = datetime.utcnow()
+    now = utcnow()
 
     if period == "24h":
         # Get hourly counts for last 24 hours
@@ -1097,7 +1099,7 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
 
     from ..db.models import DebateSession, Idea, Plan, Project, Signal, Trend
 
-    now = datetime.utcnow()
+    now = utcnow()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     last_hour = now - timedelta(hours=1)
     now - timedelta(hours=24)
@@ -1349,7 +1351,7 @@ async def _generate_project_task(
     from ..project import ProjectScaffold
 
     _project_jobs[job_id]["status"] = "in_progress"
-    _project_jobs[job_id]["started_at"] = datetime.utcnow().isoformat()
+    _project_jobs[job_id]["started_at"] = utcnow().isoformat()
     _save_jobs()
 
     try:
@@ -1374,13 +1376,13 @@ async def _generate_project_task(
 
         # Update job status
         _project_jobs[job_id]["status"] = "completed" if result.success else "failed"
-        _project_jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+        _project_jobs[job_id]["completed_at"] = utcnow().isoformat()
         _project_jobs[job_id]["result"] = result.to_dict()
         _save_jobs()
 
     except Exception as e:
         _project_jobs[job_id]["status"] = "failed"
-        _project_jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+        _project_jobs[job_id]["completed_at"] = utcnow().isoformat()
         _project_jobs[job_id]["error"] = str(e)
         _save_jobs()
 
@@ -1440,7 +1442,7 @@ async def generate_project(
         "job_id": job_id,
         "plan_id": plan_id,
         "status": "pending",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": utcnow().isoformat(),
     }
 
     # Start background task
@@ -1601,7 +1603,7 @@ async def approve_plan(
                     "job_id": job_id,
                     "plan_id": plan_id,
                     "status": "pending",
-                    "created_at": datetime.utcnow().isoformat(),
+                    "created_at": utcnow().isoformat(),
                 }
                 if background_tasks:
                     background_tasks.add_task(_generate_project_task, job_id, plan_id, False)
@@ -1626,7 +1628,7 @@ async def approve_plan(
     if plan.extra_metadata is None:
         plan.extra_metadata = {}
     plan.extra_metadata["manually_approved"] = True
-    plan.extra_metadata["approved_at"] = datetime.utcnow().isoformat()
+    plan.extra_metadata["approved_at"] = utcnow().isoformat()
     session.commit()
 
     job_id = None
@@ -1639,7 +1641,7 @@ async def approve_plan(
             "job_id": job_id,
             "plan_id": plan_id,
             "status": "pending",
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": utcnow().isoformat(),
         }
         if background_tasks:
             background_tasks.add_task(_generate_project_task, job_id, plan_id, False)

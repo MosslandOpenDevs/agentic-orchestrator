@@ -7,6 +7,8 @@ Defines dataclasses for feed items, trends, and analysis results.
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from ..timeutil import utcnow
+
 
 @dataclass
 class FeedItem:
@@ -31,7 +33,7 @@ class FeedItem:
     @property
     def age_hours(self) -> float:
         """Get the age of this item in hours."""
-        delta = datetime.utcnow() - self.published
+        delta = utcnow() - self.published
         return delta.total_seconds() / 3600
 
 
@@ -111,7 +113,7 @@ class TrendIdeaLink:
     trend_topic: str  # Topic of the trend that inspired this idea
     trend_category: str  # Category of the source trend
     analysis_date: datetime  # When the trend was analyzed
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utcnow)
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
@@ -131,9 +133,7 @@ class TrendIdeaLink:
             trend_topic=data["trend_topic"],
             trend_category=data["trend_category"],
             analysis_date=datetime.fromisoformat(data["analysis_date"]),
-            created_at=datetime.fromisoformat(
-                data.get("created_at", datetime.utcnow().isoformat())
-            ),
+            created_at=datetime.fromisoformat(data.get("created_at", utcnow().isoformat())),
         )
 
 

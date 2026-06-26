@@ -11,11 +11,12 @@ import asyncio
 import logging
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
 import httpx
 
+from ..timeutil import utcnow
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
 
 logger = logging.getLogger(__name__)
@@ -117,7 +118,7 @@ class NewsAPIAdapter(BaseAdapter):
             for query_config in self.NEWS_QUERIES[:3]:  # Limit to conserve API quota
                 try:
                     # Get news from last 24 hours
-                    from_date = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
+                    from_date = (utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
 
                     response = await client.get(
                         f"{self.newsapi_url}/everything",

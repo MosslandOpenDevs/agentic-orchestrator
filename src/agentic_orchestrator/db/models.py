@@ -7,7 +7,6 @@ API usage tracking, and system logs.
 
 import enum
 import uuid
-from datetime import datetime
 from typing import Any, Dict, Optional
 
 from sqlalchemy import (
@@ -24,6 +23,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
+
+from ..timeutil import utcnow
 
 Base = declarative_base()
 
@@ -125,9 +126,9 @@ class Signal(Base):
     sentiment = Column(String(20))  # positive, negative, neutral
     topics = Column(JSON)  # List of topics
     entities = Column(JSON)  # List of extracted entities
-    collected_at = Column(DateTime, default=datetime.utcnow, index=True)
+    collected_at = Column(DateTime, default=utcnow, index=True)
     processed_at = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     __table_args__ = (
         Index("idx_signals_source_category", "source", "category"),
@@ -169,8 +170,8 @@ class Trend(Base):
     keywords = Column(JSON)  # List of keywords
     related_signals = Column(JSON)  # List of signal IDs
     analysis_data = Column(JSON)
-    analyzed_at = Column(DateTime, default=datetime.utcnow, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    analyzed_at = Column(DateTime, default=utcnow, index=True)
+    created_at = Column(DateTime, default=utcnow)
 
     # Relationships
     ideas = relationship("Idea", back_populates="source_trend")
@@ -220,8 +221,8 @@ class Idea(Base):
     github_issue_url = Column(Text)
     score = Column(Float, default=0.0)
     extra_metadata = Column("metadata", JSON)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow, index=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     source_trend = relationship("Trend", back_populates="ideas")
@@ -272,9 +273,9 @@ class DebateSession(Base):
     total_tokens = Column(Integer, default=0)
     total_cost = Column(Float, default=0.0)
     extra_metadata = Column("metadata", JSON)
-    started_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, default=utcnow)
     completed_at = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     # Relationships
     idea = relationship("Idea", back_populates="debate_sessions", foreign_keys=[idea_id])
@@ -329,7 +330,7 @@ class DebateMessage(Base):
     personality_traits = Column(JSON)
     token_count = Column(Integer)
     model_used = Column(String(100))
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
 
     # Relationships
     session = relationship("DebateSession", back_populates="messages")
@@ -374,8 +375,8 @@ class Plan(Base):
     github_issue_url = Column(Text)
 
     extra_metadata = Column("metadata", JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     idea = relationship("Idea", back_populates="plans")
@@ -410,7 +411,7 @@ class Project(Base):
     files_generated = Column(Integer, default=0)
     generation_log = Column(Text)
     extra_metadata = Column("metadata", JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     completed_at = Column(DateTime)
 
     # Relationships
@@ -443,8 +444,8 @@ class APIUsage(Base):
     output_tokens = Column(Integer, default=0)
     cost_usd = Column(Float, default=0.0)
     request_count = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     __table_args__ = (
         Index("idx_usage_date_provider_model", "date", "provider", "model", unique=True),
@@ -474,7 +475,7 @@ class SystemLog(Base):
     message = Column(Text, nullable=False)
     details = Column(JSON)
     trace = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
 
     __table_args__ = (Index("idx_logs_level_source", "level", "source"),)
 
@@ -504,8 +505,8 @@ class AgentState(Base):
     total_tokens = Column(Integer, default=0)
     personality_config = Column(JSON)
     extra_metadata = Column("metadata", JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
