@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from ..db.connection import db
 from ..db.models import Signal
 from ..db.repositories import SignalRepository
+from ..timeutil import utcnow
 
 
 class SignalStorage:
@@ -122,7 +123,7 @@ class SignalStorage:
         signals = self.get_recent(hours=hours, limit=10000)
 
         # Create backup filename
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = utcnow().strftime("%Y%m%d_%H%M%S")
         backup_file = self.backup_dir / f"signals_{timestamp}.json"
 
         # Convert to JSON-serializable format
@@ -160,7 +161,7 @@ class SignalStorage:
     def get_daily_summary(self, date: Optional[datetime] = None) -> Dict[str, Any]:
         """Get summary of signals for a specific day."""
         if date is None:
-            date = datetime.utcnow()
+            date = utcnow()
 
         start = date.replace(hour=0, minute=0, second=0, microsecond=0)
         end = start + timedelta(days=1)
@@ -206,7 +207,7 @@ class SignalStorage:
         """Export signals for external analysis."""
         signals = self.get_recent(hours=hours, limit=10000)
 
-        timestamp = datetime.utcnow().strftime("%Y%m%d")
+        timestamp = utcnow().strftime("%Y%m%d")
         export_file = self.backup_dir / f"export_{timestamp}.{format}"
 
         if format == "json":

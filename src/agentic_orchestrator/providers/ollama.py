@@ -18,6 +18,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 import httpx
 import yaml
 
+from ..timeutil import utcnow
 from .base import ProviderError
 
 logger = logging.getLogger(__name__)
@@ -443,7 +444,7 @@ class OllamaProvider:
         """Check Ollama health and available models."""
         try:
             models = await self.get_available_models()
-            self._last_health_check = datetime.utcnow()
+            self._last_health_check = utcnow()
 
             state = self._throttle_state
             throttle_status = {

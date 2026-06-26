@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 import feedparser
 import httpx
 
+from ..timeutil import utcnow
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
 
 logger = logging.getLogger(__name__)
@@ -147,10 +148,7 @@ class TwitterAdapter(BaseAdapter):
     async def _refresh_working_instances(self) -> None:
         """Check which Nitter instances are working."""
         # Only refresh every 30 minutes
-        if (
-            self._last_instance_check
-            and (datetime.utcnow() - self._last_instance_check).seconds < 1800
-        ):
+        if self._last_instance_check and (utcnow() - self._last_instance_check).seconds < 1800:
             return
 
         working = []
@@ -172,7 +170,7 @@ class TwitterAdapter(BaseAdapter):
             # Fallback to all instances if none work
             self._working_instances = self.NITTER_INSTANCES[:3]
 
-        self._last_instance_check = datetime.utcnow()
+        self._last_instance_check = utcnow()
 
     async def _fetch_accounts(self) -> List[SignalData]:
         """Fetch tweets from tracked accounts via Nitter RSS."""

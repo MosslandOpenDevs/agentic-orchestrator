@@ -18,6 +18,7 @@ from .providers.base import BaseProvider, QuotaExhaustedError
 from .providers.claude import ClaudeProvider, create_claude_provider
 from .providers.gemini import GeminiProvider, create_gemini_provider
 from .providers.openai import OpenAIProvider, create_openai_provider
+from .timeutil import utcnow
 from .trends import FeedFetcher, Trend, TrendAnalysis, TrendAnalyzer, TrendIdeaLink, TrendStorage
 from .utils.config import get_env_bool, load_config
 from .utils.files import (
@@ -479,7 +480,7 @@ class TrendBasedIdeaGenerator:
                     idea_issue_number=issue.number,
                     trend_topic=trend.topic,
                     trend_category=trend.category,
-                    analysis_date=datetime.utcnow(),
+                    analysis_date=utcnow(),
                 )
                 self.storage.link_idea_to_trend(link)
 

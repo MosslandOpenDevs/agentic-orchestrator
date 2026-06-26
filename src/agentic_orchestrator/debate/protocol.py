@@ -9,6 +9,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from ..timeutil import utcnow
+
 
 class DebatePhase(Enum):
     """Debate phase types."""
@@ -46,7 +48,7 @@ class DebateMessage:
     message_type: MessageType
     content: str
     metadata: Dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utcnow)
     references: List[str] = field(default_factory=list)  # IDs of referenced messages
     score: Optional[float] = None  # Relevance/quality score
 
@@ -733,7 +735,7 @@ This is Round {round_num} planning.
         summary_parts = [
             "# Multi-Agent Debate Results",
             "",
-            f"Generated at: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}",
+            f"Generated at: {utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}",
             "",
         ]
 

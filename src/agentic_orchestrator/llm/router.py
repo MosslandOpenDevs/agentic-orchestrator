@@ -4,12 +4,12 @@ Hybrid LLM router for intelligent model selection.
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from ..providers.claude import ClaudeProvider
 from ..providers.ollama import OllamaProvider, OllamaResponse
 from ..providers.openai import OpenAIProvider
+from ..timeutil import utcnow
 from .budget import BudgetController
 from .hierarchy import LLMHierarchy
 
@@ -134,7 +134,7 @@ class HybridLLMRouter:
         Returns:
             LLMResponse with generated content
         """
-        start_time = datetime.utcnow()
+        start_time = utcnow()
 
         # In local-only mode any caller-supplied force_api / paid model
         # selection is silently overridden — we never make billed calls.
@@ -227,7 +227,7 @@ class HybridLLMRouter:
                 raise
 
         # Calculate duration
-        duration = (datetime.utcnow() - start_time).total_seconds()
+        duration = (utcnow() - start_time).total_seconds()
 
         # Record usage for API calls
         if provider_name != "ollama":

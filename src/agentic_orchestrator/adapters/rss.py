@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 import feedparser
 import httpx
 
+from ..timeutil import utcnow
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
 
 logger = logging.getLogger(__name__)
@@ -190,7 +191,7 @@ class RSSAdapter(BaseAdapter):
                                 else []
                             ),
                         },
-                        collected_at=datetime.utcnow(),
+                        collected_at=utcnow(),
                         metadata={"feed_name": feed.name},
                     )
                     signals.append(signal)

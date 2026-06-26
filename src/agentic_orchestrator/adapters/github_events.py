@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from ..timeutil import utcnow
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
 
 logger = logging.getLogger(__name__)
@@ -134,7 +135,7 @@ class GitHubEventsAdapter(BaseAdapter):
         try:
             # GitHub doesn't have an official trending API,
             # so we search for recently created popular repos
-            since_date = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
+            since_date = (utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
             query = f"created:>{since_date} stars:>100"
 
             async with httpx.AsyncClient(timeout=30) as client:

@@ -10,6 +10,8 @@ import sys
 from datetime import datetime, timedelta
 from typing import List, Optional
 
+from ..timeutil import utcnow
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -39,7 +41,7 @@ def _calculate_time_decay(collected_at: datetime, now: datetime = None) -> float
         Decay factor between 0.2 and 1.0
     """
     if now is None:
-        now = datetime.utcnow()
+        now = utcnow()
 
     age_hours = (now - collected_at).total_seconds() / 3600
 
@@ -72,7 +74,7 @@ def _apply_time_decay_to_signals(signals: List, now: datetime = None) -> List:
         Signals with decay factor applied
     """
     if now is None:
-        now = datetime.utcnow()
+        now = utcnow()
 
     for signal in signals:
         collected_at = signal.collected_at or now
@@ -132,7 +134,7 @@ async def _signal_collect_async():
     logger.info("Starting signal collection cycle")
     logger.info("=" * 60)
 
-    start_time = datetime.utcnow()
+    start_time = utcnow()
 
     try:
         # Initialize aggregator (uses default adapters internally)
@@ -150,7 +152,7 @@ async def _signal_collect_async():
         deleted_count = storage.cleanup_old_signals(days=30)
         logger.info(f"Deleted {deleted_count} old signals")
 
-        duration = (datetime.utcnow() - start_time).total_seconds()
+        duration = (utcnow() - start_time).total_seconds()
         logger.info(f"Signal collection completed in {duration:.1f}s")
         logger.info(f"Summary: {len(signals)} collected, {deleted_count} old signals deleted")
 
@@ -177,7 +179,7 @@ async def _analyze_trends_async():
     logger.info("Starting trend analysis cycle")
     logger.info("=" * 60)
 
-    start_time = datetime.utcnow()
+    start_time = utcnow()
 
     try:
         # Initialize components
@@ -226,7 +228,7 @@ async def _analyze_trends_async():
             return
 
         # Apply time decay weighting to signals (v0.5.0)
-        now = datetime.utcnow()
+        now = utcnow()
         signals = _apply_time_decay_to_signals(signals, now)
         logger.info(f"Applied time decay to {len(signals)} signals")
 
@@ -258,7 +260,7 @@ async def _analyze_trends_async():
                     summary=s.summary or "",
                     source=s.source or "unknown",
                     category=s.category or "other",
-                    published=s.collected_at or datetime.utcnow(),
+                    published=s.collected_at or utcnow(),
                 )
             )
 
@@ -294,7 +296,7 @@ async def _analyze_trends_async():
                             "sources": trend.sources,
                             "sample_headlines": trend.sample_headlines,
                         },
-                        "analyzed_at": datetime.utcnow(),
+                        "analyzed_at": utcnow(),
                     }
                 )
                 saved_count += 1
@@ -304,7 +306,7 @@ async def _analyze_trends_async():
         session.commit()
         logger.info(f"Saved {saved_count} trends to database")
 
-        duration = (datetime.utcnow() - start_time).total_seconds()
+        duration = (utcnow() - start_time).total_seconds()
         logger.info(f"Trend analysis completed in {duration:.1f}s")
         logger.info(f"Summary: {len(signals)} signals analyzed, {saved_count} trends identified")
 
@@ -1086,7 +1088,7 @@ async def _run_debate_async(topic: Optional[str] = None):
         f"{debate_config.divergence_rounds} rounds"
     )
 
-    start_time = datetime.utcnow()
+    start_time = utcnow()
     debate_session = None
     db = None
     trend_context = None
@@ -1111,8 +1113,8 @@ async def _run_debate_async(topic: Optional[str] = None):
                 "  AND started_at < :cutoff"
             ),
             {
-                "now": datetime.utcnow(),
-                "cutoff": datetime.utcnow() - timedelta(minutes=90),
+                "now": utcnow(),
+                "cutoff": utcnow() - timedelta(minutes=90),
             },
         )
         recovery_session.commit()
@@ -1270,7 +1272,7 @@ async def _run_debate_async(topic: Optional[str] = None):
                 summary=f"Generated {len(result.all_ideas)} ideas, selected {len(result.selected_ideas)}",
                 total_tokens=result.total_tokens,
                 total_cost=result.total_cost,
-                completed_at=datetime.utcnow(),
+                completed_at=utcnow(),
                 participants=list(all_participants),
             )
             session.commit()
@@ -1298,7 +1300,7 @@ async def _run_debate_async(topic: Optional[str] = None):
             f"  Final plan length: {len(result.final_plan) if result.final_plan else 0} chars"
         )
 
-        duration = (datetime.utcnow() - start_time).total_seconds()
+        duration = (utcnow() - start_time).total_seconds()
         logger.info(f"Debate completed in {duration:.1f}s")
         logger.info(f"Total cost: ${result.total_cost:.4f}")
         logger.info(f"Ideas generated: {len(result.all_ideas)}")
@@ -1329,7 +1331,7 @@ async def _run_debate_async(topic: Optional[str] = None):
                     status="failed",
                     outcome="cancelled" if isinstance(e, asyncio.CancelledError) else "error",
                     summary=f"{type(e).__name__}: {str(e)[:200]}",
-                    completed_at=datetime.utcnow(),
+                    completed_at=utcnow(),
                 )
                 cleanup_session.commit()
                 cleanup_session.close()
@@ -1351,7 +1353,7 @@ def _process_backlog():
     logger.info("Starting backlog processing cycle")
     logger.info("=" * 60)
 
-    start_time = datetime.utcnow()
+    start_time = utcnow()
 
     try:
         db = get_database()
@@ -1410,7 +1412,7 @@ def _process_backlog():
         finally:
             retention_session.close()
 
-        duration = (datetime.utcnow() - start_time).total_seconds()
+        duration = (utcnow() - start_time).total_seconds()
         logger.info(f"Backlog processing completed in {duration:.1f}s")
         logger.info(f"Stats: {stats}")
 
@@ -1434,7 +1436,7 @@ async def _health_check_async():
     logger.info("Running system health check...")
 
     health_status = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": utcnow().isoformat(),
         "status": "healthy",
         "components": {},
     }

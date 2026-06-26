@@ -25,6 +25,7 @@ from ..personas import (
 from ..personas.personalities import (
     CommunicationStyle,
 )
+from ..timeutil import utcnow
 from .protocol import (
     DebateMessage,
     DebatePhase,
@@ -89,7 +90,7 @@ class MultiStageDebateResult:
     total_duration_seconds: float
     total_tokens: int
     total_cost: float
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utcnow)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -189,7 +190,7 @@ class MultiStageDebate:
         Raises:
             asyncio.TimeoutError: If debate exceeds DEBATE_TIMEOUT_SECONDS
         """
-        start_time = datetime.utcnow()
+        start_time = utcnow()
         logger.info(f"Starting multi-stage debate: {topic}")
         logger.info(f"Session ID: {self.session_id}")
         logger.info(f"Timeout: {self.DEBATE_TIMEOUT_SECONDS}s")
@@ -200,7 +201,7 @@ class MultiStageDebate:
                 timeout=self.DEBATE_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
-            total_duration = (datetime.utcnow() - start_time).total_seconds()
+            total_duration = (utcnow() - start_time).total_seconds()
             logger.error(f"Debate timed out after {total_duration:.1f}s")
             raise
 
@@ -239,7 +240,7 @@ class MultiStageDebate:
         final_plan = planning_result.output.get("final_plan", "No plan generated")
 
         # Calculate totals
-        total_duration = (datetime.utcnow() - start_time).total_seconds()
+        total_duration = (utcnow() - start_time).total_seconds()
 
         result = MultiStageDebateResult(
             session_id=self.session_id,
@@ -268,7 +269,7 @@ class MultiStageDebate:
         context: str,
     ) -> PhaseResult:
         """Run divergence phase to generate diverse ideas."""
-        phase_start = datetime.utcnow()
+        phase_start = utcnow()
         rounds: List[DebateRound] = []
         phase_tokens = 0
         phase_cost = 0.0
@@ -335,7 +336,7 @@ class MultiStageDebate:
                 logger.info(f"Divergence ended: {reason}")
                 break
 
-        duration = (datetime.utcnow() - phase_start).total_seconds()
+        duration = (utcnow() - phase_start).total_seconds()
         self.total_tokens += phase_tokens
         self.total_cost += phase_cost
 
@@ -353,7 +354,7 @@ class MultiStageDebate:
 
     async def _run_convergence_phase(self, topic: str) -> PhaseResult:
         """Run convergence phase to filter and score ideas."""
-        phase_start = datetime.utcnow()
+        phase_start = utcnow()
         rounds: List[DebateRound] = []
         phase_tokens = 0
         phase_cost = 0.0
@@ -415,7 +416,7 @@ class MultiStageDebate:
         sorted_ideas = sorted(self.ideas, key=lambda x: x.total_score, reverse=True)
         selected_ideas = sorted_ideas[: config.top_ideas_to_keep]
 
-        duration = (datetime.utcnow() - phase_start).total_seconds()
+        duration = (utcnow() - phase_start).total_seconds()
         self.total_tokens += phase_tokens
         self.total_cost += phase_cost
 
@@ -433,7 +434,7 @@ class MultiStageDebate:
 
     async def _run_planning_phase(self, topic: str) -> PhaseResult:
         """Run planning phase to create final plan."""
-        phase_start = datetime.utcnow()
+        phase_start = utcnow()
         rounds: List[DebateRound] = []
         phase_tokens = 0
         phase_cost = 0.0
@@ -525,7 +526,7 @@ class MultiStageDebate:
 
             rounds.append(round_data)
 
-        duration = (datetime.utcnow() - phase_start).total_seconds()
+        duration = (utcnow() - phase_start).total_seconds()
         self.total_tokens += phase_tokens
         self.total_cost += phase_cost
 

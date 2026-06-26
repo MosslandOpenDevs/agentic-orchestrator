@@ -23,6 +23,7 @@ from ..adapters.twitter import TwitterAdapter
 from ..db.connection import db
 from ..db.models import Signal
 from ..db.repositories import SignalRepository
+from ..timeutil import utcnow
 from .scorer import SignalScorer
 
 logger = logging.getLogger(__name__)
@@ -118,7 +119,7 @@ class SignalAggregator:
         if save_to_db:
             await self._save_to_db(all_signals)
 
-        self._last_collection = datetime.utcnow()
+        self._last_collection = utcnow()
 
         return all_signals
 

@@ -16,10 +16,10 @@ import json
 import logging
 import subprocess
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..timeutil import utcnow
 from .generator import GeneratedFile, ProjectCodeGenerator
 from .parser import ParsedPlan, PlanParser
 from .templates import TemplateFile, TemplateManager, slugify_project_name
@@ -105,7 +105,7 @@ class ProjectScaffold:
         Returns:
             ProjectGenerationResult with status and details
         """
-        start_time = datetime.utcnow()
+        start_time = utcnow()
 
         try:
             # Load plan from database
@@ -200,7 +200,7 @@ class ProjectScaffold:
                         {
                             "version": "1.0.0",
                             "generator": "moss-ao",
-                            "createdAt": datetime.utcnow().isoformat(),
+                            "createdAt": utcnow().isoformat(),
                             "planId": plan_id,
                             "projectId": project_id,
                             "techStack": parsed_plan.tech_stack.to_dict(),
@@ -235,7 +235,7 @@ class ProjectScaffold:
                     f"Git push failed for project: {project_name} (project still created locally)"
                 )
 
-            duration = (datetime.utcnow() - start_time).total_seconds()
+            duration = (utcnow() - start_time).total_seconds()
 
             return ProjectGenerationResult(
                 success=True,
@@ -249,7 +249,7 @@ class ProjectScaffold:
 
         except Exception as e:
             logger.error(f"Project generation failed: {e}", exc_info=True)
-            duration = (datetime.utcnow() - start_time).total_seconds()
+            duration = (utcnow() - start_time).total_seconds()
 
             # Update project status to error if we created a record
             if "project_id" in locals():
@@ -379,7 +379,7 @@ class ProjectScaffold:
                 if directory_path:
                     project.directory_path = directory_path
                 if status == "ready":
-                    project.completed_at = datetime.utcnow()
+                    project.completed_at = utcnow()
                 self.db_session.flush()
         except Exception as e:
             logger.error(f"Failed to update project status: {e}")

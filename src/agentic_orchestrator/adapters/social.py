@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 import feedparser
 import httpx
 
+from ..timeutil import utcnow
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
 
 logger = logging.getLogger(__name__)
@@ -125,7 +126,7 @@ class SocialMediaAdapter(BaseAdapter):
 
         # Check if token is still valid
         if self._reddit_token and self._reddit_token_expires:
-            if datetime.utcnow() < self._reddit_token_expires:
+            if utcnow() < self._reddit_token_expires:
                 return self._reddit_token
 
         try:
@@ -141,7 +142,7 @@ class SocialMediaAdapter(BaseAdapter):
 
                 self._reddit_token = data.get("access_token")
                 expires_in = data.get("expires_in", 3600)
-                self._reddit_token_expires = datetime.utcnow() + timedelta(seconds=expires_in - 60)
+                self._reddit_token_expires = utcnow() + timedelta(seconds=expires_in - 60)
 
                 return self._reddit_token
 

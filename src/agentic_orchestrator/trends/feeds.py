@@ -13,6 +13,7 @@ from typing import Any
 import feedparser
 import httpx
 
+from ..timeutil import utcnow
 from ..utils.config import Config, load_config
 from ..utils.logging import get_logger
 from .models import FeedConfig, FeedItem
@@ -222,7 +223,7 @@ class FeedFetcher:
         published = self._parse_date(entry)
         if not published:
             # Use current time if no date available
-            published = datetime.utcnow()
+            published = utcnow()
 
         # Get summary/description
         summary = ""
@@ -314,7 +315,7 @@ class FeedFetcher:
             Filtered list of items within the time period.
         """
         hours = self.PERIOD_HOURS.get(period, 24)
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = utcnow() - timedelta(hours=hours)
 
         filtered = [item for item in items if item.published >= cutoff]
 

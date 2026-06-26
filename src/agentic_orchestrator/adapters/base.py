@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from ..timeutil import utcnow
+
 
 @dataclass
 class AdapterConfig:
@@ -32,7 +34,7 @@ class SignalData:
     summary: Optional[str] = None
     url: Optional[str] = None
     raw_data: Optional[Dict[str, Any]] = None
-    collected_at: datetime = field(default_factory=datetime.utcnow)
+    collected_at: datetime = field(default_factory=utcnow)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -112,7 +114,7 @@ class BaseAdapter(ABC):
         for attempt in range(self.config.max_retries):
             try:
                 result = await asyncio.wait_for(self.fetch(), timeout=self.config.timeout)
-                self._last_fetch = datetime.utcnow()
+                self._last_fetch = utcnow()
                 return result
 
             except asyncio.TimeoutError:
