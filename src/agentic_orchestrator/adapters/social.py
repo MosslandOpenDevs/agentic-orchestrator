@@ -8,6 +8,7 @@ Collects signals from social platforms:
 """
 
 import asyncio
+import logging
 import os
 import time
 from datetime import datetime, timedelta
@@ -17,6 +18,8 @@ import feedparser
 import httpx
 
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+
+logger = logging.getLogger(__name__)
 
 
 class SocialMediaAdapter(BaseAdapter):
@@ -143,7 +146,7 @@ class SocialMediaAdapter(BaseAdapter):
                 return self._reddit_token
 
         except Exception as e:
-            print(f"Error getting Reddit token: {e}")
+            logger.warning(f"Error getting Reddit token: {e}")
             return None
 
     async def _fetch_reddit(self) -> List[SignalData]:
@@ -217,7 +220,7 @@ class SocialMediaAdapter(BaseAdapter):
                     await asyncio.sleep(0.5)
 
                 except Exception as e:
-                    print(f"Error fetching r/{subreddit}: {e}")
+                    logger.warning(f"Error fetching r/{subreddit}: {e}")
 
         return signals
 
@@ -261,7 +264,7 @@ class SocialMediaAdapter(BaseAdapter):
                     await asyncio.sleep(1)  # Be nice to Reddit
 
                 except Exception as e:
-                    print(f"Error fetching r/{subreddit} RSS: {e}")
+                    logger.warning(f"Error fetching r/{subreddit} RSS: {e}")
 
         return signals
 
@@ -300,7 +303,7 @@ class SocialMediaAdapter(BaseAdapter):
                             break  # Success, move to next account
 
                     except Exception as e:
-                        print(f"Error fetching @{account} from {instance}: {e}")
+                        logger.warning(f"Error fetching @{account} from {instance}: {e}")
                         continue
 
                 await asyncio.sleep(1)

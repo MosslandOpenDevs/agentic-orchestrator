@@ -5,12 +5,15 @@ Collects signals from Lens Protocol (Web3 social network) via GraphQL API.
 """
 
 import asyncio
+import logging
 import time
 from typing import Any, Dict, List, Optional
 
 import httpx
 
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+
+logger = logging.getLogger(__name__)
 
 
 class LensAdapter(BaseAdapter):
@@ -112,7 +115,7 @@ class LensAdapter(BaseAdapter):
                     return response.json()
 
         except Exception as e:
-            print(f"Lens GraphQL error: {e}")
+            logger.warning(f"Lens GraphQL error: {e}")
 
         return None
 

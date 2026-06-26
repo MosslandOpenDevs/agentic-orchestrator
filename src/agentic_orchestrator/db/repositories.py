@@ -177,31 +177,34 @@ class TrendRepository(BaseRepository):
         """Get trend by ID."""
         return self.session.query(Trend).filter(Trend.id == trend_id).first()
 
-    def get_latest(self, period: str = "24h", limit: int = 10) -> List[Trend]:
+    def get_latest(self, period: str = "24h", limit: int = 10, offset: int = 0) -> List[Trend]:
         """Get latest trends for a period."""
         return (
             self.session.query(Trend)
             .filter(Trend.period == period)
             .order_by(desc(Trend.analyzed_at), desc(Trend.score))
+            .offset(offset)
             .limit(limit)
             .all()
         )
 
-    def get_by_category(self, category: str, limit: int = 10) -> List[Trend]:
+    def get_by_category(self, category: str, limit: int = 10, offset: int = 0) -> List[Trend]:
         """Get trends by category."""
         return (
             self.session.query(Trend)
             .filter(Trend.category == category)
             .order_by(desc(Trend.score))
+            .offset(offset)
             .limit(limit)
             .all()
         )
 
-    def get_all(self, limit: int = 100) -> List[Trend]:
+    def get_all(self, limit: int = 100, offset: int = 0) -> List[Trend]:
         """Get all trends regardless of period."""
         return (
             self.session.query(Trend)
             .order_by(desc(Trend.analyzed_at), desc(Trend.score))
+            .offset(offset)
             .limit(limit)
             .all()
         )
@@ -209,6 +212,17 @@ class TrendRepository(BaseRepository):
     def count_all(self) -> int:
         """Get total count of all trends."""
         return self.session.query(func.count(Trend.id)).scalar() or 0
+
+    def count_by_category(self, category: str) -> int:
+        """Get total count of trends in a category."""
+        return (
+            self.session.query(func.count(Trend.id)).filter(Trend.category == category).scalar()
+            or 0
+        )
+
+    def count_by_period(self, period: str) -> int:
+        """Get total count of trends for a period."""
+        return self.session.query(func.count(Trend.id)).filter(Trend.period == period).scalar() or 0
 
     def delete_older_than(self, days: int) -> int:
         """Delete trends older than specified days."""
@@ -232,12 +246,13 @@ class IdeaRepository(BaseRepository):
         """Get idea by ID."""
         return self.session.query(Idea).filter(Idea.id == idea_id).first()
 
-    def get_by_status(self, status: str, limit: int = 50) -> List[Idea]:
+    def get_by_status(self, status: str, limit: int = 50, offset: int = 0) -> List[Idea]:
         """Get ideas by status."""
         return (
             self.session.query(Idea)
             .filter(Idea.status == status)
             .order_by(desc(Idea.created_at))
+            .offset(offset)
             .limit(limit)
             .all()
         )
@@ -408,6 +423,22 @@ class DebateRepository(BaseRepository):
         if phase:
             query = query.filter(DebateSession.phase == phase)
         return query.scalar() or 0
+
+    def count_messages_for_sessions(self, session_ids: List[str]) -> Dict[str, int]:
+        """Return {session_id: message_count} for the given sessions in one query.
+
+        Lets list endpoints avoid an N+1 (loading every session's messages just
+        to count them). Sessions with no messages are absent from the result.
+        """
+        if not session_ids:
+            return {}
+        rows = (
+            self.session.query(DebateMessage.session_id, func.count(DebateMessage.id))
+            .filter(DebateMessage.session_id.in_(session_ids))
+            .group_by(DebateMessage.session_id)
+            .all()
+        )
+        return dict(rows)
 
     def update_session(self, session_id: str, **kwargs) -> Optional[DebateSession]:
         """Update debate session fields."""

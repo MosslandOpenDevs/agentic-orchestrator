@@ -10,6 +10,7 @@ Collects signals from RSS feeds across multiple categories:
 """
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,6 +20,8 @@ import feedparser
 import httpx
 
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -194,7 +197,7 @@ class RSSAdapter(BaseAdapter):
 
         except Exception as e:
             # Log error but don't fail the entire adapter
-            print(f"Error fetching feed {feed.name}: {e}")
+            logger.warning(f"Error fetching feed {feed.name}: {e}")
 
         return signals
 

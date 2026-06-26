@@ -8,6 +8,7 @@ Collects signals from news APIs:
 """
 
 import asyncio
+import logging
 import os
 import time
 from datetime import datetime, timedelta
@@ -16,6 +17,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+
+logger = logging.getLogger(__name__)
 
 
 class NewsAPIAdapter(BaseAdapter):
@@ -156,7 +159,7 @@ class NewsAPIAdapter(BaseAdapter):
                     await asyncio.sleep(0.5)
 
                 except Exception as e:
-                    print(f"Error fetching NewsAPI for '{query_config['query']}': {e}")
+                    logger.warning(f"Error fetching NewsAPI for '{query_config['query']}': {e}")
 
         return signals
 
@@ -213,7 +216,7 @@ class NewsAPIAdapter(BaseAdapter):
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching Cryptopanic: {e}")
+            logger.warning(f"Error fetching Cryptopanic: {e}")
 
         return signals
 
@@ -322,7 +325,7 @@ class NewsAPIAdapter(BaseAdapter):
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching Hacker News: {e}")
+            logger.warning(f"Error fetching Hacker News: {e}")
 
         return signals
 

@@ -9,6 +9,7 @@ Collects signals from blockchain data:
 """
 
 import asyncio
+import logging
 import os
 import time
 from typing import Any, Dict, List, Optional
@@ -16,6 +17,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+
+logger = logging.getLogger(__name__)
 
 
 class OnChainAdapter(BaseAdapter):
@@ -193,7 +196,7 @@ class OnChainAdapter(BaseAdapter):
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching DeFi TVL: {e}")
+            logger.warning(f"Error fetching DeFi TVL: {e}")
 
         return signals
 
@@ -232,7 +235,7 @@ class OnChainAdapter(BaseAdapter):
                     signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching chain stats: {e}")
+            logger.warning(f"Error fetching chain stats: {e}")
 
         return signals
 
@@ -274,7 +277,7 @@ class OnChainAdapter(BaseAdapter):
                     signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching protocol updates: {e}")
+            logger.warning(f"Error fetching protocol updates: {e}")
 
         return signals
 
@@ -328,7 +331,7 @@ class OnChainAdapter(BaseAdapter):
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching DEX volume: {e}")
+            logger.warning(f"Error fetching DEX volume: {e}")
 
         return signals
 
@@ -390,7 +393,7 @@ class OnChainAdapter(BaseAdapter):
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching whale transactions: {e}")
+            logger.warning(f"Error fetching whale transactions: {e}")
 
         return signals
 
@@ -419,7 +422,7 @@ class OnChainAdapter(BaseAdapter):
                 # track specific whale addresses or use a service that aggregates this.
 
         except Exception as e:
-            print(f"Error fetching from explorers: {e}")
+            logger.warning(f"Error fetching from explorers: {e}")
 
         return signals
 
@@ -509,7 +512,7 @@ class OnChainAdapter(BaseAdapter):
                             signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching stablecoin data: {e}")
+            logger.warning(f"Error fetching stablecoin data: {e}")
 
         return signals
 
@@ -559,7 +562,7 @@ class OnChainAdapter(BaseAdapter):
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching gas prices: {e}")
+            logger.warning(f"Error fetching gas prices: {e}")
 
         return signals
 

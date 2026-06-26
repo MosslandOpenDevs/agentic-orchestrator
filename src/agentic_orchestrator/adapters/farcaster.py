@@ -8,6 +8,7 @@ Collects signals from Farcaster (decentralized social network) via:
 """
 
 import asyncio
+import logging
 import os
 import time
 from typing import Any, Dict, List, Optional
@@ -15,6 +16,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+
+logger = logging.getLogger(__name__)
 
 
 class FarcasterAdapter(BaseAdapter):
@@ -141,7 +144,7 @@ class FarcasterAdapter(BaseAdapter):
                     return response.json()
 
         except Exception as e:
-            print(f"Neynar API error: {e}")
+            logger.warning(f"Neynar API error: {e}")
 
         return None
 
@@ -177,7 +180,7 @@ class FarcasterAdapter(BaseAdapter):
                                 signals.append(signal)
 
             except Exception as e:
-                print(f"Warpcast API error: {e}")
+                logger.warning(f"Warpcast API error: {e}")
 
         return signals
 

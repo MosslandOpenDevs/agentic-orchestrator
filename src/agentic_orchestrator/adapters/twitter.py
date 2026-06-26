@@ -6,6 +6,7 @@ for improved reliability and redundancy.
 """
 
 import asyncio
+import logging
 import os
 import random
 import time
@@ -16,6 +17,8 @@ import feedparser
 import httpx
 
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+
+logger = logging.getLogger(__name__)
 
 
 class TwitterAdapter(BaseAdapter):
@@ -230,7 +233,7 @@ class TwitterAdapter(BaseAdapter):
                             break  # Success, move to next account
 
                     except Exception as e:
-                        print(f"Error fetching @{account} from {instance}: {e}")
+                        logger.warning(f"Error fetching @{account} from {instance}: {e}")
                         continue
 
                 # Rate limiting
@@ -291,7 +294,7 @@ class TwitterAdapter(BaseAdapter):
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error searching Twitter API: {e}")
+            logger.warning(f"Error searching Twitter API: {e}")
 
         return signals
 
