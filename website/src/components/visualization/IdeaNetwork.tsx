@@ -181,6 +181,8 @@ export function IdeaNetwork({ ideas, onIdeaClick, showLabels = true }: IdeaNetwo
                     className="cursor-pointer"
                     onMouseEnter={() => setHoveredNode(node.id)}
                     onMouseLeave={() => setHoveredNode(null)}
+                    onFocus={() => setHoveredNode(node.id)}
+                    onBlur={() => setHoveredNode(null)}
                     {...clickableProps(() => handleNodeClick(node.id), node.title)}
                   />
 
