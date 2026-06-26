@@ -50,7 +50,7 @@ export function SignalLineage({ lineage, onNodeClick }: SignalLineageProps) {
     if (score >= 8) return 'text-[#39ff14] border-[#39ff14]';
     if (score >= 6) return 'text-[#00ffff] border-[#00ffff]';
     if (score >= 4) return 'text-[#ff6b35] border-[#ff6b35]';
-    return 'text-[#6b7280] border-[#6b7280]';
+    return 'text-[#8b949e] border-[#8b949e]';
   };
 
   const getStatusColor = (status: string) => {
@@ -65,7 +65,7 @@ export function SignalLineage({ lineage, onNodeClick }: SignalLineageProps) {
       case 'in-progress':
         return 'bg-[#ff6b35]/20 text-[#ff6b35]';
       default:
-        return 'bg-[#6b7280]/20 text-[#6b7280]';
+        return 'bg-[#8b949e]/20 text-[#8b949e]';
     }
   };
 
@@ -73,7 +73,7 @@ export function SignalLineage({ lineage, onNodeClick }: SignalLineageProps) {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="text-xs text-[#6b7280] uppercase tracking-wider">
+        <span className="text-xs text-[#8b949e] uppercase tracking-wider">
           {t('signalLineage.title')}
         </span>
       </div>
@@ -86,7 +86,7 @@ export function SignalLineage({ lineage, onNodeClick }: SignalLineageProps) {
           <div className="space-y-2">
             <div className="text-[10px] text-[#00ffff] uppercase tracking-wider mb-2 flex items-center gap-1">
               <span>SIGNALS</span>
-              <span className="text-[#6b7280]">({lineage.signals.length})</span>
+              <span className="text-[#8b949e]">({lineage.signals.length})</span>
             </div>
             <div className="space-y-1.5 max-h-48 overflow-y-auto pr-2">
               {lineage.signals.map((signal, idx) => (
@@ -103,7 +103,7 @@ export function SignalLineage({ lineage, onNodeClick }: SignalLineageProps) {
                   `}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] text-[#6b7280]">{signal.source}</span>
+                    <span className="text-[10px] text-[#8b949e]">{signal.source}</span>
                     <span className={`text-xs font-bold ${getScoreColor(signal.score).split(' ')[0]}`}>
                       {signal.score.toFixed(1)}
                     </span>
@@ -153,7 +153,7 @@ export function SignalLineage({ lineage, onNodeClick }: SignalLineageProps) {
                 `}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] text-[#6b7280]">
+                  <span className="text-[10px] text-[#8b949e]">
                     {lineage.trend.signal_count} {t('signalLineage.signals')}
                   </span>
                   <span className="text-sm font-bold text-[#bd93f9]">
@@ -166,7 +166,7 @@ export function SignalLineage({ lineage, onNodeClick }: SignalLineageProps) {
               </motion.div>
             ) : (
               <div className="p-3 rounded border border-dashed border-[#21262d] text-center">
-                <span className="text-xs text-[#6b7280]">{t('signalLineage.noTrend')}</span>
+                <span className="text-xs text-[#8b949e]">{t('signalLineage.noTrend')}</span>
               </div>
             )}
           </div>
@@ -207,7 +207,7 @@ export function SignalLineage({ lineage, onNodeClick }: SignalLineageProps) {
               <div>
                 <div className="text-[10px] text-[#00ffff] uppercase tracking-wider mb-2 flex items-center gap-1">
                   <span>PLANS</span>
-                  <span className="text-[#6b7280]">({lineage.plans.length})</span>
+                  <span className="text-[#8b949e]">({lineage.plans.length})</span>
                 </div>
                 <div className="space-y-1.5">
                   {lineage.plans.map((plan, idx) => (
@@ -251,19 +251,19 @@ export function SignalLineage({ lineage, onNodeClick }: SignalLineageProps) {
       >
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-full bg-[#00ffff]" />
-          <span className="text-[#6b7280]">Signal</span>
+          <span className="text-[#8b949e]">Signal</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-full bg-[#bd93f9]" />
-          <span className="text-[#6b7280]">Trend</span>
+          <span className="text-[#8b949e]">Trend</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-full bg-[#39ff14]" />
-          <span className="text-[#6b7280]">Idea</span>
+          <span className="text-[#8b949e]">Idea</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-full bg-[#00ffff]" />
-          <span className="text-[#6b7280]">Plan</span>
+          <span className="text-[#8b949e]">Plan</span>
         </div>
       </motion.div>
     </div>
@@ -279,13 +279,13 @@ export function SignalLineageCompact({ signalCount, hasTrend, planCount }: {
   return (
     <div className="flex items-center gap-1 text-xs">
       <span className="text-[#00ffff]">{signalCount}</span>
-      <span className="text-[#6b7280]">→</span>
-      <span className={hasTrend ? 'text-[#bd93f9]' : 'text-[#6b7280]'}>
+      <span className="text-[#8b949e]">→</span>
+      <span className={hasTrend ? 'text-[#bd93f9]' : 'text-[#8b949e]'}>
         {hasTrend ? '1' : '0'}
       </span>
-      <span className="text-[#6b7280]">→</span>
+      <span className="text-[#8b949e]">→</span>
       <span className="text-[#39ff14]">1</span>
-      <span className="text-[#6b7280]">→</span>
+      <span className="text-[#8b949e]">→</span>
       <span className="text-[#00ffff]">{planCount}</span>
     </div>
   );

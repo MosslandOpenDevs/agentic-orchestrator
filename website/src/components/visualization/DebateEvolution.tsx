@@ -43,11 +43,11 @@ export function DebateEvolution({
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="text-xs text-[#6b7280] uppercase tracking-wider">
+        <span className="text-xs text-[#8b949e] uppercase tracking-wider">
           {t('debateEvolution.title')}
         </span>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-[#6b7280]">{t('debateEvolution.phase')}:</span>
+          <span className="text-xs text-[#8b949e]">{t('debateEvolution.phase')}:</span>
           <span className="text-xs text-[#ff6b35] font-bold">{phase}</span>
         </div>
       </div>
@@ -78,7 +78,7 @@ export function DebateEvolution({
                   ? round === currentRound
                     ? 'bg-[#ff6b35] text-black'
                     : 'bg-[#39ff14]/20 text-[#39ff14] border border-[#39ff14]'
-                  : 'bg-[#21262d] text-[#6b7280] border border-[#21262d]'
+                  : 'bg-[#21262d] text-[#8b949e] border border-[#21262d]'
                 }
               `}
             >
@@ -104,7 +104,7 @@ export function DebateEvolution({
                   <span className="text-[#ff6b35] font-bold text-sm">
                     R{summary.round}
                   </span>
-                  <span className="text-xs text-[#6b7280]">
+                  <span className="text-xs text-[#8b949e]">
                     {summary.messageCount} {t('debateEvolution.messages')}
                   </span>
                 </div>
@@ -114,7 +114,7 @@ export function DebateEvolution({
                     {summary.avgSentiment}
                   </span>
                   {/* Consensus Level */}
-                  <span className="text-xs text-[#6b7280]">
+                  <span className="text-xs text-[#8b949e]">
                     {t('debateEvolution.consensus')}: {summary.consensusLevel}%
                   </span>
                 </div>
@@ -128,7 +128,7 @@ export function DebateEvolution({
                   </span>
                 ))}
                 {summary.participants.length > 5 && (
-                  <span className="text-[10px] text-[#6b7280]">
+                  <span className="text-[10px] text-[#8b949e]">
                     +{summary.participants.length - 5}
                   </span>
                 )}
@@ -168,25 +168,25 @@ export function DebateEvolution({
           <div className="text-lg font-bold text-[#ff6b35]">
             {evolutionMetrics.totalMessages}
           </div>
-          <div className="text-[10px] text-[#6b7280]">{t('debateEvolution.totalMessages')}</div>
+          <div className="text-[10px] text-[#8b949e]">{t('debateEvolution.totalMessages')}</div>
         </div>
         <div className="text-center">
           <div className="text-lg font-bold text-[#00ffff]">
             {evolutionMetrics.uniqueParticipants}
           </div>
-          <div className="text-[10px] text-[#6b7280]">{t('debateEvolution.participants')}</div>
+          <div className="text-[10px] text-[#8b949e]">{t('debateEvolution.participants')}</div>
         </div>
         <div className="text-center">
           <div className="text-lg font-bold text-[#39ff14]">
             {evolutionMetrics.ideasNet}
           </div>
-          <div className="text-[10px] text-[#6b7280]">{t('debateEvolution.netIdeas')}</div>
+          <div className="text-[10px] text-[#8b949e]">{t('debateEvolution.netIdeas')}</div>
         </div>
         <div className="text-center">
           <div className="text-lg font-bold text-[#bd93f9]">
             {evolutionMetrics.avgConsensus}%
           </div>
-          <div className="text-[10px] text-[#6b7280]">{t('debateEvolution.avgConsensus')}</div>
+          <div className="text-[10px] text-[#8b949e]">{t('debateEvolution.avgConsensus')}</div>
         </div>
       </div>
     </div>
@@ -219,9 +219,9 @@ export function DebateEvolutionCompact({
       {/* Stats */}
       <div className="flex items-center gap-1.5 text-[10px]">
         <span className="text-[#ff6b35]">R{currentRound}/{maxRounds}</span>
-        <span className="text-[#6b7280]">•</span>
+        <span className="text-[#8b949e]">•</span>
         <span className="text-[#00ffff]">{messageCount}msg</span>
-        <span className="text-[#6b7280]">•</span>
+        <span className="text-[#8b949e]">•</span>
         <span className="text-[#bd93f9]">{participantCount}</span>
       </div>
     </div>
@@ -324,6 +324,6 @@ function getSentimentColor(sentiment: 'positive' | 'neutral' | 'negative' | 'mix
     case 'mixed':
       return 'bg-[#ff6b35]/20 text-[#ff6b35]';
     default:
-      return 'bg-[#6b7280]/20 text-[#6b7280]';
+      return 'bg-[#8b949e]/20 text-[#8b949e]';
   }
 }

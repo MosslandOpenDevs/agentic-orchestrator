@@ -8,6 +8,7 @@ import { formatLocalDateTime } from '@/lib/date';
 import type { ModalData } from '../modals/ModalProvider';
 import { TerminalBadge } from '../TerminalWindow';
 import { useModal } from '../modals/useModal';
+import { clickableProps } from '@/lib/a11y';
 
 interface ProjectDetailProps {
   data: ModalData;
@@ -177,7 +178,7 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
 
       {/* Project Journey Visualization */}
       <div className="card-cli p-4">
-        <div className="text-xs text-[#6b7280] uppercase mb-4">
+        <div className="text-xs text-[#8b949e] uppercase mb-4">
           {locale === 'ko' ? '프로젝트 여정' : 'Project Journey'}
         </div>
         <div className="flex items-center justify-between gap-1 overflow-x-auto pb-2">
@@ -186,13 +187,18 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0 }}
-            className={`flex flex-col items-center min-w-[60px] cursor-pointer ${debate ? 'hover:opacity-80' : 'opacity-40'}`}
-            onClick={() => debate && openModal('debate', { id: debate.id, title: debate.topic || 'Debate' })}
+            className={`flex flex-col items-center min-w-[60px] ${debate ? 'cursor-pointer hover:opacity-80' : 'opacity-40'}`}
+            {...(debate
+              ? clickableProps(
+                  () => openModal('debate', { id: debate.id, title: debate.topic || 'Debate' }),
+                  debate.topic || 'Debate'
+                )
+              : {})}
           >
             <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${debate ? 'bg-[#ff6b35]/20 border border-[#ff6b35]' : 'bg-[#21262d] border border-[#21262d]'}`}>
               💬
             </div>
-            <span className="text-[10px] text-[#6b7280] mt-1">Debate</span>
+            <span className="text-[10px] text-[#8b949e] mt-1">Debate</span>
             {debate && (
               <span className="text-[8px] text-[#ff6b35]">
                 {debate.participants?.length || 0} agents
@@ -208,13 +214,15 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.1 }}
-            className={`flex flex-col items-center min-w-[60px] cursor-pointer ${idea ? 'hover:opacity-80' : 'opacity-40'}`}
-            onClick={() => idea && openModal('idea', { id: idea.id, title: idea.title })}
+            className={`flex flex-col items-center min-w-[60px] ${idea ? 'cursor-pointer hover:opacity-80' : 'opacity-40'}`}
+            {...(idea
+              ? clickableProps(() => openModal('idea', { id: idea.id, title: idea.title }), idea.title)
+              : {})}
           >
             <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${idea ? 'bg-[#39ff14]/20 border border-[#39ff14]' : 'bg-[#21262d] border border-[#21262d]'}`}>
               💡
             </div>
-            <span className="text-[10px] text-[#6b7280] mt-1">Idea</span>
+            <span className="text-[10px] text-[#8b949e] mt-1">Idea</span>
             {idea && (
               <span className="text-[8px] text-[#39ff14]">
                 Score: {idea.score?.toFixed(1) || '-'}
@@ -230,13 +238,15 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.2 }}
-            className={`flex flex-col items-center min-w-[60px] cursor-pointer ${plan ? 'hover:opacity-80' : 'opacity-40'}`}
-            onClick={() => plan && openModal('plan', { id: plan.id, title: plan.title })}
+            className={`flex flex-col items-center min-w-[60px] ${plan ? 'cursor-pointer hover:opacity-80' : 'opacity-40'}`}
+            {...(plan
+              ? clickableProps(() => openModal('plan', { id: plan.id, title: plan.title }), plan.title)
+              : {})}
           >
             <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${plan ? 'bg-[#00ffff]/20 border border-[#00ffff]' : 'bg-[#21262d] border border-[#21262d]'}`}>
               📋
             </div>
-            <span className="text-[10px] text-[#6b7280] mt-1">Plan</span>
+            <span className="text-[10px] text-[#8b949e] mt-1">Plan</span>
             {plan && (
               <span className="text-[8px] text-[#00ffff]">
                 v{plan.version}
@@ -268,14 +278,14 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
       {/* Project Description from Plan */}
       {plan && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-3">
+          <div className="text-xs text-[#8b949e] uppercase mb-3">
             {locale === 'ko' ? '프로젝트 설명' : 'Project Description'}
           </div>
           <h4 className="text-[#c0c0c0] font-medium mb-2">
             {locale === 'ko' && plan.title_ko ? plan.title_ko : plan.title}
           </h4>
           {idea?.summary && (
-            <p className="text-sm text-[#6b7280] leading-relaxed">
+            <p className="text-sm text-[#8b949e] leading-relaxed">
               {locale === 'ko' && idea.summary_ko ? idea.summary_ko : idea.summary}
             </p>
           )}
@@ -285,7 +295,7 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
       {/* Tech Stack with Icons */}
       {project.tech_stack && Object.keys(project.tech_stack).length > 0 && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-3">
+          <div className="text-xs text-[#8b949e] uppercase mb-3">
             {locale === 'ko' ? '기술 스택' : 'Tech Stack'}
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -293,7 +303,7 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
               <div className="flex items-center gap-3 p-3 bg-[#00ffff]/5 border border-[#00ffff]/30 rounded">
                 <span className="text-2xl">{getTechIcon(project.tech_stack.frontend)}</span>
                 <div>
-                  <div className="text-xs text-[#6b7280]">Frontend</div>
+                  <div className="text-xs text-[#8b949e]">Frontend</div>
                   <div className="text-sm text-[#00ffff] font-medium">{project.tech_stack.frontend}</div>
                 </div>
               </div>
@@ -302,7 +312,7 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
               <div className="flex items-center gap-3 p-3 bg-[#bd93f9]/5 border border-[#bd93f9]/30 rounded">
                 <span className="text-2xl">{getTechIcon(project.tech_stack.backend)}</span>
                 <div>
-                  <div className="text-xs text-[#6b7280]">Backend</div>
+                  <div className="text-xs text-[#8b949e]">Backend</div>
                   <div className="text-sm text-[#bd93f9] font-medium">{project.tech_stack.backend}</div>
                 </div>
               </div>
@@ -311,7 +321,7 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
               <div className="flex items-center gap-3 p-3 bg-[#ff6b35]/5 border border-[#ff6b35]/30 rounded">
                 <span className="text-2xl">{getTechIcon(project.tech_stack.database)}</span>
                 <div>
-                  <div className="text-xs text-[#6b7280]">Database</div>
+                  <div className="text-xs text-[#8b949e]">Database</div>
                   <div className="text-sm text-[#ff6b35] font-medium">{project.tech_stack.database}</div>
                 </div>
               </div>
@@ -320,7 +330,7 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
               <div className="flex items-center gap-3 p-3 bg-[#39ff14]/5 border border-[#39ff14]/30 rounded">
                 <span className="text-2xl">{getTechIcon(project.tech_stack.blockchain)}</span>
                 <div>
-                  <div className="text-xs text-[#6b7280]">Blockchain</div>
+                  <div className="text-xs text-[#8b949e]">Blockchain</div>
                   <div className="text-sm text-[#39ff14] font-medium">{project.tech_stack.blockchain}</div>
                 </div>
               </div>
@@ -328,7 +338,7 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
           </div>
           {project.tech_stack.additional && project.tech_stack.additional.length > 0 && (
             <div className="mt-4 pt-3 border-t border-[#21262d]">
-              <div className="text-xs text-[#6b7280] mb-2">
+              <div className="text-xs text-[#8b949e] mb-2">
                 {locale === 'ko' ? '추가 도구' : 'Additional Tools'}
               </div>
               <div className="flex flex-wrap gap-2">
@@ -345,7 +355,7 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
 
       {/* Project Structure Visualization */}
       <div className="card-cli p-4">
-        <div className="text-xs text-[#6b7280] uppercase mb-3">
+        <div className="text-xs text-[#8b949e] uppercase mb-3">
           {locale === 'ko' ? '프로젝트 구조' : 'Project Structure'}
         </div>
         <div className="relative">
@@ -375,7 +385,7 @@ ${project.tech_stack?.blockchain ? `├── 📜 contracts/             # ${pr
       {/* Project Path */}
       {project.directory_path && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">
+          <div className="text-xs text-[#8b949e] uppercase mb-2">
             {locale === 'ko' ? '프로젝트 경로' : 'Project Path'}
           </div>
           <div className="flex items-center gap-2">
@@ -389,40 +399,40 @@ ${project.tech_stack?.blockchain ? `├── 📜 contracts/             # ${pr
 
       {/* Timeline */}
       <div className="card-cli p-4">
-        <div className="text-xs text-[#6b7280] uppercase mb-4">
+        <div className="text-xs text-[#8b949e] uppercase mb-4">
           {locale === 'ko' ? '타임라인' : 'Timeline'}
         </div>
         <div className="space-y-3">
           {debate?.started_at && (
             <div className="flex items-center gap-3">
               <div className="w-2 h-2 rounded-full bg-[#ff6b35]" />
-              <span className="text-xs text-[#6b7280] w-24">Debate</span>
+              <span className="text-xs text-[#8b949e] w-24">Debate</span>
               <span className="text-xs text-[#c0c0c0]">{formatLocalDateTime(debate.started_at, locale)}</span>
             </div>
           )}
           {idea?.created_at && (
             <div className="flex items-center gap-3">
               <div className="w-2 h-2 rounded-full bg-[#39ff14]" />
-              <span className="text-xs text-[#6b7280] w-24">Idea</span>
+              <span className="text-xs text-[#8b949e] w-24">Idea</span>
               <span className="text-xs text-[#c0c0c0]">{formatLocalDateTime(idea.created_at, locale)}</span>
             </div>
           )}
           {plan?.created_at && (
             <div className="flex items-center gap-3">
               <div className="w-2 h-2 rounded-full bg-[#00ffff]" />
-              <span className="text-xs text-[#6b7280] w-24">Plan</span>
+              <span className="text-xs text-[#8b949e] w-24">Plan</span>
               <span className="text-xs text-[#c0c0c0]">{formatLocalDateTime(plan.created_at, locale)}</span>
             </div>
           )}
           <div className="flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-[#bd93f9]" />
-            <span className="text-xs text-[#6b7280] w-24">Project</span>
+            <span className="text-xs text-[#8b949e] w-24">Project</span>
             <span className="text-xs text-[#c0c0c0]">{formatLocalDateTime(project.created_at, locale)}</span>
           </div>
           {project.completed_at && (
             <div className="flex items-center gap-3">
               <div className="w-2 h-2 rounded-full bg-[#39ff14] shadow-[0_0_5px_#39ff14]" />
-              <span className="text-xs text-[#6b7280] w-24">Completed</span>
+              <span className="text-xs text-[#8b949e] w-24">Completed</span>
               <span className="text-xs text-[#39ff14]">{formatLocalDateTime(project.completed_at, locale)}</span>
             </div>
           )}
@@ -483,7 +493,7 @@ ${project.tech_stack?.blockchain ? `├── 📜 contracts/             # ${pr
               <div className="text-[#00ffff] font-medium">
                 {locale === 'ko' ? '프로젝트 생성 중...' : 'Generating project...'}
               </div>
-              <div className="text-xs text-[#6b7280] mt-1">
+              <div className="text-xs text-[#8b949e] mt-1">
                 {locale === 'ko'
                   ? 'LLM이 코드를 생성하고 있습니다. 잠시만 기다려주세요.'
                   : 'LLM is generating code. Please wait.'}
@@ -501,10 +511,10 @@ ${project.tech_stack?.blockchain ? `├── 📜 contracts/             # ${pr
               { step: 5, label: locale === 'ko' ? '파일 저장' : 'Saving files', done: false },
             ].map((item) => (
               <div key={item.step} className="flex items-center gap-2 text-xs">
-                <span className={item.done ? 'text-[#39ff14]' : 'text-[#6b7280]'}>
+                <span className={item.done ? 'text-[#39ff14]' : 'text-[#8b949e]'}>
                   {item.done ? '✓' : '○'}
                 </span>
-                <span className={item.done ? 'text-[#c0c0c0]' : 'text-[#6b7280]'}>
+                <span className={item.done ? 'text-[#c0c0c0]' : 'text-[#8b949e]'}>
                   {item.label}
                 </span>
               </div>
@@ -519,7 +529,7 @@ ${project.tech_stack?.blockchain ? `├── 📜 contracts/             # ${pr
           <div className="text-[#ff5555] font-medium mb-2">
             {locale === 'ko' ? '프로젝트 생성 실패' : 'Project generation failed'}
           </div>
-          <div className="text-xs text-[#6b7280]">
+          <div className="text-xs text-[#8b949e]">
             {locale === 'ko'
               ? 'Plan 상세 페이지에서 재시도할 수 있습니다.'
               : 'You can retry from the Plan detail page.'}

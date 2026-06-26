@@ -122,7 +122,7 @@ export default function BacklogPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="mb-6 flex gap-2 border-b border-zinc-800 pb-4"
+          className="mb-6 flex flex-wrap md:flex-nowrap gap-2 border-b border-zinc-800 pb-4"
         >
           {tabs.map((tab) => (
             <button

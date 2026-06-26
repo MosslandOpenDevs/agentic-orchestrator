@@ -202,8 +202,8 @@ export function AgentContribution({
     switch (influence) {
       case 'high': return 'text-[#39ff14]';
       case 'medium': return 'text-[#ff6b35]';
-      case 'low': return 'text-[#6b7280]';
-      default: return 'text-[#6b7280]';
+      case 'low': return 'text-[#8b949e]';
+      default: return 'text-[#8b949e]';
     }
   };
 
@@ -212,7 +212,7 @@ export function AgentContribution({
       case 'advocate': return 'bg-[#39ff14]/20 text-[#39ff14] border-[#39ff14]/30';
       case 'challenger': return 'bg-[#ff6b35]/20 text-[#ff6b35] border-[#ff6b35]/30';
       case 'refiner': return 'bg-[#00ffff]/20 text-[#00ffff] border-[#00ffff]/30';
-      default: return 'bg-[#6b7280]/20 text-[#6b7280] border-[#6b7280]/30';
+      default: return 'bg-[#8b949e]/20 text-[#8b949e] border-[#8b949e]/30';
     }
   };
 
@@ -222,7 +222,7 @@ export function AgentContribution({
 
   if (agentStats.length === 0) {
     return (
-      <div className="text-center py-4 text-[#6b7280] text-sm">
+      <div className="text-center py-4 text-[#8b949e] text-sm">
         {t('agentContribution.noContributions')}
       </div>
     );
@@ -232,7 +232,7 @@ export function AgentContribution({
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="text-xs text-[#6b7280] uppercase tracking-wider">
+        <span className="text-xs text-[#8b949e] uppercase tracking-wider">
           {t('agentContribution.title')}
         </span>
         <span className="text-xs text-[#c0c0c0]">
@@ -264,19 +264,19 @@ export function AgentContribution({
               </div>
 
               <div className="flex items-center gap-4 text-xs mb-2">
-                <span className="text-[#6b7280]">
+                <span className="text-[#8b949e]">
                   {t('agentContribution.influence')}:
                   <span className={`ml-1 font-bold ${getInfluenceColor(agent.influence)}`}>
                     {t(`agentContribution.${agent.influence}`)}
                   </span>
                 </span>
-                <span className="text-[#6b7280]">
+                <span className="text-[#8b949e]">
                   {t('agentContribution.messages')}:
                   <span className="ml-1 text-[#c0c0c0]">{agent.messageCount}</span>
                 </span>
               </div>
 
-              <p className="text-xs text-[#6b7280] italic leading-relaxed line-clamp-2">
+              <p className="text-xs text-[#8b949e] italic leading-relaxed line-clamp-2">
                 "{agent.keyQuote}"
               </p>
             </motion.div>
@@ -294,19 +294,19 @@ export function AgentContribution({
         <div className="grid grid-cols-3 gap-2 text-center text-xs">
           <div>
             <div className="text-[#39ff14] font-bold">{summary.advocates}</div>
-            <div className="text-[#6b7280]">
+            <div className="text-[#8b949e]">
               {t('agentContribution.stance.advocate')} ({summary.advocatePercent}%)
             </div>
           </div>
           <div>
             <div className="text-[#ff6b35] font-bold">{summary.challengers}</div>
-            <div className="text-[#6b7280]">
+            <div className="text-[#8b949e]">
               {t('agentContribution.stance.challenger')} ({summary.challengerPercent}%)
             </div>
           </div>
           <div>
             <div className="text-[#00ffff] font-bold">{summary.refiners}</div>
-            <div className="text-[#6b7280]">
+            <div className="text-[#8b949e]">
               {t('agentContribution.stance.refiner')} ({summary.refinerPercent}%)
             </div>
           </div>
@@ -332,7 +332,7 @@ export function AgentContributionCompact({ messages }: { messages: DebateMessage
 
   return (
     <div className="flex items-center gap-3 text-xs">
-      <span className="text-[#6b7280]">{summary.total} {t('agentContribution.agents')}</span>
+      <span className="text-[#8b949e]">{summary.total} {t('agentContribution.agents')}</span>
       <div className="flex items-center gap-2">
         <span className="text-[#39ff14]" title={t('agentContribution.stance.advocate')}>
           +{summary.advocates}

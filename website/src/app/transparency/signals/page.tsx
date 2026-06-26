@@ -67,7 +67,7 @@ export default function SignalsPage() {
           <h1 className="text-2xl font-bold text-[#00ffff] mb-2">
             📡 {t('signals.title')}
           </h1>
-          <p className="text-sm text-[#6b7280]">
+          <p className="text-sm text-[#8b949e]">
             {t('signals.subtitle')}
           </p>
         </motion.div>
@@ -77,7 +77,7 @@ export default function SignalsPage() {
           <div className="flex flex-wrap gap-4">
             {/* Source Filter */}
             <div>
-              <label className="text-xs text-[#6b7280] block mb-1">{t('signals.source')}</label>
+              <label className="text-xs text-[#8b949e] block mb-1">{t('signals.source')}</label>
               <select
                 value={filter.source || ''}
                 onChange={(e) => setFilter({ ...filter, source: e.target.value || undefined })}
@@ -92,7 +92,7 @@ export default function SignalsPage() {
 
             {/* Category Filter */}
             <div>
-              <label className="text-xs text-[#6b7280] block mb-1">{t('signals.category')}</label>
+              <label className="text-xs text-[#8b949e] block mb-1">{t('signals.category')}</label>
               <select
                 value={filter.category || ''}
                 onChange={(e) => setFilter({ ...filter, category: e.target.value || undefined })}
@@ -107,7 +107,7 @@ export default function SignalsPage() {
 
             {/* Min Score Filter */}
             <div>
-              <label className="text-xs text-[#6b7280] block mb-1">{t('signals.minScore')}</label>
+              <label className="text-xs text-[#8b949e] block mb-1">{t('signals.minScore')}</label>
               <select
                 value={filter.minScore || ''}
                 onChange={(e) => setFilter({ ...filter, minScore: e.target.value ? Number(e.target.value) : undefined })}
@@ -132,7 +132,7 @@ export default function SignalsPage() {
               </div>
             </div>
           ) : signals.length === 0 ? (
-            <div className="text-center py-12 text-[#6b7280]">
+            <div className="text-center py-12 text-[#8b949e]">
               {t('signals.noSignals')}
             </div>
           ) : (
@@ -169,7 +169,7 @@ export default function SignalsPage() {
                         {signal.title}
                       </h3>
                       {signal.summary && (
-                        <p className="text-xs text-[#6b7280] mt-1 line-clamp-2">
+                        <p className="text-xs text-[#8b949e] mt-1 line-clamp-2">
                           {signal.summary}
                         </p>
                       )}

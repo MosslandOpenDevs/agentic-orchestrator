@@ -6,6 +6,7 @@ import { useI18n } from '@/lib/i18n';
 import { ApiClient, type ApiDebate } from '@/lib/api';
 import { formatLocalDateTime } from '@/lib/date';
 import { useModal } from '@/components/modals/useModal';
+import { clickableProps } from '@/lib/a11y';
 import { TerminalWindow, TerminalBadge } from '@/components/TerminalWindow';
 
 // Polling interval: 5 seconds for active debates, 30 seconds otherwise
@@ -120,7 +121,7 @@ export default function DebatesPage() {
               </motion.div>
             )}
           </div>
-          <p className="text-sm text-[#6b7280]">
+          <p className="text-sm text-[#8b949e]">
             {t('debates.pageSubtitle')}
           </p>
         </motion.div>
@@ -143,11 +144,11 @@ export default function DebatesPage() {
               >
                 <div className="text-3xl mb-2">{agent.icon}</div>
                 <div className={`text-sm font-bold ${agent.color}`}>{agent.role}</div>
-                <div className="text-[10px] text-[#6b7280] mt-1">{agent.desc}</div>
+                <div className="text-[10px] text-[#8b949e] mt-1">{agent.desc}</div>
               </motion.div>
             ))}
           </div>
-          <div className="text-center text-xs text-[#6b7280] border-t border-[#21262d] pt-4">
+          <div className="text-center text-xs text-[#8b949e] border-t border-[#21262d] pt-4">
             Agents rotate through roles: <span className="text-[#00ffff]">Proposer</span> →
             <span className="text-[#39ff14]"> Supporter</span> →
             <span className="text-[#ff6b35]"> Challenger</span> →
@@ -177,7 +178,7 @@ export default function DebatesPage() {
                   `}>
                     {item.phase}
                   </div>
-                  <div className="text-[10px] text-[#6b7280] mt-1">{item.desc}</div>
+                  <div className="text-[10px] text-[#8b949e] mt-1">{item.desc}</div>
                 </div>
                 {idx < 2 && (
                   <span className="text-[#21262d] mx-2 hidden md:block">→</span>
@@ -191,7 +192,7 @@ export default function DebatesPage() {
         <TerminalWindow title="FILTERS" className="mb-6">
           <div className="flex flex-wrap gap-4 items-end">
             <div>
-              <label className="text-xs text-[#6b7280] block mb-1">{t('debates.filter.status')}</label>
+              <label className="text-xs text-[#8b949e] block mb-1">{t('debates.filter.status')}</label>
               <select
                 value={filter.status || ''}
                 onChange={(e) => setFilter({ ...filter, status: e.target.value || undefined })}
@@ -204,7 +205,7 @@ export default function DebatesPage() {
               </select>
             </div>
             <div>
-              <label className="text-xs text-[#6b7280] block mb-1">{t('debates.filter.phase')}</label>
+              <label className="text-xs text-[#8b949e] block mb-1">{t('debates.filter.phase')}</label>
               <select
                 value={filter.phase || ''}
                 onChange={(e) => setFilter({ ...filter, phase: e.target.value || undefined })}
@@ -219,7 +220,7 @@ export default function DebatesPage() {
 
             {/* Polling Status */}
             <div className="ml-auto text-right">
-              <div className="text-[10px] text-[#6b7280]">
+              <div className="text-[10px] text-[#8b949e]">
                 {hasActiveDebate ? (
                   <span className="text-[#ff6b35]">
                     <span className="inline-block w-2 h-2 rounded-full bg-[#ff6b35] animate-pulse mr-1" />
@@ -248,7 +249,7 @@ export default function DebatesPage() {
           ) : debates.length === 0 ? (
             <div className="text-center py-12">
               <div className="text-4xl mb-4">💬</div>
-              <div className="text-[#6b7280] mb-2">{t('debates.noDebates')}</div>
+              <div className="text-[#8b949e] mb-2">{t('debates.noDebates')}</div>
               <div className="text-xs text-[#3b3b3b]">
                 {t('debates.noDebatesDesc')}
               </div>
@@ -261,7 +262,7 @@ export default function DebatesPage() {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: idx * 0.02 }}
-                  onClick={() => handleDebateClick(debate)}
+                  {...clickableProps(() => handleDebateClick(debate), debate.topic)}
                   className={`card-cli p-4 cursor-pointer transition-colors relative ${
                     isLive(debate)
                       ? 'border-[#ff6b35] bg-[#ff6b35]/5'
@@ -287,7 +288,7 @@ export default function DebatesPage() {
                       <div className={`text-xl font-bold ${isLive(debate) ? 'text-[#ff6b35] animate-pulse' : 'text-[#ff6b35]'}`}>
                         R{debate.round_number}
                       </div>
-                      <div className="text-[10px] text-[#6b7280]">
+                      <div className="text-[10px] text-[#8b949e]">
                         of {debate.max_rounds}
                       </div>
                     </div>
@@ -309,7 +310,7 @@ export default function DebatesPage() {
                           {debate.topic}
                         </div>
                       ) : (
-                        <div className="text-sm text-[#6b7280]">
+                        <div className="text-sm text-[#8b949e]">
                           Session #{debate.id.slice(0, 8)}
                         </div>
                       )}
@@ -321,7 +322,7 @@ export default function DebatesPage() {
                           </span>
                         ))}
                         {debate.participants.length > 4 && (
-                          <span className="text-[10px] text-[#6b7280]">
+                          <span className="text-[10px] text-[#8b949e]">
                             +{debate.participants.length - 4} more
                           </span>
                         )}
@@ -333,7 +334,7 @@ export default function DebatesPage() {
                       <div className={`text-lg font-bold ${isLive(debate) ? 'text-[#ff6b35]' : 'text-[#00ffff]'}`}>
                         {debate.message_count || 0}
                       </div>
-                      <div className="text-[10px] text-[#6b7280]">messages</div>
+                      <div className="text-[10px] text-[#8b949e]">messages</div>
                       {isLive(debate) && debate.total_cost > 0 && (
                         <div className="text-[10px] text-[#39ff14] mt-1">
                           ${debate.total_cost.toFixed(4)}
@@ -357,7 +358,7 @@ export default function DebatesPage() {
                   {/* Outcome preview for completed debates */}
                   {!isLive(debate) && debate.outcome && (
                     <div className="mt-3 pt-3 border-t border-[#21262d]">
-                      <div className="text-xs text-[#6b7280] line-clamp-1">
+                      <div className="text-xs text-[#8b949e] line-clamp-1">
                         <span className="text-[#39ff14]">Outcome:</span> {debate.outcome}
                       </div>
                     </div>

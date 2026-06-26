@@ -22,16 +22,16 @@ export function Navigation() {
   ];
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 border-b border-[#21262d] bg-[#0d1117]/95 backdrop-blur-md">
+    <nav aria-label="Main navigation" className="fixed top-0 left-0 right-0 z-50 border-b border-[#21262d] bg-[#0d1117]/95 backdrop-blur-md">
       <div className="mx-auto flex h-12 max-w-7xl items-center justify-between px-4">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2 group">
           <span className="text-[#39ff14] font-bold text-sm tracking-wider glow-green">
             MOSS
           </span>
-          <span className="text-[#6b7280]">::</span>
+          <span className="text-[#8b949e]">::</span>
           <span className="text-[#00ffff] text-sm">AO</span>
-          <span className="hidden sm:inline-block text-[#6b7280] text-xs ml-2">
+          <span className="hidden sm:inline-block text-[#8b949e] text-xs ml-2">
             v{APP_VERSION}
           </span>
         </Link>
@@ -48,11 +48,11 @@ export function Navigation() {
                   relative px-3 py-1.5 text-xs tracking-wide transition-all flex items-center gap-1.5
                   ${isActive
                     ? 'text-[#39ff14] bg-[#39ff14]/10 border border-[#39ff14]/30'
-                    : 'text-[#6b7280] hover:text-[#c0c0c0] hover:bg-[#21262d]'
+                    : 'text-[#8b949e] hover:text-[#c0c0c0] hover:bg-[#21262d]'
                   }
                 `}
               >
-                <span className="text-sm">{item.icon}</span>
+                <span className="text-sm" aria-hidden="true">{item.icon}</span>
                 {t(item.labelKey)}
                 {isActive && (
                   <motion.span
@@ -94,9 +94,12 @@ export function Navigation() {
           {/* Mobile menu button */}
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="md:hidden p-1 text-[#6b7280] hover:text-[#39ff14]"
+            aria-label={isMobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={isMobileMenuOpen}
+            aria-controls="mobile-menu"
+            className="md:hidden p-2 -mr-1 text-[#8b949e] hover:text-[#39ff14]"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               {isMobileMenuOpen ? (
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               ) : (
@@ -110,6 +113,7 @@ export function Navigation() {
       {/* Mobile Navigation */}
       {isMobileMenuOpen && (
         <motion.div
+          id="mobile-menu"
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
@@ -127,11 +131,11 @@ export function Navigation() {
                     flex items-center gap-2 px-3 py-2 text-xs
                     ${isActive
                       ? 'text-[#39ff14] bg-[#39ff14]/10'
-                      : 'text-[#6b7280]'
+                      : 'text-[#8b949e]'
                     }
                   `}
                 >
-                  <span className="text-sm">{item.icon}</span>
+                  <span className="text-sm" aria-hidden="true">{item.icon}</span>
                   {t(item.labelKey)}
                 </Link>
               );

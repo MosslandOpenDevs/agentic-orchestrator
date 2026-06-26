@@ -79,7 +79,7 @@ export function StatsDetail({ data }: StatsDetailProps) {
         <div className="text-2xl font-bold text-[#39ff14]">
           {data.value as number}
         </div>
-        <div className="text-xs text-[#6b7280] uppercase tracking-wider">
+        <div className="text-xs text-[#8b949e] uppercase tracking-wider">
           {data.label as string}
         </div>
       </div>
@@ -87,7 +87,7 @@ export function StatsDetail({ data }: StatsDetailProps) {
       {/* Stats breakdown based on type */}
       {statType === 'ideas' && statusData && (
         <div className="space-y-4">
-          <div className="text-xs text-[#6b7280]">
+          <div className="text-xs text-[#8b949e]">
             <span className="text-[#bd93f9]"># </span>
             Ideas breakdown by status
           </div>
@@ -102,7 +102,7 @@ export function StatsDetail({ data }: StatsDetailProps) {
 
       {statType === 'plans' && statusData && (
         <div className="space-y-4">
-          <div className="text-xs text-[#6b7280]">
+          <div className="text-xs text-[#8b949e]">
             <span className="text-[#bd93f9]"># </span>
             Plans breakdown by status
           </div>
@@ -117,12 +117,12 @@ export function StatsDetail({ data }: StatsDetailProps) {
 
       {statType === 'development' && (
         <div className="space-y-4">
-          <div className="text-xs text-[#6b7280]">
+          <div className="text-xs text-[#8b949e]">
             <span className="text-[#bd93f9]"># </span>
             Development status
           </div>
           <div className="text-center py-4">
-            <div className="text-[#6b7280] text-sm">No active development projects</div>
+            <div className="text-[#8b949e] text-sm">No active development projects</div>
             <div className="text-[10px] text-[#3b3b3b] mt-2">
               Projects will appear here when plans are approved
             </div>
@@ -132,7 +132,7 @@ export function StatsDetail({ data }: StatsDetailProps) {
 
       {statType === 'trends' && statusData && (
         <div className="space-y-4">
-          <div className="text-xs text-[#6b7280]">
+          <div className="text-xs text-[#8b949e]">
             <span className="text-[#bd93f9]"># </span>
             Trend analysis overview
           </div>
@@ -148,7 +148,7 @@ export function StatsDetail({ data }: StatsDetailProps) {
       {/* API Usage Stats */}
       {usage && (
         <div className="border-t border-[#21262d] pt-4">
-          <div className="text-xs text-[#6b7280] mb-3">
+          <div className="text-xs text-[#8b949e] mb-3">
             <span className="text-[#bd93f9]"># </span>
             API usage today
           </div>
@@ -157,20 +157,20 @@ export function StatsDetail({ data }: StatsDetailProps) {
               <div className="text-lg font-bold text-[#f1fa8c]">
                 ${usage.today.total_cost.toFixed(4)}
               </div>
-              <div className="text-[10px] text-[#6b7280]">Cost Today</div>
+              <div className="text-[10px] text-[#8b949e]">Cost Today</div>
             </div>
             <div className="p-2 bg-[#0d1117] rounded border border-[#21262d]">
               <div className="text-lg font-bold text-[#00ffff]">
                 {usage.today.total_requests}
               </div>
-              <div className="text-[10px] text-[#6b7280]">Requests Today</div>
+              <div className="text-[10px] text-[#8b949e]">Requests Today</div>
             </div>
           </div>
 
           {/* Provider breakdown */}
           {Object.keys(usage.today_by_provider).length > 0 && (
             <div className="mt-4">
-              <div className="text-[10px] text-[#6b7280] mb-2">By provider:</div>
+              <div className="text-[10px] text-[#8b949e] mb-2">By provider:</div>
               {Object.entries(usage.today_by_provider).map(([provider, stats]) => (
                 <div key={provider} className="flex justify-between text-xs py-1">
                   <span className="text-[#c0c0c0]">{provider}</span>
@@ -202,7 +202,7 @@ function StatBox({ label, value, color }: { label: string; value: number; color:
       <div className={`text-xl font-bold ${colorClasses[color as keyof typeof colorClasses]?.split(' ')[0]}`}>
         {value}
       </div>
-      <div className="text-[10px] text-[#6b7280]">{label}</div>
+      <div className="text-[10px] text-[#8b949e]">{label}</div>
     </motion.div>
   );
 }

@@ -115,16 +115,16 @@ export function TrendDetail({ data }: TrendDetailProps) {
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.trendScore')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.trendScore')}</div>
           <ScoreGauge value={trend.score} maxValue={10} label={t('detail.relevance')} color="purple" />
         </div>
 
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.signalCount')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.signalCount')}</div>
           <div className="text-3xl font-bold text-[#00ffff]">
             {trend.signal_count}
           </div>
-          <div className="text-xs text-[#6b7280]">{t('detail.relatedSignals')}</div>
+          <div className="text-xs text-[#8b949e]">{t('detail.relatedSignals')}</div>
         </div>
       </div>
 
@@ -139,7 +139,7 @@ export function TrendDetail({ data }: TrendDetailProps) {
       {/* Description */}
       {(trend.description || trend.description_ko) && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.description')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.description')}</div>
           <p className="text-sm text-[#c0c0c0] leading-relaxed">
             {getLocalizedText(trend.description, trend.description_ko)}
           </p>
@@ -149,7 +149,7 @@ export function TrendDetail({ data }: TrendDetailProps) {
       {/* Web3 Relevance */}
       {(trend as any).web3_relevance && (
         <div className="card-cli p-4 border-l-2 border-[#bd93f9]">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">Web3 Relevance</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">Web3 Relevance</div>
           <p className="text-sm text-[#c0c0c0] leading-relaxed">{(trend as any).web3_relevance}</p>
         </div>
       )}
@@ -157,7 +157,7 @@ export function TrendDetail({ data }: TrendDetailProps) {
       {/* Idea Seeds */}
       {(trend as any).idea_seeds && (trend as any).idea_seeds.length > 0 && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">💡 Idea Seeds</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">💡 Idea Seeds</div>
           <div className="space-y-2">
             {(trend as any).idea_seeds.map((seed: string, idx: number) => (
               <motion.div
@@ -178,7 +178,7 @@ export function TrendDetail({ data }: TrendDetailProps) {
       {/* Sample Headlines */}
       {(trend as any).sample_headlines && (trend as any).sample_headlines.length > 0 && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">📰 Sample Headlines</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">📰 Sample Headlines</div>
           <div className="space-y-2">
             {(trend as any).sample_headlines.map((headline: string, idx: number) => (
               <motion.div
@@ -198,7 +198,7 @@ export function TrendDetail({ data }: TrendDetailProps) {
       {/* Keywords */}
       {trend.keywords && trend.keywords.length > 0 && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.keywords')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.keywords')}</div>
           <div className="flex flex-wrap gap-2">
             {trend.keywords.map((keyword, idx) => (
               <motion.span
@@ -218,7 +218,7 @@ export function TrendDetail({ data }: TrendDetailProps) {
       {/* Sources */}
       {(trend as any).sources && (trend as any).sources.length > 0 && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">Sources</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">Sources</div>
           <div className="flex flex-wrap gap-2">
             {(trend as any).sources.map((source: string, idx: number) => (
               <span
@@ -235,7 +235,7 @@ export function TrendDetail({ data }: TrendDetailProps) {
       {/* Related Signals */}
       {trend.related_signals && trend.related_signals.length > 0 && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.relatedSignals')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.relatedSignals')}</div>
           <div className="space-y-2 max-h-48 overflow-y-auto">
             {trend.related_signals.map((signal, idx) => (
               <motion.div
@@ -258,9 +258,9 @@ export function TrendDetail({ data }: TrendDetailProps) {
 
       {/* Metadata */}
       <div className="card-cli p-4">
-        <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.metadata')}</div>
+        <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.metadata')}</div>
         <div className="text-xs">
-          <span className="text-[#6b7280]">{t('detail.analyzedAt')}: </span>
+          <span className="text-[#8b949e]">{t('detail.analyzedAt')}: </span>
           <span className="text-[#c0c0c0]">
             {formatLocalDateTime(trend.analyzed_at, locale)}
           </span>

@@ -93,7 +93,7 @@ export function SignalTimeline({
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="text-xs text-[#6b7280] uppercase tracking-wider">
+        <span className="text-xs text-[#8b949e] uppercase tracking-wider">
           {t('signalTimeline.title')}
         </span>
         <span className="text-xs text-[#c0c0c0]">
@@ -105,7 +105,7 @@ export function SignalTimeline({
       {showDetails && (
         <div className="relative">
           {/* Y-axis labels */}
-          <div className="absolute left-0 top-0 bottom-6 w-8 flex flex-col justify-between text-[8px] text-[#6b7280]">
+          <div className="absolute left-0 top-0 bottom-6 w-8 flex flex-col justify-between text-[8px] text-[#8b949e]">
             <span>{maxCount}</span>
             <span>{Math.round(maxCount / 2)}</span>
             <span>0</span>
@@ -150,7 +150,7 @@ export function SignalTimeline({
             </div>
 
             {/* X-axis labels */}
-            <div className="flex justify-between mt-1 text-[8px] text-[#6b7280] overflow-hidden">
+            <div className="flex justify-between mt-1 text-[8px] text-[#8b949e] overflow-hidden">
               {timelineData
                 .filter((_, idx) => {
                   // Show every 4th label for 24h, every label for 7d
@@ -176,17 +176,17 @@ export function SignalTimeline({
       >
         <div className="text-center">
           <div className="text-lg font-bold text-[#39ff14]">{totalSignals || total}</div>
-          <div className="text-[10px] text-[#6b7280]">{t('signalTimeline.total')}</div>
+          <div className="text-[10px] text-[#8b949e]">{t('signalTimeline.total')}</div>
         </div>
         <div className="text-center">
           <div className="text-lg font-bold text-[#00ffff]">{average}</div>
-          <div className="text-[10px] text-[#6b7280]">
+          <div className="text-[10px] text-[#8b949e]">
             {t('signalTimeline.avg')}/{period === '24h' ? t('signalTimeline.hour') : t('signalTimeline.day')}
           </div>
         </div>
         <div className="text-center">
           <div className="text-lg font-bold text-[#bd93f9]">{peakSlot.label}</div>
-          <div className="text-[10px] text-[#6b7280]">
+          <div className="text-[10px] text-[#8b949e]">
             {t('signalTimeline.peak')} ({peakSlot.count})
           </div>
         </div>
@@ -196,15 +196,15 @@ export function SignalTimeline({
       <div className="flex justify-center gap-4 text-[10px]">
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-sm bg-[#39ff14]" />
-          <span className="text-[#6b7280]">{t('signalTimeline.recent')}</span>
+          <span className="text-[#8b949e]">{t('signalTimeline.recent')}</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-sm bg-[#00ffff]" />
-          <span className="text-[#6b7280]">{t('signalTimeline.peakTime')}</span>
+          <span className="text-[#8b949e]">{t('signalTimeline.peakTime')}</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-sm bg-[#39ff14]/50" />
-          <span className="text-[#6b7280]">{t('signalTimeline.normal')}</span>
+          <span className="text-[#8b949e]">{t('signalTimeline.normal')}</span>
         </div>
       </div>
     </div>

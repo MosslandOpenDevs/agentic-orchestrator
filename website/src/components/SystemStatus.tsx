@@ -50,11 +50,11 @@ export function SystemStatus({ lastRun, nextRun }: SystemStatusProps) {
 
         {/* Last Run */}
         <div className="flex items-center gap-2">
-          <span className="text-[#6b7280] text-xs">last_run:</span>
+          <span className="text-[#8b949e] text-xs">last_run:</span>
           <span className="text-[#c0c0c0] text-xs">
             {formatDistanceToNow(lastRunDate, { addSuffix: true, locale: dateLocale })}
           </span>
-          <span className="text-[#6b7280] text-[10px]">
+          <span className="text-[#8b949e] text-[10px]">
             ({format(lastRunDate, 'HH:mm:ss')})
           </span>
         </div>
@@ -63,7 +63,7 @@ export function SystemStatus({ lastRun, nextRun }: SystemStatusProps) {
 
         {/* Next Run */}
         <div className="flex items-center gap-2">
-          <span className="text-[#6b7280] text-xs">next_run:</span>
+          <span className="text-[#8b949e] text-xs">next_run:</span>
           <span className="text-[#00ffff] text-xs">
             {nextRunLabel}
           </span>
@@ -73,7 +73,7 @@ export function SystemStatus({ lastRun, nextRun }: SystemStatusProps) {
 
         {/* Uptime */}
         <div className="flex items-center gap-2">
-          <span className="text-[#6b7280] text-xs">uptime:</span>
+          <span className="text-[#8b949e] text-xs">uptime:</span>
           <span className="text-[#f1fa8c] text-xs">99.9%</span>
         </div>
       </div>

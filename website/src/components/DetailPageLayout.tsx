@@ -34,7 +34,7 @@ export function DetailPageLayout({
         >
           <Link
             href={backUrl}
-            className="inline-flex items-center gap-2 text-sm text-[#6b7280] hover:text-[#00ffff] transition-colors"
+            className="inline-flex items-center gap-2 text-sm text-[#8b949e] hover:text-[#00ffff] transition-colors"
           >
             <span>←</span>
             <span>{backLabel}</span>

@@ -94,7 +94,7 @@ export function TrendSparkline({
     <div className="space-y-3">
       {/* Header with momentum */}
       <div className="flex items-center justify-between">
-        <span className="text-xs text-[#6b7280] uppercase tracking-wider">
+        <span className="text-xs text-[#8b949e] uppercase tracking-wider">
           {t('trendSparkline.momentum')}
         </span>
         <motion.div
@@ -112,7 +112,7 @@ export function TrendSparkline({
       {/* Sparkline chart */}
       {showDetails && (
         <div className="space-y-1">
-          <div className="text-xs text-[#6b7280] mb-2">
+          <div className="text-xs text-[#8b949e] mb-2">
             {t('trendSparkline.last7Days')}:
           </div>
           <div className="space-y-1">
@@ -124,7 +124,7 @@ export function TrendSparkline({
                 transition={{ delay: idx * 0.05 }}
                 className="flex items-center gap-2 text-xs"
               >
-                <span className="w-8 text-[#6b7280] font-mono">{item.day}</span>
+                <span className="w-8 text-[#8b949e] font-mono">{item.day}</span>
                 <div className="flex-1 h-3 bg-[#21262d] rounded-sm overflow-hidden">
                   <motion.div
                     className={`h-full ${
@@ -136,7 +136,7 @@ export function TrendSparkline({
                   />
                 </div>
                 <span className={`w-8 text-right font-mono ${
-                  idx === history.length - 1 ? 'text-[#39ff14]' : 'text-[#6b7280]'
+                  idx === history.length - 1 ? 'text-[#39ff14]' : 'text-[#8b949e]'
                 }`}>
                   {item.count}
                 </span>
@@ -154,7 +154,7 @@ export function TrendSparkline({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.4 }}
-        className="pt-2 border-t border-[#21262d] text-xs text-[#6b7280]"
+        className="pt-2 border-t border-[#21262d] text-xs text-[#8b949e]"
       >
         {t('trendSparkline.velocity')}: <span className="text-[#00ffff] font-bold">+{calculatedVelocity}</span> {t('trendSparkline.signalsPerDay')}
       </motion.div>

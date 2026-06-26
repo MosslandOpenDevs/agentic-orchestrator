@@ -27,7 +27,7 @@ export function TerminalWindow({
           </div>
         )}
         <div className="flex-1 text-center">
-          <span className="text-[10px] text-[#6b7280] tracking-wider">
+          <span className="text-[10px] text-[#8b949e] tracking-wider">
             {title}
           </span>
         </div>
@@ -70,7 +70,7 @@ export function TerminalLine({
         </div>
       )}
       {output && (
-        <div className="text-[#6b7280] ml-4">
+        <div className="text-[#8b949e] ml-4">
           {output}
         </div>
       )}
@@ -141,7 +141,7 @@ export function TerminalProgress({
     <div className="space-y-1">
       {label && (
         <div className="flex justify-between text-xs">
-          <span className="text-[#6b7280]">{label}</span>
+          <span className="text-[#8b949e]">{label}</span>
           {showPercentage && (
             <span className="text-[#c0c0c0]">{percentage}%</span>
           )}

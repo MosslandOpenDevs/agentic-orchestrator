@@ -82,7 +82,7 @@ const messageTypeColors: Record<string, string> = {
   synthesize: 'border-[#bd93f9]',
   question: 'border-[#f1fa8c]',
   answer: 'border-[#00ffff]',
-  default: 'border-[#6b7280]',
+  default: 'border-[#8b949e]',
 };
 
 const messageTypeIcons: Record<string, string> = {
@@ -98,7 +98,7 @@ const messageTypeIcons: Record<string, string> = {
 export function DebateConversation({ messages, locale }: DebateConversationProps) {
   if (messages.length === 0) {
     return (
-      <div className="text-center py-8 text-[#6b7280]">
+      <div className="text-center py-8 text-[#8b949e]">
         No messages in this debate yet.
       </div>
     );
@@ -127,7 +127,7 @@ export function DebateConversation({ messages, locale }: DebateConversationProps
               {message.agent_handle && (
                 <span className="text-xs text-[#00ffff]">@{message.agent_handle}</span>
               )}
-              <span className="text-[10px] text-[#6b7280] uppercase ml-auto">
+              <span className="text-[10px] text-[#8b949e] uppercase ml-auto">
                 {message.message_type}
               </span>
             </div>

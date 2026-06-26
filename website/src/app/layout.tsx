@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
+import { MotionConfig } from "framer-motion";
 import { I18nProvider } from "@/lib/i18n";
 import { ModalProvider } from "@/components/modals/ModalProvider";
 import { Navigation } from "@/components/Navigation";
@@ -49,25 +50,27 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko" className="dark">
+    <html lang="en" className="dark">
       <head>
         <meta name="theme-color" content="#0a0a0a" />
         <meta name="color-scheme" content="dark" />
       </head>
       <body className={`${jetbrainsMono.variable} font-mono antialiased`}>
         <I18nProvider>
-          <ModalProvider>
-            <div className="relative min-h-screen bg-[#0a0a0a]">
-              <Navigation />
-              <main className="relative z-10">
-                {children}
-              </main>
-              {/* NPC city cross-link — read-side fetch with 10-min
-                  revalidate; renders nothing if npc.moss.land is down. */}
-              <NpcCityStrip />
-              <Footer />
-            </div>
-          </ModalProvider>
+          <MotionConfig reducedMotion="user">
+            <ModalProvider>
+              <div className="relative min-h-screen bg-[#0a0a0a]">
+                <Navigation />
+                <main className="relative z-10">
+                  {children}
+                </main>
+                {/* NPC city cross-link — read-side fetch with 10-min
+                    revalidate; renders nothing if npc.moss.land is down. */}
+                <NpcCityStrip />
+                <Footer />
+              </div>
+            </ModalProvider>
+          </MotionConfig>
         </I18nProvider>
       </body>
     </html>
