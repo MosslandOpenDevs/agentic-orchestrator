@@ -21,7 +21,7 @@ export function DetailPageLayout({
   error,
   children,
 }: DetailPageLayoutProps) {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
 
   return (
     <div className="min-h-screen pt-14 py-8 px-4">

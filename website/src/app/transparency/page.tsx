@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { useI18n } from '@/lib/i18n';
-import { ApiClient, type StatusResponse } from '@/lib/api';
+import { ApiClient } from '@/lib/api';
 import { TerminalWindow } from '@/components/TerminalWindow';
 
 interface TransparencyStats {

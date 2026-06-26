@@ -23,7 +23,7 @@ export const mockActivity: ActivityItem[] = [
   { time: '08:05', type: 'debate', message: 'VC feedback received (GPT) - market concerns' },
   { time: '08:06', type: 'debate', message: 'Accelerator feedback (Gemini) - MVP scope' },
   { time: '08:07', type: 'plan', message: 'Plan #4 finalized after 3 debate rounds' },
-  { time: '08:08', type: 'system', message: 'Cycle completed. Next run: 2026-01-06 08:00 KST' },
+  { time: '08:08', type: 'system', message: 'Cycle completed. Next run in ~6h (debate cycle)' },
 ];
 
 export const mockTrends: Trend[] = [

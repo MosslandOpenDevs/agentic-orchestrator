@@ -277,7 +277,7 @@ export function AgentContribution({
               </div>
 
               <p className="text-xs text-[#8b949e] italic leading-relaxed line-clamp-2">
-                "{agent.keyQuote}"
+                &quot;{agent.keyQuote}&quot;
               </p>
             </motion.div>
           ))}

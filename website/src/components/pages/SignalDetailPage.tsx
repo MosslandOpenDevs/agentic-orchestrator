@@ -11,7 +11,7 @@ interface SignalDetailPageProps {
 }
 
 export function SignalDetailPage({ id }: SignalDetailPageProps) {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
   const [signal, setSignal] = useState<ApiSignal | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

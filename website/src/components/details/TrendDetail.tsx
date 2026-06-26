@@ -147,19 +147,19 @@ export function TrendDetail({ data }: TrendDetailProps) {
       )}
 
       {/* Web3 Relevance */}
-      {(trend as any).web3_relevance && (
+      {trend.web3_relevance && (
         <div className="card-cli p-4 border-l-2 border-[#bd93f9]">
           <div className="text-xs text-[#8b949e] uppercase mb-2">Web3 Relevance</div>
-          <p className="text-sm text-[#c0c0c0] leading-relaxed">{(trend as any).web3_relevance}</p>
+          <p className="text-sm text-[#c0c0c0] leading-relaxed">{trend.web3_relevance}</p>
         </div>
       )}
 
       {/* Idea Seeds */}
-      {(trend as any).idea_seeds && (trend as any).idea_seeds.length > 0 && (
+      {trend.idea_seeds && trend.idea_seeds.length > 0 && (
         <div className="card-cli p-4">
           <div className="text-xs text-[#8b949e] uppercase mb-2">💡 Idea Seeds</div>
           <div className="space-y-2">
-            {(trend as any).idea_seeds.map((seed: string, idx: number) => (
+            {trend.idea_seeds.map((seed, idx) => (
               <motion.div
                 key={idx}
                 initial={{ opacity: 0, x: -10 }}
@@ -176,11 +176,11 @@ export function TrendDetail({ data }: TrendDetailProps) {
       )}
 
       {/* Sample Headlines */}
-      {(trend as any).sample_headlines && (trend as any).sample_headlines.length > 0 && (
+      {trend.sample_headlines && trend.sample_headlines.length > 0 && (
         <div className="card-cli p-4">
           <div className="text-xs text-[#8b949e] uppercase mb-2">📰 Sample Headlines</div>
           <div className="space-y-2">
-            {(trend as any).sample_headlines.map((headline: string, idx: number) => (
+            {trend.sample_headlines.map((headline, idx) => (
               <motion.div
                 key={idx}
                 initial={{ opacity: 0, x: -10 }}
@@ -216,11 +216,11 @@ export function TrendDetail({ data }: TrendDetailProps) {
       )}
 
       {/* Sources */}
-      {(trend as any).sources && (trend as any).sources.length > 0 && (
+      {trend.sources && trend.sources.length > 0 && (
         <div className="card-cli p-4">
           <div className="text-xs text-[#8b949e] uppercase mb-2">Sources</div>
           <div className="flex flex-wrap gap-2">
-            {(trend as any).sources.map((source: string, idx: number) => (
+            {trend.sources.map((source, idx) => (
               <span
                 key={idx}
                 className="tag tag-cyan"
