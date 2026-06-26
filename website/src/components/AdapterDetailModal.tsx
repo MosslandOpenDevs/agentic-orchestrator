@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import type { AdapterInfo } from '@/lib/types';
@@ -20,6 +20,8 @@ export function AdapterDetailModal({
 }: AdapterDetailModalProps) {
   const { locale } = useI18n();
   const [selectedAdapter, setSelectedAdapter] = useState<AdapterInfo | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = 'adapter-detail-modal-title';
 
   // Auto-select first adapter when adapters load
   useEffect(() => {
@@ -35,16 +37,59 @@ export function AdapterDetailModal({
     }
   }, [isOpen]);
 
-  // Close on escape key
+  // Escape to close + Tab focus trap within the dialog.
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (event.key === 'Tab' && dialogRef.current) {
+        const focusable = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
+          )
+        ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+        if (focusable.length === 0) {
+          event.preventDefault();
+          dialogRef.current.focus();
+          return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        const insideDialog = dialogRef.current.contains(active);
+        if (event.shiftKey) {
+          if (!insideDialog || active === first) {
+            event.preventDefault();
+            last.focus();
+          }
+        } else if (!insideDialog || active === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    },
+    [onClose]
+  );
+
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+    if (!isOpen) return;
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, handleKeyDown]);
+
+  // Lock background scroll, move focus into the dialog, and restore focus on close.
+  useEffect(() => {
+    if (!isOpen) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    document.body.style.overflow = 'hidden';
+    dialogRef.current?.focus();
+    return () => {
+      document.body.style.overflow = '';
+      previouslyFocused?.focus?.();
     };
-    if (isOpen) {
-      window.addEventListener('keydown', handleEscape);
-    }
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   const categoryColors: Record<string, string> = {
     news: 'text-[#f1fa8c]',
@@ -77,6 +122,11 @@ export function AdapterDetailModal({
 
           {/* Modal */}
           <motion.div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            tabIndex={-1}
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -86,13 +136,14 @@ export function AdapterDetailModal({
             <div className="flex items-center justify-between p-4 border-b border-[#30363d]">
               <div className="flex items-center gap-3">
                 <span className="text-[#bd93f9]">◈</span>
-                <h2 className="text-lg font-mono text-[#c0c0c0]">
+                <h2 id={titleId} className="text-lg font-mono text-[#c0c0c0]">
                   {locale === 'ko' ? '시그널 어댑터 상세 정보' : 'Signal Adapters Detail'}
                 </h2>
                 <span className="tag tag-cyan">{adapters.length} adapters</span>
               </div>
               <button
                 onClick={onClose}
+                aria-label={locale === 'ko' ? '닫기' : 'Close'}
                 className="text-[#8b949e] hover:text-[#c0c0c0] transition-colors text-xl"
               >
                 ×
