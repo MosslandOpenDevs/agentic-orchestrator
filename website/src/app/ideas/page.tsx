@@ -589,11 +589,12 @@ export default function IdeasPage() {
               <TerminalWindow title={`PROJECTS (${projects.length})`}>
                 <div className="space-y-3">
                   {projects.map((project, idx) => {
-                    const getStatusColor = (status: string): 'green' | 'cyan' | 'orange' | 'purple' => {
+                    const getStatusColor = (status: string): 'green' | 'cyan' | 'orange' | 'purple' | 'red' => {
                       switch (status) {
                         case 'ready': return 'green';
                         case 'generating': return 'cyan';
-                        case 'error': return 'orange';
+                        case 'ready_with_warnings': return 'orange';
+                        case 'error': return 'red';
                         default: return 'purple';
                       }
                     };
@@ -608,7 +609,7 @@ export default function IdeasPage() {
                       >
                         <div className="flex items-start gap-4">
                           <div className="text-center w-16">
-                            <div className={`text-xl font-bold ${project.status === 'ready' ? 'text-[#39ff14]' : project.status === 'generating' ? 'text-[#00ffff]' : 'text-[#ff5555]'}`}>
+                            <div className={`text-xl font-bold ${project.status === 'ready' ? 'text-[#39ff14]' : project.status === 'generating' ? 'text-[#00ffff]' : project.status === 'ready_with_warnings' ? 'text-[#ff6b35]' : 'text-[#ff5555]'}`}>
                               {project.files_generated > 0 ? project.files_generated : '-'}
                             </div>
                             <div className="text-[10px] text-[#8b949e]">

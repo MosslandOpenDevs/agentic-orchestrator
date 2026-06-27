@@ -1417,10 +1417,12 @@ async def generate_project(
         )
 
     # Check if project already exists
+    from ..db.models import COMPLETED_PROJECT_STATUSES
+
     project_repo = ProjectRepository(session)
     existing = project_repo.get_by_plan(plan_id)
 
-    if existing and existing.status == "ready" and not request.force_regenerate:
+    if existing and existing.status in COMPLETED_PROJECT_STATUSES and not request.force_regenerate:
         return GenerateProjectResponse(
             job_id="",
             status="exists",

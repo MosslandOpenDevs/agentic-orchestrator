@@ -174,6 +174,7 @@ export interface ApiProject {
   };
   status: string;
   files_generated: number;
+  generation_log?: string | null;
   created_at: string | null;
   completed_at: string | null;
 }

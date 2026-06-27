@@ -8,6 +8,7 @@ model + qwen3-embedding:0.6b co-resident on the ~8GB GPU, so any other
 model name will 404 against the server.
 """
 
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -1750,6 +1751,25 @@ export default ApiClient;
             if main_contract:
                 files.append(main_contract)
 
+        # Emit the Hardhat toolchain so the generated Solidity can actually be
+        # compiled. The deploy/test files below already assume Hardhat, but
+        # without these the contracts/ directory has no package.json or config
+        # and `hardhat compile` cannot resolve OpenZeppelin imports.
+        files.append(
+            GeneratedFile(
+                "contracts/package.json",
+                self._generate_hardhat_package_json(),
+                "Hardhat dependencies",
+            )
+        )
+        files.append(
+            GeneratedFile(
+                "contracts/hardhat.config.ts",
+                self._generate_hardhat_config(),
+                "Hardhat configuration",
+            )
+        )
+
         # Generate deployment script
         deploy_script = self._generate_hardhat_deploy_script(parsed_plan)
         files.append(
@@ -1762,6 +1782,51 @@ export default ApiClient;
             files.append(test_file)
 
         return files
+
+    def _generate_hardhat_package_json(self) -> str:
+        """package.json for the contracts/ workspace, including OpenZeppelin.
+
+        The OZ version is pinned by the repair module so generated imports
+        (normalized to the v4 ``security/`` layout) resolve at compile time.
+        """
+        from .repair import OZ_PACKAGE, OZ_VERSION
+
+        return (
+            json.dumps(
+                {
+                    "name": "contracts",
+                    "version": "0.1.0",
+                    "private": True,
+                    "scripts": {
+                        "compile": "hardhat compile",
+                        "test": "hardhat test",
+                        "deploy": "hardhat run scripts/deploy.ts",
+                    },
+                    "dependencies": {OZ_PACKAGE: OZ_VERSION},
+                    "devDependencies": {
+                        "@nomicfoundation/hardhat-toolbox": "^3.0.0",
+                        "hardhat": "^2.19.0",
+                    },
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+
+    def _generate_hardhat_config(self) -> str:
+        """hardhat.config.ts pinned to the Solidity version we generate against."""
+        return """import { HardhatUserConfig } from "hardhat/config";
+import "@nomicfoundation/hardhat-toolbox";
+
+const config: HardhatUserConfig = {
+  solidity: "0.8.20",
+  networks: {
+    hardhat: {},
+  },
+};
+
+export default config;
+"""
 
     async def _generate_solidity_contract(
         self,
@@ -1900,7 +1965,8 @@ contract Main is Ownable, ReentrancyGuard, Pausable {
     mapping(address => bool) public registeredUsers;
     uint256 public totalUsers;
 
-    constructor() Ownable(msg.sender) {}
+    // OZ v4 Ownable sets the deployer as owner via its no-arg constructor.
+    constructor() {}
 
     /**
      * @dev Register a new user
@@ -2434,6 +2500,54 @@ networks:
             content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
 
         return content.strip()
+
+    async def repair_code(
+        self,
+        content: str,
+        language: str,
+        errors: List[str],
+    ) -> Optional[str]:
+        """Ask the LLM to fix code that failed verification.
+
+        Feeds the verifier/compiler diagnostics back to the model and returns
+        the cleaned, repaired source. Returns ``None`` when no router is
+        configured or the call fails, so the caller can keep the
+        deterministically-repaired version instead.
+        """
+        if not self.router:
+            return None
+
+        error_block = "\n".join(f"- {e}" for e in errors[:12]) or "- (no diagnostics)"
+        prompt = f"""The following {language} code failed verification. Fix ALL
+the reported problems and return the corrected file.
+
+Problems:
+{error_block}
+
+Rules:
+- Return the COMPLETE corrected file, not a diff or a snippet.
+- Keep the original intent and structure; change only what is needed to compile.
+- For Solidity, target OpenZeppelin v4 (import contracts from
+  `@openzeppelin/contracts/...`, use a no-arg `Ownable` constructor).
+
+Code to fix:
+{content}
+
+Output ONLY the corrected {language} code, no markdown or explanations."""
+
+        try:
+            response = await self.router.route(
+                prompt=prompt,
+                task_type="code_generation",
+                model=self.TASK_MODELS["code_generation"],
+                temperature=0.1,
+                max_tokens=3500,
+            )
+            repaired = self._clean_code_response(response.content, language)
+            return repaired or None
+        except Exception as e:
+            logger.error(f"LLM code repair failed: {e}")
+            return None
 
     def _generate_fastapi_db_config(self, parsed_plan: ParsedPlan) -> str:
         """Generate FastAPI database configuration."""

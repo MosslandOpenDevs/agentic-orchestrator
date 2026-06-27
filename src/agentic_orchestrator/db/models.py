@@ -91,7 +91,17 @@ class ProjectStatus(str, enum.Enum):
     PENDING = "pending"
     GENERATING = "generating"
     READY = "ready"
+    # Generated, but one or more source files failed post-generation
+    # verification and could not be auto-repaired. See the project's
+    # extra_metadata["verification"] for per-file details.
+    READY_WITH_WARNINGS = "ready_with_warnings"
     ERROR = "error"
+
+
+# Terminal statuses that mean a project already exists (successfully) for a plan.
+# Used by duplicate-prevention guards so a `ready_with_warnings` project is not
+# treated as missing and silently regenerated.
+COMPLETED_PROJECT_STATUSES = ("ready", "ready_with_warnings")
 
 
 class LogLevel(str, enum.Enum):
@@ -407,7 +417,9 @@ class Project(Base):
     name = Column(String(255), nullable=False)
     directory_path = Column(Text)
     tech_stack = Column(JSON)  # {"frontend": "nextjs", "backend": "fastapi", ...}
-    status = Column(String(20), default="pending", index=True)  # pending, generating, ready, error
+    status = Column(
+        String(20), default="pending", index=True
+    )  # pending, generating, ready, ready_with_warnings, error
     files_generated = Column(Integer, default=0)
     generation_log = Column(Text)
     extra_metadata = Column("metadata", JSON)
@@ -426,6 +438,7 @@ class Project(Base):
             "tech_stack": self.tech_stack or {},
             "status": self.status,
             "files_generated": self.files_generated,
+            "generation_log": self.generation_log,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
         }

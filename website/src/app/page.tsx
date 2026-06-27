@@ -144,11 +144,12 @@ export default function Dashboard() {
             <TerminalWindow title="recent_projects">
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                 {projects.slice(0, 3).map((project) => {
-                  const getStatusColor = (status: string): 'green' | 'cyan' | 'orange' | 'purple' => {
+                  const getStatusColor = (status: string): 'green' | 'cyan' | 'orange' | 'purple' | 'red' => {
                     switch (status) {
                       case 'ready': return 'green';
                       case 'generating': return 'cyan';
-                      case 'error': return 'orange';
+                      case 'ready_with_warnings': return 'orange';
+                      case 'error': return 'red';
                       default: return 'purple';
                     }
                   };
