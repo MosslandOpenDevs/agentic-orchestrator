@@ -52,11 +52,12 @@ export default function ProjectsPage() {
     return acc;
   }, {} as Record<string, number>);
 
-  const getStatusColor = (status: string): 'green' | 'cyan' | 'orange' | 'purple' => {
+  const getStatusColor = (status: string): 'green' | 'cyan' | 'orange' | 'purple' | 'red' => {
     switch (status) {
       case 'ready': return 'green';
       case 'generating': return 'cyan';
-      case 'error': return 'orange';
+      case 'ready_with_warnings': return 'orange';
+      case 'error': return 'red';
       default: return 'purple';
     }
   };
@@ -80,8 +81,8 @@ export default function ProjectsPage() {
         </motion.div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {['all', 'ready', 'generating', 'error'].map((status) => {
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        {['all', 'ready', 'ready_with_warnings', 'generating', 'error'].map((status) => {
           const count = status === 'all' ? projects.length : (statusCounts[status] || 0);
           const isActive = statusFilter === status;
           return (
@@ -95,14 +96,13 @@ export default function ProjectsPage() {
             >
               <div className="text-2xl font-bold text-[#c0c0c0]">{count}</div>
               <div className="text-xs text-[#8b949e] uppercase">
-                {status === 'all'
-                  ? (locale === 'ko' ? '전체' : 'Total')
-                  : status === 'ready'
-                    ? (locale === 'ko' ? '완료' : 'Ready')
-                    : status === 'generating'
-                      ? (locale === 'ko' ? '생성 중' : 'Generating')
-                      : (locale === 'ko' ? '오류' : 'Error')
-                }
+                {{
+                  all: locale === 'ko' ? '전체' : 'Total',
+                  ready: locale === 'ko' ? '완료' : 'Ready',
+                  ready_with_warnings: locale === 'ko' ? '경고' : 'Warnings',
+                  generating: locale === 'ko' ? '생성 중' : 'Generating',
+                  error: locale === 'ko' ? '오류' : 'Error',
+                }[status] ?? status}
               </div>
             </button>
           );

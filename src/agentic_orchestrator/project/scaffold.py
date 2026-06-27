@@ -22,7 +22,9 @@ from typing import Any, Dict, List, Optional
 from ..timeutil import utcnow
 from .generator import GeneratedFile, ProjectCodeGenerator
 from .parser import ParsedPlan, PlanParser
+from .repair import CodeRepairer, ensure_contract_dependencies
 from .templates import TemplateFile, TemplateManager, slugify_project_name
+from .verifier import UNKNOWN, CodeVerifier, VerificationStatus, detect_language
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +186,10 @@ class ProjectScaffold:
                 ]
                 logger.info(f"Generated {len(all_files)} files (fallback mode)")
 
+            # Verify and repair generated source before writing to disk. Never
+            # blocks: failures are repaired where possible and recorded.
+            verification = await self._verify_and_repair(all_files)
+
             # Add PLAN.md (copy of original plan)
             all_files.append(
                 TemplateFile(
@@ -205,6 +211,7 @@ class ProjectScaffold:
                             "projectId": project_id,
                             "techStack": parsed_plan.tech_stack.to_dict(),
                             "features": parsed_plan.features[:10],
+                            "verification": verification,
                         },
                         indent=2,
                     ),
@@ -219,11 +226,15 @@ class ProjectScaffold:
 
             logger.info(f"Project created at: {project_path}")
 
-            # Update project status in database
+            # Update project status in database. Unresolved verification
+            # failures surface as `ready_with_warnings` rather than blocking.
+            final_status = "ready_with_warnings" if verification.get("unresolved") else "ready"
             await self._update_project_status(
                 project_id=project_id,
-                status="ready",
+                status=final_status,
                 directory_path=str(project_path),
+                files_generated=len(all_files),
+                verification=verification,
             )
 
             # Auto-commit and push to GitHub
@@ -329,14 +340,15 @@ class ProjectScaffold:
             return project_id
 
         try:
-            from ..db.models import Project
+            from ..db.models import COMPLETED_PROJECT_STATUSES, Project
 
-            # Check for existing project with same plan_id (prevent duplicates)
+            # Check for existing project with same plan_id (prevent duplicates).
+            # Includes ready_with_warnings so a warned project is not duplicated.
             existing = (
                 self.db_session.query(Project)
                 .filter(
                     Project.plan_id == plan_id,
-                    Project.status.in_(["generating", "ready"]),
+                    Project.status.in_(["generating", *COMPLETED_PROJECT_STATUSES]),
                 )
                 .first()
             )
@@ -365,6 +377,8 @@ class ProjectScaffold:
         project_id: str,
         status: str,
         directory_path: Optional[str] = None,
+        files_generated: Optional[int] = None,
+        verification: Optional[Dict[str, Any]] = None,
     ):
         """Update project status in database."""
         if not self.db_session:
@@ -378,11 +392,87 @@ class ProjectScaffold:
                 project.status = status
                 if directory_path:
                     project.directory_path = directory_path
-                if status == "ready":
+                if files_generated is not None:
+                    project.files_generated = files_generated
+                if verification is not None:
+                    project.extra_metadata = {
+                        **(project.extra_metadata or {}),
+                        "verification": verification,
+                    }
+                    project.generation_log = _summarize_verification(verification)
+                if status in ("ready", "ready_with_warnings"):
                     project.completed_at = utcnow()
                 self.db_session.flush()
         except Exception as e:
             logger.error(f"Failed to update project status: {e}")
+
+    async def _verify_and_repair(self, files: List[TemplateFile]) -> Dict[str, Any]:
+        """Verify every generated source file and repair failures in place.
+
+        Pipeline per code file:
+          1. deterministic repair (cheap, always safe)
+          2. verify
+          3. on failure (and if a router is available) one LLM repair attempt,
+             re-run deterministic repair on the model's output, then re-verify;
+             the LLM version is only accepted if it resolves the failure.
+
+        This never raises and never blocks generation — it mutates ``files`` and
+        returns a JSON-serializable summary for persistence.
+        """
+        verifier = CodeVerifier()
+        repairer = CodeRepairer()
+
+        # Cross-file pass first: make sure contracts/package.json declares OZ.
+        dependency_fixes = ensure_contract_dependencies(files)
+
+        results = []
+        deterministic_repairs = 0
+        llm_repairs = 0
+
+        for f in files:
+            language = detect_language(f.path)
+            if language == UNKNOWN:
+                continue
+
+            try:
+                det = repairer.repair_file(f.path, f.content)
+                content = det.content
+                if det.changed:
+                    deterministic_repairs += 1
+
+                result = verifier.verify(f.path, content)
+                llm_applied = False
+
+                if result.status == VerificationStatus.FAILED and self.router:
+                    llm_out = await self.generator.repair_code(content, language, result.errors)
+                    if llm_out:
+                        candidate = repairer.repair_file(f.path, llm_out).content
+                        recheck = verifier.verify(f.path, candidate)
+                        if recheck.ok:  # only accept a fix that actually helps
+                            content = candidate
+                            result = recheck
+                            llm_applied = True
+                            llm_repairs += 1
+
+                f.content = content
+                result.repaired = det.changed or llm_applied
+                results.append(result)
+            except Exception as e:  # defensive: verification must never block
+                logger.error(f"Verification/repair errored for {f.path}: {e}")
+
+        summary = _build_verification_summary(
+            results, deterministic_repairs, llm_repairs, dependency_fixes
+        )
+        logger.info(
+            "Verification: %s passed, %s failed, %s skipped "
+            "(deterministic repairs: %s, LLM repairs: %s)",
+            summary["passed"],
+            summary["failed"],
+            summary["skipped"],
+            summary["deterministic_repairs"],
+            summary["llm_repairs"],
+        )
+        return summary
 
     async def _generate_llm_files(
         self,
@@ -508,6 +598,53 @@ class ProjectScaffold:
         except Exception as e:
             logger.error(f"Git commit/push failed: {e}")
             return False
+
+
+def _build_verification_summary(
+    results: List[Any],
+    deterministic_repairs: int,
+    llm_repairs: int,
+    dependency_fixes: List[str],
+) -> Dict[str, Any]:
+    """Aggregate per-file verification results into a serializable summary."""
+    passed = sum(1 for r in results if r.status == VerificationStatus.PASSED)
+    failed = sum(1 for r in results if r.status == VerificationStatus.FAILED)
+    skipped = sum(1 for r in results if r.status == VerificationStatus.SKIPPED)
+    unresolved = [r.path for r in results if r.status == VerificationStatus.FAILED]
+
+    # Keep the per-file detail compact: only record files that are not a clean
+    # first-pass PASS (i.e. failures, repairs, or skipped-without-compiler).
+    files = [r.to_dict() for r in results if r.status != VerificationStatus.PASSED or r.repaired]
+
+    return {
+        "checked": len(results),
+        "passed": passed,
+        "failed": failed,
+        "skipped": skipped,
+        "deterministic_repairs": deterministic_repairs,
+        "llm_repairs": llm_repairs,
+        "dependency_fixes": dependency_fixes,
+        "unresolved": unresolved,
+        "files": files,
+    }
+
+
+def _summarize_verification(verification: Dict[str, Any]) -> str:
+    """Render a one-line human-readable summary for the project generation log."""
+    parts = [
+        f"{verification.get('passed', 0)} passed",
+        f"{verification.get('failed', 0)} failed",
+        f"{verification.get('skipped', 0)} skipped",
+        f"{verification.get('deterministic_repairs', 0)} auto-repaired",
+        f"{verification.get('llm_repairs', 0)} LLM-repaired",
+    ]
+    line = "Verification: " + ", ".join(parts)
+    unresolved = verification.get("unresolved") or []
+    if unresolved:
+        line += f". Unresolved: {', '.join(unresolved[:10])}"
+        if len(unresolved) > 10:
+            line += f" (+{len(unresolved) - 10} more)"
+    return line
 
 
 async def generate_project_from_plan(

@@ -746,6 +746,9 @@ if __name__ == "__main__":
     "test": "hardhat test",
     "deploy": "hardhat run scripts/deploy.ts"
   },
+  "dependencies": {
+    "@openzeppelin/contracts": "^4.9.6"
+  },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^3.0.0",
     "hardhat": "^2.19.0"

@@ -7,6 +7,23 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.9] - 2026-06-27
+
+### Added
+- **Code-generation verification gate** (`project/verifier.py`, `project/repair.py`): generated source is now verified and auto-repaired before it is written to disk and committed. The scaffold runs a per-file pipeline — deterministic repair → verify → (optional) one LLM repair retry that feeds the diagnostics back to the model — across Solidity, Python, and TypeScript/JavaScript.
+  - **`CodeVerifier`**: Python via the built-in `compile()` (always available); Solidity via conservative static checks (missing `pragma`, invalid `.length()` calls, truncation detected by brace/paren imbalance) plus optional `solc` for import-free contracts; TS/JS via optional `esbuild` syntax checks. A missing toolchain degrades to a `SKIPPED` result, never a false failure. String/comment contents are never misread thanks to a small Solidity tokenizer.
+  - **`CodeRepairer`**: deterministic fixes for the bug classes seen in generator output — adds missing SPDX/`pragma`, rewrites invalid `.length()` to the `.length` property, replaces the removed `now` global with `block.timestamp`, normalizes OpenZeppelin v5 idioms to the pinned v4 (`utils/` → `security/` imports, drops the v5 `Ownable(...)` base call), and injects `@openzeppelin/contracts` into `contracts/package.json` when any contract imports it. Fixes run only outside string literals and comments.
+- **`ready_with_warnings` project status**: projects whose code could not be fully repaired are marked `ready_with_warnings` (instead of silently `ready`) and never block delivery. The per-file verification summary is persisted to `Project.extra_metadata["verification"]`, a one-line summary to `generation_log` and `.moss-project.json`, and surfaced in the Projects UI (badge color + a "Code Verification" panel in the project detail modal).
+
+### Fixed
+- **LLM-path contracts were missing the Hardhat toolchain**: `generate_smart_contracts_full()` emitted `.sol` files (plus a deploy script and tests that assume Hardhat) but no `contracts/package.json` or `hardhat.config.ts`, so `hardhat compile` could never resolve imports. Both are now emitted, with `@openzeppelin/contracts` pinned.
+- **Hardhat templates** (`project/templates.py`, fallback contract in `project/generator.py`): the contracts `package.json` template now declares `@openzeppelin/contracts@^4.9.6`, and the fallback `Main` contract uses the OZ v4 no-arg `Ownable` constructor (it previously mixed v4 import paths with a v5 `Ownable(msg.sender)` call and could not compile against a single OZ version).
+
+### Tests
+- Added `tests/test_project_verifier.py`, `tests/test_project_repair.py`, and `tests/test_project_verification_gate.py` (34 new tests) covering the verifier, deterministic repairer, dependency injection, and the scaffold gate's deterministic and LLM-retry paths.
+
+---
+
 ## [0.6.8] - 2026-04-30
 
 ### Security

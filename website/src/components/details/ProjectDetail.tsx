@@ -93,11 +93,12 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
 
   const { project, plan, idea, debate } = projectData;
 
-  const getStatusColor = (status: string): 'green' | 'cyan' | 'orange' | 'purple' => {
+  const getStatusColor = (status: string): 'green' | 'cyan' | 'orange' | 'purple' | 'red' => {
     switch (status) {
       case 'ready': return 'green';
       case 'generating': return 'cyan';
-      case 'error': return 'orange';
+      case 'ready_with_warnings': return 'orange';
+      case 'error': return 'red';
       default: return 'purple';
     }
   };
@@ -106,6 +107,7 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
     if (locale === 'ko') {
       switch (status) {
         case 'ready': return '완료';
+        case 'ready_with_warnings': return '경고와 함께 완료';
         case 'generating': return '생성 중';
         case 'error': return '오류';
         case 'pending': return '대기 중';
@@ -175,6 +177,35 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
           </a>
         )}
       </div>
+
+      {/* Code Verification Summary */}
+      {project.generation_log && (
+        <div
+          className={`border rounded p-3 text-xs ${
+            project.status === 'ready_with_warnings'
+              ? 'border-[#ff6b35]/50 bg-[#ff6b35]/5'
+              : 'border-[#21262d] bg-black/20'
+          }`}
+        >
+          <div className="flex items-center gap-2 mb-1">
+            <span
+              className={
+                project.status === 'ready_with_warnings'
+                  ? 'text-[#ff6b35]'
+                  : 'text-[#39ff14]'
+              }
+            >
+              {project.status === 'ready_with_warnings' ? '⚠' : '✓'}
+            </span>
+            <span className="text-[#8b949e] uppercase tracking-wide">
+              {locale === 'ko' ? '코드 검증' : 'Code Verification'}
+            </span>
+          </div>
+          <div className="text-[#c0c0c0] font-mono break-words">
+            {project.generation_log}
+          </div>
+        </div>
+      )}
 
       {/* Project Journey Visualization */}
       <div className="card-cli p-4">
