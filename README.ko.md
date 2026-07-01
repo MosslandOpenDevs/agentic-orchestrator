@@ -4,7 +4,7 @@
 
 모스랜드 생태계를 위한 마이크로 Web3 서비스를 발굴, 기획, 구현하는 자율 멀티 에이전트 오케스트레이션 시스템입니다.
 
-**버전**: v0.6.8 "Stable Planner"
+**버전**: v0.6.10
 
 ## 주요 기능
 
@@ -15,6 +15,7 @@
 - **PM2 스케줄링**: PM2를 통한 자동화된 작업 스케줄링 (시그널, 토론, 백로그, 헬스체크)
 - **CLI 스타일 대시보드**: https://ao.moss.land 레트로 터미널 테마 웹 인터페이스
 - **REST API**: 프로그래밍 방식 접근을 위한 FastAPI 백엔드
+- **DB 복원력**: 기동 시 스키마 자기치유, `/status` graceful degradation, 롤링 SQLite 백업(약 1일 주기, 7개 보관) — DB 파일이 유실/비워져도 전체 엔드포인트가 죽는 대신 우아하게 강등
 
 ## 대시보드
 
@@ -126,11 +127,12 @@ pm2 start ecosystem.config.js --only moss-ao-api
 | 서비스 | 스케줄 | 설명 |
 |--------|--------|------|
 | `moss-ao-signals` | 30분마다 | 모든 어댑터에서 시그널 수집 |
+| `moss-ao-trends` | 2시간마다 | 시그널을 트렌드로 분석 (로컬 LLM) |
 | `moss-ao-debate` | 6시간마다 | 멀티 스테이지 AI 토론 실행 |
-| `moss-ao-backlog` | 매일 자정 | 대기 중인 백로그 항목 처리 |
+| `moss-ao-backlog` | 4시간마다 | 대기 중인 백로그 항목 처리 |
 | `moss-ao-web` | 항시 실행 | Next.js 대시보드 (포트 3000) |
 | `moss-ao-api` | 항시 실행 | FastAPI 백엔드 (포트 3001) |
-| `moss-ao-health` | 5분마다 | 시스템 헬스 모니터링 |
+| `moss-ao-health` | 5분마다 | 헬스 모니터링 + 롤링 DB 백업 (약 1일 주기) |
 
 ### PM2 명령어
 
@@ -255,7 +257,7 @@ agentic-orchestrator/
 │   ├── api/                 # FastAPI 백엔드
 │   │   └── main.py
 │   ├── cache/               # 캐싱 레이어
-│   ├── db/                  # 데이터베이스 모델 & 레포지토리
+│   ├── db/                  # 데이터베이스 모델, 레포지토리 & 롤링 백업
 │   ├── debate/              # 멀티 스테이지 토론 시스템
 │   │   ├── protocol.py
 │   │   └── multi_stage.py
@@ -304,6 +306,9 @@ python -m agentic_orchestrator.scheduler process-backlog
 
 # 헬스 체크
 python -m agentic_orchestrator.scheduler health-check
+
+# SQLite DB를 data/backup/에 스냅샷 (약 1일 주기로 자동 실행되기도 함)
+python -m agentic_orchestrator.scheduler backup-db
 ```
 
 ## 라이선스
@@ -314,4 +319,4 @@ MIT License - 자세한 내용은 [LICENSE](LICENSE)를 참조하세요.
 
 *모스랜드 생태계를 위해 구축됨 - 사람이 가이드하고, AI가 구동하는 혁신.*
 
-*v0.6.8 "Stable Planner" - qwen2.5:14b 최상위 플래너, .env 기반 Ollama 라우팅*
+*v0.6.10 - DB 유실 복원력: 스키마 자기치유, graceful /status 강등, 롤링 SQLite 백업*
