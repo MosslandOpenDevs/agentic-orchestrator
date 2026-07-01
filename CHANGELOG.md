@@ -7,6 +7,24 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.10] - 2026-07-02
+
+### Fixed
+- **`/status` no longer hard-500s when the database is broken** (2026-07 incident: every DB-backed endpoint on ao.moss.land returned 500 while `/health` stayed 200 — the production SQLite file had been lost/emptied, and `system_status()` ran its stat queries *before* any health check, so the prepared `degraded` branch was unreachable). The stat queries now double as the health probe: on failure the endpoint returns 200 with `status="degraded"`, `components.database.status="unhealthy"`, and zeroed stats, preserving the `{ stats: { agents_active, ideas_generated, debates_today } }` contract the moss.land governance widget consumes (MosslandOpenDevs/pixel-agent-lab#1, cause 2).
+
+### Added
+- **Startup schema self-heal**: the API (via a FastAPI lifespan hook) and every scheduler CLI command now run the idempotent `create_tables()` (`CREATE TABLE IF NOT EXISTS`) before serving/working. A missing or emptied SQLite file degrades to an empty-but-working database that the signal/debate pipeline repopulates on its own, instead of "no such table" 500s on every DB-backed endpoint until an operator intervenes. `backup-db` is deliberately excluded — a backup command must never mutate the database it snapshots.
+- **Rolling local DB backups** (`db/backup.py`): the 5-minute health task now snapshots `data/orchestrator.db` into `data/backup/` (gitignored) at a ~24h cadence, keeping the newest 7. Snapshots use the WAL-safe sqlite3 online-backup API. Backups are skipped when the database is missing, empty, corrupt, or has no rows in signals/ideas/plans/debate_sessions — a freshly self-healed (schema-only) database can never rotate out the last good snapshots of real data. Manual trigger: `python -m agentic_orchestrator.scheduler backup-db`.
+
+### Tests
+- Added `tests/test_db_resilience.py` (15 tests): /status degradation + widget contract, lifespan self-heal (including a broken-DB startup), and snapshot/skip/prune/interval backup behavior.
+
+### Operator notes
+- **Restoring after DB loss**: stop the writers (`pm2 stop moss-ao-signals moss-ao-trends moss-ao-debate moss-ao-backlog`), copy the newest `data/backup/orchestrator-*.db` over `data/orchestrator.db`, then restart. Until a backup exists there is nothing to restore — the pipeline will repopulate an empty database over time.
+- Never clean the deploy directory with `git clean -fdx` without excluding the data directory (`git clean -fdx -e data -e .env`); the production database has never been tracked in git.
+
+---
+
 ## [0.6.9] - 2026-06-27
 
 ### Added

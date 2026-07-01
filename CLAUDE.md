@@ -50,7 +50,8 @@ agentic-orchestrator/
 │   ├── db/                      # SQLAlchemy 모델 & 리포지토리
 │   │   ├── models.py            # 데이터베이스 모델
 │   │   ├── repositories.py      # 데이터 액세스 레이어
-│   │   └── connection.py        # DB 연결 관리
+│   │   ├── connection.py        # DB 연결 관리
+│   │   └── backup.py            # SQLite 롤링 백업 (v0.6.10)
 │   ├── debate/                  # 멀티스테이지 토론 시스템
 │   │   ├── multi_stage.py       # 3단계 토론 (발산→수렴→기획)
 │   │   └── protocol.py          # 토론 프로토콜 정의
@@ -190,6 +191,26 @@ agentic-orchestrator/
 - **`debate_sessions.idea_id`**: `nullable=True` (독립 토론 지원)
 - **`ideas.score`**: 토론 중 에이전트들이 부여한 평균 점수
 - **`*_ko` 필드**: 한글 번역 필드 (양방향 번역 지원)
+
+### DB 자기치유 & 롤링 백업 (v0.6.10)
+
+프로덕션 DB는 git에 없는 단일 SQLite 파일이라 유실되면 모든 DB 엔드포인트가
+한꺼번에 500이 났다 (2026-07 장애). 세 겹의 방어가 추가됨:
+
+1. **기동 시 스키마 자기치유**: API의 FastAPI lifespan 훅과 모든 스케줄러 CLI
+   명령이 시작 시 멱등적 `create_tables()`를 실행. 빈/유실 DB → "no such table"
+   500 대신 비어 있지만 동작하는 DB로 강등되고, 파이프라인이 다시 채움.
+2. **`/status` graceful degradation**: 통계 쿼리 실패 시 500 대신
+   `status="degraded"` + 0 stats로 200 응답 (moss.land 거버넌스 위젯 계약 유지).
+3. **롤링 백업** (`db/backup.py`): `moss-ao-health`(5분 주기)가 약 24시간 간격으로
+   `data/orchestrator.db` → `data/backup/`에 스냅샷 (최신 7개 보관, WAL-안전).
+   DB가 없거나/비었거나/손상됐거나/핵심 테이블에 행이 없으면 건너뜀 — 자기치유된
+   빈 DB가 정상 백업을 밀어내지 않도록. 수동 실행:
+   `python -m agentic_orchestrator.scheduler backup-db`
+
+**복원 절차**: 쓰기 프로세스 중지 → 최신 `data/backup/orchestrator-*.db`를
+`data/orchestrator.db`로 복사 → 재시작. 배포 시 `git clean -fdx`는 반드시
+`-e data -e .env`와 함께 사용할 것.
 
 ## 환경 변수
 
@@ -433,6 +454,17 @@ npm run build 2>&1 | head -50  # 오류 확인
 # VRAM 점유 확인:
 curl -s "$OLLAMA_HOST/api/ps"
 ```
+
+### 8. 모든 DB 엔드포인트가 500 (`/health`만 200)
+
+**증상:** `/status`, `/ideas`, `/signals`, `/debates` 전부 500, `/health`·`/agents`·`/adapters`는 200
+
+**원인:** SQLite 파일(`data/orchestrator.db`) 유실/비워짐/손상 → 쿼리가 `no such table`로 실패
+
+**해결 (v0.6.10+):**
+- API·스케줄러가 기동 시 스키마를 자동 생성하므로 재시작만으로 500은 해소됨 (`pm2 restart moss-ao-api`)
+- 데이터 복원: 최신 `data/backup/orchestrator-*.db`를 `data/orchestrator.db`로 복사 후 재시작
+- `/status`가 `"degraded"`를 반환하면 DB가 실제로 죽어 있다는 뜻 — `pm2 logs moss-ao-api`에서 traceback 확인
 
 ## 콘텐츠 품질 요구사항
 

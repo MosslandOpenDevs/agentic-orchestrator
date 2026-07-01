@@ -1504,6 +1504,22 @@ async def _health_check_async():
             health_status["components"]["llm_router"] = {"status": "unhealthy", "error": str(e)}
             logger.error(f"LLM Router: unhealthy - {e}")
 
+        # Rolling local DB backup (~daily, keep 7). Piggybacks on the 5-minute
+        # health schedule so no new PM2 process is needed; a backup failure is
+        # logged but never flips the health status.
+        try:
+            from ..db.backup import maybe_backup_database
+
+            backup_path = maybe_backup_database()
+            if backup_path:
+                health_status["components"]["db_backup"] = {
+                    "status": "created",
+                    "path": str(backup_path),
+                }
+                logger.info(f"Database backup created: {backup_path}")
+        except Exception as e:
+            logger.warning(f"Database backup failed: {e}")
+
         # Log final status
         logger.info(f"Health check completed: {health_status['status']}")
 

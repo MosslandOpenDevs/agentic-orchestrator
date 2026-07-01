@@ -7,12 +7,33 @@ Usage:
     python -m agentic_orchestrator.scheduler run-debate
     python -m agentic_orchestrator.scheduler process-backlog
     python -m agentic_orchestrator.scheduler health-check
+    python -m agentic_orchestrator.scheduler backup-db
 """
 
 import argparse
+import logging
 import sys
 
 from .tasks import analyze_trends, health_check, process_backlog, run_debate, signal_collect
+
+logger = logging.getLogger(__name__)
+
+
+def _ensure_schema() -> None:
+    """Idempotently create any missing tables before running a task.
+
+    A fresh or emptied SQLite file would otherwise crash every scheduled task
+    with "no such table" until an operator intervenes (2026-07 incident).
+    ``create_tables()`` is CREATE TABLE IF NOT EXISTS, so this is a no-op on a
+    healthy database. Failures are logged, not fatal: the task itself will
+    surface a clearer error if the database is truly unusable.
+    """
+    from ..db.connection import get_db
+
+    try:
+        get_db().create_tables()
+    except Exception:
+        logger.exception("Could not ensure database schema; the task may fail")
 
 
 def main():
@@ -59,7 +80,22 @@ def main():
         help="Check system health",
     )
 
+    # backup-db command
+    subparsers.add_parser(
+        "backup-db",
+        help="Snapshot the SQLite database into data/backup/ (manual/on-demand)",
+    )
+
     args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
+        sys.exit(1)
+
+    # backup-db is deliberately read-only: it must never mutate the database
+    # it is about to snapshot. Every other command gets the schema guarantee.
+    if args.command != "backup-db":
+        _ensure_schema()
 
     if args.command == "signal-collect":
         signal_collect()
@@ -71,6 +107,14 @@ def main():
         process_backlog()
     elif args.command == "health-check":
         health_check()
+    elif args.command == "backup-db":
+        from ..db.backup import backup_database
+
+        dest = backup_database()
+        if dest is None:
+            print("No backup created (database missing, empty, dataless, or not SQLite).")
+            sys.exit(1)
+        print(f"Backup written: {dest}")
     else:
         parser.print_help()
         sys.exit(1)
