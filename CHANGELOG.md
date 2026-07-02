@@ -7,6 +7,28 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.10] - 2026-07-02
+
+### Fixed
+- **`/status` no longer hard-500s when the database is broken** (2026-07 incident: every DB-backed endpoint on ao.moss.land returned 500 while `/health` stayed 200 — the production SQLite file had been lost/emptied, and `system_status()` ran its stat queries *before* any health check, so the prepared `degraded` branch was unreachable). The stat queries now double as the health probe: on failure the endpoint returns 200 with `status="degraded"`, `components.database.status="unhealthy"`, and zeroed stats, preserving the `{ stats: { agents_active, ideas_generated, debates_today } }` contract the moss.land governance widget consumes (MosslandOpenDevs/pixel-agent-lab#1, cause 2).
+
+### Added
+- **Startup schema self-heal** (`db/connection.py` `ensure_schema()`): the API (via a FastAPI lifespan hook) and every scheduler CLI command except `backup-db` now run the idempotent `create_tables()` (`CREATE TABLE IF NOT EXISTS`) before serving/working, with a short retry so simultaneously booting PM2 processes cannot fail each other on the boot-time CREATE race. A missing or emptied SQLite file degrades to an empty-but-working database that the signal/debate pipeline repopulates on its own, instead of "no such table" 500s on every DB-backed endpoint until an operator intervenes. `backup-db` is deliberately excluded — a backup command must never mutate the database it snapshots.
+- **Rolling local DB backups** (`db/backup.py`): the 5-minute health task now snapshots `data/orchestrator.db` into `data/backup/` (gitignored) at a ~24h cadence, keeping the newest 7. Hardened against every reviewed failure mode:
+  - Snapshots use the sqlite3 online-backup API copied **incrementally** (`pages`/`sleep`) so concurrent writers are not starved during a large copy (the production DB does not run WAL), with a 30s busy timeout.
+  - Each snapshot is written to a `.tmp` name and **renamed into place only after `PRAGMA quick_check` passes** — an unclean death mid-copy or a corrupt source can never leave a garbage file that gates the interval or occupies a retention slot, and a failed attempt is retried on the next 5-minute tick instead of silently skipping a day.
+  - **Regression-aware pruning**: if the history tables (ideas/plans/debate_sessions — the ones the pipeline cannot regenerate) shrank below 50% of the newest existing snapshot, the new snapshot is still written but pruning is suspended with a loud error. Without this, a wiped database auto-refilled by the 30-minute signals task would look "meaningful" again and daily rotation would destroy the last pre-incident backups within `keep` days.
+  - Backups are skipped when the database is missing, empty, dataless, or fails the integrity check. Manual trigger: `python -m agentic_orchestrator.scheduler backup-db`.
+
+### Tests
+- Added `tests/test_db_resilience.py` (30 tests): /status degradation + widget contract, lifespan self-heal (including a broken-DB startup), snapshot/skip/prune/interval behavior, first-ever-backup paths, partial-copy cleanup + retry-next-tick, integrity-failure discard, regression-aware pruning, `ensure_schema` retry semantics, and scheduler-CLI dispatch guarantees (schema-heal ordering, `backup-db` read-only exclusion, non-zero exit).
+
+### Operator notes
+- **Restoring after DB loss**: stop the writers (`pm2 stop moss-ao-signals moss-ao-trends moss-ao-debate moss-ao-backlog`), copy the newest `data/backup/orchestrator-*.db` over `data/orchestrator.db`, then restart. Until a backup exists there is nothing to restore — the pipeline will repopulate an empty database over time.
+- Never clean the deploy directory with `git clean -fdx` without excluding the data directory (`git clean -fdx -e data -e .env`); the production database has never been tracked in git.
+
+---
+
 ## [0.6.9] - 2026-06-27
 
 ### Added

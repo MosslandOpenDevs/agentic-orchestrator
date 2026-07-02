@@ -4,7 +4,9 @@ Database connection management for Agentic Orchestrator.
 Supports both SQLite (development) and PostgreSQL (production).
 """
 
+import logging
 import os
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, Optional
@@ -14,6 +16,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool, StaticPool
 
 from .models import Base
+
+logger = logging.getLogger(__name__)
 
 
 class Database:
@@ -138,3 +142,36 @@ def init_database(url: Optional[str] = None) -> Database:
 def get_db() -> Database:
     """Get the global database instance."""
     return db
+
+
+def ensure_schema(
+    database: Optional[Database] = None,
+    attempts: int = 3,
+    delay_seconds: float = 1.0,
+) -> bool:
+    """Idempotently create any missing tables, retrying briefly.
+
+    ``create_tables()`` is CREATE TABLE IF NOT EXISTS, so this is a no-op on a
+    healthy database and turns a missing/emptied SQLite file into an
+    empty-but-working one (2026-07 incident). Several PM2 processes can boot
+    simultaneously and race the CREATEs on a fresh file — losers may see
+    "table already exists" or transient lock errors, which resolve on retry.
+
+    Never raises; returns False when the schema could not be guaranteed so
+    callers can decide how loudly to complain.
+    """
+    target = database or get_db()
+    for attempt in range(1, attempts + 1):
+        try:
+            target.create_tables()
+            return True
+        except Exception:
+            if attempt == attempts:
+                logger.exception(
+                    "Could not ensure database schema after %d attempts; "
+                    "DB-backed work may fail",
+                    attempts,
+                )
+                return False
+            time.sleep(delay_seconds)
+    return False

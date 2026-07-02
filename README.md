@@ -4,7 +4,7 @@
 
 An autonomous multi-agent orchestration system for discovering, planning, and implementing micro Web3 services for the Mossland ecosystem.
 
-**Version**: v0.6.8 "Stable Planner"
+**Version**: v0.6.10
 
 ## Key Features
 
@@ -15,6 +15,7 @@ An autonomous multi-agent orchestration system for discovering, planning, and im
 - **PM2 Scheduling**: Automated task scheduling with PM2 (signals, debates, backlog, health checks)
 - **CLI-Style Dashboard**: Retro terminal-themed web interface at https://ao.moss.land
 - **REST API**: FastAPI backend for programmatic access
+- **DB Resilience**: startup schema self-heal, graceful `/status` degradation, and rolling SQLite backups (~daily, keep 7, integrity-checked, regression-aware retention) — a lost or emptied database file degrades gracefully instead of taking every endpoint down
 
 ## Dashboard
 
@@ -126,11 +127,12 @@ pm2 start ecosystem.config.js --only moss-ao-api
 | Service | Schedule | Description |
 |---------|----------|-------------|
 | `moss-ao-signals` | Every 30 min | Collect signals from all adapters |
+| `moss-ao-trends` | Every 2 hours | Analyze signals into trends (local LLM) |
 | `moss-ao-debate` | Every 6 hours | Run multi-stage AI debate |
-| `moss-ao-backlog` | Daily at midnight | Process pending backlog items |
+| `moss-ao-backlog` | Every 4 hours | Process pending backlog items |
 | `moss-ao-web` | Always on | Next.js dashboard (port 3000) |
 | `moss-ao-api` | Always on | FastAPI backend (port 3001) |
-| `moss-ao-health` | Every 5 min | System health monitoring |
+| `moss-ao-health` | Every 5 min | Health monitoring + rolling DB backup (~daily) |
 
 ### PM2 Commands
 
@@ -255,7 +257,7 @@ agentic-orchestrator/
 │   ├── api/                 # FastAPI backend
 │   │   └── main.py
 │   ├── cache/               # Caching layer
-│   ├── db/                  # Database models & repositories
+│   ├── db/                  # Database models, repositories & rolling backups
 │   ├── debate/              # Multi-stage debate system
 │   │   ├── protocol.py
 │   │   └── multi_stage.py
@@ -304,6 +306,9 @@ python -m agentic_orchestrator.scheduler process-backlog
 
 # Health check
 python -m agentic_orchestrator.scheduler health-check
+
+# Snapshot the SQLite DB into data/backup/ (also runs automatically ~daily)
+python -m agentic_orchestrator.scheduler backup-db
 ```
 
 ## License
@@ -314,4 +319,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 *Built for the Mossland ecosystem - human-guided, AI-powered innovation.*
 
-*v0.6.8 "Stable Planner" - qwen2.5:14b top-tier planning, .env-driven Ollama routing*
+*v0.6.10 - DB-loss resilience: schema self-heal, graceful /status degradation, rolling SQLite backups*

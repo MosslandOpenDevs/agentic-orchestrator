@@ -7,11 +7,13 @@ Usage:
     python -m agentic_orchestrator.scheduler run-debate
     python -m agentic_orchestrator.scheduler process-backlog
     python -m agentic_orchestrator.scheduler health-check
+    python -m agentic_orchestrator.scheduler backup-db
 """
 
 import argparse
 import sys
 
+from ..db.connection import ensure_schema
 from .tasks import analyze_trends, health_check, process_backlog, run_debate, signal_collect
 
 
@@ -59,7 +61,23 @@ def main():
         help="Check system health",
     )
 
+    # backup-db command
+    subparsers.add_parser(
+        "backup-db",
+        help="Snapshot the SQLite database into data/backup/ (manual/on-demand)",
+    )
+
     args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
+        sys.exit(1)
+
+    # backup-db is deliberately read-only: it must never mutate the database
+    # it is about to snapshot. Every other command gets the schema guarantee
+    # (idempotent create_tables with a boot-race retry; never raises).
+    if args.command != "backup-db":
+        ensure_schema()
 
     if args.command == "signal-collect":
         signal_collect()
@@ -71,6 +89,17 @@ def main():
         process_backlog()
     elif args.command == "health-check":
         health_check()
+    elif args.command == "backup-db":
+        from ..db.backup import backup_database
+
+        dest = backup_database()
+        if dest is None:
+            print(
+                "No backup created (database missing, empty, dataless, "
+                "failed integrity check, or not SQLite)."
+            )
+            sys.exit(1)
+        print(f"Backup written: {dest}")
     else:
         parser.print_help()
         sys.exit(1)

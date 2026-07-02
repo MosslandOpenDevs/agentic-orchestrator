@@ -16,6 +16,7 @@ Endpoints:
 import logging
 import os
 import secrets
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -28,7 +29,7 @@ from ..timeutil import utcnow
 
 logger = logging.getLogger(__name__)
 
-from ..db.connection import get_db
+from ..db.connection import ensure_schema, get_db
 from ..db.repositories import (
     APIUsageRepository,
     DebateRepository,
@@ -39,12 +40,30 @@ from ..db.repositories import (
     TrendRepository,
 )
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Self-heal the database schema on startup.
+
+    Idempotent (CREATE TABLE IF NOT EXISTS): a no-op on a healthy database,
+    and it turns a missing or emptied SQLite file into an empty-but-working
+    one instead of every DB-backed endpoint 500ing with "no such table" until
+    an operator intervenes (2026-07 incident). ``ensure_schema`` retries the
+    boot-time CREATE race against the PM2 scheduler processes and never
+    raises, so a broken database cannot prevent the API from starting.
+    """
+    if not ensure_schema(get_db()):
+        logger.error("Database schema could not be ensured at startup; see previous errors")
+    yield
+
+
 app = FastAPI(
     title="MOSS.AO API",
     description="Mossland Agentic Orchestrator API",
     version="0.5.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 
@@ -163,7 +182,13 @@ async def health_check():
 
 @app.get("/status", response_model=StatusResponse)
 async def system_status(session: Session = Depends(get_session)):
-    """Get overall system status with real statistics."""
+    """Get overall system status with real statistics.
+
+    Never hard-fails: when the database is broken this reports
+    ``status="degraded"`` with zeroed stats instead of a 500, so external
+    monitors (e.g. the moss.land governance widget, which consumes
+    ``stats.agents_active/ideas_generated/debates_today``) keep working.
+    """
 
     from sqlalchemy import func
 
@@ -172,23 +197,34 @@ async def system_status(session: Session = Depends(get_session)):
     # Calculate real stats
     today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
-    signals_today = (
-        session.query(func.count(Signal.id)).filter(Signal.collected_at >= today).scalar() or 0
-    )
+    stats = {
+        "signals_today": 0,
+        "debates_today": 0,
+        "ideas_generated": 0,
+        "plans_created": 0,
+        # Persona-count constant, not DB-derived; stays meaningful when degraded.
+        "agents_active": 34,
+    }
+    try:
+        stats["signals_today"] = (
+            session.query(func.count(Signal.id)).filter(Signal.collected_at >= today).scalar() or 0
+        )
+        stats["debates_today"] = (
+            session.query(func.count(DebateSession.id))
+            .filter(DebateSession.started_at >= today)
+            .scalar()
+            or 0
+        )
+        stats["ideas_generated"] = session.query(func.count(Idea.id)).scalar() or 0
+        stats["plans_created"] = session.query(func.count(Plan.id)).scalar() or 0
 
-    debates_today = (
-        session.query(func.count(DebateSession.id))
-        .filter(DebateSession.started_at >= today)
-        .scalar()
-        or 0
-    )
-
-    total_ideas = session.query(func.count(Idea.id)).scalar() or 0
-    total_plans = session.query(func.count(Plan.id)).scalar() or 0
-
-    # Check database health
-    db = get_db()
-    db_healthy = db.health_check()
+        # The stat queries above are the real probe (they fail on a missing
+        # schema, which the bare "SELECT 1" health check does not detect);
+        # health_check() adds a connection-level sanity check on top.
+        db_healthy = get_db().health_check()
+    except Exception:
+        logger.exception("/status statistics queries failed; reporting degraded status")
+        db_healthy = False
 
     return StatusResponse(
         status="operational" if db_healthy else "degraded",
@@ -199,13 +235,7 @@ async def system_status(session: Session = Depends(get_session)):
             "cache": {"status": "healthy"},
             "llm_router": {"status": "healthy"},
         },
-        stats={
-            "signals_today": signals_today,
-            "debates_today": debates_today,
-            "ideas_generated": total_ideas,
-            "plans_created": total_plans,
-            "agents_active": 34,
-        },
+        stats=stats,
     )
 
 
