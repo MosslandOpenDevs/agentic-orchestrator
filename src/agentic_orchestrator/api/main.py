@@ -29,7 +29,7 @@ from ..timeutil import utcnow
 
 logger = logging.getLogger(__name__)
 
-from ..db.connection import get_db
+from ..db.connection import ensure_schema, get_db
 from ..db.repositories import (
     APIUsageRepository,
     DebateRepository,
@@ -45,17 +45,15 @@ from ..db.repositories import (
 async def lifespan(_app: FastAPI):
     """Self-heal the database schema on startup.
 
-    ``create_tables()`` is idempotent (CREATE TABLE IF NOT EXISTS): a no-op on
-    a healthy database, and it turns a missing or emptied SQLite file into an
-    empty-but-working one instead of every DB-backed endpoint 500ing with
-    "no such table" until an operator intervenes (2026-07 incident).
+    Idempotent (CREATE TABLE IF NOT EXISTS): a no-op on a healthy database,
+    and it turns a missing or emptied SQLite file into an empty-but-working
+    one instead of every DB-backed endpoint 500ing with "no such table" until
+    an operator intervenes (2026-07 incident). ``ensure_schema`` retries the
+    boot-time CREATE race against the PM2 scheduler processes and never
+    raises, so a broken database cannot prevent the API from starting.
     """
-    try:
-        get_db().create_tables()
-    except Exception:
-        logger.exception(
-            "Could not ensure database schema at startup; DB-backed endpoints may fail"
-        )
+    if not ensure_schema(get_db()):
+        logger.error("Database schema could not be ensured at startup; see previous errors")
     yield
 
 

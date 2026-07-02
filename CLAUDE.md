@@ -197,16 +197,21 @@ agentic-orchestrator/
 프로덕션 DB는 git에 없는 단일 SQLite 파일이라 유실되면 모든 DB 엔드포인트가
 한꺼번에 500이 났다 (2026-07 장애). 세 겹의 방어가 추가됨:
 
-1. **기동 시 스키마 자기치유**: API의 FastAPI lifespan 훅과 모든 스케줄러 CLI
-   명령이 시작 시 멱등적 `create_tables()`를 실행. 빈/유실 DB → "no such table"
-   500 대신 비어 있지만 동작하는 DB로 강등되고, 파이프라인이 다시 채움.
+1. **기동 시 스키마 자기치유**: API의 FastAPI lifespan 훅과 스케줄러 CLI 명령
+   (`backup-db` 제외 — 백업은 대상 DB를 변경하면 안 됨)이 시작 시 멱등적
+   `ensure_schema()`(= `create_tables()` + 부팅 레이스 재시도)를 실행. 빈/유실
+   DB → "no such table" 500 대신 비어 있지만 동작하는 DB로 강등되고,
+   파이프라인이 다시 채움.
 2. **`/status` graceful degradation**: 통계 쿼리 실패 시 500 대신
    `status="degraded"` + 0 stats로 200 응답 (moss.land 거버넌스 위젯 계약 유지).
 3. **롤링 백업** (`db/backup.py`): `moss-ao-health`(5분 주기)가 약 24시간 간격으로
-   `data/orchestrator.db` → `data/backup/`에 스냅샷 (최신 7개 보관, WAL-안전).
-   DB가 없거나/비었거나/손상됐거나/핵심 테이블에 행이 없으면 건너뜀 — 자기치유된
-   빈 DB가 정상 백업을 밀어내지 않도록. 수동 실행:
-   `python -m agentic_orchestrator.scheduler backup-db`
+   `data/orchestrator.db` → `data/backup/`에 스냅샷 (최신 7개 보관). 증분 복사로
+   writer 블로킹 방지, `.tmp` 작성 → `quick_check` 통과 후 원자적 rename(부분/손상
+   파일이 간격을 막거나 슬롯을 차지할 수 없음), 실패 시 다음 5분 틱에 재시도.
+   **회귀 인지 프루닝**: 히스토리(ideas/plans/debate_sessions) 행 수가 직전 스냅샷
+   대비 급감하면 프루닝을 중단해 사고 이전 백업을 보존 — 시그널이 30분 만에
+   빈 DB를 다시 채워도 안전. DB가 없거나/비었거나/데이터가 없거나/무결성 실패면
+   건너뜀. 수동 실행: `python -m agentic_orchestrator.scheduler backup-db`
 
 **복원 절차**: 쓰기 프로세스 중지 → 최신 `data/backup/orchestrator-*.db`를
 `data/orchestrator.db`로 복사 → 재시작. 배포 시 `git clean -fdx`는 반드시

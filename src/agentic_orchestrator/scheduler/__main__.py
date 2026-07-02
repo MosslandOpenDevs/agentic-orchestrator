@@ -11,29 +11,10 @@ Usage:
 """
 
 import argparse
-import logging
 import sys
 
+from ..db.connection import ensure_schema
 from .tasks import analyze_trends, health_check, process_backlog, run_debate, signal_collect
-
-logger = logging.getLogger(__name__)
-
-
-def _ensure_schema() -> None:
-    """Idempotently create any missing tables before running a task.
-
-    A fresh or emptied SQLite file would otherwise crash every scheduled task
-    with "no such table" until an operator intervenes (2026-07 incident).
-    ``create_tables()`` is CREATE TABLE IF NOT EXISTS, so this is a no-op on a
-    healthy database. Failures are logged, not fatal: the task itself will
-    surface a clearer error if the database is truly unusable.
-    """
-    from ..db.connection import get_db
-
-    try:
-        get_db().create_tables()
-    except Exception:
-        logger.exception("Could not ensure database schema; the task may fail")
 
 
 def main():
@@ -93,9 +74,10 @@ def main():
         sys.exit(1)
 
     # backup-db is deliberately read-only: it must never mutate the database
-    # it is about to snapshot. Every other command gets the schema guarantee.
+    # it is about to snapshot. Every other command gets the schema guarantee
+    # (idempotent create_tables with a boot-race retry; never raises).
     if args.command != "backup-db":
-        _ensure_schema()
+        ensure_schema()
 
     if args.command == "signal-collect":
         signal_collect()
@@ -112,7 +94,10 @@ def main():
 
         dest = backup_database()
         if dest is None:
-            print("No backup created (database missing, empty, dataless, or not SQLite).")
+            print(
+                "No backup created (database missing, empty, dataless, "
+                "failed integrity check, or not SQLite)."
+            )
             sys.exit(1)
         print(f"Backup written: {dest}")
     else:

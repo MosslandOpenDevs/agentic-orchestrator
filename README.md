@@ -15,7 +15,7 @@ An autonomous multi-agent orchestration system for discovering, planning, and im
 - **PM2 Scheduling**: Automated task scheduling with PM2 (signals, debates, backlog, health checks)
 - **CLI-Style Dashboard**: Retro terminal-themed web interface at https://ao.moss.land
 - **REST API**: FastAPI backend for programmatic access
-- **DB Resilience**: startup schema self-heal, graceful `/status` degradation, and rolling SQLite backups (~daily, keep 7) — a lost or emptied database file degrades gracefully instead of taking every endpoint down
+- **DB Resilience**: startup schema self-heal, graceful `/status` degradation, and rolling SQLite backups (~daily, keep 7, integrity-checked, regression-aware retention) — a lost or emptied database file degrades gracefully instead of taking every endpoint down
 
 ## Dashboard
 
