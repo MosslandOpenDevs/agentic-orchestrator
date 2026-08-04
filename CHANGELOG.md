@@ -7,6 +7,14 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Tests
+- Added `tests/test_version_resolution.py` (10 tests) covering the version-resolution *logic* in `__init__.py`, which 0.6.12's `TestVersionReporting` could not distinguish — those tests assert the surfaces (`/health`, `/`, `/openapi.json`) agree with `__version__`, but every one of them still passes if the resolver is changed to consult installed metadata **before** the source tree. That was verified by mutation, and it matters because metadata-first silently reintroduces the drift 0.6.12 fixed: `importlib.metadata` returns the snapshot taken at `pip install` time, so an editable install whose checkout has since been bumped keeps reporting the old version — and `git pull` + `pm2 restart` with no reinstall is the documented deploy flow. Now covered: source-tree-beats-metadata precedence, the metadata fallback for wheel installs, the `0.0.0+unknown` sentinel *and* its warning log, the `[project].name` guard that stops a foreign `pyproject.toml` from being adopted when the package sits in site-packages, and graceful degradation on a malformed / version-less / missing `pyproject.toml` (resolution must degrade, never raise on import). A positive control asserts a synthetic tree with a matching name *is* adopted, so the negative cases cannot pass for the wrong reason.
+- Extended the no-hardcoded-literal guard to `__init__.py` as well as `api/main.py`, so re-hardcoding is caught at the commit that introduces it rather than at the next version bump.
+- All 10 tests were mutation-verified: each of the 9 ways this logic can regress — including re-hardcoding `__version__` itself, the obvious way to undo the fix — was applied to a copy of the source, and the corresponding test was confirmed to fail.
+- The suite is install-shape agnostic, verified against all three: a bare `PYTHONPATH=./src` run, CI's `pip install -e ".[dev]"`, and a non-editable `pip install .`. Under the last one the imported package is the site-packages copy, not the checkout, so `parents[2]` is the venv directory and declining the source tree is *correct*; the one assertion that only makes sense against this checkout skips there with that reason rather than reporting a phantom drift bug.
+
 ## [0.6.13] - 2026-08-04
 
 ### Fixed

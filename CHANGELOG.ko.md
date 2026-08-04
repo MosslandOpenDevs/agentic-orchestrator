@@ -7,6 +7,14 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 이 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)를 기반으로 하며,
 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
+## [Unreleased]
+
+### 테스트
+- `tests/test_version_resolution.py` 추가 (10개) — `__init__.py`의 버전 해석 *로직*을 검증. 0.6.12의 `TestVersionReporting`은 표면(`/health`, `/`, `/openapi.json`)이 `__version__`과 일치하는지만 보므로, 해석기를 소스 트리보다 **설치 메타데이터를 먼저** 읽도록 바꿔도 네 테스트가 모두 통과한다 (뮤테이션으로 확인). 이게 중요한 이유: metadata-first는 0.6.12가 고친 드리프트를 조용히 되살린다 — `importlib.metadata`는 `pip install` 시점의 스냅샷이라, editable 설치 후 체크아웃만 버전이 올라가면 계속 낡은 값을 보고하며, 재설치 없는 `git pull` + `pm2 restart`가 바로 문서화된 배포 절차다. 이제 다음이 커버된다: 소스 트리 우선 순위, wheel 설치용 메타데이터 폴백, `0.0.0+unknown` 센티널 *및* 경고 로그, 패키지가 site-packages에 있을 때 남의 `pyproject.toml`을 가져다 쓰지 못하게 막는 `[project].name` 가드, 그리고 깨진/버전 없는/존재하지 않는 `pyproject.toml`에 대한 강등 동작(import 시 예외를 던지지 않고 강등돼야 함). 이름이 일치하는 합성 트리는 실제로 채택되는지 확인하는 포지티브 컨트롤을 두어, 네거티브 케이스가 엉뚱한 이유로 통과하는 일이 없도록 했다.
+- 하드코딩 리터럴 가드를 `api/main.py`뿐 아니라 `__init__.py`까지 확대 — 리터럴 재도입을 다음 버전 업이 아니라 그것을 넣는 커밋에서 잡는다.
+- 10개 테스트 전부 뮤테이션 검증 완료: 이 로직이 회귀할 수 있는 9가지 방식 — `__version__` 자체를 다시 하드코딩하는, 이 수정을 되돌리는 가장 뻔한 경로 포함 — 을 소스 사본에 각각 적용해, 대응하는 테스트가 실패하는 것을 확인했다.
+- 설치 형태에 무관하게 동작하는 것을 세 가지 모두에서 확인했다: 순수 `PYTHONPATH=./src` 실행, CI의 `pip install -e ".[dev]"`, 그리고 non-editable `pip install .`. 마지막 경우 import되는 패키지는 체크아웃이 아니라 site-packages 사본이므로 `parents[2]`가 venv 디렉토리가 되고, 소스 트리를 거부하는 것이 *정상*이다 — 이 체크아웃을 전제로 하는 단 하나의 단언은 그 사유와 함께 skip되며, 존재하지도 않는 드리프트 버그를 보고하지 않는다.
+
 ## [0.6.13] - 2026-08-04
 
 ### 수정
