@@ -191,6 +191,29 @@ class TestSourceTreeGuards:
 
         assert version_reported_from(root) in acceptable_fallbacks()
 
+    def test_pyproject_without_project_table_degrades(self, tmp_path):
+        """Valid TOML carrying no ``[project]`` table at all — e.g. Poetry style.
+
+        This is the only case that reaches the ``KeyError`` arm of the guard:
+        malformed TOML raises ``TOMLDecodeError``, a missing file raises
+        ``OSError``, and a ``[project]`` without ``version`` is handled by
+        ``.get()``. Dropping ``KeyError`` from the except clause therefore left
+        every other test in this module passing while making a bare
+        ``import agentic_orchestrator`` raise — verified by mutation.
+
+        It is also the likeliest shape of the site-packages neighbour the
+        ``[project].name`` guard exists for, since a Poetry-managed project
+        declares only ``[tool.poetry]``.
+        """
+        root = build_tree(
+            tmp_path, '[tool.poetry]\nname = "some-other-project"\nversion = "7.7.7"\n'
+        )
+
+        reported = version_reported_from(root)
+
+        assert reported != "7.7.7"
+        assert reported in acceptable_fallbacks()
+
     def test_missing_pyproject_degrades(self, tmp_path):
         """No pyproject.toml above the package at all."""
         root = build_tree(tmp_path, None)
