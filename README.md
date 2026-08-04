@@ -171,6 +171,11 @@ The FastAPI backend provides REST API access:
 
 ## Multi-Stage Debate System
 
+The counts below are **persona pool sizes** (`personas/catalog.py`), not the number
+of agents active in a single round. Each round draws a smaller, personality-balanced
+subset from the pool — in production 8 / 4 / 3 agents per round respectively, set by
+`debate.normal.*_agents_per_round` in `config.yaml`.
+
 ### Phase 1: Divergence (16 Agents)
 Generate diverse ideas and perspectives:
 - **Innovator**: Creative breakthrough ideas
@@ -206,12 +211,17 @@ Each agent has a 4-axis personality profile:
 ## Signal Sources
 
 ### RSS Feeds
-16 feeds across 5 categories:
-- **AI**: OpenAI, Google Blog, arXiv, TechCrunch, Hacker News
-- **Crypto**: CoinDesk, Cointelegraph, Decrypt, The Defiant, CryptoSlate
-- **Finance**: CNBC Finance
-- **Security**: The Hacker News, Krebs on Security
-- **Dev**: The Verge, Ars Technica, Stack Overflow Blog
+31 active feeds across 5 categories, defined in the top-level `feeds:` section of
+`config.yaml` — the single source shared by signal collection and trend analysis:
+- **AI** (9): OpenAI News, Google AI, arXiv AI, TechCrunch AI, Hacker News, Hugging Face, DeepMind, BAIR, Lil'Log
+- **Crypto** (7): CoinDesk, Cointelegraph, Decrypt, The Defiant, CryptoSlate, Ethereum Blog, Solana
+- **Finance** (3): CNBC Business News, CNBC Finance, Bloomberg Tech
+- **Security** (4): The Hacker News, Krebs on Security, Trail of Bits, Schneier
+- **Dev** (8): The Verge, Ars Technica, Stack Overflow Blog, GitHub Blog, Meta Engineering, Netflix Tech, Cloudflare, AWS Blog
+
+Four more crypto feeds (Chainlink, Polygon, Paradigm, a16z Crypto) are kept in
+`config.yaml` with `enabled: false` — their URLs are dead and no replacement feed
+is published. Add or fix feeds by editing `config.yaml`; no code change is needed.
 
 ### GitHub Events
 - Repository activity tracking

@@ -171,6 +171,10 @@ FastAPI 백엔드는 REST API 접근을 제공합니다:
 
 ## 멀티 스테이지 토론 시스템
 
+아래 인원은 **페르소나 풀 정원**(`personas/catalog.py`)이며, 한 라운드에 동시에 참여하는
+인원이 아니다. 매 라운드 풀에서 성격 균형을 맞춘 부분집합만 참여하며, 프로덕션 기준으로는
+각각 8 / 4 / 3명이다 (`config.yaml`의 `debate.normal.*_agents_per_round`).
+
 ### 1단계: 발산 (16 에이전트)
 다양한 아이디어와 관점 생성:
 - **혁신가**: 창의적 혁신 아이디어
@@ -206,12 +210,17 @@ FastAPI 백엔드는 REST API 접근을 제공합니다:
 ## 시그널 소스
 
 ### RSS 피드
-5개 카테고리의 16개 피드:
-- **AI**: OpenAI, Google Blog, arXiv, TechCrunch, Hacker News
-- **Crypto**: CoinDesk, Cointelegraph, Decrypt, The Defiant, CryptoSlate
-- **Finance**: CNBC Finance
-- **Security**: The Hacker News, Krebs on Security
-- **Dev**: The Verge, Ars Technica, Stack Overflow Blog
+5개 카테고리의 31개 활성 피드. `config.yaml`의 최상위 `feeds:` 섹션에 정의되며,
+시그널 수집과 트렌드 분석이 이 목록 하나를 공유한다:
+- **AI** (9개): OpenAI News, Google AI, arXiv AI, TechCrunch AI, Hacker News, Hugging Face, DeepMind, BAIR, Lil'Log
+- **Crypto** (7개): CoinDesk, Cointelegraph, Decrypt, The Defiant, CryptoSlate, Ethereum Blog, Solana
+- **Finance** (3개): CNBC Business News, CNBC Finance, Bloomberg Tech
+- **Security** (4개): The Hacker News, Krebs on Security, Trail of Bits, Schneier
+- **Dev** (8개): The Verge, Ars Technica, Stack Overflow Blog, GitHub Blog, Meta Engineering, Netflix Tech, Cloudflare, AWS Blog
+
+이 외 크립토 피드 4개(Chainlink, Polygon, Paradigm, a16z Crypto)는 URL이 죽었고 대체 피드도
+없어 `config.yaml`에 `enabled: false`로 남겨두었다. 피드 추가·수정은 `config.yaml`만 편집하면
+되며 코드 변경은 필요 없다.
 
 ### GitHub Events
 - 저장소 활동 추적

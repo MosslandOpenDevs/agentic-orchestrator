@@ -7,6 +7,9 @@ Collects signals from RSS feeds across multiple categories:
 - Finance
 - Security
 - Dev/Tech
+
+The feed list is read from config.yaml's top-level `feeds` section, which is
+the single source of truth shared with trend analysis (trends/feeds.py).
 """
 
 import asyncio
@@ -20,6 +23,7 @@ import feedparser
 import httpx
 
 from ..timeutil import utcnow
+from ..utils.config import load_config
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
 
 logger = logging.getLogger(__name__)
@@ -42,50 +46,79 @@ class RSSAdapter(BaseAdapter):
     Fetches and parses RSS feeds from multiple sources.
     """
 
-    # Default feeds configuration
-    DEFAULT_FEEDS: List[FeedConfig] = [
-        # AI/ML
-        FeedConfig("https://openai.com/blog/rss.xml", "ai", "OpenAI Blog"),
-        FeedConfig("https://blog.google/technology/ai/rss/", "ai", "Google AI"),
-        FeedConfig(
-            "https://techcrunch.com/category/artificial-intelligence/feed/", "ai", "TechCrunch AI"
-        ),
+    # Emergency fallback only — used when config.yaml cannot be read (e.g. the
+    # adapter is constructed from a working directory without one). The
+    # canonical feed list lives in config.yaml's top-level `feeds` section; do
+    # NOT grow this list, add feeds to config.yaml instead.
+    FALLBACK_FEEDS: List[FeedConfig] = [
+        FeedConfig("https://openai.com/news/rss.xml", "ai", "OpenAI News"),
         FeedConfig("https://news.ycombinator.com/rss", "ai", "Hacker News"),
-        FeedConfig("https://huggingface.co/blog/feed.xml", "ai", "Hugging Face"),
-        FeedConfig("https://www.deepmind.com/blog/rss.xml", "ai", "DeepMind"),
-        FeedConfig("https://bair.berkeley.edu/blog/feed.xml", "ai", "BAIR"),
-        FeedConfig("https://lilianweng.github.io/index.xml", "ai", "Lil'Log"),
-        # Crypto/Web3
         FeedConfig("https://www.coindesk.com/arc/outboundfeeds/rss/", "crypto", "CoinDesk"),
         FeedConfig("https://cointelegraph.com/rss", "crypto", "Cointelegraph"),
-        FeedConfig("https://decrypt.co/feed", "crypto", "Decrypt"),
-        FeedConfig("https://thedefiant.io/feed", "crypto", "The Defiant"),
-        FeedConfig("https://cryptoslate.com/feed/", "crypto", "CryptoSlate"),
-        FeedConfig("https://blog.ethereum.org/feed.xml", "crypto", "Ethereum Blog"),
-        FeedConfig("https://blog.chain.link/rss/", "crypto", "Chainlink"),
-        FeedConfig("https://solana.com/news/rss.xml", "crypto", "Solana"),
-        FeedConfig("https://polygon.technology/blog/feed", "crypto", "Polygon"),
-        FeedConfig("https://research.paradigm.xyz/feed.xml", "crypto", "Paradigm"),
-        FeedConfig("https://a16zcrypto.com/feed/", "crypto", "a16z Crypto"),
-        # Finance
-        FeedConfig("https://www.cnbc.com/id/10001147/device/rss/rss.html", "finance", "CNBC"),
-        FeedConfig("https://feeds.bloomberg.com/technology/news.rss", "finance", "Bloomberg Tech"),
-        # Security
-        FeedConfig("https://krebsonsecurity.com/feed/", "security", "Krebs on Security"),
-        FeedConfig("https://blog.trailofbits.com/feed/", "security", "Trail of Bits"),
-        FeedConfig("https://www.schneier.com/feed/atom/", "security", "Schneier"),
-        # Dev/Tech
         FeedConfig("https://www.theverge.com/rss/index.xml", "dev", "The Verge"),
-        FeedConfig(
-            "https://feeds.arstechnica.com/arstechnica/technology-lab", "dev", "Ars Technica"
-        ),
-        FeedConfig("https://stackoverflow.blog/feed/", "dev", "Stack Overflow"),
-        FeedConfig("https://github.blog/feed/", "dev", "GitHub Blog"),
-        FeedConfig("https://engineering.fb.com/feed/", "dev", "Meta Engineering"),
-        FeedConfig("https://netflixtechblog.com/feed", "dev", "Netflix Tech"),
-        FeedConfig("https://blog.cloudflare.com/rss/", "dev", "Cloudflare"),
-        FeedConfig("https://aws.amazon.com/blogs/aws/feed/", "dev", "AWS Blog"),
     ]
+
+    @classmethod
+    def load_configured_feeds(cls) -> List[FeedConfig]:
+        """
+        Load the canonical feed list from config.yaml's top-level `feeds`.
+
+        Falls back to the legacy `trends.feeds` location, then to
+        FALLBACK_FEEDS if neither is present. Disabled feeds are dropped here
+        so they never reach the fetch loop. Config is re-read per construction,
+        so an edited config.yaml takes effect on process restart.
+        """
+        try:
+            config = load_config()
+            feeds_config = config.get("feeds", default=None) or config.get(
+                "trends", "feeds", default=None
+            )
+        except Exception as e:  # pragma: no cover - defensive, config is optional
+            logger.warning(f"Could not read feed config, using fallback feeds: {e}")
+            return list(cls.FALLBACK_FEEDS)
+
+        if not feeds_config:
+            logger.warning(
+                f"No `feeds` section in config.yaml; using {len(cls.FALLBACK_FEEDS)} fallback feeds"
+            )
+            return list(cls.FALLBACK_FEEDS)
+
+        # A hand-edited `feeds:` that is a flat list or a scalar would otherwise
+        # raise AttributeError out of __init__ and take down SignalAggregator
+        # construction — i.e. every adapter, not just this one.
+        if not isinstance(feeds_config, dict):
+            logger.warning(
+                "`feeds` in config.yaml must be a mapping of category -> list of feeds, got "
+                f"{type(feeds_config).__name__}; using {len(cls.FALLBACK_FEEDS)} fallback feeds"
+            )
+            return list(cls.FALLBACK_FEEDS)
+
+        feeds: List[FeedConfig] = []
+        disabled = 0
+        for category, entries in feeds_config.items():
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                try:
+                    if not entry.get("enabled", True):
+                        disabled += 1
+                        continue
+                    feeds.append(
+                        FeedConfig(
+                            url=entry["url"],
+                            category=category,
+                            name=entry.get("name", entry["url"]),
+                        )
+                    )
+                except (AttributeError, KeyError, TypeError) as e:
+                    logger.warning(f"Invalid feed config in category '{category}': {e}")
+
+        if not feeds:
+            logger.warning("Feed config contained no usable feeds; using fallback feeds")
+            return list(cls.FALLBACK_FEEDS)
+
+        logger.info(f"Loaded {len(feeds)} RSS feeds from config ({disabled} disabled)")
+        return feeds
 
     def __init__(
         self,
@@ -94,7 +127,9 @@ class RSSAdapter(BaseAdapter):
         custom_feeds: Optional[List[Dict[str, str]]] = None,
     ):
         super().__init__(config or AdapterConfig(timeout=60))
-        self.feeds = feeds or self.DEFAULT_FEEDS
+        # list() so custom_feeds below can never mutate a caller's list or a
+        # class-level default.
+        self.feeds = list(feeds) if feeds else self.load_configured_feeds()
 
         # Add custom feeds if provided
         if custom_feeds:

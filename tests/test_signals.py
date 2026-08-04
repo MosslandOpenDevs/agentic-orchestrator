@@ -430,3 +430,184 @@ class TestSignalAggregation:
                 unique.append(signal)
 
         assert len(unique) == 2
+
+
+class TestCanonicalFeedConfig:
+    """
+    Tests for the single canonical RSS feed list (v0.6.11).
+
+    Before 0.6.11 signal collection used 32 feeds hardcoded in
+    adapters/rss.py while trend analysis used 16 feeds in config.yaml.
+    Both now read the top-level ``feeds`` section of config.yaml.
+    """
+
+    @staticmethod
+    def _write_config(tmp_path, body: str):
+        (tmp_path / "config.yaml").write_text(body)
+
+    def test_adapter_loads_feeds_from_config(self, tmp_path, monkeypatch):
+        """RSSAdapter reads the canonical top-level `feeds` section."""
+        from agentic_orchestrator.adapters.rss import RSSAdapter
+
+        self._write_config(
+            tmp_path,
+            "feeds:\n"
+            "  ai:\n"
+            '    - name: "Test AI"\n'
+            '      url: "https://example.com/ai.xml"\n'
+            "  dev:\n"
+            '    - name: "Test Dev"\n'
+            '      url: "https://example.com/dev.xml"\n',
+        )
+        monkeypatch.chdir(tmp_path)
+
+        feeds = RSSAdapter().feeds
+        assert {(f.name, f.category) for f in feeds} == {
+            ("Test AI", "ai"),
+            ("Test Dev", "dev"),
+        }
+
+    def test_disabled_feeds_are_skipped(self, tmp_path, monkeypatch):
+        """`enabled: false` feeds never reach the fetch loop."""
+        from agentic_orchestrator.adapters.rss import RSSAdapter
+        from agentic_orchestrator.trends.feeds import FeedFetcher
+
+        self._write_config(
+            tmp_path,
+            "feeds:\n"
+            "  crypto:\n"
+            '    - name: "Live"\n'
+            '      url: "https://example.com/live.xml"\n'
+            '    - name: "Dead"\n'
+            '      url: "https://example.com/dead.xml"\n'
+            "      enabled: false\n",
+        )
+        monkeypatch.chdir(tmp_path)
+
+        assert [f.name for f in RSSAdapter().feeds] == ["Live"]
+        assert [f.name for f in FeedFetcher().feed_configs] == ["Live"]
+
+    def test_both_consumers_load_the_same_feeds(self, tmp_path, monkeypatch):
+        """Signal collection and trend analysis must not diverge again."""
+        from agentic_orchestrator.adapters.rss import RSSAdapter
+        from agentic_orchestrator.trends.feeds import FeedFetcher
+
+        self._write_config(
+            tmp_path,
+            "feeds:\n"
+            "  ai:\n"
+            '    - name: "Shared A"\n'
+            '      url: "https://example.com/a.xml"\n'
+            "  security:\n"
+            '    - name: "Shared B"\n'
+            '      url: "https://example.com/b.xml"\n',
+        )
+        monkeypatch.chdir(tmp_path)
+
+        adapter_feeds = {(f.name, f.url, f.category) for f in RSSAdapter().feeds}
+        trend_feeds = {(f.name, f.url, f.category) for f in FeedFetcher().feed_configs}
+        assert adapter_feeds == trend_feeds
+
+    def test_legacy_trends_feeds_still_read(self, tmp_path, monkeypatch):
+        """Deployments with a pre-0.6.11 config.yaml keep working."""
+        from agentic_orchestrator.adapters.rss import RSSAdapter
+
+        self._write_config(
+            tmp_path,
+            "trends:\n"
+            "  feeds:\n"
+            "    ai:\n"
+            '      - name: "Legacy"\n'
+            '        url: "https://example.com/legacy.xml"\n',
+        )
+        monkeypatch.chdir(tmp_path)
+
+        assert [f.name for f in RSSAdapter().feeds] == ["Legacy"]
+
+    def test_falls_back_when_config_missing(self, tmp_path, monkeypatch):
+        """A missing config.yaml degrades to the built-in fallback feeds."""
+        from agentic_orchestrator.adapters.rss import RSSAdapter
+
+        monkeypatch.chdir(tmp_path)
+
+        feeds = RSSAdapter().feeds
+        assert len(feeds) == len(RSSAdapter.FALLBACK_FEEDS)
+        assert all(f.url.startswith("https://") for f in feeds)
+
+    def test_malformed_feeds_section_does_not_crash(self, tmp_path, monkeypatch):
+        """
+        A hand-edited `feeds:` of the wrong shape must degrade, not raise.
+
+        An uncaught AttributeError here propagates out of RSSAdapter.__init__
+        into SignalAggregator construction, which would stop all 11 adapters
+        from collecting — not just RSS.
+        """
+        from agentic_orchestrator.adapters.rss import RSSAdapter
+        from agentic_orchestrator.trends.feeds import FeedFetcher
+
+        # Flat list instead of category -> list mapping.
+        self._write_config(
+            tmp_path,
+            "feeds:\n" '  - name: "Flat"\n' '    url: "https://example.com/flat.xml"\n',
+        )
+        monkeypatch.chdir(tmp_path)
+
+        assert len(RSSAdapter().feeds) == len(RSSAdapter.FALLBACK_FEEDS)
+        assert FeedFetcher().feed_configs == []
+
+    def test_scalar_feeds_section_does_not_crash(self, tmp_path, monkeypatch):
+        """Same guard, for a scalar `feeds:` value."""
+        from agentic_orchestrator.adapters.rss import RSSAdapter
+        from agentic_orchestrator.trends.feeds import FeedFetcher
+
+        self._write_config(tmp_path, 'feeds: "see the docs"\n')
+        monkeypatch.chdir(tmp_path)
+
+        assert len(RSSAdapter().feeds) == len(RSSAdapter.FALLBACK_FEEDS)
+        assert FeedFetcher().feed_configs == []
+
+    def test_aggregator_survives_malformed_feeds(self, tmp_path, monkeypatch):
+        """The whole adapter fleet still constructs when `feeds:` is malformed."""
+        from agentic_orchestrator.signals.aggregator import SignalAggregator
+
+        self._write_config(
+            tmp_path,
+            "feeds:\n" '  - name: "Flat"\n' '    url: "https://example.com/flat.xml"\n',
+        )
+        monkeypatch.chdir(tmp_path)
+
+        aggregator = SignalAggregator()
+        assert len(aggregator.adapters) == 11
+
+    def test_custom_feeds_do_not_mutate_shared_lists(self, tmp_path, monkeypatch):
+        """custom_feeds must not leak into other adapter instances."""
+        from agentic_orchestrator.adapters.rss import RSSAdapter
+
+        monkeypatch.chdir(tmp_path)
+        before = len(RSSAdapter.FALLBACK_FEEDS)
+
+        with_custom = RSSAdapter(
+            custom_feeds=[{"url": "https://example.com/custom.xml", "name": "Custom"}]
+        )
+        plain = RSSAdapter()
+
+        assert any(f.name == "Custom" for f in with_custom.feeds)
+        assert not any(f.name == "Custom" for f in plain.feeds)
+        assert len(RSSAdapter.FALLBACK_FEEDS) == before
+
+    def test_shipped_config_feeds_are_valid(self):
+        """The repo's own config.yaml parses into usable feeds."""
+        from pathlib import Path
+
+        import yaml
+
+        config_path = Path(__file__).resolve().parent.parent / "config.yaml"
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+
+        assert "feeds" in config, "top-level `feeds` section is the canonical source"
+        entries = [e for feeds in config["feeds"].values() for e in feeds]
+        assert entries
+        for entry in entries:
+            assert entry["name"]
+            assert entry["url"].startswith("https://")

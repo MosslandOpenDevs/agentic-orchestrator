@@ -7,6 +7,26 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 이 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)를 기반으로 하며,
 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
+## [0.6.11] - 2026-08-04
+
+### 변경
+- **RSS 피드 리스트를 하나로 통합.** 시그널 수집과 트렌드 분석이 서로 다른, 조용히 표류하던 두 리스트를 읽고 있었다: `config.yaml`의 `trends.feeds`(16개)는 트렌드 경로(`trends/feeds.py`)만 사용했고, 실제 시그널 수집은 `adapters/rss.py`의 `DEFAULT_FEEDS`에 하드코딩된 32개를 사용했다 (`signals/aggregator.py`가 `RSSAdapter()`를 `feeds=` 인자 없이 생성하기 때문). 이제 합집합(35개 항목)이 **`config.yaml`의 새 최상위 `feeds:` 섹션**에 있고 두 소비자가 이 하나를 읽는다. 피드 추가·수정·비활성화에 코드 변경이나 재배포가 필요 없다.
+  - `RSSAdapter.DEFAULT_FEEDS`는 `RSSAdapter.load_configured_feeds()`와, 설정을 전혀 읽을 수 없을 때만 쓰는 5개짜리 `FALLBACK_FEEDS`로 대체 (사용 시 경고 로그). 구버전 `trends.feeds` 위치도 deprecation 경고와 함께 계속 읽으므로, 로컬 수정된 `config.yaml`을 쓰는 배포도 그대로 동작한다.
+  - 피드 항목에 `enabled: false`를 쓸 수 있고, 두 소비자 모두 로드 시점에 걸러내므로 비활성 피드는 fetch 루프까지 가지 않는다.
+  - 병합 과정에서 `config.yaml`에만 있던 살아 있는 소스 2개(arXiv AI, The Hacker News)가 추가됐고, 두 리스트가 서로 다른 URL로 담고 있던 호스트 8개를 정리했다. Hacker News는 양쪽이 서로 다른 호스트(`hnrss.org` 미러 vs 공식 `news.ycombinator.com`)로 갖고 있어 공식 쪽만 남겼다. 범위가 다른 경우 주제 특화 피드를 채택 (예: TechCrunch 전체 대신 TechCrunch AI).
+- **죽은 피드 4개는 삭제 대신 비활성화**하고 관측된 실패를 주석으로 기록: Chainlink(200이지만 HTML 페이지로 리다이렉트), Polygon(404), Paradigm(525), a16z Crypto(404). 넷 다 하드코딩 리스트에 있어 30분마다 매 시그널 수집에서 실패하고 있었다. 발행처가 제공하는 대체 피드는 없음 (2026-08-04 확인).
+
+### 수정
+- **잘못된 형태의 `feeds:` 섹션이 시그널 수집 전체를 죽이지 않도록 강등 처리.** `RSSAdapter`가 `SignalAggregator._default_adapters()` 안에서 생성되기 때문에, 피드 로더에서 난 `AttributeError`가 `SignalAggregator()` 생성 자체를 실패시켰다. 즉 `feeds:`를 플랫 리스트나 스칼라로 쓰면(이제 운영자에게 편집하라고 안내하는 바로 그 파일에서 충분히 나올 수 있는 실수) RSS뿐 아니라 **11개 어댑터 전체**가 30분마다 아무 신호도 수집하지 못했다. 이제 두 소비자 모두 매핑이 아닌 `feeds:`를 경고와 함께 거부하고 fallback으로 강등한다 — 읽을 수 없거나 문법이 깨진 config에 대해 이미 지키고 있던 로더의 계약과 동일하게 맞췄다.
+- **`custom_feeds`가 공유 리스트를 변경하던 문제.** `RSSAdapter.__init__`이 `self.feeds = feeds or self.DEFAULT_FEEDS`로 참조를 잡은 뒤 `custom_feeds`를 append해, 클래스 레벨 기본값(또는 호출자의 리스트)을 프로세스 수명 내내 오염시켰다. 이제 append 전에 복사한다.
+
+### 문서
+- **CLAUDE.md 정확성 점검** (#1935의 README 점검과 동일한 작업):
+  - 프로젝트 구조 트리가 시그널 어댑터를 `signals/adapters/`에 두고 있었으나 실제 위치는 `src/agentic_orchestrator/adapters/`다. 실제 레이아웃으로 수정하고, 문서에 없던 `trends/` 패키지도 추가했다.
+  - `rss.py`를 "RSS 피드 (28개 소스)"로 설명했으나 이 숫자는 두 리스트 어느 쪽과도 맞지 않았다.
+  - **페르소나 풀 정원과 라운드당 참여 인원의 구분을 명시**했다 (CLAUDE.md·README 양쪽). `personas/catalog.py`는 16/8/10(총 34명) 풀을 정의하고, `config.yaml`의 `debate.normal`은 라운드당 8/4/3명을 돌리며, `multi_stage.py`의 `_select_agents_for_round()`가 매 라운드 성격 균형을 맞춘 부분집합을 뽑는다. 두 숫자 모두 옳지만 한쪽만 적어두어 두 문서가 서로 모순돼 보였다.
+- CLAUDE.md에 `## RSS 피드 소스` 섹션 신설 — 단일 소스 계약, 피드별 키, 리스트가 갈라져 있던 배경 정리.
+
 ## [0.6.10] - 2026-07-02
 
 ### 수정
