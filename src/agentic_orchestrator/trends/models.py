@@ -142,13 +142,14 @@ class FeedConfig:
     """
     Configuration for a single RSS feed.
 
-    Loaded from config.yaml trends.feeds section.
+    Loaded from the canonical top-level config.yaml `feeds` section.
     """
 
     name: str
     url: str
     category: str
     weight: float = 1.0  # Optional weight for trend scoring
+    enabled: bool = True
 
     @classmethod
     def from_dict(cls, data: dict, category: str) -> "FeedConfig":
@@ -158,4 +159,5 @@ class FeedConfig:
             url=data["url"],
             category=category,
             weight=data.get("weight", 1.0),
+            enabled=data.get("enabled", True),
         )

@@ -7,6 +7,26 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.11] - 2026-08-04
+
+### Changed
+- **One canonical RSS feed list.** Signal collection and trend analysis were reading two different, silently diverging lists: `config.yaml` `trends.feeds` (16 feeds) fed only the trend path (`trends/feeds.py`), while signal collection used 32 feeds hardcoded in `adapters/rss.py` `DEFAULT_FEEDS`, because `signals/aggregator.py` constructs `RSSAdapter()` with no `feeds=` argument. The merged union (35 entries) now lives in a new **top-level `feeds:` section of `config.yaml`**, which both consumers read. Feeds can be added, fixed, or disabled without a code change or redeploy.
+  - `RSSAdapter.DEFAULT_FEEDS` is replaced by `RSSAdapter.load_configured_feeds()` plus a 5-feed `FALLBACK_FEEDS` used only when no config can be read (logged as a warning). The legacy `trends.feeds` location is still read as a fallback, with a deprecation warning, so a deployment carrying a locally modified `config.yaml` keeps working.
+  - Feed entries accept `enabled: false`, honoured by both consumers at load time so disabled feeds never reach the fetch loop.
+  - Merging added 2 live sources that existed only in `config.yaml` (arXiv AI, The Hacker News) and de-duplicated 8 hosts the two lists carried under different URLs — including Hacker News, which both lists had via different hosts (`hnrss.org` mirror vs the official `news.ycombinator.com`; the official one was kept). Where the two disagreed on scope, the topic-specific feed was kept (e.g. TechCrunch AI over TechCrunch all).
+- **4 dead feeds disabled rather than deleted**, with the observed failure recorded inline: Chainlink (200 but redirects to an HTML page), Polygon (404), Paradigm (525), a16z Crypto (404). All four were in the hardcoded list and had been fetched — and failing — on every 30-minute signal run. No publisher-provided replacement feed exists; verified 2026-08-04.
+
+### Fixed
+- **A malformed `feeds:` section degrades instead of taking down signal collection.** Because `RSSAdapter` is constructed inside `SignalAggregator._default_adapters()`, an `AttributeError` from the feed loader propagated out of `SignalAggregator()` itself — so a `feeds:` written as a flat list or a scalar (a plausible hand-edit of the very file operators are now told to edit) would have stopped **all 11 adapters** from collecting, not just RSS, on every 30-minute cycle. Both consumers now reject a non-mapping `feeds:` with a warning and fall back, matching the loader's documented contract, which already degraded gracefully for an unreadable or syntactically broken config.
+- **`custom_feeds` no longer mutates a shared list.** `RSSAdapter.__init__` assigned `self.feeds = feeds or self.DEFAULT_FEEDS` and then appended `custom_feeds` to it, mutating the class-level default (or the caller's list) for the lifetime of the process. The feed list is now copied before appending.
+
+### Documentation
+- **CLAUDE.md accuracy pass**, matching the README pass in #1935:
+  - Its project-structure tree placed the signal adapters at `signals/adapters/`; the real location is `src/agentic_orchestrator/adapters/`. The tree now shows the actual layout, including the previously undocumented `trends/` package.
+  - `rss.py` was described as "RSS 피드 (28개 소스)" — a number that matched neither list.
+  - **Persona pool size vs agents-per-round is now stated explicitly** in both CLAUDE.md and the READMEs. `personas/catalog.py` defines pools of 16/8/10 (34 total) while `config.yaml` `debate.normal` runs 8/4/3 per round, `multi_stage.py` `_select_agents_for_round()` drawing a diversity-balanced subset each round. Both numbers are correct; documenting only one made the two documents look contradictory.
+- New `## RSS 피드 소스` section in CLAUDE.md documenting the canonical `feeds:` contract, the per-feed keys, and why the split existed.
+
 ## [0.6.10] - 2026-07-02
 
 ### Fixed
