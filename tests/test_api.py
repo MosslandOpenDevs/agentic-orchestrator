@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from agentic_orchestrator import __version__
 from agentic_orchestrator.api.main import app, get_session
 from agentic_orchestrator.db.models import (
     Base,
@@ -211,7 +212,8 @@ class TestHealthEndpoint:
         data = response.json()
         assert data["status"] == "healthy"
         assert "timestamp" in data
-        assert data["version"] == "0.5.0"
+        # Track the package version rather than a literal, which had drifted.
+        assert data["version"] == __version__
 
 
 class TestRootEndpoint:
@@ -500,3 +502,229 @@ class TestAgentsEndpoint:
         assert data["total"] == 10
         for agent in data["agents"]:
             assert agent["phase"] == "planning"
+
+
+class TestLiteralRouteOrdering:
+    """Literal paths must out-rank their parameterized siblings.
+
+    Starlette matches routes in registration order, so a literal route declared
+    *after* a same-prefix parameterized route is unreachable: ``/signals/timeline``
+    silently binds ``signal_id="timeline"``. These tests assert the intended
+    payload shape, which is what actually distinguishes the two handlers.
+    """
+
+    def test_signals_timeline_reaches_timeline_handler(self, client, sample_signals):
+        """GET /signals/timeline must not bind signal_id='timeline'."""
+        response = client.get("/signals/timeline?period=24h")
+        assert response.status_code == 200
+
+        data = response.json()
+        # Timeline shape, not the single-signal shape.
+        assert set(data) >= {"slots", "total", "period", "timestamp"}
+        assert "sentiment" not in data
+        assert data["period"] == "24h"
+        assert len(data["slots"]) == 24
+        for slot in data["slots"]:
+            assert set(slot) == {"label", "count", "hour"}
+
+        # Cover the numbers the widget draws, not just the shape: all three
+        # sample signals were collected now, so they must all be counted once.
+        assert data["total"] == len(sample_signals)
+        assert sum(s["count"] for s in data["slots"]) == len(sample_signals)
+
+    def test_signals_timeline_7d_period(self, client, sample_signals):
+        """The 7d period returns seven daily slots, not a signal detail."""
+        response = client.get("/signals/timeline?period=7d")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["period"] == "7d"
+        assert len(data["slots"]) == 7
+        for slot in data["slots"]:
+            assert set(slot) == {"label", "count"}
+
+        assert data["total"] == len(sample_signals)
+        assert sum(s["count"] for s in data["slots"]) == len(sample_signals)
+
+    def test_signals_detail_still_routes(self, client, sample_signals):
+        """Moving the literal route must not break /signals/{signal_id}."""
+        response = client.get(f"/signals/{sample_signals[0].id}")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["id"] == sample_signals[0].id
+        assert data["title"] == "Bitcoin hits new high"
+
+    def test_signals_unknown_id_still_404s(self, client):
+        response = client.get("/signals/does-not-exist")
+        assert response.status_code == 404
+
+    def test_plans_pending_approval_reaches_list_handler(self, client, sample_plans):
+        """GET /plans/pending-approval must not bind plan_id='pending-approval'."""
+        response = client.get("/plans/pending-approval")
+        assert response.status_code == 200
+
+        data = response.json()
+        # List shape, not the single-plan shape.
+        assert set(data) >= {"plans", "total", "message"}
+        assert "prd_content" not in data
+        assert isinstance(data["plans"], list)
+
+        # sample_plans creates one draft plan, which is pending approval.
+        assert data["total"] == 1
+        assert data["plans"][0]["id"] == sample_plans[0].id
+        assert data["plans"][0]["status"] == "draft"
+
+    def test_plans_pending_approval_excludes_approved(self, client, test_db, sample_plans):
+        """Only draft plans are pending approval."""
+        sample_plans[0].status = "approved"
+        test_db.commit()
+
+        response = client.get("/plans/pending-approval")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["total"] == 0
+        assert data["plans"] == []
+
+    def test_plan_detail_still_routes(self, client, sample_plans):
+        """Moving the literal route must not break /plans/{plan_id}."""
+        response = client.get(f"/plans/{sample_plans[0].id}")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["id"] == sample_plans[0].id
+        assert data["title"] == "DeFi Dashboard Plan"
+        assert data["prd_content"] == "Product requirements..."
+
+    def test_plans_unknown_id_still_404s(self, client):
+        response = client.get("/plans/does-not-exist")
+        assert response.status_code == 404
+
+    def test_no_literal_route_is_shadowed(self):
+        """Guard against future regressions of the same class.
+
+        Any literal path segment must be registered before a parameterized
+        sibling that would swallow it.
+        """
+        from agentic_orchestrator.api.main import app
+
+        seen: list[tuple[tuple[str, ...], set]] = []
+        shadowed: list[str] = []
+
+        for route in app.routes:
+            path = getattr(route, "path", None)
+            if path is None:
+                continue
+            methods = set(getattr(route, "methods", None) or ())
+            parts = tuple(path.strip("/").split("/"))
+            for earlier, earlier_methods in seen:
+                if len(earlier) != len(parts):
+                    continue
+                # Starlette keeps scanning past a path match whose method does not
+                # match, so routes sharing no verb can never shadow one another.
+                if not (earlier_methods & methods):
+                    continue
+                # An earlier route shadows this one when every segment either
+                # matches exactly or is a parameter capturing a literal.
+                if (
+                    all(
+                        e == p or (e.startswith("{") and not p.startswith("{"))
+                        for e, p in zip(earlier, parts, strict=True)
+                    )
+                    and earlier != parts
+                ):
+                    shadowed.append(f"{path} is shadowed by /{'/'.join(earlier)}")
+            seen.append((parts, methods))
+
+        assert not shadowed, "Unreachable routes: " + "; ".join(shadowed)
+
+
+class TestVersionReporting:
+    """The API version must track pyproject.toml, not a hand-copied literal."""
+
+    def test_health_version_matches_package(self, client):
+        from agentic_orchestrator import __version__
+
+        response = client.get("/health")
+        assert response.status_code == 200
+        assert response.json()["version"] == __version__
+
+    def test_root_version_matches_package(self, client):
+        from agentic_orchestrator import __version__
+
+        response = client.get("/")
+        assert response.status_code == 200
+        assert response.json()["version"] == __version__
+
+    def test_openapi_version_matches_package(self, client):
+        from agentic_orchestrator import __version__
+
+        response = client.get("/openapi.json")
+        assert response.status_code == 200
+        assert response.json()["info"]["version"] == __version__
+
+    def test_package_version_matches_pyproject(self):
+        """__version__ is resolved from installed metadata, not hard-coded."""
+        import tomllib
+        from pathlib import Path
+
+        pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+        declared = tomllib.loads(pyproject.read_text())["project"]["version"]
+        assert __version__ == declared, (
+            f"package metadata reports {__version__!r} but pyproject.toml declares "
+            f"{declared!r}. If you just bumped the version, refresh the editable "
+            f'install: pip install -e ".[dev]"'
+        )
+
+
+@pytest.fixture
+def stub_adapter_health(monkeypatch):
+    """Keep /adapters tests hermetic.
+
+    The handler probes ``health_check()`` on every adapter, and several of those
+    (GitHub, DefiLlama, Hacker News, Coingecko, Lens, Discord) issue real outbound
+    HTTP with a 10s timeout. Left live, these tests would hit third-party APIs on
+    every run — slow and flaky offline, and rate-limited on shared CI IPs. The
+    assertions here are about the adapter *listing*, which needs no live probe.
+    """
+    from agentic_orchestrator import adapters as adapters_pkg
+
+    async def _fake_health_check(self):
+        return {"status": "stubbed", "last_fetch": None}
+
+    for name in adapters_pkg.__all__:
+        obj = getattr(adapters_pkg, name)
+        if isinstance(obj, type) and issubclass(obj, adapters_pkg.BaseAdapter):
+            monkeypatch.setattr(obj, "health_check", _fake_health_check, raising=False)
+
+
+class TestAdaptersEndpoint:
+    """/adapters must enumerate every adapter the aggregator registers."""
+
+    def test_adapters_match_aggregator_registration(self, client, stub_adapter_health):
+        from agentic_orchestrator.signals.aggregator import SignalAggregator
+
+        response = client.get("/adapters")
+        assert response.status_code == 200
+        data = response.json()
+
+        exposed = {a["name"] for a in data["adapters"]}
+        registered = {a.name for a in SignalAggregator()._default_adapters()}
+
+        assert exposed == registered, f"missing from /adapters: {registered - exposed}"
+        assert data["total"] == len(registered)
+
+    def test_coingecko_adapter_is_exposed(self, client, stub_adapter_health):
+        """Regression: CoingeckoAdapter was registered but never listed."""
+        response = client.get("/adapters")
+        assert response.status_code == 200
+
+        adapters = {a["name"]: a for a in response.json()["adapters"]}
+        assert "coingecko" in adapters
+
+        coingecko = adapters["coingecko"]
+        assert coingecko["category"] == "crypto"
+        # TRACKED_COINS must feed the shared sources/source_count contract.
+        assert coingecko["source_count"] > 0
+        assert len(coingecko["sources"]) == coingecko["source_count"]

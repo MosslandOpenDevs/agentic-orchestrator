@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from .. import __version__
 from ..timeutil import utcnow
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="MOSS.AO API",
     description="Mossland Agentic Orchestrator API",
-    version="0.5.0",
+    version=__version__,
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
@@ -176,7 +177,7 @@ async def health_check():
     return HealthResponse(
         status="healthy",
         timestamp=utcnow().isoformat(),
-        version="0.5.0",
+        version=__version__,
     )
 
 
@@ -237,6 +238,84 @@ async def system_status(session: Session = Depends(get_session)):
         },
         stats=stats,
     )
+
+
+@app.get("/signals/timeline")
+async def get_signals_timeline(
+    period: str = Query(default="24h", pattern="^(24h|7d)$"),
+    session: Session = Depends(get_session),
+):
+    """Get signal collection timeline for visualization.
+
+    Returns hourly counts for 24h or daily counts for 7d period.
+    """
+    from datetime import timedelta
+
+    from sqlalchemy import extract, func
+
+    from ..db.models import Signal
+
+    now = utcnow()
+
+    if period == "24h":
+        # Get hourly counts for last 24 hours
+        start_time = now - timedelta(hours=24)
+        results = (
+            session.query(
+                extract("hour", Signal.collected_at).label("hour"),
+                func.count(Signal.id).label("count"),
+            )
+            .filter(Signal.collected_at >= start_time)
+            .group_by(extract("hour", Signal.collected_at))
+            .all()
+        )
+
+        # Build hourly slots
+        hour_counts = {int(r.hour): r.count for r in results}
+        slots = []
+        for i in range(24):
+            hour = (now.hour - 23 + i) % 24
+            slots.append(
+                {
+                    "label": f"{hour:02d}:00",
+                    "count": hour_counts.get(hour, 0),
+                    "hour": hour,
+                }
+            )
+    else:
+        # Get daily counts for last 7 days
+        start_time = now - timedelta(days=7)
+        results = (
+            session.query(
+                func.date(Signal.collected_at).label("date"), func.count(Signal.id).label("count")
+            )
+            .filter(Signal.collected_at >= start_time)
+            .group_by(func.date(Signal.collected_at))
+            .all()
+        )
+
+        # Build daily slots
+        date_counts = {str(r.date): r.count for r in results}
+        days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        slots = []
+        for i in range(7):
+            date = now - timedelta(days=6 - i)
+            date_str = date.strftime("%Y-%m-%d")
+            slots.append(
+                {
+                    "label": days[date.weekday()],
+                    "count": date_counts.get(date_str, 0),
+                }
+            )
+
+    total = sum(s["count"] for s in slots)
+
+    return {
+        "slots": slots,
+        "total": total,
+        "period": period,
+        "timestamp": now.isoformat(),
+    }
 
 
 @app.get("/signals/{signal_id}")
@@ -642,6 +721,49 @@ async def get_plans(
     }
 
 
+@app.get("/plans/pending-approval")
+async def get_pending_approval_plans(
+    limit: int = Query(default=20, le=100),
+    session: Session = Depends(get_session),
+):
+    """
+    Get plans that are pending approval (draft status, not yet approved).
+
+    These are typically lower-scoring plans (score < 8.0) that weren't auto-approved.
+    Users can manually approve these via POST /plans/{plan_id}/approve.
+    """
+    plan_repo = PlanRepository(session)
+
+    # Get draft plans
+    plans = plan_repo.get_by_status("draft", limit=limit)
+
+    # Get idea scores for context
+    idea_repo = IdeaRepository(session)
+
+    result = []
+    for plan in plans:
+        plan_dict = plan.to_dict()
+
+        # Get associated idea score if available
+        if plan.idea_id:
+            idea = idea_repo.get_by_id(plan.idea_id)
+            if idea:
+                plan_dict["idea_score"] = idea.score
+                plan_dict["idea_title"] = idea.title
+
+        # Check if auto-approval threshold info is available
+        if plan.extra_metadata:
+            plan_dict["promotion_score"] = plan.extra_metadata.get("promotion_score")
+
+        result.append(plan_dict)
+
+    return {
+        "plans": result,
+        "total": len(result),
+        "message": "These plans are pending approval. Use POST /plans/{plan_id}/approve to approve.",
+    }
+
+
 @app.get("/plans/{plan_id}")
 async def get_plan_detail(
     plan_id: str,
@@ -858,6 +980,7 @@ async def get_adapters():
     """Get detailed signal adapter information."""
 
     from ..adapters import (
+        CoingeckoAdapter,
         DiscordAdapter,
         FarcasterAdapter,
         GitHubEventsAdapter,
@@ -929,6 +1052,12 @@ async def get_adapters():
             "description_en": "Farcaster/Warpcast (10 users, 10 channels)",
         },
         {
+            "class": CoingeckoAdapter,
+            "category": "crypto",
+            "description": "Coingecko 시장 데이터, 급등/급락, 트렌딩 코인",
+            "description_en": "Coingecko market data, gainers/losers, trending coins",
+        },
+        {
             "class": ThreadsAdapter,
             "category": "social",
             "description": "Meta Threads 게시물 수집 (3개 계정)",
@@ -973,6 +1102,9 @@ async def get_adapters():
             elif hasattr(adapter, "TRACKED_SERVERS"):
                 info["sources"] = [s["name"] for s in adapter.TRACKED_SERVERS]
                 info["source_count"] = len(adapter.TRACKED_SERVERS)
+            elif hasattr(adapter, "TRACKED_COINS"):
+                info["sources"] = adapter.TRACKED_COINS
+                info["source_count"] = len(adapter.TRACKED_COINS)
 
             adapters_info.append(info)
 
@@ -1032,84 +1164,6 @@ async def get_agents(phase: Optional[str] = None):
     return {
         "agents": agents,
         "total": len(agents),
-    }
-
-
-@app.get("/signals/timeline")
-async def get_signals_timeline(
-    period: str = Query(default="24h", pattern="^(24h|7d)$"),
-    session: Session = Depends(get_session),
-):
-    """Get signal collection timeline for visualization.
-
-    Returns hourly counts for 24h or daily counts for 7d period.
-    """
-    from datetime import timedelta
-
-    from sqlalchemy import extract, func
-
-    from ..db.models import Signal
-
-    now = utcnow()
-
-    if period == "24h":
-        # Get hourly counts for last 24 hours
-        start_time = now - timedelta(hours=24)
-        results = (
-            session.query(
-                extract("hour", Signal.collected_at).label("hour"),
-                func.count(Signal.id).label("count"),
-            )
-            .filter(Signal.collected_at >= start_time)
-            .group_by(extract("hour", Signal.collected_at))
-            .all()
-        )
-
-        # Build hourly slots
-        hour_counts = {int(r.hour): r.count for r in results}
-        slots = []
-        for i in range(24):
-            hour = (now.hour - 23 + i) % 24
-            slots.append(
-                {
-                    "label": f"{hour:02d}:00",
-                    "count": hour_counts.get(hour, 0),
-                    "hour": hour,
-                }
-            )
-    else:
-        # Get daily counts for last 7 days
-        start_time = now - timedelta(days=7)
-        results = (
-            session.query(
-                func.date(Signal.collected_at).label("date"), func.count(Signal.id).label("count")
-            )
-            .filter(Signal.collected_at >= start_time)
-            .group_by(func.date(Signal.collected_at))
-            .all()
-        )
-
-        # Build daily slots
-        date_counts = {str(r.date): r.count for r in results}
-        days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        slots = []
-        for i in range(7):
-            date = now - timedelta(days=6 - i)
-            date_str = date.strftime("%Y-%m-%d")
-            slots.append(
-                {
-                    "label": days[date.weekday()],
-                    "count": date_counts.get(date_str, 0),
-                }
-            )
-
-    total = sum(s["count"] for s in slots)
-
-    return {
-        "slots": slots,
-        "total": total,
-        "period": period,
-        "timestamp": now.isoformat(),
     }
 
 
@@ -1301,7 +1355,7 @@ async def root():
     """API root endpoint."""
     return {
         "name": "MOSS.AO API",
-        "version": "0.6.0",
+        "version": __version__,
         "description": "Mossland Agentic Orchestrator API",
         "endpoints": {
             "health": "/health",
@@ -1689,46 +1743,3 @@ async def approve_plan(
         message=message,
         job_id=job_id,
     )
-
-
-@app.get("/plans/pending-approval")
-async def get_pending_approval_plans(
-    limit: int = Query(default=20, le=100),
-    session: Session = Depends(get_session),
-):
-    """
-    Get plans that are pending approval (draft status, not yet approved).
-
-    These are typically lower-scoring plans (score < 8.0) that weren't auto-approved.
-    Users can manually approve these via POST /plans/{plan_id}/approve.
-    """
-    plan_repo = PlanRepository(session)
-
-    # Get draft plans
-    plans = plan_repo.get_by_status("draft", limit=limit)
-
-    # Get idea scores for context
-    idea_repo = IdeaRepository(session)
-
-    result = []
-    for plan in plans:
-        plan_dict = plan.to_dict()
-
-        # Get associated idea score if available
-        if plan.idea_id:
-            idea = idea_repo.get_by_id(plan.idea_id)
-            if idea:
-                plan_dict["idea_score"] = idea.score
-                plan_dict["idea_title"] = idea.title
-
-        # Check if auto-approval threshold info is available
-        if plan.extra_metadata:
-            plan_dict["promotion_score"] = plan.extra_metadata.get("promotion_score")
-
-        result.append(plan_dict)
-
-    return {
-        "plans": result,
-        "total": len(result),
-        "message": "These plans are pending approval. Use POST /plans/{plan_id}/approve to approve.",
-    }

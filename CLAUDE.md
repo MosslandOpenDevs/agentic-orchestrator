@@ -147,15 +147,20 @@ agentic-orchestrator/
 
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
+| GET | `/` | API 인덱스 (버전, 엔드포인트 목록) |
+| GET | `/health` | API 헬스체크 (DB 미사용) |
 | GET | `/status` | 시스템 상태 및 통계 |
 | GET | `/signals` | 수집된 신호 목록 |
+| GET | `/signals/timeline` | 신호 수집 타임라인 (`period=24h\|7d`) |
 | GET | `/signals/{id}` | 시그널 상세 정보 |
 | GET | `/trends` | 분석된 트렌드 |
 | GET | `/ideas` | 아이디어 백로그 |
 | GET | `/ideas/{id}` | 아이디어 상세 |
+| GET | `/ideas/{id}/lineage` | 아이디어 계보 (시그널→트렌드→토론→플랜) |
 | GET | `/debates` | 토론 세션 목록 |
 | GET | `/debates/{id}` | 토론 상세 (메시지 포함) |
 | GET | `/plans` | 기획 문서 목록 |
+| GET | `/plans/pending-approval` | 승인 대기 중인 Draft 플랜 목록 |
 | GET | `/plans/{id}` | 기획 문서 상세 |
 | POST | `/plans/{id}/generate-project` | Plan에서 프로젝트 생성 (비동기) |
 | GET | `/plans/{id}/project` | Plan의 프로젝트 조회 |
@@ -163,11 +168,18 @@ agentic-orchestrator/
 | GET | `/projects/{id}` | 프로젝트 상세 |
 | GET | `/jobs/{id}` | 비동기 작업 상태 조회 |
 | POST | `/plans/{id}/approve` | Draft 플랜 수동 승인 (generate_project=true로 즉시 프로젝트 생성 가능) |
-| GET | `/plans/pending-approval` | 승인 대기 중인 Draft 플랜 목록 |
 | GET | `/agents` | 에이전트 목록 |
 | GET | `/adapters` | 시그널 어댑터 목록 및 상태 |
+| GET | `/pipeline/live` | 실시간 파이프라인 상태 및 전환율 |
 | GET | `/usage` | API 사용량 통계 |
 | GET | `/activity` | 최근 활동 로그 (실제 DB 데이터 기반) |
+
+> **라우트 등록 순서 주의:** Starlette/FastAPI는 **등록 순서대로** 매칭하므로,
+> `/signals/timeline`처럼 리터럴 경로는 반드시 같은 접두사의 파라미터 라우트
+> (`/signals/{signal_id}`)보다 **먼저** 선언해야 한다. 순서가 뒤바뀌면 리터럴
+> 라우트는 영구히 도달 불가능해지고 `signal_id="timeline"`으로 바인딩된다.
+> `tests/test_api.py::TestLiteralRouteOrdering::test_no_literal_route_is_shadowed`가
+> 전체 라우트 테이블을 검사해 이 회귀를 차단한다.
 
 ## 데이터베이스 스키마
 

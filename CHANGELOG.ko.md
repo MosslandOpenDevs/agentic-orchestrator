@@ -7,6 +7,23 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 이 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)를 기반으로 하며,
 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
+## [Unreleased]
+
+### 수정
+- **라우트 등록 순서 때문에 두 개의 API 라우트가 영구히 도달 불가능했음.** Starlette/FastAPI는 라우트를 **등록된 순서대로** 매칭하므로, 같은 접두사의 파라미터 라우트보다 *뒤에* 선언된 리터럴 경로에는 절대 도달할 수 없다:
+  - `GET /signals/timeline`이 `GET /signals/{signal_id}`보다 뒤에 등록되어, 모든 요청이 `signal_id="timeline"`으로 바인딩되고 `404 Signal not found`를 반환했다. 그 결과 System 페이지의 신호 타임라인 위젯(`website/src/app/system/page.tsx` → `components/visualization/SignalTimeline.tsx`, `getSignalTimeline()` 경유)은 한 번도 데이터를 렌더링한 적이 없었다.
+  - `GET /plans/pending-approval`이 `GET /plans/{plan_id}`보다 뒤에 등록되어, CLAUDE.md에 문서화된 수동 플랜 승인 워크플로우가 동작하지 않았다 (`404 Plan not found: pending-approval`).
+
+  이제 두 리터럴 라우트가 각각의 파라미터 라우트보다 앞에 온다. 핸들러 자체는 변경하지 않았고, 프론트엔드의 `SignalTimelineResponse` 타입은 이미 타임라인 핸들러의 응답 형태와 일치했다.
+- **`/adapters`가 `CoingeckoAdapter`를 누락**하여, `signals/aggregator.py`가 실제로 등록하는 11개 어댑터 중 10개만 노출했다. 이제 해당 어댑터도 열거되며, `TRACKED_COINS` 속성이 다른 어댑터들과 동일한 `sources`/`source_count` 계약에 연결된다.
+- **API 버전 문자열이 세 갈래로 드리프트**되어 있었다: `FastAPI(version=...)`와 `/health`는 `0.5.0`, `/`는 `0.6.0`, `cli --version`의 근거인 `__init__.py`는 `0.3.0`을 보고했으나 `pyproject.toml`은 `0.6.10`을 선언하고 있었다. 이제 `__version__`을 설치된 패키지 메타데이터에서 해석해 `pyproject.toml`을 단일 소스로 삼고, 세 곳의 API 호출부가 모두 이를 참조한다.
+
+### 테스트
+- `tests/test_api.py::TestLiteralRouteOrdering` 추가 — `/signals/timeline`과 `/plans/pending-approval`이 (단일 리소스 핸들러가 아닌) 의도된 응답 *형태*를 반환하는지, 파라미터 라우트가 여전히 정상 동작하고 알 수 없는 id에 404를 내는지 검증. 또한 등록된 모든 라우트를 순회해 리터럴 경로가 앞선 파라미터 라우트에 가려지면 실패하는 `test_no_literal_route_is_shadowed` 가드를 추가해 이 버그 유형의 재발을 차단.
+- `TestVersionReporting`(`/health`, `/`, `/openapi.json`, 패키지 메타데이터가 모두 `pyproject.toml`과 일치)과 `TestAdaptersEndpoint`(`/adapters` 목록이 aggregator 등록 집합과 동일해야 함) 추가.
+
+---
+
 ## [0.6.10] - 2026-07-02
 
 ### 수정

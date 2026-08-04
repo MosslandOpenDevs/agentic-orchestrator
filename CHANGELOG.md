@@ -7,6 +7,23 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Two API routes were permanently unreachable due to registration order.** Starlette/FastAPI matches routes in the order they are registered, so a literal path declared *after* a same-prefix parameterized route can never be reached:
+  - `GET /signals/timeline` was registered after `GET /signals/{signal_id}`, so every request bound `signal_id="timeline"` and returned `404 Signal not found`. The System page's signal timeline widget (`website/src/app/system/page.tsx` → `components/visualization/SignalTimeline.tsx`, via `getSignalTimeline()`) had therefore never rendered data.
+  - `GET /plans/pending-approval` was registered after `GET /plans/{plan_id}`, breaking the manual plan-approval workflow documented in CLAUDE.md — it returned `404 Plan not found: pending-approval`.
+
+  Both literal routes now precede their parameterized siblings. The handlers themselves are unchanged, and the frontend `SignalTimelineResponse` type already matched the payload the timeline handler emits.
+- **`/adapters` omitted `CoingeckoAdapter`**, listing 10 of the 11 adapters that `signals/aggregator.py` actually registers. The adapter is now enumerated, and its `TRACKED_COINS` attribute feeds the shared `sources`/`source_count` contract that the other adapters use.
+- **API version strings had drifted three ways**: `FastAPI(version=...)` and `/health` reported `0.5.0`, `/` reported `0.6.0`, and `__init__.py` (which backs `cli --version`) reported `0.3.0` — while `pyproject.toml` declared `0.6.10`. `__version__` is now resolved from installed package metadata, making `pyproject.toml` the single source of truth, and all three API call sites read from it.
+
+### Tests
+- Added `tests/test_api.py::TestLiteralRouteOrdering` — asserts `/signals/timeline` and `/plans/pending-approval` return their intended payload *shape* (not the single-resource handler's), that the parameterized siblings still route and still 404 on unknown ids, and a table-wide `test_no_literal_route_is_shadowed` guard that walks every registered route and fails if any literal path is shadowed by an earlier parameterized one — blocking this whole bug class from recurring.
+- Added `TestVersionReporting` (`/health`, `/`, `/openapi.json`, and package metadata all agree with `pyproject.toml`) and `TestAdaptersEndpoint` (the `/adapters` listing must equal the aggregator's registered set).
+
+---
+
 ## [0.6.10] - 2026-07-02
 
 ### Fixed
