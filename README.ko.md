@@ -9,10 +9,10 @@
 ## 주요 기능
 
 - **멀티 스테이지 토론**: 34개 AI 에이전트가 3단계(발산 → 수렴 → 기획)를 거쳐 토론
-- **다양한 시그널 소스**: RSS, GitHub Events, 온체인 데이터, 소셜 미디어, News API
+- **다양한 시그널 소스**: 11개 어댑터 — RSS, GitHub Events, 온체인 데이터, 소셜 미디어, News API, Twitter/X, Discord, Lens, Farcaster, Coingecko, Threads
 - **하이브리드 LLM 라우팅**: 로컬 Ollama 모델 + 클라우드 API 폴백 지능형 라우팅
 - **휴먼 인 더 루프**: 라벨 프로모션을 통해 개발할 아이디어를 사람이 선택
-- **PM2 스케줄링**: PM2를 통한 자동화된 작업 스케줄링 (시그널, 토론, 백로그, 헬스체크)
+- **PM2 스케줄링**: PM2를 통한 자동화된 작업 스케줄링 (시그널, 트렌드, 토론, 백로그, 헬스체크)
 - **CLI 스타일 대시보드**: https://ao.moss.land 레트로 터미널 테마 웹 인터페이스
 - **REST API**: 프로그래밍 방식 접근을 위한 FastAPI 백엔드
 - **DB 복원력**: 기동 시 스키마 자기치유, `/status` graceful degradation, 롤링 SQLite 백업(약 1일 주기, 7개 보관, 무결성 검사, 회귀 인지 보존) — DB 파일이 유실/비워져도 전체 엔드포인트가 죽는 대신 우아하게 강등
@@ -62,10 +62,10 @@ http://localhost:3000 에서 대시보드를 확인할 수 있습니다.
 │                             ▼                                            │
 │                  멀티 스테이지 토론 (34 에이전트)                          │
 │  ┌────────────────────────────────────────────────────────────────┐     │
-│  │ 1단계: 발산 (12 에이전트)                                        │     │
+│  │ 1단계: 발산 (16 에이전트)                                        │     │
 │  │   혁신가, 회의론자, 실용주의자, 비전가...                         │     │
 │  ├────────────────────────────────────────────────────────────────┤     │
-│  │ 2단계: 수렴 (12 에이전트)                                        │     │
+│  │ 2단계: 수렴 (8 에이전트)                                         │     │
 │  │   통합자, 평가자, 우선순위 결정자, 리스크 평가자...               │     │
 │  ├────────────────────────────────────────────────────────────────┤     │
 │  │ 3단계: 기획 (10 에이전트)                                        │     │
@@ -92,11 +92,10 @@ http://localhost:3000 에서 대시보드를 확인할 수 있습니다.
 git clone https://github.com/MosslandOpenDevs/agentic-orchestrator.git
 cd agentic-orchestrator
 
-# Python 가상환경 생성 (Python 3.12 필요)
+# Python 가상환경 생성 (Python 3.12 이상 필요)
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e .
-pip install uvicorn fastapi pyyaml
 
 # 환경 설정
 cp .env.example .env
@@ -108,6 +107,9 @@ cp .env.example .env
 ```bash
 # PM2 전역 설치
 npm install -g pm2
+
+# 대시보드 먼저 빌드 (moss-ao-web은 next start 실행이라 빌드 산출물 필요)
+cd website && pnpm install && pnpm build && cd ..
 
 # 모든 서비스 시작
 pm2 start ecosystem.config.js
@@ -169,21 +171,21 @@ FastAPI 백엔드는 REST API 접근을 제공합니다:
 
 ## 멀티 스테이지 토론 시스템
 
-### 1단계: 발산 (12 에이전트)
+### 1단계: 발산 (16 에이전트)
 다양한 아이디어와 관점 생성:
 - **혁신가**: 창의적 혁신 아이디어
 - **회의론자**: 비판적 분석 및 리스크 식별
 - **실용주의자**: 실용적 구현 중심
 - **비전가**: 장기 전략적 사고
-- 외 8개 특화 에이전트...
+- 외 12개 특화 에이전트...
 
-### 2단계: 수렴 (12 에이전트)
+### 2단계: 수렴 (8 에이전트)
 아이디어 통합 및 평가:
 - **통합자**: 관련 아이디어 결합
 - **평가자**: 제안 점수화 및 순위 매김
 - **우선순위 결정자**: 실행 순서 결정
 - **리스크 평가자**: 잠재적 문제 식별
-- 외 8개 특화 에이전트...
+- 외 4개 특화 에이전트...
 
 ### 3단계: 기획 (10 에이전트)
 실행 가능한 구현 계획 생성:
@@ -204,8 +206,8 @@ FastAPI 백엔드는 REST API 접근을 제공합니다:
 ## 시그널 소스
 
 ### RSS 피드
-5개 카테고리의 17개 피드:
-- **AI**: OpenAI, Google AI, arXiv, TechCrunch, Hacker News
+5개 카테고리의 16개 피드:
+- **AI**: OpenAI, Google Blog, arXiv, TechCrunch, Hacker News
 - **Crypto**: CoinDesk, Cointelegraph, Decrypt, The Defiant, CryptoSlate
 - **Finance**: CNBC Finance
 - **Security**: The Hacker News, Krebs on Security
@@ -217,17 +219,40 @@ FastAPI 백엔드는 REST API 접근을 제공합니다:
 - 이슈 및 PR 분석
 
 ### 온체인 데이터
-- MOC 토큰 트랜잭션
-- 스마트 컨트랙트 이벤트
+- 웨일 트랜잭션 알림
+- DEX 거래량 및 스테이블코인 흐름 (DefiLlama)
 - DeFi 프로토콜 메트릭
 
 ### 소셜 미디어
-- X (트위터) 멘션
+- Reddit (11개 서브레딧) 및 Nitter RSS 기반 X(트위터) 게시물
 - 커뮤니티 감성 분석
 
 ### News API
 - 실시간 뉴스 집계
 - 키워드 기반 필터링
+
+### Twitter / X
+- Nitter RSS 인스턴스 풀로 19개 계정 추적 (`MosslandMOC` 포함)
+- `TWITTER_BEARER_TOKEN` 설정 시 Twitter API v2 키워드 검색 사용
+
+### Discord
+- 7개 서버 추적 (Ethereum, Polygon, Arbitrum, Optimism, Aave, Uniswap, OpenAI)
+- 공지 채널 메시지 수집에는 `DISCORD_BOT_TOKEN` 필요
+
+### Lens Protocol
+- GraphQL API (인기 퍼블리케이션, 프로필 게시물, 트렌딩 토픽)
+- 10개 프로필 추적
+
+### Farcaster
+- Neynar API (`NEYNAR_API_KEY`), Warpcast 공개 API 폴백
+- 10개 유저 및 10개 채널 추적
+
+### Coingecko
+- 트렌딩 코인, 상승/하락 상위 종목, 글로벌 시장 통계
+- Mossland(MOC) 포함 16개 코인 추적
+
+### Threads
+- 3개 Meta Threads 계정 공개 프로필 스크래핑 (인증 불필요)
 
 ## 환경 변수
 
@@ -240,6 +265,7 @@ FastAPI 백엔드는 REST API 접근을 제공합니다:
 | `OPENAI_API_KEY` | OpenAI API 키 | 클라우드 모드용 |
 | `GEMINI_API_KEY` | Gemini API 키 | 클라우드 모드용 |
 | `OLLAMA_HOST` | Ollama 서버 URL | 로컬 모드용 |
+| `MOSS_LOCAL_LLM_ONLY` | LLM 라우터를 Ollama 전용으로 고정. 기본값 `true`, `false`로 설정해야 위 클라우드 키 사용 | 아니오 (기본 `true`) |
 
 ## 프로젝트 구조
 
@@ -252,8 +278,14 @@ agentic-orchestrator/
 │   │   ├── rss.py
 │   │   ├── github_events.py
 │   │   ├── onchain.py
-│   │   ├── social_media.py
-│   │   └── news_api.py
+│   │   ├── social.py
+│   │   ├── news.py
+│   │   ├── twitter.py
+│   │   ├── discord.py
+│   │   ├── lens.py
+│   │   ├── farcaster.py
+│   │   ├── coingecko.py
+│   │   └── threads.py
 │   ├── api/                 # FastAPI 백엔드
 │   │   └── main.py
 │   ├── cache/               # 캐싱 레이어
@@ -282,6 +314,8 @@ agentic-orchestrator/
 ### 테스트 실행
 
 ```bash
+# 테스트 도구는 dev extra에 포함되어 있습니다
+pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
@@ -297,6 +331,9 @@ pnpm build
 ```bash
 # 시그널 수집
 python -m agentic_orchestrator.scheduler signal-collect
+
+# 트렌드 분석 (로컬 LLM)
+python -m agentic_orchestrator.scheduler analyze-trends
 
 # 토론 실행
 python -m agentic_orchestrator.scheduler run-debate
@@ -314,6 +351,12 @@ python -m agentic_orchestrator.scheduler backup-db
 ## 라이선스
 
 MIT License - 자세한 내용은 [LICENSE](LICENSE)를 참조하세요.
+
+## 관련 모스랜드 프로젝트
+
+- **[Alpha](https://alpha.moss.land?utm_source=github&utm_medium=referral&utm_campaign=ao-readme)** (`alpha.moss.land`) — 한국어 크립토 × AI 미디어 + 커뮤니티. 채널 스탠스, 데일리 AI 브리프, RAG Q&A, AI 페르소나, 12개 툴 MCP 서버를 제공합니다. Claude/Cursor/Cline 설치 방법은 [`MosslandOpenDevs/alpha-mcp`](https://github.com/MosslandOpenDevs/alpha-mcp) 참조.
+- **[SignalMap](https://signalmap.moss.land)** (`signalmap.moss.land`) — 멀티 소스 내러티브 파이프라인 (한국어 YouTube + 뉴스 + 매크로). Alpha가 사용하는 canonical 엔티티/토픽/이벤트 스토어를 제공합니다.
+- **[모스랜드 프로젝트 인덱스](https://github.com/mossland/Projects)** — 2018년부터의 전체 생태계 타임라인.
 
 ---
 

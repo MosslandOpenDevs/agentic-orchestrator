@@ -9,10 +9,10 @@ An autonomous multi-agent orchestration system for discovering, planning, and im
 ## Key Features
 
 - **Multi-Stage Debate**: 34 AI agents with diverse personas debate through 3 phases (Divergence → Convergence → Planning)
-- **Diverse Signal Sources**: RSS, GitHub Events, On-Chain data, Social Media, News API
+- **Diverse Signal Sources**: 11 adapters — RSS, GitHub Events, On-Chain data, Social Media, News API, Twitter/X, Discord, Lens, Farcaster, Coingecko, Threads
 - **Hybrid LLM Routing**: Local Ollama models + Cloud API fallback with intelligent routing
 - **Human-in-the-Loop**: Humans select which ideas to develop via label promotion
-- **PM2 Scheduling**: Automated task scheduling with PM2 (signals, debates, backlog, health checks)
+- **PM2 Scheduling**: Automated task scheduling with PM2 (signals, trends, debates, backlog, health checks)
 - **CLI-Style Dashboard**: Retro terminal-themed web interface at https://ao.moss.land
 - **REST API**: FastAPI backend for programmatic access
 - **DB Resilience**: startup schema self-heal, graceful `/status` degradation, and rolling SQLite backups (~daily, keep 7, integrity-checked, regression-aware retention) — a lost or emptied database file degrades gracefully instead of taking every endpoint down
@@ -62,10 +62,10 @@ Open http://localhost:3000 to view the dashboard.
 │                             ▼                                            │
 │                  MULTI-STAGE DEBATE (34 Agents)                          │
 │  ┌────────────────────────────────────────────────────────────────┐     │
-│  │ Phase 1: DIVERGENCE (12 agents)                                 │     │
+│  │ Phase 1: DIVERGENCE (16 agents)                                 │     │
 │  │   Innovator, Skeptic, Pragmatist, Visionary...                 │     │
 │  ├────────────────────────────────────────────────────────────────┤     │
-│  │ Phase 2: CONVERGENCE (12 agents)                                │     │
+│  │ Phase 2: CONVERGENCE (8 agents)                                 │     │
 │  │   Synthesizer, Evaluator, Prioritizer, Risk Assessor...        │     │
 │  ├────────────────────────────────────────────────────────────────┤     │
 │  │ Phase 3: PLANNING (10 agents)                                   │     │
@@ -92,11 +92,10 @@ Open http://localhost:3000 to view the dashboard.
 git clone https://github.com/MosslandOpenDevs/agentic-orchestrator.git
 cd agentic-orchestrator
 
-# Create Python virtual environment (Python 3.12 required)
+# Create Python virtual environment (Python 3.12 or newer required)
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e .
-pip install uvicorn fastapi pyyaml
 
 # Configure environment
 cp .env.example .env
@@ -108,6 +107,9 @@ cp .env.example .env
 ```bash
 # Install PM2 globally
 npm install -g pm2
+
+# Build the dashboard first (moss-ao-web runs `next start`, which needs a build)
+cd website && pnpm install && pnpm build && cd ..
 
 # Start all services
 pm2 start ecosystem.config.js
@@ -169,21 +171,21 @@ The FastAPI backend provides REST API access:
 
 ## Multi-Stage Debate System
 
-### Phase 1: Divergence (12 Agents)
+### Phase 1: Divergence (16 Agents)
 Generate diverse ideas and perspectives:
 - **Innovator**: Creative breakthrough ideas
 - **Skeptic**: Critical analysis and risk identification
 - **Pragmatist**: Practical implementation focus
 - **Visionary**: Long-term strategic thinking
-- And 8 more specialized agents...
+- And 12 more specialized agents...
 
-### Phase 2: Convergence (12 Agents)
+### Phase 2: Convergence (8 Agents)
 Synthesize and evaluate ideas:
 - **Synthesizer**: Combine related ideas
 - **Evaluator**: Score and rank proposals
 - **Prioritizer**: Determine execution order
 - **Risk Assessor**: Identify potential issues
-- And 8 more specialized agents...
+- And 4 more specialized agents...
 
 ### Phase 3: Planning (10 Agents)
 Create actionable implementation plans:
@@ -204,8 +206,8 @@ Each agent has a 4-axis personality profile:
 ## Signal Sources
 
 ### RSS Feeds
-17 feeds across 5 categories:
-- **AI**: OpenAI, Google AI, arXiv, TechCrunch, Hacker News
+16 feeds across 5 categories:
+- **AI**: OpenAI, Google Blog, arXiv, TechCrunch, Hacker News
 - **Crypto**: CoinDesk, Cointelegraph, Decrypt, The Defiant, CryptoSlate
 - **Finance**: CNBC Finance
 - **Security**: The Hacker News, Krebs on Security
@@ -217,17 +219,40 @@ Each agent has a 4-axis personality profile:
 - Issue and PR analysis
 
 ### On-Chain Data
-- MOC token transactions
-- Smart contract events
+- Whale transaction alerts
+- DEX volume and stablecoin flows (DefiLlama)
 - DeFi protocol metrics
 
 ### Social Media
-- X (Twitter) mentions
+- Reddit (11 subreddits) and X (Twitter) posts via Nitter RSS
 - Community sentiment analysis
 
 ### News API
 - Real-time news aggregation
 - Keyword-based filtering
+
+### Twitter / X
+- Nitter RSS instance pool across 19 tracked accounts (including `MosslandMOC`)
+- Optional Twitter API v2 keyword search when `TWITTER_BEARER_TOKEN` is set
+
+### Discord
+- 7 tracked servers (Ethereum, Polygon, Arbitrum, Optimism, Aave, Uniswap, OpenAI)
+- Announcement-channel messages require `DISCORD_BOT_TOKEN`
+
+### Lens Protocol
+- GraphQL API (popular publications, profile posts, trending topics)
+- 10 tracked profiles
+
+### Farcaster
+- Neynar API (`NEYNAR_API_KEY`) with Warpcast public API fallback
+- 10 tracked users and 10 channels
+
+### Coingecko
+- Trending coins, top gainers/losers, global market stats
+- 16 tracked coins including Mossland (MOC)
+
+### Threads
+- Public profile scraping of 3 Meta Threads accounts (no authentication required)
 
 ## Environment Variables
 
@@ -240,6 +265,7 @@ Each agent has a 4-axis personality profile:
 | `OPENAI_API_KEY` | OpenAI API key | For cloud mode |
 | `GEMINI_API_KEY` | Gemini API key | For cloud mode |
 | `OLLAMA_HOST` | Ollama server URL | For local mode |
+| `MOSS_LOCAL_LLM_ONLY` | Pin the LLM router to Ollama. Defaults to `true`; set `false` to enable the cloud keys above | No (default `true`) |
 
 ## Project Structure
 
@@ -252,8 +278,14 @@ agentic-orchestrator/
 │   │   ├── rss.py
 │   │   ├── github_events.py
 │   │   ├── onchain.py
-│   │   ├── social_media.py
-│   │   └── news_api.py
+│   │   ├── social.py
+│   │   ├── news.py
+│   │   ├── twitter.py
+│   │   ├── discord.py
+│   │   ├── lens.py
+│   │   ├── farcaster.py
+│   │   ├── coingecko.py
+│   │   └── threads.py
 │   ├── api/                 # FastAPI backend
 │   │   └── main.py
 │   ├── cache/               # Caching layer
@@ -282,6 +314,8 @@ agentic-orchestrator/
 ### Running Tests
 
 ```bash
+# Test tooling lives in the dev extra
+pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
@@ -297,6 +331,9 @@ pnpm build
 ```bash
 # Signal collection
 python -m agentic_orchestrator.scheduler signal-collect
+
+# Trend analysis (local LLM)
+python -m agentic_orchestrator.scheduler analyze-trends
 
 # Run debate
 python -m agentic_orchestrator.scheduler run-debate
@@ -314,6 +351,12 @@ python -m agentic_orchestrator.scheduler backup-db
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
+
+## Related Mossland Projects
+
+- **[Alpha](https://alpha.moss.land?utm_source=github&utm_medium=referral&utm_campaign=ao-readme)** (`alpha.moss.land`) — Korean crypto × AI media + community. Surfaces channel stance, daily AI briefs, RAG Q&A, AI personas, and a 12-tool MCP server. See also [`MosslandOpenDevs/alpha-mcp`](https://github.com/MosslandOpenDevs/alpha-mcp) for Claude/Cursor/Cline install.
+- **[SignalMap](https://signalmap.moss.land)** (`signalmap.moss.land`) — multi-source narrative pipeline (Korean YouTube + news + macro). Provides the canonical entity/topic/event store consumed by Alpha.
+- **[Mossland Projects index](https://github.com/mossland/Projects)** — full ecosystem timeline since 2018.
 
 ---
 
