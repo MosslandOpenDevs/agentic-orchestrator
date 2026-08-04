@@ -4,7 +4,7 @@
 
 An autonomous multi-agent orchestration system for discovering, planning, and implementing micro Web3 services for the Mossland ecosystem.
 
-**Version**: v0.6.10
+**Version**: v0.6.12
 
 ## Key Features
 
@@ -372,4 +372,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 *Built for the Mossland ecosystem - human-guided, AI-powered innovation.*
 
-*v0.6.10 - DB-loss resilience: schema self-heal, graceful /status degradation, rolling SQLite backups*
+*v0.6.12 - Route-ordering fix: /signals/timeline and /plans/pending-approval are reachable again; version reporting tracks pyproject.toml*

@@ -4,7 +4,7 @@
 
 모스랜드 생태계를 위한 마이크로 Web3 서비스를 발굴, 기획, 구현하는 자율 멀티 에이전트 오케스트레이션 시스템입니다.
 
-**버전**: v0.6.10
+**버전**: v0.6.12
 
 ## 주요 기능
 
@@ -371,4 +371,4 @@ MIT License - 자세한 내용은 [LICENSE](LICENSE)를 참조하세요.
 
 *모스랜드 생태계를 위해 구축됨 - 사람이 가이드하고, AI가 구동하는 혁신.*
 
-*v0.6.10 - DB 유실 복원력: 스키마 자기치유, graceful /status 강등, 롤링 SQLite 백업*
+*v0.6.12 - 라우트 등록 순서 수정: /signals/timeline·/plans/pending-approval 도달 가능 복구, 버전 표기가 pyproject.toml을 추종*

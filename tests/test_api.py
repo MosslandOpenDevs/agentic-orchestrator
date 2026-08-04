@@ -665,16 +665,17 @@ class TestVersionReporting:
         assert response.json()["info"]["version"] == __version__
 
     def test_package_version_matches_pyproject(self):
-        """__version__ is resolved from installed metadata, not hard-coded."""
+        """__version__ tracks pyproject.toml rather than a hard-coded literal."""
         import tomllib
         from pathlib import Path
 
         pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
         declared = tomllib.loads(pyproject.read_text())["project"]["version"]
         assert __version__ == declared, (
-            f"package metadata reports {__version__!r} but pyproject.toml declares "
-            f"{declared!r}. If you just bumped the version, refresh the editable "
-            f'install: pip install -e ".[dev]"'
+            f"__version__ is {__version__!r} but pyproject.toml declares {declared!r}. "
+            f"_resolve_version() reads this same pyproject.toml first, so a mismatch means "
+            f"it fell through to installed metadata — check that the checkout is readable "
+            f"and that [project].name is still 'agentic-orchestrator'."
         )
 
 
