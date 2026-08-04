@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - All 10 tests were mutation-verified: each of the 9 ways this logic can regress — including re-hardcoding `__version__` itself, the obvious way to undo the fix — was applied to a copy of the source, and the corresponding test was confirmed to fail.
 - The suite is install-shape agnostic, verified against all three: a bare `PYTHONPATH=./src` run, CI's `pip install -e ".[dev]"`, and a non-editable `pip install .`. Under the last one the imported package is the site-packages copy, not the checkout, so `parents[2]` is the venv directory and declining the source tree is *correct*; the one assertion that only makes sense against this checkout skips there with that reason rather than reporting a phantom drift bug.
 
+## [0.6.14] - 2026-08-04
+
+### Documentation
+- **README restructured — 375 lines to 266, 38 headings to 16.** The v0.6.13 accuracy pass fixed the facts but kept the shape it found, and adding the six previously-undocumented adapters in the existing one-h3-per-adapter style left `## Signal Sources` as eleven consecutive two-bullet subsections. The file had one heading every 9.9 lines. Nothing verified was removed; the same facts are now carried by two tables.
+  - `## Signal Sources`: eleven h3 stubs become one table with a new **Auth** column, so the credential each adapter needs (`TWITTER_BEARER_TOKEN`, `DISCORD_BOT_TOKEN`, `NEYNAR_API_KEY`, or none) is visible at a glance instead of buried in prose. All tracked-entity counts kept.
+  - `## Multi-Stage Debate System`: four h3 subsections become one table, and it now states **pool size vs agents per round** in adjacent columns (16/8/10 pools, 8/4/3 per round from `debate.normal.*_agents_per_round`) rather than leaving a reader to reconcile two numbers from different sections.
+  - `## Dashboard`, `### PM2 Commands` and `## Development` lose their h3 children, which were mostly one-command fences.
+- **The README named twelve agent personas that do not exist.** `Innovator`, `Skeptic`, `Pragmatist`, `Synthesizer`, `Evaluator`, `Prioritizer`, `Risk Assessor` and `Resource Planner` return zero matches in `personas/catalog.py`; the real roster is Frontend/Backend/Blockchain engineers, VCs and accelerator mentors, CPO/Leads/QA/DevRel. The v0.6.13 pass corrected the phase *counts* and never checked the *names*. Both the debate table and the architecture diagram now list the real role families.
+- **The architecture diagram was stale and structurally broken.** It drew 5 adapters while the text said 11, and 20 of its 35 English lines (22 of 35 in Korean) were the wrong display width, so the box borders did not line up. Redrawn at exactly 75 display columns on all 27 lines in **both** files, verified programmatically with East-Asian width accounted for, and now naming all 11 adapters.
+- Deduplicated the adapter list, which had appeared in four places (Key Features bullet, architecture diagram, Signal Sources, Project Structure tree). The Key Features bullet now links to `#signal-sources` instead of re-listing eleven proper nouns; the Project Structure tree collapses the eleven adapter files to one annotated line.
+- EN/KO line parity holds: both files are 266 lines with identical heading line numbers.
+
 ## [0.6.13] - 2026-08-04
 
 ### Fixed

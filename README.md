@@ -4,26 +4,22 @@
 
 An autonomous multi-agent orchestration system for discovering, planning, and implementing micro Web3 services for the Mossland ecosystem.
 
-**Version**: v0.6.13
+**Version**: v0.6.14
 
 ## Key Features
 
 - **Multi-Stage Debate**: 34 AI agents with diverse personas debate through 3 phases (Divergence → Convergence → Planning)
-- **Diverse Signal Sources**: 11 adapters — RSS, GitHub Events, On-Chain data, Social Media, News API, Twitter/X, Discord, Lens, Farcaster, Coingecko, Threads
+- **[Diverse Signal Sources](#signal-sources)**: 11 adapters across RSS, GitHub, on-chain, social, news, and market data
 - **Hybrid LLM Routing**: Local Ollama models + Cloud API fallback with intelligent routing
 - **Human-in-the-Loop**: Humans select which ideas to develop via label promotion
 - **PM2 Scheduling**: Automated task scheduling with PM2 (signals, trends, debates, backlog, health checks)
 - **CLI-Style Dashboard**: Retro terminal-themed web interface at https://ao.moss.land
 - **REST API**: FastAPI backend for programmatic access
-- **DB Resilience**: startup schema self-heal, graceful `/status` degradation, and rolling SQLite backups (~daily, keep 7, integrity-checked, regression-aware retention) — a lost or emptied database file degrades gracefully instead of taking every endpoint down
+- **DB Resilience**: a lost or emptied SQLite file degrades gracefully instead of taking every endpoint down — startup schema self-heal, `/status` degradation, and integrity-checked rolling backups (~daily, 7 kept, regression-aware retention)
 
 ## Dashboard
 
-A Next.js-based CLI-style dashboard for monitoring the orchestrator in real-time.
-
-**URL**: https://ao.moss.land
-
-### Pages
+A Next.js CLI-style dashboard for monitoring the orchestrator in real time, live at **https://ao.moss.land**. To run it locally: `cd website && pnpm install && pnpm dev`, then open http://localhost:3000.
 
 | Page | Description |
 |------|-------------|
@@ -33,53 +29,35 @@ A Next.js-based CLI-style dashboard for monitoring the orchestrator in real-time
 | `/system` | System architecture and multi-agent debate visualization |
 | `/agents` | 34 AI agent personas across 3 debate phases |
 
-### Running Locally
-
-```bash
-cd website
-pnpm install
-pnpm dev
-```
-
-Open http://localhost:3000 to view the dashboard.
-
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         SIGNAL COLLECTION                                │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐           │
-│  │   RSS   │ │ GitHub  │ │On-Chain │ │ Social  │ │News API │           │
-│  │ Adapter │ │ Events  │ │ Adapter │ │ Media   │ │ Adapter │           │
-│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘           │
-│       └───────────┴───────────┼───────────┴───────────┘                 │
-│                               ▼                                          │
-│                    ┌──────────────────┐                                  │
-│                    │ Signal Aggregator │                                  │
-│                    │   + Scorer        │                                  │
-│                    └────────┬─────────┘                                  │
-├─────────────────────────────┼───────────────────────────────────────────┤
-│                             ▼                                            │
-│                  MULTI-STAGE DEBATE (34 Agents)                          │
-│  ┌────────────────────────────────────────────────────────────────┐     │
-│  │ Phase 1: DIVERGENCE (16 agents)                                 │     │
-│  │   Innovator, Skeptic, Pragmatist, Visionary...                 │     │
-│  ├────────────────────────────────────────────────────────────────┤     │
-│  │ Phase 2: CONVERGENCE (8 agents)                                 │     │
-│  │   Synthesizer, Evaluator, Prioritizer, Risk Assessor...        │     │
-│  ├────────────────────────────────────────────────────────────────┤     │
-│  │ Phase 3: PLANNING (10 agents)                                   │     │
-│  │   Architect, Project Manager, Technical Lead...                │     │
-│  └────────────────────────────────────────────────────────────────┘     │
+│  SIGNAL COLLECTION - 11 adapters                                        │
+│  RSS, GitHub Events, On-Chain, Social, News API, Twitter/X,             │
+│  Discord, Lens, Farcaster, Coingecko, Threads                           │
+│                                    │                                    │
+│                                    ▼                                    │
+│                        ┌───────────────────────┐                        │
+│                        │  Signal Aggregator    │                        │
+│                        │  + Scorer             │                        │
+│                        └───────────┬───────────┘                        │
+├────────────────────────────────────┼────────────────────────────────────┤
+│                                    ▼                                    │
+│                     MULTI-STAGE DEBATE (34 agents)                      │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │ Phase 1: DIVERGENCE   (16)  Engineers, Designers, PMs, Marketers  │  │
+│  │ Phase 2: CONVERGENCE   (8)  VCs, Mentors, Founders, Experts       │  │
+│  │ Phase 3: PLANNING     (10)  CPO, PMs, Leads, UX, QA, DevRel       │  │
+│  └───────────────────────────────────────────────────────────────────┘  │
 ├─────────────────────────────────────────────────────────────────────────┤
-│                  LLM ROUTER (Ollama-only by default)                     │
-│  ┌──────────────────────────┐    ┌──────────────────────────────────┐   │
-│  │   Local (Ollama)         │    │   Cloud API (opt-in via flag)   │   │
-│  │   - gemma3:4b (chat)     │    │   - Claude / OpenAI / Gemini    │   │
-│  │   - qwen3-embedding:0.6b │    │   Disabled when                 │   │
-│  │     (embeddings)         │    │   MOSS_LOCAL_LLM_ONLY=true      │   │
-│  │                          │    │                                  │   │
-│  └──────────────────────────┘    └──────────────────────────────────┘   │
+│                   LLM ROUTER (Ollama-only by default)                   │
+│  ┌─────────────────────────────┐    ┌────────────────────────────────┐  │
+│  │ Local (Ollama)              │    │ Cloud API (opt-in via flag)    │  │
+│  │ - gemma3:4b (chat)          │    │ - Claude / OpenAI / Gemini     │  │
+│  │ - qwen3-embedding:0.6b      │    │ Disabled when                  │  │
+│  │   (embeddings)              │    │ MOSS_LOCAL_LLM_ONLY=true       │  │
+│  └─────────────────────────────┘    └────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -119,10 +97,7 @@ pm2 start ecosystem.config.js --only moss-ao-web
 pm2 start ecosystem.config.js --only moss-ao-api
 ```
 
-### 3. Access the Dashboard
-
-- **Web Dashboard**: http://localhost:3000
-- **API Documentation**: http://localhost:3001/docs
+Once PM2 is up, the dashboard is at http://localhost:3000 and the API reference at http://localhost:3001/docs.
 
 ## PM2 Services
 
@@ -136,24 +111,12 @@ pm2 start ecosystem.config.js --only moss-ao-api
 | `moss-ao-api` | Always on | FastAPI backend (port 3001) |
 | `moss-ao-health` | Every 5 min | Health monitoring + rolling DB backup (~daily) |
 
-### PM2 Commands
-
 ```bash
-# View all services
-pm2 status
-
-# View logs
-pm2 logs moss-ao-web
-pm2 logs moss-ao-api
-
-# Restart a service
-pm2 restart moss-ao-web
-
-# Stop all services
-pm2 stop all
-
-# Monitor resources
-pm2 monit
+pm2 status                  # all services
+pm2 logs moss-ao-api        # tail one service
+pm2 restart moss-ao-web     # restart one service
+pm2 stop all                # stop everything
+pm2 monit                   # resource monitor
 ```
 
 ## API Endpoints
@@ -171,98 +134,54 @@ The FastAPI backend provides REST API access:
 
 ## Multi-Stage Debate System
 
-The counts below are **persona pool sizes** (`personas/catalog.py`), not the number
-of agents active in a single round. Each round draws a smaller, personality-balanced
-subset from the pool — in production 8 / 4 / 3 agents per round respectively, set by
-`debate.normal.*_agents_per_round` in `config.yaml`.
+Every debate runs three phases. **Pool** is the persona pool size (`personas/catalog.py`);
+each round draws a smaller, personality-balanced subset — the **Per round** column, sized
+by `debate.normal.*_agents_per_round` in `config.yaml`.
 
-### Phase 1: Divergence (16 Agents)
-Generate diverse ideas and perspectives:
-- **Innovator**: Creative breakthrough ideas
-- **Skeptic**: Critical analysis and risk identification
-- **Pragmatist**: Practical implementation focus
-- **Visionary**: Long-term strategic thinking
-- And 12 more specialized agents...
+| Phase | Pool | Per round | Purpose | Personas |
+|-------|------|-----------|---------|----------|
+| 1. Divergence | 16 | 8 | Generate diverse ideas and perspectives | Frontend / Backend / Blockchain engineers, Security Researcher, DevOps, Product and UX Designers, Product Managers, Growth Marketer, Brand Strategist, Business Analyst, Community Manager |
+| 2. Convergence | 8 | 4 | Synthesize and evaluate ideas | Crypto VC and Traditional VC partners, two Accelerator Mentors, serial and first-time founders, Tech and Market Domain Experts |
+| 3. Planning | 10 | 3 | Create actionable implementation plans | CPO, Senior PM, Technical Lead, Frontend / Backend / Blockchain Leads, UX Researcher, QA Lead, Developer Relations, Project Manager |
 
-### Phase 2: Convergence (8 Agents)
-Synthesize and evaluate ideas:
-- **Synthesizer**: Combine related ideas
-- **Evaluator**: Score and rank proposals
-- **Prioritizer**: Determine execution order
-- **Risk Assessor**: Identify potential issues
-- And 4 more specialized agents...
+Every persona also carries a 4-axis personality profile scored 0-10. Balancing a round's
+subset across these axes is what stops it from being eight agents of one temperament.
 
-### Phase 3: Planning (10 Agents)
-Create actionable implementation plans:
-- **Architect**: System design
-- **Project Manager**: Task breakdown
-- **Technical Lead**: Technology decisions
-- **Resource Planner**: Resource allocation
-- And 6 more specialized agents...
-
-### Agent Personality System
-
-Each agent has a 4-axis personality profile:
-- **Creativity**: Innovation vs. Convention (0-10)
-- **Analytical**: Data-driven vs. Intuitive (0-10)
-- **Risk Tolerance**: Aggressive vs. Conservative (0-10)
-- **Collaboration**: Team-oriented vs. Independent (0-10)
+- **Creativity**: Innovation vs. Convention
+- **Analytical**: Data-driven vs. Intuitive
+- **Risk Tolerance**: Aggressive vs. Conservative
+- **Collaboration**: Team-oriented vs. Independent
 
 ## Signal Sources
 
-### RSS Feeds
-31 active feeds across 5 categories, defined in the top-level `feeds:` section of
-`config.yaml` — the single source shared by signal collection and trend analysis:
+Eleven adapters feed the collector, all configured in `config.yaml`. **Auth** names the
+credential an adapter needs; `—` means it works with no credential at all.
+
+| Adapter | What it pulls | Tracked scope | Auth |
+|---------|---------------|---------------|------|
+| RSS | Feed articles across AI, Crypto, Finance, Security, Dev | 31 active feeds (listed below) | — |
+| GitHub Events | Repository activity, trending projects, issue and PR analysis | — | — |
+| On-Chain | Whale transaction alerts, DEX volume and stablecoin flows (DefiLlama), DeFi protocol metrics | — | — |
+| Social Media | Reddit posts and X posts via Nitter RSS, community sentiment analysis | 11 subreddits | — |
+| News API | Real-time news aggregation, keyword-based filtering | — | — |
+| Twitter / X | Account timelines via a Nitter RSS instance pool | 19 accounts (incl. `MosslandMOC`) | `TWITTER_BEARER_TOKEN` (optional — adds API v2 keyword search) |
+| Discord | Announcement-channel messages | 7 servers (Ethereum, Polygon, Arbitrum, Optimism, Aave, Uniswap, OpenAI) | `DISCORD_BOT_TOKEN` |
+| Lens Protocol | GraphQL API — popular publications, profile posts, trending topics | 10 profiles | — |
+| Farcaster | Casts via the Neynar API, Warpcast public API fallback | 10 users, 10 channels | `NEYNAR_API_KEY` |
+| Coingecko | Trending coins, top gainers/losers, global market stats | 16 coins incl. Mossland (MOC) | — |
+| Threads | Public profile scraping of Meta Threads accounts | 3 accounts | — |
+
+RSS feeds live in the top-level `feeds:` section of `config.yaml` — the single list shared by
+signal collection and trend analysis. Add or fix feeds there; no code change is needed.
+
 - **AI** (9): OpenAI News, Google AI, arXiv AI, TechCrunch AI, Hacker News, Hugging Face, DeepMind, BAIR, Lil'Log
 - **Crypto** (7): CoinDesk, Cointelegraph, Decrypt, The Defiant, CryptoSlate, Ethereum Blog, Solana
 - **Finance** (3): CNBC Business News, CNBC Finance, Bloomberg Tech
 - **Security** (4): The Hacker News, Krebs on Security, Trail of Bits, Schneier
 - **Dev** (8): The Verge, Ars Technica, Stack Overflow Blog, GitHub Blog, Meta Engineering, Netflix Tech, Cloudflare, AWS Blog
 
-Four more crypto feeds (Chainlink, Polygon, Paradigm, a16z Crypto) are kept in
-`config.yaml` with `enabled: false` — their URLs are dead and no replacement feed
-is published. Add or fix feeds by editing `config.yaml`; no code change is needed.
-
-### GitHub Events
-- Repository activity tracking
-- Trending projects monitoring
-- Issue and PR analysis
-
-### On-Chain Data
-- Whale transaction alerts
-- DEX volume and stablecoin flows (DefiLlama)
-- DeFi protocol metrics
-
-### Social Media
-- Reddit (11 subreddits) and X (Twitter) posts via Nitter RSS
-- Community sentiment analysis
-
-### News API
-- Real-time news aggregation
-- Keyword-based filtering
-
-### Twitter / X
-- Nitter RSS instance pool across 19 tracked accounts (including `MosslandMOC`)
-- Optional Twitter API v2 keyword search when `TWITTER_BEARER_TOKEN` is set
-
-### Discord
-- 7 tracked servers (Ethereum, Polygon, Arbitrum, Optimism, Aave, Uniswap, OpenAI)
-- Announcement-channel messages require `DISCORD_BOT_TOKEN`
-
-### Lens Protocol
-- GraphQL API (popular publications, profile posts, trending topics)
-- 10 tracked profiles
-
-### Farcaster
-- Neynar API (`NEYNAR_API_KEY`) with Warpcast public API fallback
-- 10 tracked users and 10 channels
-
-### Coingecko
-- Trending coins, top gainers/losers, global market stats
-- 16 tracked coins including Mossland (MOC)
-
-### Threads
-- Public profile scraping of 3 Meta Threads accounts (no authentication required)
+Four more crypto feeds (Chainlink, Polygon, Paradigm, a16z Crypto) are kept with
+`enabled: false` — their URLs are dead and no replacement feed is published.
 
 ## Environment Variables
 
@@ -284,18 +203,9 @@ agentic-orchestrator/
 ├── ecosystem.config.js      # PM2 configuration
 ├── .venv/                   # Python virtual environment
 ├── src/agentic_orchestrator/
-│   ├── adapters/            # Signal source adapters
-│   │   ├── rss.py
-│   │   ├── github_events.py
-│   │   ├── onchain.py
-│   │   ├── social.py
-│   │   ├── news.py
-│   │   ├── twitter.py
-│   │   ├── discord.py
-│   │   ├── lens.py
-│   │   ├── farcaster.py
-│   │   ├── coingecko.py
-│   │   └── threads.py
+│   ├── adapters/            # 11 signal sources: rss, github_events, onchain,
+│   │                        #   social, news, twitter, discord, lens,
+│   │                        #   farcaster, coingecko, threads
 │   ├── api/                 # FastAPI backend
 │   │   └── main.py
 │   ├── cache/               # Caching layer
@@ -321,41 +231,24 @@ agentic-orchestrator/
 
 ## Development
 
-### Running Tests
-
 ```bash
 # Test tooling lives in the dev extra
 pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-### Building the Website
-
 ```bash
-cd website
-pnpm build
+cd website && pnpm build   # rebuild the dashboard after a change
 ```
 
-### Manual Task Execution
-
 ```bash
-# Signal collection
+# Scheduler tasks, run by hand
 python -m agentic_orchestrator.scheduler signal-collect
-
-# Trend analysis (local LLM)
-python -m agentic_orchestrator.scheduler analyze-trends
-
-# Run debate
+python -m agentic_orchestrator.scheduler analyze-trends    # local LLM
 python -m agentic_orchestrator.scheduler run-debate
-
-# Process backlog
 python -m agentic_orchestrator.scheduler process-backlog
-
-# Health check
 python -m agentic_orchestrator.scheduler health-check
-
-# Snapshot the SQLite DB into data/backup/ (also runs automatically ~daily)
-python -m agentic_orchestrator.scheduler backup-db
+python -m agentic_orchestrator.scheduler backup-db         # snapshot into data/backup/, auto ~daily
 ```
 
 ## License
@@ -371,5 +264,3 @@ MIT License - see [LICENSE](LICENSE) for details.
 ---
 
 *Built for the Mossland ecosystem - human-guided, AI-powered innovation.*
-
-*v0.6.12 - Route-ordering fix: /signals/timeline and /plans/pending-approval are reachable again; version reporting tracks pyproject.toml*
