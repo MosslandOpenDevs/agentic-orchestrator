@@ -25,7 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The README named twelve agent personas that do not exist.** `Innovator`, `Skeptic`, `Pragmatist`, `Synthesizer`, `Evaluator`, `Prioritizer`, `Risk Assessor` and `Resource Planner` return zero matches in `personas/catalog.py`; the real roster is Frontend/Backend/Blockchain engineers, VCs and accelerator mentors, CPO/Leads/QA/DevRel. The v0.6.13 pass corrected the phase *counts* and never checked the *names*. Both the debate table and the architecture diagram now list the real role families.
 - **The architecture diagram was stale and structurally broken.** It drew 5 adapters while the text said 11, and 20 of its 35 English lines (22 of 35 in Korean) were the wrong display width, so the box borders did not line up. Redrawn at exactly 75 display columns on all 27 lines in **both** files, verified programmatically with East-Asian width accounted for, and now naming all 11 adapters.
 - Deduplicated the adapter list, which had appeared in four places (Key Features bullet, architecture diagram, Signal Sources, Project Structure tree). The Key Features bullet now links to `#signal-sources` instead of re-listing eleven proper nouns; the Project Structure tree collapses the eleven adapter files to one annotated line.
-- EN/KO line parity holds: both files are 266 lines with identical heading line numbers.
+- Trimmed the `## Related Mossland Projects` bullets, which carried the file's longest line by a wide margin (372 chars against a 257-char runner-up). The `` (`alpha.moss.land`) `` / `` (`signalmap.moss.land`) `` parentheticals restated the href verbatim and appeared nowhere else in either README, and the alpha-mcp reference moves to its own sub-bullet. All four links preserved.
+- EN/KO line parity holds: both files are 267 lines with identical heading line numbers.
 
 ## [0.6.13] - 2026-08-04
 

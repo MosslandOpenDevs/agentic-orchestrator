@@ -257,8 +257,9 @@ MIT License - 자세한 내용은 [LICENSE](LICENSE)를 참조하세요.
 
 ## 관련 모스랜드 프로젝트
 
-- **[Alpha](https://alpha.moss.land?utm_source=github&utm_medium=referral&utm_campaign=ao-readme)** (`alpha.moss.land`) — 한국어 크립토 × AI 미디어 + 커뮤니티. 채널 스탠스, 데일리 AI 브리프, RAG Q&A, AI 페르소나, 12개 툴 MCP 서버를 제공합니다. Claude/Cursor/Cline 설치 방법은 [`MosslandOpenDevs/alpha-mcp`](https://github.com/MosslandOpenDevs/alpha-mcp) 참조.
-- **[SignalMap](https://signalmap.moss.land)** (`signalmap.moss.land`) — 멀티 소스 내러티브 파이프라인 (한국어 YouTube + 뉴스 + 매크로). Alpha가 사용하는 canonical 엔티티/토픽/이벤트 스토어를 제공합니다.
+- **[Alpha](https://alpha.moss.land?utm_source=github&utm_medium=referral&utm_campaign=ao-readme)** — 한국어 크립토 × AI 미디어 + 커뮤니티. 채널 스탠스, 데일리 AI 브리프, RAG Q&A, AI 페르소나, 12개 툴 MCP 서버.
+  - [`MosslandOpenDevs/alpha-mcp`](https://github.com/MosslandOpenDevs/alpha-mcp) — Claude·Cursor·Cline 설치 방법
+- **[SignalMap](https://signalmap.moss.land)** — 멀티 소스 내러티브 파이프라인 (한국어 YouTube + 뉴스 + 매크로). Alpha가 사용하는 canonical 엔티티/토픽/이벤트 스토어.
 - **[모스랜드 프로젝트 인덱스](https://github.com/mossland/Projects)** — 2018년부터의 전체 생태계 타임라인.
 
 ---
