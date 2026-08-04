@@ -217,8 +217,11 @@ Be specific and practical. Focus on something that can actually be built quickly
         title_match = re.search(r"##\s*Title\s*\n+(.+?)(?=\n\n|\n##)", response, re.DOTALL)
         title = title_match.group(1).strip() if title_match else "Untitled Idea"
 
-        # Clean title
-        title = title.replace("#", "").strip()
+        # Clean title. GitHub renders no markdown in issue titles, so emphasis
+        # markers must be stripped too or they show up literally, which is why
+        # 27 open issues still read "[IDEA] **Foo**".
+        title = re.sub(r"[*`_]{1,3}", "", title.replace("#", ""))
+        title = re.sub(r"\s+", " ", title).strip()
         if len(title) > 80:
             title = title[:77] + "..."
 
@@ -645,8 +648,11 @@ Be specific, practical, and timely. Focus on something that can be built quickly
         title_match = re.search(r"##\s*Title\s*\n+(.+?)(?=\n\n|\n##)", response, re.DOTALL)
         title = title_match.group(1).strip() if title_match else f"Trend-Based: {trend.topic[:50]}"
 
-        # Clean title
-        title = title.replace("#", "").strip()
+        # Clean title. GitHub renders no markdown in issue titles, so emphasis
+        # markers must be stripped too or they show up literally, which is why
+        # 27 open issues still read "[IDEA] **Foo**".
+        title = re.sub(r"[*`_]{1,3}", "", title.replace("#", ""))
+        title = re.sub(r"\s+", " ", title).strip()
         if len(title) > 80:
             title = title[:77] + "..."
 
