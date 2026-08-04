@@ -5,20 +5,24 @@ Defines the rules and flow for multi-stage debates with diverse agent personas.
 """
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Dict, List, Optional, Any
 from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from ..timeutil import utcnow
 
 
 class DebatePhase(Enum):
     """Debate phase types."""
-    DIVERGENCE = "divergence"     # Generate diverse ideas
-    CONVERGENCE = "convergence"   # Filter and merge ideas
-    PLANNING = "planning"         # Create actionable plans
+
+    DIVERGENCE = "divergence"  # Generate diverse ideas
+    CONVERGENCE = "convergence"  # Filter and merge ideas
+    PLANNING = "planning"  # Create actionable plans
 
 
 class MessageType(Enum):
     """Types of debate messages."""
+
     INITIAL_IDEA = "initial_idea"
     ANALYSIS = "analysis"
     FEEDBACK = "feedback"
@@ -35,6 +39,7 @@ class MessageType(Enum):
 @dataclass
 class DebateMessage:
     """A single message in the debate."""
+
     id: str
     phase: DebatePhase
     round: int
@@ -43,7 +48,7 @@ class DebateMessage:
     message_type: MessageType
     content: str
     metadata: Dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utcnow)
     references: List[str] = field(default_factory=list)  # IDs of referenced messages
     score: Optional[float] = None  # Relevance/quality score
 
@@ -66,6 +71,7 @@ class DebateMessage:
 @dataclass
 class DebateRound:
     """A single round within a phase."""
+
     round_num: int
     phase: DebatePhase
     topic: str
@@ -92,6 +98,7 @@ class DebateRound:
 @dataclass
 class PhaseResult:
     """Result of a debate phase."""
+
     phase: DebatePhase
     rounds: List[DebateRound]
     output: Dict[str, Any]
@@ -113,6 +120,7 @@ class PhaseResult:
 @dataclass
 class DebateProtocolConfig:
     """Configuration for debate protocol."""
+
     # Divergence phase
     divergence_rounds: int = 3
     divergence_agents_per_round: int = 8
@@ -413,7 +421,7 @@ Present ideas in the format: "Applying [Pattern Y] from [Industry X] to Mossland
 
         # Get creativity technique for this round
         # Use SCAMPER for odd rounds, Lateral Thinking for even rounds
-        use_lateral = (round_num % 2 == 0)
+        use_lateral = round_num % 2 == 0
         creativity_prompt = self.get_creativity_technique(round_num, use_lateral=use_lateral)
 
         previous_section = ""
@@ -727,7 +735,7 @@ This is Round {round_num} planning.
         summary_parts = [
             "# Multi-Agent Debate Results",
             "",
-            f"Generated at: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}",
+            f"Generated at: {utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}",
             "",
         ]
 
@@ -757,7 +765,9 @@ This is Round {round_num} planning.
                     selected = result.output.get("selected_ideas", [])
                     summary_parts.append(f"### Selected Ideas: {len(selected)}")
                     for idea in selected:
-                        summary_parts.append(f"- {idea.get('title', 'Untitled')} (Score: {idea.get('score', 'N/A')})")
+                        summary_parts.append(
+                            f"- {idea.get('title', 'Untitled')} (Score: {idea.get('score', 'N/A')})"
+                        )
 
                 elif result.phase == DebatePhase.PLANNING:
                     summary_parts.append("### Planning Review Results")

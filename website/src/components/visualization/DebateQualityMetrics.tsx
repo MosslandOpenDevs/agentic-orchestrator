@@ -125,7 +125,7 @@ export function DebateQualityMetrics({
       case 'poor':
         return 'text-[#ff5555] bg-[#ff5555]/20';
       default:
-        return 'text-[#6b7280] bg-[#6b7280]/20';
+        return 'text-[#8b949e] bg-[#8b949e]/20';
     }
   };
 
@@ -140,7 +140,7 @@ export function DebateQualityMetrics({
       case 'poor':
         return 'bg-[#ff5555]';
       default:
-        return 'bg-[#6b7280]';
+        return 'bg-[#8b949e]';
     }
   };
 
@@ -148,11 +148,11 @@ export function DebateQualityMetrics({
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="text-xs text-[#6b7280] uppercase tracking-wider">
+        <span className="text-xs text-[#8b949e] uppercase tracking-wider">
           {t('debateQualityMetrics.title')}
         </span>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-[#6b7280]">{t('debateQualityMetrics.overall')}:</span>
+          <span className="text-xs text-[#8b949e]">{t('debateQualityMetrics.overall')}:</span>
           <span className={`text-sm font-bold ${
             overallScore >= 70 ? 'text-[#39ff14]' :
             overallScore >= 50 ? 'text-[#00ffff]' :
@@ -193,7 +193,7 @@ export function DebateQualityMetrics({
               <span className="text-xs text-[#c0c0c0]">{metric.label}</span>
               <div className="flex items-center gap-2">
                 {showDetails && (
-                  <span className="text-[10px] text-[#6b7280]">{metric.description}</span>
+                  <span className="text-[10px] text-[#8b949e]">{metric.description}</span>
                 )}
                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${getRatingColor(metric.rating)}`}>
                   {metric.rating.toUpperCase()}
@@ -214,7 +214,7 @@ export function DebateQualityMetrics({
 
       {/* Phase Info */}
       <div className="pt-3 border-t border-[#21262d] flex items-center justify-between text-xs">
-        <span className="text-[#6b7280]">{t('debateQualityMetrics.currentPhase')}:</span>
+        <span className="text-[#8b949e]">{t('debateQualityMetrics.currentPhase')}:</span>
         <span className={`px-2 py-0.5 rounded ${
           phase === 'planning' ? 'bg-[#39ff14]/20 text-[#39ff14]' :
           phase === 'convergence' ? 'bg-[#00ffff]/20 text-[#00ffff]' :

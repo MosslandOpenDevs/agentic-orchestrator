@@ -300,9 +300,7 @@ class DiscussionRecordFormatter:
         ]
 
         if record.completed_at:
-            lines.append(
-                f"**Debate Completed:** {record.completed_at.strftime('%Y-%m-%d %H:%M')}"
-            )
+            lines.append(f"**Debate Completed:** {record.completed_at.strftime('%Y-%m-%d %H:%M')}")
 
         if record.duration_minutes:
             lines.append(f"**Total Duration:** {record.duration_minutes:.1f} min")

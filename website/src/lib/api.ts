@@ -174,6 +174,7 @@ export interface ApiProject {
   };
   status: string;
   files_generated: number;
+  generation_log?: string | null;
   created_at: string | null;
   completed_at: string | null;
 }
@@ -198,7 +199,7 @@ export interface ApiDebate {
   summary: string | null;
   outcome: string | null;
   final_plan: string | null;
-  ideas_generated: any[];
+  ideas_generated: Record<string, unknown>[];
   total_tokens: number;
   total_cost: number;
   started_at: string | null;

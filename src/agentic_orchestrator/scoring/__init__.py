@@ -6,7 +6,7 @@ Provides automatic scoring of ideas based on feasibility, relevance, novelty, an
 
 import json
 import re
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Optional
 
 from ..llm.router import HybridLLMRouter
@@ -18,10 +18,11 @@ logger = get_logger(__name__)
 @dataclass
 class IdeaScore:
     """Score breakdown for an idea."""
+
     feasibility: float  # 실현 가능성 (0-10): 1-2주 내 MVP 구현 가능성
-    relevance: float    # Mossland 관련성 (0-10): Mossland/Web3 생태계 적합성
-    novelty: float      # 참신성 (0-10): 기존 솔루션 대비 차별화
-    impact: float       # 영향력 (0-10): 사용자 가치 및 비즈니스 임팩트
+    relevance: float  # Mossland 관련성 (0-10): Mossland/Web3 생태계 적합성
+    novelty: float  # 참신성 (0-10): 기존 솔루션 대비 차별화
+    impact: float  # 영향력 (0-10): 사용자 가치 및 비즈니스 임팩트
 
     @property
     def total(self) -> float:
@@ -40,7 +41,7 @@ class IdeaScore:
         """Convert to dictionary."""
         return {
             **asdict(self),
-            'total': self.total,
+            "total": self.total,
         }
 
 

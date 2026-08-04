@@ -7,73 +7,103 @@ Usage:
     python -m agentic_orchestrator.scheduler run-debate
     python -m agentic_orchestrator.scheduler process-backlog
     python -m agentic_orchestrator.scheduler health-check
+    python -m agentic_orchestrator.scheduler backup-db
 """
 
-import sys
 import argparse
-from .tasks import signal_collect, analyze_trends, run_debate, process_backlog, health_check
+import sys
+
+from ..db.connection import ensure_schema
+from .tasks import analyze_trends, health_check, process_backlog, run_debate, signal_collect
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Mossland Agentic Orchestrator Scheduler',
-        prog='python -m agentic_orchestrator.scheduler',
+        description="Mossland Agentic Orchestrator Scheduler",
+        prog="python -m agentic_orchestrator.scheduler",
     )
 
-    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # signal-collect command
     subparsers.add_parser(
-        'signal-collect',
-        help='Collect signals from all adapters',
+        "signal-collect",
+        help="Collect signals from all adapters",
     )
 
     # analyze-trends command
     subparsers.add_parser(
-        'analyze-trends',
-        help='Analyze trends from recent signals using local LLM',
+        "analyze-trends",
+        help="Analyze trends from recent signals using local LLM",
     )
 
     # run-debate command
     debate_parser = subparsers.add_parser(
-        'run-debate',
-        help='Run multi-stage debate',
+        "run-debate",
+        help="Run multi-stage debate",
     )
     debate_parser.add_argument(
-        '--topic',
+        "--topic",
         type=str,
         default=None,
-        help='Optional debate topic (auto-selected from signals if not provided)',
+        help="Optional debate topic (auto-selected from signals if not provided)",
     )
 
     # process-backlog command
     subparsers.add_parser(
-        'process-backlog',
-        help='Process pending backlog items',
+        "process-backlog",
+        help="Process pending backlog items",
     )
 
     # health-check command
     subparsers.add_parser(
-        'health-check',
-        help='Check system health',
+        "health-check",
+        help="Check system health",
+    )
+
+    # backup-db command
+    subparsers.add_parser(
+        "backup-db",
+        help="Snapshot the SQLite database into data/backup/ (manual/on-demand)",
     )
 
     args = parser.parse_args()
 
-    if args.command == 'signal-collect':
+    if args.command is None:
+        parser.print_help()
+        sys.exit(1)
+
+    # backup-db is deliberately read-only: it must never mutate the database
+    # it is about to snapshot. Every other command gets the schema guarantee
+    # (idempotent create_tables with a boot-race retry; never raises).
+    if args.command != "backup-db":
+        ensure_schema()
+
+    if args.command == "signal-collect":
         signal_collect()
-    elif args.command == 'analyze-trends':
+    elif args.command == "analyze-trends":
         analyze_trends()
-    elif args.command == 'run-debate':
-        run_debate(topic=args.topic if hasattr(args, 'topic') else None)
-    elif args.command == 'process-backlog':
+    elif args.command == "run-debate":
+        run_debate(topic=args.topic if hasattr(args, "topic") else None)
+    elif args.command == "process-backlog":
         process_backlog()
-    elif args.command == 'health-check':
+    elif args.command == "health-check":
         health_check()
+    elif args.command == "backup-db":
+        from ..db.backup import backup_database
+
+        dest = backup_database()
+        if dest is None:
+            print(
+                "No backup created (database missing, empty, dataless, "
+                "failed integrity check, or not SQLite)."
+            )
+            sys.exit(1)
+        print(f"Backup written: {dest}")
     else:
         parser.print_help()
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

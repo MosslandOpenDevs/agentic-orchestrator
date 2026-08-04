@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import type { AdapterInfo } from '@/lib/types';
@@ -19,32 +19,78 @@ export function AdapterDetailModal({
   isLoading,
 }: AdapterDetailModalProps) {
   const { locale } = useI18n();
-  const [selectedAdapter, setSelectedAdapter] = useState<AdapterInfo | null>(null);
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = 'adapter-detail-modal-title';
 
-  // Auto-select first adapter when adapters load
-  useEffect(() => {
-    if (adapters.length > 0 && !selectedAdapter) {
-      setSelectedAdapter(adapters[0]);
-    }
-  }, [adapters, selectedAdapter]);
+  // Derive the selected adapter rather than syncing it through effects (which
+  // tripped react-hooks/set-state-in-effect): use the explicitly-selected
+  // adapter, otherwise fall back to the first. A stale name (adapter no longer
+  // in the list) also falls back gracefully.
+  const selectedAdapter =
+    adapters.find((a) => a.name === selectedName) ?? adapters[0] ?? null;
 
-  // Reset selection when modal closes
-  useEffect(() => {
-    if (!isOpen) {
-      setSelectedAdapter(null);
-    }
-  }, [isOpen]);
+  // Clear the selection as part of closing (replaces the old reset-on-close
+  // effect) so the next open starts on the first adapter again. Event-based, so
+  // it doesn't re-introduce a setState-in-effect.
+  const handleClose = useCallback(() => {
+    setSelectedName(null);
+    onClose();
+  }, [onClose]);
 
-  // Close on escape key
+  // Escape to close + Tab focus trap within the dialog.
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        handleClose();
+        return;
+      }
+      if (event.key === 'Tab' && dialogRef.current) {
+        const focusable = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
+          )
+        ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+        if (focusable.length === 0) {
+          event.preventDefault();
+          dialogRef.current.focus();
+          return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        const insideDialog = dialogRef.current.contains(active);
+        if (event.shiftKey) {
+          if (!insideDialog || active === first) {
+            event.preventDefault();
+            last.focus();
+          }
+        } else if (!insideDialog || active === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    },
+    [handleClose]
+  );
+
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+    if (!isOpen) return;
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, handleKeyDown]);
+
+  // Lock background scroll, move focus into the dialog, and restore focus on close.
+  useEffect(() => {
+    if (!isOpen) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    document.body.style.overflow = 'hidden';
+    dialogRef.current?.focus();
+    return () => {
+      document.body.style.overflow = '';
+      previouslyFocused?.focus?.();
     };
-    if (isOpen) {
-      window.addEventListener('keydown', handleEscape);
-    }
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   const categoryColors: Record<string, string> = {
     news: 'text-[#f1fa8c]',
@@ -71,12 +117,17 @@ export function AdapterDetailModal({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={handleClose}
             className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
           />
 
           {/* Modal */}
           <motion.div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            tabIndex={-1}
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -86,14 +137,15 @@ export function AdapterDetailModal({
             <div className="flex items-center justify-between p-4 border-b border-[#30363d]">
               <div className="flex items-center gap-3">
                 <span className="text-[#bd93f9]">◈</span>
-                <h2 className="text-lg font-mono text-[#c0c0c0]">
+                <h2 id={titleId} className="text-lg font-mono text-[#c0c0c0]">
                   {locale === 'ko' ? '시그널 어댑터 상세 정보' : 'Signal Adapters Detail'}
                 </h2>
                 <span className="tag tag-cyan">{adapters.length} adapters</span>
               </div>
               <button
-                onClick={onClose}
-                className="text-[#6b7280] hover:text-[#c0c0c0] transition-colors text-xl"
+                onClick={handleClose}
+                aria-label={locale === 'ko' ? '닫기' : 'Close'}
+                className="text-[#8b949e] hover:text-[#c0c0c0] transition-colors text-xl"
               >
                 ×
               </button>
@@ -104,7 +156,7 @@ export function AdapterDetailModal({
               {/* Adapter List */}
               <div className="w-1/3 border-r border-[#30363d] overflow-y-auto">
                 {isLoading ? (
-                  <div className="p-4 text-center text-[#6b7280]">
+                  <div className="p-4 text-center text-[#8b949e]">
                     <motion.span
                       animate={{ opacity: [0.3, 1, 0.3] }}
                       transition={{ duration: 1.5, repeat: Infinity }}
@@ -117,7 +169,7 @@ export function AdapterDetailModal({
                     {adapters.map((adapter) => (
                       <button
                         key={adapter.name}
-                        onClick={() => setSelectedAdapter(adapter)}
+                        onClick={() => setSelectedName(adapter.name)}
                         className={`w-full p-3 text-left hover:bg-[#21262d]/50 transition-colors ${
                           selectedAdapter?.name === adapter.name ? 'bg-[#21262d]' : ''
                         }`}
@@ -133,7 +185,7 @@ export function AdapterDetailModal({
                             <span className="status-dot offline ml-auto" style={{ width: 6, height: 6 }} />
                           )}
                         </div>
-                        <div className="text-[10px] text-[#6b7280] truncate">
+                        <div className="text-[10px] text-[#8b949e] truncate">
                           {locale === 'ko' ? adapter.description : adapter.description_en}
                         </div>
                         {adapter.source_count && (
@@ -158,7 +210,7 @@ export function AdapterDetailModal({
                         <h3 className={`text-lg font-mono ${categoryColors[selectedAdapter.category] || 'text-[#c0c0c0]'}`}>
                           {selectedAdapter.name}
                         </h3>
-                        <p className="text-xs text-[#6b7280]">
+                        <p className="text-xs text-[#8b949e]">
                           {locale === 'ko' ? selectedAdapter.description : selectedAdapter.description_en}
                         </p>
                       </div>
@@ -169,23 +221,23 @@ export function AdapterDetailModal({
                       <div className="text-[#bd93f9] text-xs mb-2"># Status</div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div className="flex justify-between">
-                          <span className="text-[#6b7280]">enabled:</span>
+                          <span className="text-[#8b949e]">enabled:</span>
                           <span className={selectedAdapter.enabled ? 'text-[#39ff14]' : 'text-[#ff6b35]'}>
                             {selectedAdapter.enabled ? 'true' : 'false'}
                           </span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-[#6b7280]">category:</span>
+                          <span className="text-[#8b949e]">category:</span>
                           <span className={categoryColors[selectedAdapter.category]}>{selectedAdapter.category}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-[#6b7280]">last_fetch:</span>
+                          <span className="text-[#8b949e]">last_fetch:</span>
                           <span className="text-[#c0c0c0]">
                             {selectedAdapter.last_fetch || 'never'}
                           </span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-[#6b7280]">source_count:</span>
+                          <span className="text-[#8b949e]">source_count:</span>
                           <span className="text-[#f1fa8c]">{selectedAdapter.source_count || 0}</span>
                         </div>
                       </div>
@@ -198,7 +250,7 @@ export function AdapterDetailModal({
                         <div className="space-y-1 text-xs font-mono">
                           {Object.entries(selectedAdapter.health).map(([key, value]) => (
                             <div key={key} className="flex justify-between">
-                              <span className="text-[#6b7280]">{key}:</span>
+                              <span className="text-[#8b949e]">{key}:</span>
                               <span className={
                                 value === true || value === 'connected' || value === 'healthy'
                                   ? 'text-[#39ff14]'
@@ -242,7 +294,7 @@ export function AdapterDetailModal({
                     )}
                   </div>
                 ) : (
-                  <div className="h-full flex items-center justify-center text-[#6b7280] text-sm">
+                  <div className="h-full flex items-center justify-center text-[#8b949e] text-sm">
                     {locale === 'ko'
                       ? '왼쪽에서 어댑터를 선택하세요'
                       : 'Select an adapter from the list'
@@ -254,7 +306,7 @@ export function AdapterDetailModal({
 
             {/* Footer */}
             <div className="p-3 border-t border-[#30363d] flex justify-between items-center text-xs">
-              <div className="text-[#6b7280]">
+              <div className="text-[#8b949e]">
                 {adapters.filter(a => a.enabled).length} / {adapters.length} enabled
               </div>
               <div className="flex gap-2">

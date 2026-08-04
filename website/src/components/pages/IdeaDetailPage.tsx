@@ -11,7 +11,7 @@ interface IdeaDetailPageProps {
 }
 
 export function IdeaDetailPage({ id }: IdeaDetailPageProps) {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
   const [idea, setIdea] = useState<ApiIdea | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

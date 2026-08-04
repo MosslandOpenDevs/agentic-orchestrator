@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
+import { clickableProps } from '@/lib/a11y';
 import type { ApiIdea } from '@/lib/api';
 
 interface IdeaNetworkProps {
@@ -44,7 +45,10 @@ export function IdeaNetwork({ ideas, onIdeaClick, showLabels = true }: IdeaNetwo
 
     ideas.forEach((idea, index) => {
       const angle = (index / ideas.length) * 2 * Math.PI - Math.PI / 2;
-      const r = radius * (0.6 + Math.random() * 0.4);
+      // Deterministic per-node radial jitter (stable across renders, no impure
+      // Math.random in render): hash the index into the [0, 1) range.
+      const jitter = ((Math.sin(index * 12.9898) * 43758.5453) % 1 + 1) % 1;
+      const r = radius * (0.6 + jitter * 0.4);
 
       nodes.push({
         id: idea.id,
@@ -91,7 +95,7 @@ export function IdeaNetwork({ ideas, onIdeaClick, showLabels = true }: IdeaNetwo
     if (status === 'in-development') return '#ff6b35';
     if (score >= 7) return '#00ffff';
     if (score >= 5) return '#bd93f9';
-    return '#6b7280';
+    return '#8b949e';
   };
 
   const handleNodeClick = (nodeId: string) => {
@@ -112,10 +116,10 @@ export function IdeaNetwork({ ideas, onIdeaClick, showLabels = true }: IdeaNetwo
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="text-xs text-[#6b7280] uppercase tracking-wider">
+        <span className="text-xs text-[#8b949e] uppercase tracking-wider">
           {t('ideaNetwork.title')}
         </span>
-        <span className="text-xs text-[#6b7280]">
+        <span className="text-xs text-[#8b949e]">
           {nodes.length} {t('ideaNetwork.nodes')}, {links.length} {t('ideaNetwork.connections')}
         </span>
       </div>
@@ -180,7 +184,9 @@ export function IdeaNetwork({ ideas, onIdeaClick, showLabels = true }: IdeaNetwo
                     className="cursor-pointer"
                     onMouseEnter={() => setHoveredNode(node.id)}
                     onMouseLeave={() => setHoveredNode(null)}
-                    onClick={() => handleNodeClick(node.id)}
+                    onFocus={() => setHoveredNode(node.id)}
+                    onBlur={() => setHoveredNode(null)}
+                    {...clickableProps(() => handleNodeClick(node.id), node.title)}
                   />
 
                   {/* Score Label */}
@@ -219,19 +225,19 @@ export function IdeaNetwork({ ideas, onIdeaClick, showLabels = true }: IdeaNetwo
       <div className="flex flex-wrap gap-4 text-[10px] pt-2 border-t border-[#21262d]">
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded-full bg-[#39ff14]" />
-          <span className="text-[#6b7280]">{t('ideaNetwork.promoted')}</span>
+          <span className="text-[#8b949e]">{t('ideaNetwork.promoted')}</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded-full bg-[#ff6b35]" />
-          <span className="text-[#6b7280]">{t('ideaNetwork.inDev')}</span>
+          <span className="text-[#8b949e]">{t('ideaNetwork.inDev')}</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded-full bg-[#00ffff]" />
-          <span className="text-[#6b7280]">{t('ideaNetwork.highScore')}</span>
+          <span className="text-[#8b949e]">{t('ideaNetwork.highScore')}</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded-full bg-[#bd93f9]" />
-          <span className="text-[#6b7280]">{t('ideaNetwork.medScore')}</span>
+          <span className="text-[#8b949e]">{t('ideaNetwork.medScore')}</span>
         </div>
       </div>
 
@@ -255,20 +261,20 @@ export function IdeaNetwork({ ideas, onIdeaClick, showLabels = true }: IdeaNetwo
                   </span>
                   <span className={`text-sm font-bold ${
                     idea.score >= 7 ? 'text-[#39ff14]' :
-                    idea.score >= 5 ? 'text-[#00ffff]' : 'text-[#6b7280]'
+                    idea.score >= 5 ? 'text-[#00ffff]' : 'text-[#8b949e]'
                   }`}>
                     {idea.score.toFixed(1)}
                   </span>
                 </div>
                 <p className="text-xs text-[#c0c0c0] line-clamp-2">{idea.summary}</p>
                 <div className="flex items-center gap-2 mt-2 text-[10px]">
-                  <span className="text-[#6b7280]">{t('ideaNetwork.connected')}:</span>
+                  <span className="text-[#8b949e]">{t('ideaNetwork.connected')}:</span>
                   <span className="text-[#bd93f9]">{node.connections.length}</span>
-                  <span className="text-[#6b7280]">|</span>
+                  <span className="text-[#8b949e]">|</span>
                   <span className={`px-1.5 py-0.5 rounded ${
                     idea.status === 'promoted' ? 'bg-[#39ff14]/20 text-[#39ff14]' :
                     idea.status === 'in-development' ? 'bg-[#ff6b35]/20 text-[#ff6b35]' :
-                    'bg-[#6b7280]/20 text-[#6b7280]'
+                    'bg-[#8b949e]/20 text-[#8b949e]'
                   }`}>
                     {idea.status}
                   </span>
@@ -301,10 +307,10 @@ export function IdeaNetworkStats({ ideas }: { ideas: ApiIdea[] }) {
   return (
     <div className="flex items-center gap-2 text-xs">
       <span className="text-[#00ffff]">{stats.nodes}</span>
-      <span className="text-[#6b7280]">{t('ideaNetwork.nodes')}</span>
-      <span className="text-[#6b7280]">•</span>
+      <span className="text-[#8b949e]">{t('ideaNetwork.nodes')}</span>
+      <span className="text-[#8b949e]">•</span>
       <span className="text-[#bd93f9]">{stats.connections}</span>
-      <span className="text-[#6b7280]">{t('ideaNetwork.connections')}</span>
+      <span className="text-[#8b949e]">{t('ideaNetwork.connections')}</span>
     </div>
   );
 }

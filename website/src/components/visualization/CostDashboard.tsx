@@ -39,7 +39,7 @@ export function CostDashboard({ usage, showDetails = false }: CostDashboardProps
           requests: data.requests,
           inputTokens: data.input_tokens,
           outputTokens: data.output_tokens,
-          color: colors[provider.toLowerCase()] || '#6b7280',
+          color: colors[provider.toLowerCase()] || '#8b949e',
         });
       });
     }
@@ -65,10 +65,10 @@ export function CostDashboard({ usage, showDetails = false }: CostDashboardProps
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="text-xs text-[#6b7280] uppercase tracking-wider">
+        <span className="text-xs text-[#8b949e] uppercase tracking-wider">
           {t('costDashboard.title')}
         </span>
-        <span className="text-xs text-[#6b7280]">
+        <span className="text-xs text-[#8b949e]">
           {t('costDashboard.today')}
         </span>
       </div>
@@ -79,32 +79,32 @@ export function CostDashboard({ usage, showDetails = false }: CostDashboardProps
           <div className="text-lg font-bold text-[#39ff14]">
             {formatCost(totalCost)}
           </div>
-          <div className="text-[10px] text-[#6b7280]">{t('costDashboard.todayCost')}</div>
+          <div className="text-[10px] text-[#8b949e]">{t('costDashboard.todayCost')}</div>
         </div>
         <div className="p-3 rounded border border-[#00ffff]/30 bg-[#00ffff]/10">
           <div className="text-lg font-bold text-[#00ffff]">
             {usage.today.total_requests}
           </div>
-          <div className="text-[10px] text-[#6b7280]">{t('costDashboard.requests')}</div>
+          <div className="text-[10px] text-[#8b949e]">{t('costDashboard.requests')}</div>
         </div>
         <div className="p-3 rounded border border-[#bd93f9]/30 bg-[#bd93f9]/10">
           <div className="text-lg font-bold text-[#bd93f9]">
             {formatTokens(usage.today.total_input_tokens + usage.today.total_output_tokens)}
           </div>
-          <div className="text-[10px] text-[#6b7280]">{t('costDashboard.tokens')}</div>
+          <div className="text-[10px] text-[#8b949e]">{t('costDashboard.tokens')}</div>
         </div>
         <div className="p-3 rounded border border-[#ff6b35]/30 bg-[#ff6b35]/10">
           <div className="text-lg font-bold text-[#ff6b35]">
             {formatCost(usage.month_total)}
           </div>
-          <div className="text-[10px] text-[#6b7280]">{t('costDashboard.monthTotal')}</div>
+          <div className="text-[10px] text-[#8b949e]">{t('costDashboard.monthTotal')}</div>
         </div>
       </div>
 
       {/* Budget Progress */}
       <div className="space-y-2">
         <div className="flex items-center justify-between text-xs">
-          <span className="text-[#6b7280]">{t('costDashboard.budgetUsage')}</span>
+          <span className="text-[#8b949e]">{t('costDashboard.budgetUsage')}</span>
           <span className={`font-bold ${
             budgetUsed >= 90 ? 'text-[#ff5555]' :
             budgetUsed >= 70 ? 'text-[#ff6b35]' :
@@ -125,7 +125,7 @@ export function CostDashboard({ usage, showDetails = false }: CostDashboardProps
             }`}
           />
         </div>
-        <div className="flex items-center justify-between text-[10px] text-[#6b7280]">
+        <div className="flex items-center justify-between text-[10px] text-[#8b949e]">
           <span>{formatCost(usage.month_total)} {t('costDashboard.used')}</span>
           <span>{formatCost(monthlyBudget)} {t('costDashboard.budget')}</span>
         </div>
@@ -134,7 +134,7 @@ export function CostDashboard({ usage, showDetails = false }: CostDashboardProps
       {/* Provider Breakdown */}
       {providerStats.length > 0 && (
         <div className="space-y-2 pt-3 border-t border-[#21262d]">
-          <div className="text-xs text-[#6b7280] uppercase">
+          <div className="text-xs text-[#8b949e] uppercase">
             {t('costDashboard.byProvider')}
           </div>
           <div className="space-y-2">
@@ -159,8 +159,8 @@ export function CostDashboard({ usage, showDetails = false }: CostDashboardProps
                     <div className="flex items-center gap-3 text-xs">
                       {showDetails && (
                         <>
-                          <span className="text-[#6b7280]">{provider.requests} req</span>
-                          <span className="text-[#6b7280]">
+                          <span className="text-[#8b949e]">{provider.requests} req</span>
+                          <span className="text-[#8b949e]">
                             {formatTokens(provider.inputTokens + provider.outputTokens)} tok
                           </span>
                         </>
@@ -189,7 +189,7 @@ export function CostDashboard({ usage, showDetails = false }: CostDashboardProps
       {/* History Chart */}
       {usage.history && usage.history.length > 0 && showDetails && (
         <div className="space-y-2 pt-3 border-t border-[#21262d]">
-          <div className="text-xs text-[#6b7280] uppercase">
+          <div className="text-xs text-[#8b949e] uppercase">
             {t('costDashboard.history')} ({usage.days} {t('costDashboard.days')})
           </div>
           <div className="flex items-end gap-1 h-16">
@@ -209,7 +209,7 @@ export function CostDashboard({ usage, showDetails = false }: CostDashboardProps
               );
             })}
           </div>
-          <div className="flex justify-between text-[10px] text-[#6b7280]">
+          <div className="flex justify-between text-[10px] text-[#8b949e]">
             <span>{usage.history[usage.history.length - 14]?.date.slice(-5) || ''}</span>
             <span>{t('costDashboard.today')}</span>
           </div>
@@ -224,7 +224,7 @@ export function CostDashboard({ usage, showDetails = false }: CostDashboardProps
               className="w-2 h-2 rounded-full"
               style={{ backgroundColor: provider.color }}
             />
-            <span className="text-[#6b7280]">{provider.name}</span>
+            <span className="text-[#8b949e]">{provider.name}</span>
           </div>
         ))}
       </div>
@@ -242,17 +242,17 @@ export function CostDashboardCompact({ usage }: { usage: UsageResponse }) {
     <div className="flex items-center gap-3 text-xs">
       <div className="flex items-center gap-1">
         <span className="text-[#39ff14] font-bold">{formatCost(usage.today.total_cost)}</span>
-        <span className="text-[#6b7280]">today</span>
+        <span className="text-[#8b949e]">today</span>
       </div>
-      <span className="text-[#6b7280]">|</span>
+      <span className="text-[#8b949e]">|</span>
       <div className="flex items-center gap-1">
         <span className="text-[#00ffff] font-bold">{usage.today.total_requests}</span>
-        <span className="text-[#6b7280]">req</span>
+        <span className="text-[#8b949e]">req</span>
       </div>
-      <span className="text-[#6b7280]">|</span>
+      <span className="text-[#8b949e]">|</span>
       <div className="flex items-center gap-1">
         <span className="text-[#bd93f9] font-bold">{formatCost(usage.month_total)}</span>
-        <span className="text-[#6b7280]">month</span>
+        <span className="text-[#8b949e]">month</span>
       </div>
     </div>
   );

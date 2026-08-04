@@ -7,6 +7,45 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 이 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)를 기반으로 하며,
 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
+## [0.6.10] - 2026-07-02
+
+### 수정
+- **DB가 망가져도 `/status`가 하드 500을 내지 않음** (2026-07 장애: ao.moss.land의 모든 DB 기반 엔드포인트가 500을 반환하는 동안 `/health`만 200 — 프로덕션 SQLite 파일이 유실/비워졌고, `system_status()`가 헬스체크보다 *먼저* 통계 쿼리를 실행해 준비돼 있던 `degraded` 분기에 도달할 수 없었음). 이제 통계 쿼리 자체가 헬스 프로브 역할을 겸함: 실패 시 200과 함께 `status="degraded"`, `components.database.status="unhealthy"`, 0으로 채운 stats를 반환해 moss.land 거버넌스 위젯이 소비하는 `{ stats: { agents_active, ideas_generated, debates_today } }` 계약을 유지 (MosslandOpenDevs/pixel-agent-lab#1, 원인 2).
+
+### 추가
+- **기동 시 스키마 자기치유** (`db/connection.py` `ensure_schema()`): API(FastAPI lifespan 훅)와 `backup-db`를 제외한 모든 스케줄러 CLI 명령이 서빙/작업 전에 멱등적인 `create_tables()`(`CREATE TABLE IF NOT EXISTS`)를 실행하며, 동시에 부팅되는 PM2 프로세스들이 CREATE 레이스로 서로를 실패시키지 않도록 짧은 재시도를 포함. SQLite 파일이 유실되거나 비워져도 운영자 개입 전까지 모든 DB 엔드포인트가 "no such table" 500을 내는 대신, 비어 있지만 동작하는 DB로 강등되어 시그널/토론 파이프라인이 스스로 다시 채움. `backup-db`는 의도적으로 제외 — 백업 명령은 스냅샷 대상 DB를 절대 변경하면 안 됨.
+- **롤링 로컬 DB 백업** (`db/backup.py`): 5분 주기 헬스 태스크가 약 24시간 간격으로 `data/orchestrator.db`를 `data/backup/`(gitignore 처리됨)에 스냅샷하고 최신 7개를 보관. 리뷰에서 확인된 모든 실패 모드에 대해 강화됨:
+  - sqlite3 온라인 백업 API를 **증분 복사**(`pages`/`sleep`)로 사용해 대용량 복사 중에도 동시 writer가 굶지 않음(프로덕션 DB는 WAL 미사용) + 30초 busy timeout.
+  - 스냅샷은 `.tmp` 이름으로 쓰고 **`PRAGMA quick_check` 통과 후에만 원자적으로 rename** — 복사 중 비정상 종료나 손상된 원본이 간격 게이트를 막거나 보관 슬롯을 차지하는 쓰레기 파일을 남길 수 없고, 실패한 시도는 하루를 조용히 건너뛰는 대신 다음 5분 틱에 재시도됨.
+  - **회귀 인지 프루닝**: 히스토리 테이블(ideas/plans/debate_sessions — 파이프라인이 재생성할 수 없는 것들)이 직전 스냅샷 대비 50% 미만으로 급감하면 새 스냅샷은 기록하되 프루닝을 중단하고 큰 소리로 에러 로그. 이 가드가 없으면 30분 주기 시그널 태스크가 비워진 DB를 자동으로 다시 채워 "meaningful"하게 보이게 만들고, 일일 로테이션이 `keep`일 안에 사고 이전 백업을 전부 파괴함.
+  - DB가 없거나, 비었거나, 데이터가 없거나, 무결성 검사에 실패하면 백업을 건너뜀. 수동 실행: `python -m agentic_orchestrator.scheduler backup-db`.
+
+### 테스트
+- `tests/test_db_resilience.py` 추가 (30개): /status 강등 + 위젯 계약, lifespan 자기치유(망가진 DB로 기동 포함), 스냅샷/건너뛰기/정리/간격 동작, 최초 백업 경로, 부분 복사 정리 + 다음 틱 재시도, 무결성 실패 폐기, 회귀 인지 프루닝, `ensure_schema` 재시도 시맨틱, 스케줄러 CLI 디스패치 보장(스키마 치유 순서, `backup-db` 읽기 전용 제외, 비정상 종료 코드).
+
+### 운영자 노트
+- **DB 유실 후 복원**: 쓰기 프로세스 중지(`pm2 stop moss-ao-signals moss-ao-trends moss-ao-debate moss-ao-backlog`) → 최신 `data/backup/orchestrator-*.db`를 `data/orchestrator.db`로 복사 → 재시작. 백업이 생기기 전에는 복원할 것이 없음 — 파이프라인이 빈 DB를 시간이 지나며 다시 채움.
+- 배포 디렉토리를 `git clean -fdx`로 청소할 때 반드시 data 디렉토리를 제외할 것 (`git clean -fdx -e data -e .env`); 프로덕션 DB는 git에 한 번도 커밋된 적이 없음.
+
+---
+
+## [0.6.9] - 2026-06-27
+
+### 추가
+- **코드 생성 검증 게이트** (`project/verifier.py`, `project/repair.py`): 생성된 소스를 디스크 기록·커밋 전에 검증하고 자동 수리. 스캐폴드가 파일별 파이프라인 — 결정적 수리 → 검증 → (필요 시) 컴파일 오류를 모델에 되먹이는 LLM 재수리 1회 — 을 Solidity·Python·TypeScript/JavaScript에 대해 실행.
+  - **`CodeVerifier`**: Python은 내장 `compile()`(항상 사용 가능); Solidity는 보수적 정적 검사(`pragma` 누락, 잘못된 `.length()` 호출, 중괄호/괄호 불균형으로 절단 감지) + import 없는 컨트랙트에 한해 선택적 `solc`; TS/JS는 선택적 `esbuild` 구문 검사. 툴체인이 없으면 거짓 실패가 아니라 `SKIPPED`로 graceful degrade. 작은 Solidity 토크나이저로 문자열/주석을 오판하지 않음.
+  - **`CodeRepairer`**: 생성물에서 실제로 관측된 버그 클래스에 대한 결정적 수리 — SPDX/`pragma` 누락 보강, 잘못된 `.length()` → `.length` 프로퍼티, 제거된 `now` 전역 → `block.timestamp`, OpenZeppelin v5 관용구를 고정된 v4로 정규화(`utils/` → `security/` import, v5 `Ownable(...)` 베이스 호출 제거), 컨트랙트가 OZ를 import하면 `contracts/package.json`에 `@openzeppelin/contracts` 주입. 수리는 문자열 리터럴/주석 바깥에서만 수행.
+- **`ready_with_warnings` 프로젝트 상태**: 완전 수리가 안 된 프로젝트는 조용히 `ready`로 두지 않고 `ready_with_warnings`로 표시하며 전달은 절대 차단하지 않음. 파일별 검증 요약은 `Project.extra_metadata["verification"]`에, 한 줄 요약은 `generation_log`와 `.moss-project.json`에 기록되고, 프로젝트 UI(배지 색상 + 상세 모달의 "Code Verification" 패널)에 노출.
+
+### 수정
+- **LLM 경로 컨트랙트에 Hardhat 툴체인 누락**: `generate_smart_contracts_full()`이 `.sol`(과 Hardhat을 전제한 deploy 스크립트·테스트)만 내보내고 `contracts/package.json`·`hardhat.config.ts`는 내보내지 않아 `hardhat compile`이 import를 해석할 수 없었음. 둘 다 내보내며 `@openzeppelin/contracts`를 고정.
+- **Hardhat 템플릿** (`project/templates.py`, `project/generator.py`의 폴백 컨트랙트): 컨트랙트 `package.json` 템플릿이 `@openzeppelin/contracts@^4.9.6`을 선언하고, 폴백 `Main` 컨트랙트가 OZ v4 무인자 `Ownable` 생성자를 사용(이전엔 v4 import 경로와 v5 `Ownable(msg.sender)` 호출이 섞여 단일 OZ 버전으로 컴파일 불가).
+
+### 테스트
+- `tests/test_project_verifier.py`, `tests/test_project_repair.py`, `tests/test_project_verification_gate.py` 추가(신규 34개) — 검증기, 결정적 수리기, 의존성 주입, 스캐폴드 게이트의 결정적/LLM 재수리 경로 커버.
+
+---
+
 ## [0.6.8] - 2026-04-30
 
 ### 보안

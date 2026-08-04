@@ -108,12 +108,12 @@ export function SignalDetail({ data }: SignalDetailProps) {
       {/* Score Gauge */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.score')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.score')}</div>
           <ScoreGauge value={signal.score} maxValue={10} label={t('detail.relevance')} />
         </div>
 
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.sentiment')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.sentiment')}</div>
           <div className="flex items-center gap-2">
             <TerminalBadge variant={sentimentColor as 'green' | 'red' | 'cyan'}>
               {signal.sentiment || 'neutral'}
@@ -125,7 +125,7 @@ export function SignalDetail({ data }: SignalDetailProps) {
       {/* Summary */}
       {(signal.summary || signal.summary_ko) && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.summary')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.summary')}</div>
           <p className="text-sm text-[#c0c0c0] leading-relaxed">
             {getLocalizedText(signal.summary, signal.summary_ko)}
           </p>
@@ -135,7 +135,7 @@ export function SignalDetail({ data }: SignalDetailProps) {
       {/* Topics */}
       {signal.topics && signal.topics.length > 0 && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.topics')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.topics')}</div>
           <div className="flex flex-wrap gap-2">
             {signal.topics.map((topic, idx) => (
               <motion.span
@@ -155,7 +155,7 @@ export function SignalDetail({ data }: SignalDetailProps) {
       {/* Entities */}
       {signal.entities && signal.entities.length > 0 && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.entities')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.entities')}</div>
           <div className="flex flex-wrap gap-2">
             {signal.entities.map((entity, idx) => (
               <motion.span
@@ -174,17 +174,17 @@ export function SignalDetail({ data }: SignalDetailProps) {
 
       {/* Metadata */}
       <div className="card-cli p-4">
-        <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.metadata')}</div>
+        <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.metadata')}</div>
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div>
-            <span className="text-[#6b7280]">{t('detail.collectedAt')}: </span>
+            <span className="text-[#8b949e]">{t('detail.collectedAt')}: </span>
             <span className="text-[#c0c0c0]">
               {formatLocalDateTime(signal.collected_at, locale)}
             </span>
           </div>
           {signal.url && (
             <div>
-              <span className="text-[#6b7280]">{t('detail.source')}: </span>
+              <span className="text-[#8b949e]">{t('detail.source')}: </span>
               <a
                 href={signal.url}
                 target="_blank"

@@ -7,11 +7,11 @@ Falls back to in-memory cache when Redis is not available.
 
 import json
 import os
-from datetime import timedelta
-from typing import Optional, Any, Dict, List, Callable
-from dataclasses import dataclass
 import threading
 import time
+from dataclasses import dataclass
+from datetime import timedelta
+from typing import Any, Callable, Dict, List, Optional
 
 
 class CacheKeys:
@@ -55,6 +55,7 @@ class CacheKeys:
 @dataclass
 class CacheConfig:
     """Cache configuration."""
+
     default_ttl: int = 300  # 5 minutes
     signals_ttl: int = 900  # 15 minutes
     trends_ttl: int = 3600  # 1 hour
@@ -122,10 +123,7 @@ class InMemoryCache:
         """Remove expired entries."""
         with self._lock:
             now = time.time()
-            expired = [
-                k for k, (_, exp) in self._cache.items()
-                if exp is not None and now >= exp
-            ]
+            expired = [k for k, (_, exp) in self._cache.items() if exp is not None and now >= exp]
             for key in expired:
                 del self._cache[key]
 
@@ -154,11 +152,9 @@ class RedisCache:
         """Initialize Redis connection."""
         try:
             import redis
+
             self._redis = redis.from_url(
-                self.url,
-                decode_responses=True,
-                socket_connect_timeout=5,
-                socket_timeout=5
+                self.url, decode_responses=True, socket_connect_timeout=5, socket_timeout=5
             )
             # Test connection
             self._redis.ping()
@@ -200,11 +196,7 @@ class RedisCache:
             return self._fallback.set(key, value, ttl)
 
         try:
-            return bool(self._redis.setex(
-                key,
-                timedelta(seconds=ttl),
-                self._serialize(value)
-            ))
+            return bool(self._redis.setex(key, timedelta(seconds=ttl), self._serialize(value)))
         except Exception:
             self._use_fallback = True
             return self._fallback.set(key, value, ttl)
@@ -344,7 +336,7 @@ class RedisCache:
             current = self._fallback.get(key) or []
             if end == -1:
                 return current[start:]
-            return current[start:end + 1]
+            return current[start : end + 1]
 
         try:
             data = self._redis.lrange(key, start, end)
@@ -353,7 +345,7 @@ class RedisCache:
             current = self._fallback.get(key) or []
             if end == -1:
                 return current[start:]
-            return current[start:end + 1]
+            return current[start : end + 1]
 
     def ltrim(self, key: str, start: int, end: int) -> bool:
         """Trim list to specified range."""
@@ -362,7 +354,7 @@ class RedisCache:
             if end == -1:
                 trimmed = current[start:]
             else:
-                trimmed = current[start:end + 1]
+                trimmed = current[start : end + 1]
             self._fallback.set(key, trimmed)
             return True
 
@@ -378,7 +370,7 @@ class RedisCache:
             return {
                 "status": "fallback",
                 "type": "in-memory",
-                "message": "Using in-memory cache (Redis not available)"
+                "message": "Using in-memory cache (Redis not available)",
             }
 
         try:
@@ -387,14 +379,10 @@ class RedisCache:
             return {
                 "status": "healthy",
                 "type": "redis",
-                "used_memory": info.get("used_memory_human", "unknown")
+                "used_memory": info.get("used_memory_human", "unknown"),
             }
         except Exception as e:
-            return {
-                "status": "error",
-                "type": "redis",
-                "message": str(e)
-            }
+            return {"status": "error", "type": "redis", "message": str(e)}
 
     def flush(self):
         """Clear all cache (use with caution!)."""

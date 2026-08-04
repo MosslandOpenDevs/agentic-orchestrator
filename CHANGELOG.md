@@ -7,6 +7,45 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.10] - 2026-07-02
+
+### Fixed
+- **`/status` no longer hard-500s when the database is broken** (2026-07 incident: every DB-backed endpoint on ao.moss.land returned 500 while `/health` stayed 200 — the production SQLite file had been lost/emptied, and `system_status()` ran its stat queries *before* any health check, so the prepared `degraded` branch was unreachable). The stat queries now double as the health probe: on failure the endpoint returns 200 with `status="degraded"`, `components.database.status="unhealthy"`, and zeroed stats, preserving the `{ stats: { agents_active, ideas_generated, debates_today } }` contract the moss.land governance widget consumes (MosslandOpenDevs/pixel-agent-lab#1, cause 2).
+
+### Added
+- **Startup schema self-heal** (`db/connection.py` `ensure_schema()`): the API (via a FastAPI lifespan hook) and every scheduler CLI command except `backup-db` now run the idempotent `create_tables()` (`CREATE TABLE IF NOT EXISTS`) before serving/working, with a short retry so simultaneously booting PM2 processes cannot fail each other on the boot-time CREATE race. A missing or emptied SQLite file degrades to an empty-but-working database that the signal/debate pipeline repopulates on its own, instead of "no such table" 500s on every DB-backed endpoint until an operator intervenes. `backup-db` is deliberately excluded — a backup command must never mutate the database it snapshots.
+- **Rolling local DB backups** (`db/backup.py`): the 5-minute health task now snapshots `data/orchestrator.db` into `data/backup/` (gitignored) at a ~24h cadence, keeping the newest 7. Hardened against every reviewed failure mode:
+  - Snapshots use the sqlite3 online-backup API copied **incrementally** (`pages`/`sleep`) so concurrent writers are not starved during a large copy (the production DB does not run WAL), with a 30s busy timeout.
+  - Each snapshot is written to a `.tmp` name and **renamed into place only after `PRAGMA quick_check` passes** — an unclean death mid-copy or a corrupt source can never leave a garbage file that gates the interval or occupies a retention slot, and a failed attempt is retried on the next 5-minute tick instead of silently skipping a day.
+  - **Regression-aware pruning**: if the history tables (ideas/plans/debate_sessions — the ones the pipeline cannot regenerate) shrank below 50% of the newest existing snapshot, the new snapshot is still written but pruning is suspended with a loud error. Without this, a wiped database auto-refilled by the 30-minute signals task would look "meaningful" again and daily rotation would destroy the last pre-incident backups within `keep` days.
+  - Backups are skipped when the database is missing, empty, dataless, or fails the integrity check. Manual trigger: `python -m agentic_orchestrator.scheduler backup-db`.
+
+### Tests
+- Added `tests/test_db_resilience.py` (30 tests): /status degradation + widget contract, lifespan self-heal (including a broken-DB startup), snapshot/skip/prune/interval behavior, first-ever-backup paths, partial-copy cleanup + retry-next-tick, integrity-failure discard, regression-aware pruning, `ensure_schema` retry semantics, and scheduler-CLI dispatch guarantees (schema-heal ordering, `backup-db` read-only exclusion, non-zero exit).
+
+### Operator notes
+- **Restoring after DB loss**: stop the writers (`pm2 stop moss-ao-signals moss-ao-trends moss-ao-debate moss-ao-backlog`), copy the newest `data/backup/orchestrator-*.db` over `data/orchestrator.db`, then restart. Until a backup exists there is nothing to restore — the pipeline will repopulate an empty database over time.
+- Never clean the deploy directory with `git clean -fdx` without excluding the data directory (`git clean -fdx -e data -e .env`); the production database has never been tracked in git.
+
+---
+
+## [0.6.9] - 2026-06-27
+
+### Added
+- **Code-generation verification gate** (`project/verifier.py`, `project/repair.py`): generated source is now verified and auto-repaired before it is written to disk and committed. The scaffold runs a per-file pipeline — deterministic repair → verify → (optional) one LLM repair retry that feeds the diagnostics back to the model — across Solidity, Python, and TypeScript/JavaScript.
+  - **`CodeVerifier`**: Python via the built-in `compile()` (always available); Solidity via conservative static checks (missing `pragma`, invalid `.length()` calls, truncation detected by brace/paren imbalance) plus optional `solc` for import-free contracts; TS/JS via optional `esbuild` syntax checks. A missing toolchain degrades to a `SKIPPED` result, never a false failure. String/comment contents are never misread thanks to a small Solidity tokenizer.
+  - **`CodeRepairer`**: deterministic fixes for the bug classes seen in generator output — adds missing SPDX/`pragma`, rewrites invalid `.length()` to the `.length` property, replaces the removed `now` global with `block.timestamp`, normalizes OpenZeppelin v5 idioms to the pinned v4 (`utils/` → `security/` imports, drops the v5 `Ownable(...)` base call), and injects `@openzeppelin/contracts` into `contracts/package.json` when any contract imports it. Fixes run only outside string literals and comments.
+- **`ready_with_warnings` project status**: projects whose code could not be fully repaired are marked `ready_with_warnings` (instead of silently `ready`) and never block delivery. The per-file verification summary is persisted to `Project.extra_metadata["verification"]`, a one-line summary to `generation_log` and `.moss-project.json`, and surfaced in the Projects UI (badge color + a "Code Verification" panel in the project detail modal).
+
+### Fixed
+- **LLM-path contracts were missing the Hardhat toolchain**: `generate_smart_contracts_full()` emitted `.sol` files (plus a deploy script and tests that assume Hardhat) but no `contracts/package.json` or `hardhat.config.ts`, so `hardhat compile` could never resolve imports. Both are now emitted, with `@openzeppelin/contracts` pinned.
+- **Hardhat templates** (`project/templates.py`, fallback contract in `project/generator.py`): the contracts `package.json` template now declares `@openzeppelin/contracts@^4.9.6`, and the fallback `Main` contract uses the OZ v4 no-arg `Ownable` constructor (it previously mixed v4 import paths with a v5 `Ownable(msg.sender)` call and could not compile against a single OZ version).
+
+### Tests
+- Added `tests/test_project_verifier.py`, `tests/test_project_repair.py`, and `tests/test_project_verification_gate.py` (34 new tests) covering the verifier, deterministic repairer, dependency injection, and the scaffold gate's deterministic and LLM-retry paths.
+
+---
+
 ## [0.6.8] - 2026-04-30
 
 ### Security

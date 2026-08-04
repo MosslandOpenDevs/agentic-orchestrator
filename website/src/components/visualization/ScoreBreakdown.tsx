@@ -80,7 +80,7 @@ export function ScoreBreakdown({
     <div className="space-y-4">
       {/* Header with total score */}
       <div className="flex items-center justify-between">
-        <span className="text-xs text-[#6b7280] uppercase tracking-wider">
+        <span className="text-xs text-[#8b949e] uppercase tracking-wider">
           {t('scoreBreakdown.title')}
         </span>
         <motion.span
@@ -104,7 +104,7 @@ export function ScoreBreakdown({
             >
               <div className="flex items-center justify-between text-xs mb-1">
                 <span className="text-[#c0c0c0]">{t(`scoreBreakdown.${dim.label}`)}</span>
-                <span className="text-[#6b7280]">
+                <span className="text-[#8b949e]">
                   {dim.value.toFixed(1)} <span className="text-[#3b3b3b]">({dim.weight}%)</span>
                 </span>
               </div>
@@ -130,12 +130,12 @@ export function ScoreBreakdown({
       >
         {consensus !== undefined && (
           <div className="flex items-center gap-2">
-            <span className="text-[#6b7280]">{t('scoreBreakdown.consensus')}:</span>
+            <span className="text-[#8b949e]">{t('scoreBreakdown.consensus')}:</span>
             <span className="text-[#00ffff] font-bold">{consensus}%</span>
           </div>
         )}
         <div className="flex items-center gap-2">
-          <span className="text-[#6b7280]">{t('scoreBreakdown.confidence')}:</span>
+          <span className="text-[#8b949e]">{t('scoreBreakdown.confidence')}:</span>
           <span className={`font-bold ${getConfidenceColor()}`}>
             {getConfidenceLabel()} <span className="text-[#3b3b3b]">(±{confidenceRange.toFixed(1)})</span>
           </span>

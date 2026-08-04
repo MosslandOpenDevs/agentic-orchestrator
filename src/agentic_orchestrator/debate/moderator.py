@@ -252,12 +252,8 @@ class DebateModerator:
             "maximum_rounds_reached": (
                 f"Debate ended: reached maximum rounds ({self.max_rounds})."
             ),
-            "founder_satisfied": (
-                "Debate ended: founder determined sufficient improvement."
-            ),
-            "all_approved": (
-                "Debate ended: all feedback providers approved."
-            ),
+            "founder_satisfied": ("Debate ended: founder determined sufficient improvement."),
+            "all_approved": ("Debate ended: all feedback providers approved."),
             "minimum_rounds_not_reached": (
                 f"Continuing: minimum rounds ({self.min_rounds}) not yet reached."
             ),

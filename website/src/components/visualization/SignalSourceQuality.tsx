@@ -93,7 +93,7 @@ export function SignalSourceQuality({ signals, showDetails = false }: SignalSour
       case 'poor':
         return 'bg-[#ff5555]/20 text-[#ff5555] border-[#ff5555]';
       default:
-        return 'bg-[#6b7280]/20 text-[#6b7280] border-[#6b7280]';
+        return 'bg-[#8b949e]/20 text-[#8b949e] border-[#8b949e]';
     }
   };
 
@@ -101,17 +101,17 @@ export function SignalSourceQuality({ signals, showDetails = false }: SignalSour
     if (score >= 8) return 'text-[#39ff14]';
     if (score >= 6) return 'text-[#00ffff]';
     if (score >= 4) return 'text-[#ff6b35]';
-    return 'text-[#6b7280]';
+    return 'text-[#8b949e]';
   };
 
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="text-xs text-[#6b7280] uppercase tracking-wider">
+        <span className="text-xs text-[#8b949e] uppercase tracking-wider">
           {t('signalSourceQuality.title')}
         </span>
-        <span className="text-xs text-[#6b7280]">
+        <span className="text-xs text-[#8b949e]">
           {sourceStats.length} {t('signalSourceQuality.sources')}
         </span>
       </div>
@@ -120,29 +120,29 @@ export function SignalSourceQuality({ signals, showDetails = false }: SignalSour
       <div className="grid grid-cols-4 gap-3">
         <div className="text-center p-2 rounded border border-[#21262d] bg-black/20">
           <div className="text-lg font-bold text-[#00ffff]">{totalSignals}</div>
-          <div className="text-[10px] text-[#6b7280]">{t('signalSourceQuality.totalSignals')}</div>
+          <div className="text-[10px] text-[#8b949e]">{t('signalSourceQuality.totalSignals')}</div>
         </div>
         <div className="text-center p-2 rounded border border-[#21262d] bg-black/20">
           <div className={`text-lg font-bold ${getScoreColor(avgOverallScore)}`}>
             {avgOverallScore.toFixed(1)}
           </div>
-          <div className="text-[10px] text-[#6b7280]">{t('signalSourceQuality.avgScore')}</div>
+          <div className="text-[10px] text-[#8b949e]">{t('signalSourceQuality.avgScore')}</div>
         </div>
         <div className="text-center p-2 rounded border border-[#21262d] bg-black/20">
           <div className="text-lg font-bold text-[#39ff14]">
             {sourceStats.filter((s) => s.quality === 'excellent' || s.quality === 'good').length}
           </div>
-          <div className="text-[10px] text-[#6b7280]">{t('signalSourceQuality.quality')}</div>
+          <div className="text-[10px] text-[#8b949e]">{t('signalSourceQuality.quality')}</div>
         </div>
         <div className="text-center p-2 rounded border border-[#21262d] bg-black/20">
           <div className="text-lg font-bold text-[#bd93f9]">{sourceStats.length}</div>
-          <div className="text-[10px] text-[#6b7280]">{t('signalSourceQuality.sources')}</div>
+          <div className="text-[10px] text-[#8b949e]">{t('signalSourceQuality.sources')}</div>
         </div>
       </div>
 
       {/* Source Distribution Chart */}
       <div className="space-y-2">
-        <div className="text-xs text-[#6b7280] uppercase">
+        <div className="text-xs text-[#8b949e] uppercase">
           {t('signalSourceQuality.distribution')}
         </div>
         <div className="space-y-1.5">
@@ -167,7 +167,7 @@ export function SignalSourceQuality({ signals, showDetails = false }: SignalSour
                       className={`h-full ${getQualityColor(stat.quality).split(' ')[0]}`}
                     />
                   </div>
-                  <span className="text-xs text-[#6b7280] w-12 text-right">
+                  <span className="text-xs text-[#8b949e] w-12 text-right">
                     {stat.count}
                   </span>
                   <span className={`text-xs font-bold w-8 text-right ${getScoreColor(stat.avgScore)}`}>
@@ -186,7 +186,7 @@ export function SignalSourceQuality({ signals, showDetails = false }: SignalSour
       {/* Detailed View */}
       {showDetails && sourceStats.length > 0 && (
         <div className="space-y-2 pt-3 border-t border-[#21262d]">
-          <div className="text-xs text-[#6b7280] uppercase">
+          <div className="text-xs text-[#8b949e] uppercase">
             {t('signalSourceQuality.qualityBreakdown')}
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -214,19 +214,19 @@ export function SignalSourceQuality({ signals, showDetails = false }: SignalSour
       <div className="pt-3 border-t border-[#21262d] flex flex-wrap gap-3 text-[10px]">
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-full bg-[#39ff14]" />
-          <span className="text-[#6b7280]">{t('signalSourceQuality.excellent')}</span>
+          <span className="text-[#8b949e]">{t('signalSourceQuality.excellent')}</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-full bg-[#00ffff]" />
-          <span className="text-[#6b7280]">{t('signalSourceQuality.good')}</span>
+          <span className="text-[#8b949e]">{t('signalSourceQuality.good')}</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-full bg-[#ff6b35]" />
-          <span className="text-[#6b7280]">{t('signalSourceQuality.average')}</span>
+          <span className="text-[#8b949e]">{t('signalSourceQuality.average')}</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-full bg-[#ff5555]" />
-          <span className="text-[#6b7280]">{t('signalSourceQuality.poor')}</span>
+          <span className="text-[#8b949e]">{t('signalSourceQuality.poor')}</span>
         </div>
       </div>
     </div>
@@ -266,7 +266,7 @@ export function SignalSourceQualityCompact({ signals }: { signals: ApiSignal[] }
       <span className="text-[#00ffff]">{qualityCounts.good}</span>
       <span className="text-[#ff6b35]">{qualityCounts.average}</span>
       <span className="text-[#ff5555]">{qualityCounts.poor}</span>
-      <span className="text-[#6b7280]">{t('signalSourceQuality.sources')}</span>
+      <span className="text-[#8b949e]">{t('signalSourceQuality.sources')}</span>
     </div>
   );
 }

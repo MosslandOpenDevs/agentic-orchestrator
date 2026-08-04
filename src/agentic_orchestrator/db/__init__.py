@@ -5,32 +5,32 @@ Provides SQLAlchemy models, connection management, and repositories
 for long-term data persistence.
 """
 
-from .connection import Database, db, init_database, get_db
+from .connection import Database, db, get_db, init_database
 
 # Aliases for backward compatibility
 get_database = get_db
 from .models import (
+    AgentState,
+    APIUsage,
     Base,
-    Signal,
-    Trend,
-    Idea,
-    DebateSession,
     DebateMessage,
+    DebateSession,
+    Idea,
     Plan,
     Project,
-    APIUsage,
+    Signal,
     SystemLog,
-    AgentState,
+    Trend,
 )
 from .repositories import (
-    SignalRepository,
-    TrendRepository,
-    IdeaRepository,
+    APIUsageRepository,
     DebateRepository,
+    IdeaRepository,
     PlanRepository,
     ProjectRepository,
-    APIUsageRepository,
+    SignalRepository,
     SystemLogRepository,
+    TrendRepository,
 )
 
 __all__ = [

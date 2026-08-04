@@ -8,14 +8,16 @@ Collects signals from Farcaster (decentralized social network) via:
 """
 
 import asyncio
+import logging
 import os
-from datetime import datetime
-from typing import List, Dict, Any, Optional
 import time
+from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .base import BaseAdapter, AdapterConfig, AdapterResult, SignalData
+from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+
+logger = logging.getLogger(__name__)
 
 
 class FarcasterAdapter(BaseAdapter):
@@ -31,9 +33,9 @@ class FarcasterAdapter(BaseAdapter):
 
     # Minimum engagement thresholds for quality filtering
     MIN_ENGAGEMENT = {
-        'likes': 3,
-        'recasts': 1,
-        'replies': 0,
+        "likes": 3,
+        "recasts": 1,
+        "replies": 0,
     }
 
     # Neynar API endpoint
@@ -44,16 +46,16 @@ class FarcasterAdapter(BaseAdapter):
 
     # Farcaster users to track (FIDs or usernames)
     TRACKED_USERS: List[str] = [
-        "vitalik.eth",      # Vitalik Buterin
-        "dwr.eth",          # Dan Romero (Warpcast founder)
-        "v",                # Varun Srinivasan (Farcaster co-founder)
-        "balajis.eth",      # Balaji Srinivasan
-        "jessepollak",      # Jesse Pollak (Base)
-        "coopahtroopa",     # Music NFTs
-        "typeof.eth",       # Developer
-        "horsefacts.eth",   # Ethereum dev
-        "afrochicks.eth",   # Community
-        "0xdesigner",       # Designer/builder
+        "vitalik.eth",  # Vitalik Buterin
+        "dwr.eth",  # Dan Romero (Warpcast founder)
+        "v",  # Varun Srinivasan (Farcaster co-founder)
+        "balajis.eth",  # Balaji Srinivasan
+        "jessepollak",  # Jesse Pollak (Base)
+        "coopahtroopa",  # Music NFTs
+        "typeof.eth",  # Developer
+        "horsefacts.eth",  # Ethereum dev
+        "afrochicks.eth",  # Community
+        "0xdesigner",  # Designer/builder
     ]
 
     # Channels to monitor
@@ -118,7 +120,7 @@ class FarcasterAdapter(BaseAdapter):
                 "users_tracked": len(self.TRACKED_USERS),
                 "channels_tracked": len(self.TRACKED_CHANNELS),
                 "has_neynar_api": bool(self.neynar_api_key),
-            }
+            },
         )
 
     async def _neynar_request(
@@ -135,14 +137,14 @@ class FarcasterAdapter(BaseAdapter):
                 response = await client.get(
                     f"{self.NEYNAR_API}/{endpoint}",
                     params=params or {},
-                    headers={"api_key": self.neynar_api_key}
+                    headers={"api_key": self.neynar_api_key},
                 )
 
                 if response.status_code == 200:
                     return response.json()
 
         except Exception as e:
-            print(f"Neynar API error: {e}")
+            logger.warning(f"Neynar API error: {e}")
 
         return None
 
@@ -153,8 +155,7 @@ class FarcasterAdapter(BaseAdapter):
         # Try Neynar API first
         if self.neynar_api_key:
             result = await self._neynar_request(
-                "feed/trending",
-                {"limit": 25, "time_window": "24h"}
+                "feed/trending", {"limit": 25, "time_window": "24h"}
             )
 
             if result and "casts" in result:
@@ -168,8 +169,7 @@ class FarcasterAdapter(BaseAdapter):
             try:
                 async with httpx.AsyncClient(timeout=30) as client:
                     response = await client.get(
-                        f"{self.WARPCAST_API}/recent-casts",
-                        params={"limit": 25}
+                        f"{self.WARPCAST_API}/recent-casts", params={"limit": 25}
                     )
 
                     if response.status_code == 200:
@@ -180,7 +180,7 @@ class FarcasterAdapter(BaseAdapter):
                                 signals.append(signal)
 
             except Exception as e:
-                print(f"Warpcast API error: {e}")
+                logger.warning(f"Warpcast API error: {e}")
 
         return signals
 
@@ -193,8 +193,7 @@ class FarcasterAdapter(BaseAdapter):
 
         for channel in self.TRACKED_CHANNELS[:5]:  # Limit API calls
             result = await self._neynar_request(
-                "feed/channels",
-                {"channel_ids": channel, "limit": 10}
+                "feed/channels", {"channel_ids": channel, "limit": 10}
             )
 
             if result and "casts" in result:
@@ -217,8 +216,7 @@ class FarcasterAdapter(BaseAdapter):
         for username in self.TRACKED_USERS[:5]:  # Limit API calls
             # First get user FID
             user_result = await self._neynar_request(
-                "user/by_username",
-                {"username": username.replace(".eth", "")}
+                "user/by_username", {"username": username.replace(".eth", "")}
             )
 
             if not user_result or "user" not in user_result:
@@ -229,10 +227,7 @@ class FarcasterAdapter(BaseAdapter):
                 continue
 
             # Then get their casts
-            cast_result = await self._neynar_request(
-                "feed/user/casts",
-                {"fid": fid, "limit": 5}
-            )
+            cast_result = await self._neynar_request("feed/user/casts", {"fid": fid, "limit": 5})
 
             if cast_result and "casts" in cast_result:
                 for cast in cast_result["casts"]:
@@ -258,22 +253,18 @@ class FarcasterAdapter(BaseAdapter):
         """
         # For Farcaster, require at least one metric to meet threshold
         # This is more lenient than requiring all metrics
-        if likes >= self.MIN_ENGAGEMENT['likes']:
+        if likes >= self.MIN_ENGAGEMENT["likes"]:
             return True
-        if recasts >= self.MIN_ENGAGEMENT['recasts']:
+        if recasts >= self.MIN_ENGAGEMENT["recasts"]:
             return True
-        if replies >= self.MIN_ENGAGEMENT.get('replies', 0):
+        if replies >= self.MIN_ENGAGEMENT.get("replies", 0):
             return True
 
         # If none meet threshold, check combined engagement
         total_engagement = likes + (recasts * 2) + (replies * 3)
         return total_engagement >= 5  # Minimum combined score
 
-    def _cast_to_signal(
-        self,
-        cast: Dict[str, Any],
-        source_type: str
-    ) -> Optional[SignalData]:
+    def _cast_to_signal(self, cast: Dict[str, Any], source_type: str) -> Optional[SignalData]:
         """Convert Neynar cast to SignalData."""
         if not cast:
             return None
@@ -326,14 +317,10 @@ class FarcasterAdapter(BaseAdapter):
                 "platform": "farcaster",
                 "engagement_score": engagement,
                 "source_type": source_type,
-            }
+            },
         )
 
-    def _warpcast_to_signal(
-        self,
-        cast: Dict[str, Any],
-        source_type: str
-    ) -> Optional[SignalData]:
+    def _warpcast_to_signal(self, cast: Dict[str, Any], source_type: str) -> Optional[SignalData]:
         """Convert Warpcast API cast to SignalData."""
         if not cast:
             return None
@@ -360,7 +347,7 @@ class FarcasterAdapter(BaseAdapter):
             metadata={
                 "platform": "farcaster",
                 "source_type": source_type,
-            }
+            },
         )
 
     def _categorize_cast(self, text: str) -> str:
@@ -368,13 +355,32 @@ class FarcasterAdapter(BaseAdapter):
         text_lower = text.lower()
 
         crypto_keywords = [
-            "ethereum", "eth", "bitcoin", "btc", "defi", "nft",
-            "web3", "blockchain", "token", "crypto", "wallet",
-            "base", "optimism", "arbitrum", "polygon"
+            "ethereum",
+            "eth",
+            "bitcoin",
+            "btc",
+            "defi",
+            "nft",
+            "web3",
+            "blockchain",
+            "token",
+            "crypto",
+            "wallet",
+            "base",
+            "optimism",
+            "arbitrum",
+            "polygon",
         ]
         ai_keywords = [
-            "ai", "gpt", "llm", "openai", "anthropic", "claude",
-            "machine learning", "neural", "chatbot"
+            "ai",
+            "gpt",
+            "llm",
+            "openai",
+            "anthropic",
+            "claude",
+            "machine learning",
+            "neural",
+            "chatbot",
         ]
 
         if any(kw in text_lower for kw in crypto_keywords):

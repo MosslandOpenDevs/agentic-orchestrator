@@ -48,7 +48,7 @@ export function ScoreGauge({
     <div className="space-y-2">
       {(label || showValue) && (
         <div className="flex justify-between items-center text-xs">
-          {label && <span className="text-[#6b7280]">{label}</span>}
+          {label && <span className="text-[#8b949e]">{label}</span>}
           {showValue && (
             <span className={colors.text}>
               {value.toFixed(1)}/{maxValue}

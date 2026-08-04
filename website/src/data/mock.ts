@@ -6,8 +6,12 @@ export const mockStats: SystemStats = {
   plansRejected: 2,
   inDevelopment: 0,
   trendsAnalyzed: 254,
-  lastRun: '2026-01-04T23:00:00Z',
-  nextRun: '2026-01-05T23:00:00Z',
+  // Computed relative to load time so the demo dashboard never reads as
+  // "months ago" when the backend is unreachable (placeholders the real API
+  // overwrites). The dependent UI uses suppressHydrationWarning because the
+  // rendered relative time is inherently client-clock dependent.
+  lastRun: new Date(Date.now() - 6 * 60_000).toISOString(),
+  nextRun: new Date(Date.now() + 24 * 60_000).toISOString(),
 };
 
 export const mockActivity: ActivityItem[] = [
@@ -19,7 +23,7 @@ export const mockActivity: ActivityItem[] = [
   { time: '08:05', type: 'debate', message: 'VC feedback received (GPT) - market concerns' },
   { time: '08:06', type: 'debate', message: 'Accelerator feedback (Gemini) - MVP scope' },
   { time: '08:07', type: 'plan', message: 'Plan #4 finalized after 3 debate rounds' },
-  { time: '08:08', type: 'system', message: 'Cycle completed. Next run: 2026-01-06 08:00 KST' },
+  { time: '08:08', type: 'system', message: 'Cycle completed. Next run in ~6h (debate cycle)' },
 ];
 
 export const mockTrends: Trend[] = [

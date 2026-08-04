@@ -4,16 +4,20 @@ Database connection management for Agentic Orchestrator.
 Supports both SQLite (development) and PostgreSQL (production).
 """
 
-from contextlib import contextmanager
-from typing import Generator, Optional
-from pathlib import Path
+import logging
 import os
+import time
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Generator, Optional
 
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool, StaticPool
 
 from .models import Base
+
+logger = logging.getLogger(__name__)
 
 
 class Database:
@@ -28,15 +32,11 @@ class Database:
     def __init__(self, url: Optional[str] = None):
         self.url = url or os.getenv(
             "DATABASE_URL",
-            f"sqlite:///{Path(__file__).parent.parent.parent.parent / 'data' / 'orchestrator.db'}"
+            f"sqlite:///{Path(__file__).parent.parent.parent.parent / 'data' / 'orchestrator.db'}",
         )
 
         self._init_engine()
-        self.SessionLocal = sessionmaker(
-            autocommit=False,
-            autoflush=False,
-            bind=self.engine
-        )
+        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
 
     def _init_engine(self):
         """Initialize the database engine based on URL type."""
@@ -49,7 +49,7 @@ class Database:
                 max_overflow=10,
                 pool_timeout=30,
                 pool_recycle=1800,
-                echo=os.getenv("DB_ECHO", "false").lower() == "true"
+                echo=os.getenv("DB_ECHO", "false").lower() == "true",
             )
         else:
             # SQLite
@@ -62,7 +62,7 @@ class Database:
                 self.url,
                 poolclass=StaticPool,
                 connect_args={"check_same_thread": False},
-                echo=os.getenv("DB_ECHO", "false").lower() == "true"
+                echo=os.getenv("DB_ECHO", "false").lower() == "true",
             )
 
             # Enable foreign keys for SQLite
@@ -110,6 +110,7 @@ class Database:
     def health_check(self) -> bool:
         """Check if database connection is healthy."""
         from sqlalchemy import text
+
         try:
             with self.session() as session:
                 session.execute(text("SELECT 1"))
@@ -141,3 +142,36 @@ def init_database(url: Optional[str] = None) -> Database:
 def get_db() -> Database:
     """Get the global database instance."""
     return db
+
+
+def ensure_schema(
+    database: Optional[Database] = None,
+    attempts: int = 3,
+    delay_seconds: float = 1.0,
+) -> bool:
+    """Idempotently create any missing tables, retrying briefly.
+
+    ``create_tables()`` is CREATE TABLE IF NOT EXISTS, so this is a no-op on a
+    healthy database and turns a missing/emptied SQLite file into an
+    empty-but-working one (2026-07 incident). Several PM2 processes can boot
+    simultaneously and race the CREATEs on a fresh file — losers may see
+    "table already exists" or transient lock errors, which resolve on retry.
+
+    Never raises; returns False when the schema could not be guaranteed so
+    callers can decide how loudly to complain.
+    """
+    target = database or get_db()
+    for attempt in range(1, attempts + 1):
+        try:
+            target.create_tables()
+            return True
+        except Exception:
+            if attempt == attempts:
+                logger.exception(
+                    "Could not ensure database schema after %d attempts; "
+                    "DB-backed work may fail",
+                    attempts,
+                )
+                return False
+            time.sleep(delay_seconds)
+    return False

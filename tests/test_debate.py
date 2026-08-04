@@ -1,14 +1,14 @@
 """Tests for multi-stage debate system."""
 
-import pytest
 from datetime import datetime
+
 from agentic_orchestrator.debate.protocol import (
-    DebatePhase,
-    MessageType,
     DebateMessage,
-    DebateRound,
-    PhaseResult,
+    DebatePhase,
     DebateProtocolConfig,
+    DebateRound,
+    MessageType,
+    PhaseResult,
 )
 
 
@@ -284,7 +284,7 @@ class TestDebateProtocolConfig:
         """Test temperature configuration for different phases."""
         config = DebateProtocolConfig()
         # Higher temperature for creativity in divergence
-        assert config.temperature_divergence == 0.9
+        assert config.temperature_divergence == 0.95
         # Lower temperature for analysis in convergence
         assert config.temperature_convergence == 0.5
         # Medium temperature for planning
@@ -384,7 +384,7 @@ class TestDebateFlow:
     def test_message_referencing(self):
         """Test messages referencing other messages."""
         # Initial idea
-        idea_msg = DebateMessage(
+        DebateMessage(
             id="msg-001",
             phase=DebatePhase.DIVERGENCE,
             round=1,

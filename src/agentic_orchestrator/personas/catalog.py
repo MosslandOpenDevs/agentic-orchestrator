@@ -4,24 +4,25 @@ Agent persona catalog.
 Defines all 34 agent personas with their personalities, roles, and expertise.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from .personalities import (
+    ActionStyle,
+    CommunicationStyle,
+    DecisionStyle,
     Personality,
     ThinkingStyle,
-    DecisionStyle,
-    CommunicationStyle,
-    ActionStyle,
 )
 
 
 class PersonaCategory(Enum):
     """Category of agent persona."""
-    DIVERGENCE = "divergence"    # Idea expansion phase
+
+    DIVERGENCE = "divergence"  # Idea expansion phase
     CONVERGENCE = "convergence"  # Idea evaluation phase
-    PLANNING = "planning"        # Detailed planning phase
+    PLANNING = "planning"  # Detailed planning phase
 
 
 @dataclass
@@ -29,6 +30,7 @@ class AgentPersona:
     """
     Complete agent persona definition.
     """
+
     id: str
     name: str
     name_ko: str
@@ -129,7 +131,7 @@ As a frontend developer with Japanese precision and innovation mindset:
 - Consider rapid prototyping possibilities
 
 Always start from "we can do this" perspective while providing concrete implementation paths.
-"""
+""",
 )
 
 SARAH_JOHNSON = AgentPersona(
@@ -159,7 +161,7 @@ As a frontend engineer with American pragmatism:
 - Review testability
 
 Point out problems but always provide alternatives.
-"""
+""",
 )
 
 KENJI_YAMAMOTO = AgentPersona(
@@ -189,7 +191,7 @@ As a backend engineer with Japanese attention to detail:
 - API design and integration complexity
 
 Propose feasible architecture through systematic analysis.
-"""
+""",
 )
 
 MINA_CHOI = AgentPersona(
@@ -219,7 +221,7 @@ As a Korean backend engineer with creative mindset:
 - Challenge conventional approaches
 
 Suggest innovative approaches while considering feasibility.
-"""
+""",
 )
 
 MIKE_WILLIAMS = AgentPersona(
@@ -249,7 +251,7 @@ As an American blockchain maximalist with Silicon Valley enthusiasm:
 - New DeFi mechanism proposals
 
 True Web3 value is decentralization. Challenge centralized solutions.
-"""
+""",
 )
 
 HARUKI_SATO = AgentPersona(
@@ -279,7 +281,7 @@ As a Japanese blockchain developer with balanced perspective:
 - Balance user experience and decentralization
 
 Find the best Web3 solution within realistic constraints.
-"""
+""",
 )
 
 JISOO_PARK = AgentPersona(
@@ -309,7 +311,7 @@ As a Korean security researcher with thorough approach:
 - Regulatory compliance check
 
 Never compromise on security, but show how to implement features securely.
-"""
+""",
 )
 
 DAVID_CHEN = AgentPersona(
@@ -339,7 +341,7 @@ As an American DevOps engineer with automation-first mindset:
 - Cost-efficient infrastructure design
 
 Operations is as important as development. Think sustainable operations.
-"""
+""",
 )
 
 # Design/Product Group (4) - Diverse international team
@@ -370,7 +372,7 @@ As a Japanese-American product designer with bold creative vision:
 - Design for emotional user experience
 
 Design is not just about aesthetics, it's about solving problems beautifully.
-"""
+""",
 )
 
 HANA_KANG = AgentPersona(
@@ -400,7 +402,7 @@ As a Korean UX designer with minimalist philosophy:
 - Accessibility and inclusive design
 
 Pursue minimalism and user-centered design with Korean attention to detail.
-"""
+""",
 )
 
 TONY_BAEK = AgentPersona(
@@ -430,7 +432,7 @@ As a Korean-American PM with Silicon Valley vision:
 - Growth potential and scalability
 
 Start small but always have the big picture in mind.
-"""
+""",
 )
 
 EMMA_WILSON = AgentPersona(
@@ -460,7 +462,7 @@ As an American PM with execution-focused mindset:
 - Risk and dependency management
 
 Vision is important, but execution is everything.
-"""
+""",
 )
 
 # Business/Marketing Group (4) - Diverse international team
@@ -491,7 +493,7 @@ As a Korean-American growth marketer with data-driven mindset:
 - Conversion rate possibilities
 
 Every feature should have a built-in growth engine.
-"""
+""",
 )
 
 AYUMI_WATANABE = AgentPersona(
@@ -521,7 +523,7 @@ As a Japanese brand strategist with storytelling expertise:
 - Differentiated positioning
 
 Stories that move hearts are more important than technology alone.
-"""
+""",
 )
 
 STEVE_KWON = AgentPersona(
@@ -551,7 +553,7 @@ As a Korean-American business analyst with Wall Street rigor:
 - Cost structure and ROI
 
 Decisions should be made with data, not gut feelings.
-"""
+""",
 )
 
 ALEX_GARCIA = AgentPersona(
@@ -581,7 +583,7 @@ As an American community manager with people-first approach:
 - User advocacy perspective
 
 The community's voice is the most important insight.
-"""
+""",
 )
 
 
@@ -616,7 +618,7 @@ As a Chinese-American crypto VC with aggressive growth mindset:
 - Market timing
 
 Prefer projects with big vision. Looking for market-changing innovation, not small improvements.
-"""
+""",
 )
 
 JENNIFER_KIM = AgentPersona(
@@ -646,7 +648,7 @@ As a Korean-American traditional VC with conservative due diligence:
 - Risk factors and mitigation plans
 
 Innovation is important, but sustainable business is the key.
-"""
+""",
 )
 
 PAUL_RYU = AgentPersona(
@@ -676,7 +678,7 @@ As a Korean accelerator mentor with speed-focused approach:
 - Pitching and fundraising potential
 
 Speed matters more than perfection. Validate in market quickly.
-"""
+""",
 )
 
 HANAKO_FUJITA = AgentPersona(
@@ -706,7 +708,7 @@ As a Japanese accelerator mentor with deep analysis approach:
 - Long-term growth potential
 
 Understanding the fundamental problem comes before surface-level solutions.
-"""
+""",
 )
 
 DANIEL_PARK = AgentPersona(
@@ -736,7 +738,7 @@ As a Korean-American serial founder with battle-tested experience:
 - Pivot possibility considerations
 
 Share lessons learned from experience and warn about avoidable mistakes.
-"""
+""",
 )
 
 SOYEON_LEE = AgentPersona(
@@ -766,7 +768,7 @@ As a Korean first-time founder with fresh perspective:
 - Passion and motivation
 
 Less experience, but contributing with fresh perspective and passion.
-"""
+""",
 )
 
 RYO_MATSUMOTO = AgentPersona(
@@ -796,7 +798,7 @@ As a Japanese tech expert with academic rigor:
 - Technical debt and maintainability
 
 Balance academic rigor with practical perspectives.
-"""
+""",
 )
 
 AMY_HWANG = AgentPersona(
@@ -826,7 +828,7 @@ As a Korean-American market expert with data-driven analysis:
 - Regulatory environment and trends
 
 Objectively analyze market opportunities based on data.
-"""
+""",
 )
 
 
@@ -861,7 +863,7 @@ As a Korean-American CPO with visionary leadership:
 - Drive innovative product strategy
 
 Paint the big picture and lead the team in one direction.
-"""
+""",
 )
 
 NAOMI_ISHIKAWA = AgentPersona(
@@ -891,7 +893,7 @@ As a Japanese PM with meticulous documentation skills:
 - Prioritization and scope management
 
 Clear definitions without ambiguity enable development teams to implement correctly.
-"""
+""",
 )
 
 ANDREW_YOO = AgentPersona(
@@ -921,7 +923,7 @@ As a Korean-American tech lead with architectural expertise:
 - Technical debt management strategy
 
 Design practical architectures that consider the future.
-"""
+""",
 )
 
 NINA_SONG = AgentPersona(
@@ -951,7 +953,7 @@ As a Korean frontend lead with UX-first approach:
 - Accessibility and responsive design
 
 Make technical decisions with user experience as the top priority.
-"""
+""",
 )
 
 JASON_CHUNG = AgentPersona(
@@ -981,7 +983,7 @@ As a Korean-American backend lead with scalability focus:
 - Infrastructure and deployment strategy
 
 Design stable and scalable backend systems.
-"""
+""",
 )
 
 ERIC_MOON = AgentPersona(
@@ -1011,7 +1013,7 @@ As a Korean-American blockchain lead with Web3 expertise:
 - Security and audit considerations
 
 Design practical Web3 solutions while preserving decentralization values.
-"""
+""",
 )
 
 OLIVIA_BROOKS = AgentPersona(
@@ -1041,7 +1043,7 @@ As an American UX researcher with user-centric methodology:
 - Research insights synthesis
 
 Validate product direction with user perspective insights.
-"""
+""",
 )
 
 TAKUYA_MORI = AgentPersona(
@@ -1071,7 +1073,7 @@ As a Japanese QA lead with meticulous quality standards:
 - Bug prevention systems
 
 Quality must be designed from the planning stage, not after development.
-"""
+""",
 )
 
 ANNA_CHO = AgentPersona(
@@ -1101,7 +1103,7 @@ As a Korean-American DevRel with developer advocacy focus:
 - Developer community building
 
 Ecosystem grows when developers can use it easily and enjoyably.
-"""
+""",
 )
 
 BEN_PARK = AgentPersona(
@@ -1131,7 +1133,7 @@ As a Korean-American project manager with execution excellence:
 - Milestones and checkpoints
 
 Lead project success with realistic schedules and risk management.
-"""
+""",
 )
 
 
@@ -1142,31 +1144,55 @@ Lead project success with realistic schedules and risk management.
 # All divergence agents (16) - Technical (8) + Design/Product (4) + Business/Marketing (4)
 DIVERGENCE_AGENTS: List[AgentPersona] = [
     # Technical Group (8) - Japanese, American, Korean mix
-    YUKI_TANAKA, SARAH_JOHNSON, KENJI_YAMAMOTO, MINA_CHOI,
-    MIKE_WILLIAMS, HARUKI_SATO, JISOO_PARK, DAVID_CHEN,
+    YUKI_TANAKA,
+    SARAH_JOHNSON,
+    KENJI_YAMAMOTO,
+    MINA_CHOI,
+    MIKE_WILLIAMS,
+    HARUKI_SATO,
+    JISOO_PARK,
+    DAVID_CHEN,
     # Design/Product Group (4) - Japanese-American, Korean, Korean-American, American
-    LUNA_TAKAHASHI, HANA_KANG, TONY_BAEK, EMMA_WILSON,
+    LUNA_TAKAHASHI,
+    HANA_KANG,
+    TONY_BAEK,
+    EMMA_WILSON,
     # Business/Marketing Group (4) - Korean-American, Japanese, Korean-American, American
-    KEVIN_LIM, AYUMI_WATANABE, STEVE_KWON, ALEX_GARCIA,
+    KEVIN_LIM,
+    AYUMI_WATANABE,
+    STEVE_KWON,
+    ALEX_GARCIA,
 ]
 
 # All convergence agents (8) - VCs, Mentors, Founders, Experts
 CONVERGENCE_AGENTS: List[AgentPersona] = [
-    MICHAEL_CHEN, JENNIFER_KIM, PAUL_RYU, HANAKO_FUJITA,
-    DANIEL_PARK, SOYEON_LEE, RYO_MATSUMOTO, AMY_HWANG,
+    MICHAEL_CHEN,
+    JENNIFER_KIM,
+    PAUL_RYU,
+    HANAKO_FUJITA,
+    DANIEL_PARK,
+    SOYEON_LEE,
+    RYO_MATSUMOTO,
+    AMY_HWANG,
 ]
 
 # All planning agents (10) - C-level, Leads, Specialists
 PLANNING_AGENTS: List[AgentPersona] = [
-    MARCUS_KO, NAOMI_ISHIKAWA, ANDREW_YOO, NINA_SONG,
-    JASON_CHUNG, ERIC_MOON, OLIVIA_BROOKS, TAKUYA_MORI,
-    ANNA_CHO, BEN_PARK,
+    MARCUS_KO,
+    NAOMI_ISHIKAWA,
+    ANDREW_YOO,
+    NINA_SONG,
+    JASON_CHUNG,
+    ERIC_MOON,
+    OLIVIA_BROOKS,
+    TAKUYA_MORI,
+    ANNA_CHO,
+    BEN_PARK,
 ]
 
 # All agents
 ALL_AGENTS: Dict[str, AgentPersona] = {
-    agent.id: agent
-    for agent in DIVERGENCE_AGENTS + CONVERGENCE_AGENTS + PLANNING_AGENTS
+    agent.id: agent for agent in DIVERGENCE_AGENTS + CONVERGENCE_AGENTS + PLANNING_AGENTS
 }
 
 

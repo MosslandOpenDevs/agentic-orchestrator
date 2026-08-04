@@ -4,11 +4,11 @@ Plan markdown parser for extracting structured data.
 Parses Plan documents (markdown) into structured dataclasses for project generation.
 """
 
-import re
 import json
 import logging
+import re
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +16,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TechStack:
     """Technology stack configuration extracted from a Plan."""
+
     frontend: Optional[str] = None  # "nextjs", "react", "vue"
-    backend: Optional[str] = None   # "fastapi", "express", "django"
+    backend: Optional[str] = None  # "fastapi", "express", "django"
     database: Optional[str] = None  # "postgresql", "sqlite", "mongodb"
     blockchain: Optional[str] = None  # "ethereum", "solana", "polygon"
     additional: List[str] = field(default_factory=list)  # Additional technologies
@@ -35,8 +36,9 @@ class TechStack:
 @dataclass
 class APIEndpoint:
     """API endpoint extracted from Plan architecture."""
+
     method: str  # GET, POST, PUT, DELETE
-    path: str    # /api/users
+    path: str  # /api/users
     description: str
     request_body: Optional[str] = None
     response_type: Optional[str] = None
@@ -54,6 +56,7 @@ class APIEndpoint:
 @dataclass
 class ProjectTask:
     """Task/milestone extracted from Plan."""
+
     title: str
     description: str
     week: Optional[int] = None
@@ -71,6 +74,7 @@ class ProjectTask:
 @dataclass
 class DataEntity:
     """Data model/entity extracted from Plan."""
+
     name: str
     description: str
     fields: List[Dict[str, str]] = field(default_factory=list)  # [{"name": "id", "type": "string"}]
@@ -88,6 +92,7 @@ class DataEntity:
 @dataclass
 class ExternalService:
     """External API/service integration extracted from Plan."""
+
     name: str  # "Twitter API", "Coingecko"
     purpose: str  # "Sentiment analysis", "Price data"
     endpoints: List[str] = field(default_factory=list)  # API endpoints to use
@@ -105,6 +110,7 @@ class ExternalService:
 @dataclass
 class UIComponent:
     """UI component/page extracted from Plan."""
+
     name: str
     type: str  # "page", "component", "widget"
     description: str
@@ -122,9 +128,12 @@ class UIComponent:
 @dataclass
 class SmartContractSpec:
     """Smart contract specification extracted from Plan."""
+
     name: str
     purpose: str
-    functions: List[Dict[str, str]] = field(default_factory=list)  # [{"name": "transfer", "params": "...", "desc": "..."}]
+    functions: List[Dict[str, str]] = field(
+        default_factory=list
+    )  # [{"name": "transfer", "params": "...", "desc": "..."}]
     events: List[str] = field(default_factory=list)
     storage: List[Dict[str, str]] = field(default_factory=list)  # State variables
 
@@ -141,6 +150,7 @@ class SmartContractSpec:
 @dataclass
 class ParsedPlan:
     """Structured data extracted from a Plan document."""
+
     title: str
     summary: str
     tech_stack: TechStack
@@ -342,7 +352,7 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
             # Parse LLM response
             try:
                 # Extract JSON from response
-                json_match = re.search(r'\{[\s\S]*\}', response.content)
+                json_match = re.search(r"\{[\s\S]*\}", response.content)
                 if json_match:
                     tech_data = json.loads(json_match.group())
                     base_parsed.tech_stack = TechStack(
@@ -364,19 +374,19 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
     def _extract_title(self, content: str) -> str:
         """Extract title from markdown content."""
         # Look for H1 header
-        h1_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
+        h1_match = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
         if h1_match:
             return h1_match.group(1).strip()
 
         # Look for "Plan:" prefix
-        plan_match = re.search(r'Plan:\s*(.+?)(?:\n|$)', content, re.IGNORECASE)
+        plan_match = re.search(r"Plan:\s*(.+?)(?:\n|$)", content, re.IGNORECASE)
         if plan_match:
             return plan_match.group(1).strip()
 
         # Use first non-empty line
-        lines = content.strip().split('\n')
+        lines = content.strip().split("\n")
         for line in lines:
-            clean = line.strip().lstrip('#').strip()
+            clean = line.strip().lstrip("#").strip()
             if clean:
                 return clean[:100]
 
@@ -392,9 +402,9 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
             if header_match:
                 start = header_match.end()
                 # Find next section header
-                next_header = re.search(r'^##?\s+', content[start:], re.MULTILINE)
+                next_header = re.search(r"^##?\s+", content[start:], re.MULTILINE)
                 if next_header:
-                    sections[name] = content[start:start + next_header.start()].strip()
+                    sections[name] = content[start : start + next_header.start()].strip()
                 else:
                     sections[name] = content[start:].strip()
 
@@ -404,17 +414,17 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
         """Extract project summary."""
         if overview_section:
             # Get first paragraph
-            paragraphs = overview_section.split('\n\n')
+            paragraphs = overview_section.split("\n\n")
             for para in paragraphs:
                 clean = para.strip()
-                if clean and not clean.startswith(('-', '*', '#', '|')):
+                if clean and not clean.startswith(("-", "*", "#", "|")):
                     return clean[:500]
 
         # Fallback: first meaningful paragraph from full content
-        paragraphs = full_content.split('\n\n')
+        paragraphs = full_content.split("\n\n")
         for para in paragraphs:
             clean = para.strip()
-            if clean and not clean.startswith('#') and len(clean) > 50:
+            if clean and not clean.startswith("#") and len(clean) > 50:
                 return clean[:500]
 
         return ""
@@ -454,8 +464,8 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
             return items
 
         # Match bullet points
-        bullet_pattern = r'^[\s]*[-*•]\s*(.+)$'
-        for line in section.split('\n'):
+        bullet_pattern = r"^[\s]*[-*•]\s*(.+)$"
+        for line in section.split("\n"):
             match = re.match(bullet_pattern, line)
             if match:
                 item = match.group(1).strip()
@@ -463,8 +473,8 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
                     items.append(item)
 
         # Also match numbered lists
-        numbered_pattern = r'^\s*\d+[.)]\s*(.+)$'
-        for line in section.split('\n'):
+        numbered_pattern = r"^\s*\d+[.)]\s*(.+)$"
+        for line in section.split("\n"):
             match = re.match(numbered_pattern, line)
             if match:
                 item = match.group(1).strip()
@@ -480,16 +490,18 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
             return endpoints
 
         # Pattern for API definitions like "GET /api/users - Get all users"
-        api_pattern = r'(GET|POST|PUT|DELETE|PATCH)\s+([/\w{}:-]+)\s*[-:]\s*(.+)'
+        api_pattern = r"(GET|POST|PUT|DELETE|PATCH)\s+([/\w{}:-]+)\s*[-:]\s*(.+)"
 
-        for line in api_section.split('\n'):
+        for line in api_section.split("\n"):
             match = re.search(api_pattern, line, re.IGNORECASE)
             if match:
-                endpoints.append(APIEndpoint(
-                    method=match.group(1).upper(),
-                    path=match.group(2),
-                    description=match.group(3).strip(),
-                ))
+                endpoints.append(
+                    APIEndpoint(
+                        method=match.group(1).upper(),
+                        path=match.group(2),
+                        description=match.group(3).strip(),
+                    )
+                )
 
         return endpoints[:20]  # Limit to 20 endpoints
 
@@ -500,10 +512,10 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
             return tasks
 
         # Look for week/phase patterns
-        week_pattern = r'(?:Week|주|Phase|단계)\s*(\d+)'
+        week_pattern = r"(?:Week|주|Phase|단계)\s*(\d+)"
         current_week = None
 
-        for line in tasks_section.split('\n'):
+        for line in tasks_section.split("\n"):
             # Check for week header
             week_match = re.search(week_pattern, line, re.IGNORECASE)
             if week_match:
@@ -511,16 +523,18 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
                 continue
 
             # Extract task items
-            bullet_match = re.match(r'[\s]*[-*•]\s*(.+)', line)
+            bullet_match = re.match(r"[\s]*[-*•]\s*(.+)", line)
             if bullet_match:
                 task_text = bullet_match.group(1).strip()
                 if task_text and len(task_text) > 5:
-                    tasks.append(ProjectTask(
-                        title=task_text[:100],
-                        description=task_text,
-                        week=current_week,
-                        priority="medium",
-                    ))
+                    tasks.append(
+                        ProjectTask(
+                            title=task_text[:100],
+                            description=task_text,
+                            week=current_week,
+                            priority="medium",
+                        )
+                    )
 
         return tasks[:30]  # Limit to 30 tasks
 
@@ -528,8 +542,8 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
         """Extract target user description."""
         # Look for user/audience patterns
         patterns = [
-            r'(?:대상\s*사용자|target\s*(?:users?|audience))[\s:]+(.+?)(?:\n|$)',
-            r'(?:타겟|for)\s+(.+?)(?:를|에게|users?|developers?)',
+            r"(?:대상\s*사용자|target\s*(?:users?|audience))[\s:]+(.+?)(?:\n|$)",
+            r"(?:타겟|for)\s+(.+?)(?:를|에게|users?|developers?)",
         ]
 
         for pattern in patterns:
@@ -545,9 +559,9 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
 
         # Look for duration patterns
         patterns = [
-            r'(\d+)\s*(?:weeks?|주)',
-            r'(\d+)\s*(?:months?|개월)',
-            r'(?:duration|기간)[\s:]+([^.\n]+)',
+            r"(\d+)\s*(?:weeks?|주)",
+            r"(\d+)\s*(?:months?|개월)",
+            r"(?:duration|기간)[\s:]+([^.\n]+)",
         ]
 
         for pattern in patterns:
@@ -626,14 +640,16 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
         services = []
         content_lower = content.lower()
 
-        for key, config in self.EXTERNAL_SERVICE_PATTERNS.items():
+        for _key, config in self.EXTERNAL_SERVICE_PATTERNS.items():
             if re.search(config["pattern"], content_lower, re.IGNORECASE):
-                services.append(ExternalService(
-                    name=config["name"],
-                    purpose=config["purpose"],
-                    endpoints=[],
-                    auth_type=config["auth_type"],
-                ))
+                services.append(
+                    ExternalService(
+                        name=config["name"],
+                        purpose=config["purpose"],
+                        endpoints=[],
+                        auth_type=config["auth_type"],
+                    )
+                )
 
         return services
 
@@ -658,12 +674,14 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
         for pattern, name, desc in entity_patterns:
             if re.search(pattern, content, re.IGNORECASE) and name not in seen:
                 seen.add(name)
-                entities.append(DataEntity(
-                    name=name,
-                    description=desc,
-                    fields=[],
-                    relationships=[],
-                ))
+                entities.append(
+                    DataEntity(
+                        name=name,
+                        description=desc,
+                        fields=[],
+                        relationships=[],
+                    )
+                )
 
         return entities
 
@@ -675,7 +693,12 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
         ui_patterns = [
             (r"\b(?:Dashboard|대시보드)\b", "Dashboard", "page", "Main dashboard view"),
             (r"\b(?:Chart|차트|Graph)\b", "Chart", "component", "Data visualization chart"),
-            (r"\b(?:Alert|알림)\s*(?:List|목록)?\b", "AlertList", "component", "Alert/notification list"),
+            (
+                r"\b(?:Alert|알림)\s*(?:List|목록)?\b",
+                "AlertList",
+                "component",
+                "Alert/notification list",
+            ),
             (r"\b(?:Settings?|설정)\s*(?:Page|페이지)?\b", "Settings", "page", "Settings page"),
             (r"\b(?:Profile|프로필)\b", "Profile", "page", "User profile page"),
             (r"\b(?:Login|로그인|Auth)\b", "Auth", "page", "Authentication page"),
@@ -689,12 +712,14 @@ Return ONLY a JSON object with this structure (no markdown, no explanation):
         for pattern, name, comp_type, desc in ui_patterns:
             if re.search(pattern, content, re.IGNORECASE) and name not in seen:
                 seen.add(name)
-                components.append(UIComponent(
-                    name=name,
-                    type=comp_type,
-                    description=desc,
-                    features=[],
-                ))
+                components.append(
+                    UIComponent(
+                        name=name,
+                        type=comp_type,
+                        description=desc,
+                        features=[],
+                    )
+                )
 
         return components
 
@@ -796,7 +821,7 @@ Be comprehensive but realistic based on what's actually described in the plan.""
 
             # Parse LLM response
             try:
-                json_match = re.search(r'\{[\s\S]*\}', response.content)
+                json_match = re.search(r"\{[\s\S]*\}", response.content)
                 if json_match:
                     data = json.loads(json_match.group())
 
@@ -854,9 +879,11 @@ Be comprehensive but realistic based on what's actually described in the plan.""
                     if data.get("detailed_features"):
                         base_parsed.detailed_features = data["detailed_features"]
 
-                    logger.info(f"Deep parsing extracted: {len(base_parsed.entities)} entities, "
-                               f"{len(base_parsed.api_endpoints)} endpoints, "
-                               f"{len(base_parsed.ui_components)} components")
+                    logger.info(
+                        f"Deep parsing extracted: {len(base_parsed.entities)} entities, "
+                        f"{len(base_parsed.api_endpoints)} endpoints, "
+                        f"{len(base_parsed.ui_components)} components"
+                    )
 
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse LLM deep extraction response: {e}")

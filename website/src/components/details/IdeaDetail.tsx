@@ -126,26 +126,26 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
       {/* Stats Summary */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.ideaScore')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.ideaScore')}</div>
           <ScoreGauge value={idea.score} maxValue={10} label={t('detail.potential')} color="green" />
         </div>
 
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.debatesCount')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.debatesCount')}</div>
           <div className="text-3xl font-bold text-[#ff6b35]">{debates.length}</div>
-          <div className="text-xs text-[#6b7280]">{t('detail.rounds')}</div>
+          <div className="text-xs text-[#8b949e]">{t('detail.rounds')}</div>
         </div>
 
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.plansCount')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.plansCount')}</div>
           <div className="text-3xl font-bold text-[#00ffff]">{plans.length}</div>
-          <div className="text-xs text-[#6b7280]">{t('detail.versions')}</div>
+          <div className="text-xs text-[#8b949e]">{t('detail.versions')}</div>
         </div>
       </div>
 
       {/* Full Description or Summary */}
       <div className="card-cli p-4">
-        <div className="text-xs text-[#6b7280] uppercase mb-2">
+        <div className="text-xs text-[#8b949e] uppercase mb-2">
           {idea.description ? t('detail.fullDescription') : t('detail.summary')}
         </div>
         <div className="max-h-96 overflow-y-auto">
@@ -170,7 +170,7 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
 
       {/* Idea Journey Timeline */}
       <div className="card-cli p-4">
-        <div className="text-xs text-[#6b7280] uppercase mb-4">{t('detail.ideaJourney')}</div>
+        <div className="text-xs text-[#8b949e] uppercase mb-4">{t('detail.ideaJourney')}</div>
         <IdeaJourney idea={idea} debates={debates} plans={plans} />
       </div>
 
@@ -191,7 +191,7 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
       {debates.length > 0 && debates[0].messages && debates[0].messages.length > 0 && (
         <div className="card-cli p-4">
           <div className="flex items-center justify-between mb-4">
-            <div className="text-xs text-[#6b7280] uppercase">{t('detail.debateTimeline')}</div>
+            <div className="text-xs text-[#8b949e] uppercase">{t('detail.debateTimeline')}</div>
             <button
               onClick={() => setExpandedMessages(!expandedMessages)}
               className="text-xs text-[#00ffff] hover:text-[#39ff14] transition-colors"
@@ -220,11 +220,11 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className="text-[#00ffff] font-bold text-sm">{msg.agent_name}</span>
                       {msg.agent_handle && (
-                        <span className="text-xs text-[#6b7280]">@{msg.agent_handle}</span>
+                        <span className="text-xs text-[#8b949e]">@{msg.agent_handle}</span>
                       )}
                       <TerminalBadge variant="purple">{msg.message_type}</TerminalBadge>
                       {msg.created_at && (
-                        <span className="text-xs text-[#6b7280]">
+                        <span className="text-xs text-[#8b949e]">
                           {new Date(msg.created_at).toLocaleTimeString()}
                         </span>
                       )}
@@ -239,7 +239,7 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
           </AnimatePresence>
 
           {!expandedMessages && (
-            <div className="text-sm text-[#6b7280] italic">
+            <div className="text-sm text-[#8b949e] italic">
               {t('detail.clickToShowMessages')}
             </div>
           )}
@@ -249,7 +249,7 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
       {/* Debates Summary */}
       {debates.length > 0 && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.debateHistory')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.debateHistory')}</div>
           <div className="space-y-2">
             {debates.map((debate, idx) => (
               <motion.div
@@ -266,7 +266,7 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
                 <TerminalBadge variant={debate.status === 'completed' ? 'green' : 'orange'}>
                   {debate.status}
                 </TerminalBadge>
-                <span className="text-xs text-[#6b7280]">
+                <span className="text-xs text-[#8b949e]">
                   {debate.messages?.length || debate.message_count || 0} {t('detail.messages')}
                 </span>
               </motion.div>
@@ -278,7 +278,7 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
       {/* Plans List */}
       {plans.length > 0 && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.planVersions')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.planVersions')}</div>
           <div className="space-y-2">
             {plans.map((plan, idx) => (
               <motion.div
@@ -304,7 +304,7 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
       {/* Links */}
       {idea.github_issue_url && (
         <div className="card-cli p-4">
-          <div className="text-xs text-[#6b7280] uppercase mb-2">{t('detail.links')}</div>
+          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.links')}</div>
           <a
             href={idea.github_issue_url}
             target="_blank"

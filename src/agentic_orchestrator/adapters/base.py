@@ -2,17 +2,20 @@
 Base adapter class for signal collection.
 """
 
+import asyncio
+import hashlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Any, Optional
-import asyncio
-import hashlib
+from typing import Any, Dict, List, Optional
+
+from ..timeutil import utcnow
 
 
 @dataclass
 class AdapterConfig:
     """Configuration for adapters."""
+
     enabled: bool = True
     timeout: int = 30  # seconds
     max_retries: int = 3
@@ -24,13 +27,14 @@ class AdapterConfig:
 @dataclass
 class SignalData:
     """Raw signal data from adapters."""
+
     source: str
     category: str
     title: str
     summary: Optional[str] = None
     url: Optional[str] = None
     raw_data: Optional[Dict[str, Any]] = None
-    collected_at: datetime = field(default_factory=datetime.utcnow)
+    collected_at: datetime = field(default_factory=utcnow)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -56,6 +60,7 @@ class SignalData:
 @dataclass
 class AdapterResult:
     """Result from adapter fetch operation."""
+
     adapter_name: str
     success: bool
     signals: List[SignalData] = field(default_factory=list)
@@ -108,11 +113,8 @@ class BaseAdapter(ABC):
 
         for attempt in range(self.config.max_retries):
             try:
-                result = await asyncio.wait_for(
-                    self.fetch(),
-                    timeout=self.config.timeout
-                )
-                self._last_fetch = datetime.utcnow()
+                result = await asyncio.wait_for(self.fetch(), timeout=self.config.timeout)
+                self._last_fetch = utcnow()
                 return result
 
             except asyncio.TimeoutError:
@@ -126,7 +128,7 @@ class BaseAdapter(ABC):
         return AdapterResult(
             adapter_name=self.name,
             success=False,
-            error=f"Failed after {self.config.max_retries} attempts: {last_error}"
+            error=f"Failed after {self.config.max_retries} attempts: {last_error}",
         )
 
     def is_enabled(self) -> bool:

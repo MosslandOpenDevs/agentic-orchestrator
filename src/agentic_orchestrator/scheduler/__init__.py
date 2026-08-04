@@ -9,10 +9,10 @@ This module provides CLI commands for scheduled tasks:
 """
 
 from .tasks import (
-    signal_collect,
-    run_debate,
-    process_backlog,
     health_check,
+    process_backlog,
+    run_debate,
+    signal_collect,
 )
 
 __all__ = [

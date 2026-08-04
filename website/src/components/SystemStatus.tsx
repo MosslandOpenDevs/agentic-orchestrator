@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { formatDistanceToNow, parseISO, format } from 'date-fns';
+import { formatDistanceToNow, parseISO, format, isValid, isPast } from 'date-fns';
 import { ko, enUS } from 'date-fns/locale';
 import { useI18n } from '@/lib/i18n';
 
@@ -11,10 +11,17 @@ interface SystemStatusProps {
 }
 
 export function SystemStatus({ lastRun, nextRun }: SystemStatusProps) {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
   const dateLocale = locale === 'ko' ? ko : enUS;
   const lastRunDate = parseISO(lastRun);
   const nextRunDate = parseISO(nextRun);
+  // A "next run" in the past (stale data) should not render as "6 months ago".
+  const nextRunPending = !isValid(nextRunDate) || isPast(nextRunDate);
+  const nextRunLabel = nextRunPending
+    ? locale === 'ko'
+      ? '대기 중'
+      : 'pending'
+    : formatDistanceToNow(nextRunDate, { addSuffix: true, locale: dateLocale });
 
   return (
     <div className="card-cli p-4">
@@ -43,11 +50,11 @@ export function SystemStatus({ lastRun, nextRun }: SystemStatusProps) {
 
         {/* Last Run */}
         <div className="flex items-center gap-2">
-          <span className="text-[#6b7280] text-xs">last_run:</span>
-          <span className="text-[#c0c0c0] text-xs">
+          <span className="text-[#8b949e] text-xs">last_run:</span>
+          <span className="text-[#c0c0c0] text-xs" suppressHydrationWarning>
             {formatDistanceToNow(lastRunDate, { addSuffix: true, locale: dateLocale })}
           </span>
-          <span className="text-[#6b7280] text-[10px]">
+          <span className="text-[#8b949e] text-[10px]" suppressHydrationWarning>
             ({format(lastRunDate, 'HH:mm:ss')})
           </span>
         </div>
@@ -56,9 +63,9 @@ export function SystemStatus({ lastRun, nextRun }: SystemStatusProps) {
 
         {/* Next Run */}
         <div className="flex items-center gap-2">
-          <span className="text-[#6b7280] text-xs">next_run:</span>
-          <span className="text-[#00ffff] text-xs">
-            {formatDistanceToNow(nextRunDate, { addSuffix: true, locale: dateLocale })}
+          <span className="text-[#8b949e] text-xs">next_run:</span>
+          <span className="text-[#00ffff] text-xs" suppressHydrationWarning>
+            {nextRunLabel}
           </span>
         </div>
 
@@ -66,7 +73,7 @@ export function SystemStatus({ lastRun, nextRun }: SystemStatusProps) {
 
         {/* Uptime */}
         <div className="flex items-center gap-2">
-          <span className="text-[#6b7280] text-xs">uptime:</span>
+          <span className="text-[#8b949e] text-xs">uptime:</span>
           <span className="text-[#f1fa8c] text-xs">99.9%</span>
         </div>
       </div>

@@ -8,14 +8,18 @@ Collects signals from news APIs:
 """
 
 import asyncio
+import logging
 import os
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
 import time
+from datetime import timedelta
+from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .base import BaseAdapter, AdapterConfig, AdapterResult, SignalData
+from ..timeutil import utcnow
+from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+
+logger = logging.getLogger(__name__)
 
 
 class NewsAPIAdapter(BaseAdapter):
@@ -100,7 +104,7 @@ class NewsAPIAdapter(BaseAdapter):
             metadata={
                 "newsapi_configured": bool(self.newsapi_key),
                 "cryptopanic_configured": bool(self.cryptopanic_key),
-            }
+            },
         )
 
     async def _fetch_newsapi(self) -> List[SignalData]:
@@ -114,7 +118,7 @@ class NewsAPIAdapter(BaseAdapter):
             for query_config in self.NEWS_QUERIES[:3]:  # Limit to conserve API quota
                 try:
                     # Get news from last 24 hours
-                    from_date = (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
+                    from_date = (utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
 
                     response = await client.get(
                         f"{self.newsapi_url}/everything",
@@ -124,8 +128,8 @@ class NewsAPIAdapter(BaseAdapter):
                             "sortBy": "relevancy",
                             "language": "en",
                             "pageSize": 10,
-                            "apiKey": self.newsapi_key
-                        }
+                            "apiKey": self.newsapi_key,
+                        },
                     )
 
                     if response.status_code == 200:
@@ -136,7 +140,11 @@ class NewsAPIAdapter(BaseAdapter):
                                 source=self.name,
                                 category=query_config["category"],
                                 title=article.get("title", "")[:300],
-                                summary=article.get("description", "")[:500] if article.get("description") else None,
+                                summary=(
+                                    article.get("description", "")[:500]
+                                    if article.get("description")
+                                    else None
+                                ),
                                 url=article.get("url"),
                                 raw_data={
                                     "type": "newsapi",
@@ -145,14 +153,14 @@ class NewsAPIAdapter(BaseAdapter):
                                     "author": article.get("author"),
                                     "published_at": article.get("publishedAt"),
                                 },
-                                metadata={"platform": "newsapi", "query": query_config["query"]}
+                                metadata={"platform": "newsapi", "query": query_config["query"]},
                             )
                             signals.append(signal)
 
                     await asyncio.sleep(0.5)
 
                 except Exception as e:
-                    print(f"Error fetching NewsAPI for '{query_config['query']}': {e}")
+                    logger.warning(f"Error fetching NewsAPI for '{query_config['query']}': {e}")
 
         return signals
 
@@ -172,7 +180,7 @@ class NewsAPIAdapter(BaseAdapter):
                         "public": "true",
                         "filter": "hot",
                         "kind": "news",
-                    }
+                    },
                 )
 
                 if response.status_code == 200:
@@ -183,7 +191,11 @@ class NewsAPIAdapter(BaseAdapter):
                         votes = post.get("votes", {})
                         positive = votes.get("positive", 0)
                         negative = votes.get("negative", 0)
-                        sentiment = "bullish" if positive > negative else "bearish" if negative > positive else "neutral"
+                        sentiment = (
+                            "bullish"
+                            if positive > negative
+                            else "bearish" if negative > positive else "neutral"
+                        )
 
                         signal = SignalData(
                             source=self.name,
@@ -200,12 +212,12 @@ class NewsAPIAdapter(BaseAdapter):
                                 "currencies": [c.get("code") for c in post.get("currencies", [])],
                                 "created_at": post.get("created_at"),
                             },
-                            metadata={"platform": "cryptopanic", "sentiment": sentiment}
+                            metadata={"platform": "cryptopanic", "sentiment": sentiment},
                         )
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching Cryptopanic: {e}")
+            logger.warning(f"Error fetching Cryptopanic: {e}")
 
         return signals
 
@@ -242,23 +254,65 @@ class NewsAPIAdapter(BaseAdapter):
 
                         # Filter for relevant stories
                         relevant_keywords = [
-                            "ai", "llm", "gpt", "openai", "anthropic", "machine learning",
-                            "blockchain", "crypto", "ethereum", "bitcoin", "web3", "defi",
-                            "startup", "vc", "funding", "launch",
+                            "ai",
+                            "llm",
+                            "gpt",
+                            "openai",
+                            "anthropic",
+                            "machine learning",
+                            "blockchain",
+                            "crypto",
+                            "ethereum",
+                            "bitcoin",
+                            "web3",
+                            "defi",
+                            "startup",
+                            "vc",
+                            "funding",
+                            "launch",
                         ]
 
                         if not any(kw in title for kw in relevant_keywords):
                             continue
 
                         # Categorize
-                        category = "ai" if any(kw in title for kw in ["ai", "llm", "gpt", "openai", "anthropic", "machine learning"]) else "crypto" if any(kw in title for kw in ["blockchain", "crypto", "ethereum", "bitcoin", "web3", "defi"]) else "dev"
+                        category = (
+                            "ai"
+                            if any(
+                                kw in title
+                                for kw in [
+                                    "ai",
+                                    "llm",
+                                    "gpt",
+                                    "openai",
+                                    "anthropic",
+                                    "machine learning",
+                                ]
+                            )
+                            else (
+                                "crypto"
+                                if any(
+                                    kw in title
+                                    for kw in [
+                                        "blockchain",
+                                        "crypto",
+                                        "ethereum",
+                                        "bitcoin",
+                                        "web3",
+                                        "defi",
+                                    ]
+                                )
+                                else "dev"
+                            )
+                        )
 
                         signal = SignalData(
                             source=self.name,
                             category=category,
                             title=f"HN: {story.get('title', '')}",
                             summary=None,
-                            url=story.get("url") or f"https://news.ycombinator.com/item?id={story.get('id')}",
+                            url=story.get("url")
+                            or f"https://news.ycombinator.com/item?id={story.get('id')}",
                             raw_data={
                                 "type": "hackernews",
                                 "hn_id": story.get("id"),
@@ -267,12 +321,12 @@ class NewsAPIAdapter(BaseAdapter):
                                 "by": story.get("by"),
                                 "time": story.get("time"),
                             },
-                            metadata={"platform": "hackernews"}
+                            metadata={"platform": "hackernews"},
                         )
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching Hacker News: {e}")
+            logger.warning(f"Error fetching Hacker News: {e}")
 
         return signals
 
@@ -287,7 +341,9 @@ class NewsAPIAdapter(BaseAdapter):
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.get("https://hacker-news.firebaseio.com/v0/topstories.json")
-                base_health["hackernews_status"] = "connected" if response.status_code == 200 else "error"
+                base_health["hackernews_status"] = (
+                    "connected" if response.status_code == 200 else "error"
+                )
         except Exception as e:
             base_health["hackernews_status"] = f"error: {e}"
 

@@ -13,30 +13,27 @@ import random
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Callable, Dict, List, Optional
 
-from ..llm.router import HybridLLMRouter, LLMResponse
+from ..llm.router import HybridLLMRouter
 from ..personas import (
     AgentPersona,
-    get_divergence_agents,
     get_convergence_agents,
+    get_divergence_agents,
     get_planning_agents,
-    get_agent_by_id,
 )
 from ..personas.personalities import (
-    ThinkingStyle,
-    DecisionStyle,
     CommunicationStyle,
-    ActionStyle,
 )
+from ..timeutil import utcnow
 from .protocol import (
+    DebateMessage,
     DebatePhase,
     DebateProtocol,
     DebateProtocolConfig,
-    DebateMessage,
     DebateRound,
-    PhaseResult,
     MessageType,
+    PhaseResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,6 +42,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Idea:
     """An idea generated during divergence phase."""
+
     id: str
     title: str
     content: str
@@ -79,6 +77,7 @@ class Idea:
 @dataclass
 class MultiStageDebateResult:
     """Result of a complete multi-stage debate."""
+
     session_id: str
     topic: str
     context: str
@@ -91,7 +90,7 @@ class MultiStageDebateResult:
     total_duration_seconds: float
     total_tokens: int
     total_cost: float
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utcnow)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -191,7 +190,7 @@ class MultiStageDebate:
         Raises:
             asyncio.TimeoutError: If debate exceeds DEBATE_TIMEOUT_SECONDS
         """
-        start_time = datetime.utcnow()
+        start_time = utcnow()
         logger.info(f"Starting multi-stage debate: {topic}")
         logger.info(f"Session ID: {self.session_id}")
         logger.info(f"Timeout: {self.DEBATE_TIMEOUT_SECONDS}s")
@@ -202,7 +201,7 @@ class MultiStageDebate:
                 timeout=self.DEBATE_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
-            total_duration = (datetime.utcnow() - start_time).total_seconds()
+            total_duration = (utcnow() - start_time).total_seconds()
             logger.error(f"Debate timed out after {total_duration:.1f}s")
             raise
 
@@ -241,7 +240,7 @@ class MultiStageDebate:
         final_plan = planning_result.output.get("final_plan", "No plan generated")
 
         # Calculate totals
-        total_duration = (datetime.utcnow() - start_time).total_seconds()
+        total_duration = (utcnow() - start_time).total_seconds()
 
         result = MultiStageDebateResult(
             session_id=self.session_id,
@@ -270,7 +269,7 @@ class MultiStageDebate:
         context: str,
     ) -> PhaseResult:
         """Run divergence phase to generate diverse ideas."""
-        phase_start = datetime.utcnow()
+        phase_start = utcnow()
         rounds: List[DebateRound] = []
         phase_tokens = 0
         phase_cost = 0.0
@@ -282,9 +281,7 @@ class MultiStageDebate:
             logger.info(f"Divergence Round {round_num}")
 
             # Select agents for this round
-            round_agents = self._select_agents_for_round(
-                agents, config.divergence_agents_per_round
-            )
+            round_agents = self._select_agents_for_round(agents, config.divergence_agents_per_round)
 
             round_data = DebateRound(
                 round_num=round_num,
@@ -330,14 +327,16 @@ class MultiStageDebate:
                 len(self.ideas),
             )
 
-            round_data.summary = f"Generated {len(round_data.messages)} responses, {len(self.ideas)} total ideas"
+            round_data.summary = (
+                f"Generated {len(round_data.messages)} responses, {len(self.ideas)} total ideas"
+            )
             rounds.append(round_data)
 
             if should_end:
                 logger.info(f"Divergence ended: {reason}")
                 break
 
-        duration = (datetime.utcnow() - phase_start).total_seconds()
+        duration = (utcnow() - phase_start).total_seconds()
         self.total_tokens += phase_tokens
         self.total_cost += phase_cost
 
@@ -355,7 +354,7 @@ class MultiStageDebate:
 
     async def _run_convergence_phase(self, topic: str) -> PhaseResult:
         """Run convergence phase to filter and score ideas."""
-        phase_start = datetime.utcnow()
+        phase_start = utcnow()
         rounds: List[DebateRound] = []
         phase_tokens = 0
         phase_cost = 0.0
@@ -415,9 +414,9 @@ class MultiStageDebate:
 
         # Sort ideas by score and select top ones
         sorted_ideas = sorted(self.ideas, key=lambda x: x.total_score, reverse=True)
-        selected_ideas = sorted_ideas[:config.top_ideas_to_keep]
+        selected_ideas = sorted_ideas[: config.top_ideas_to_keep]
 
-        duration = (datetime.utcnow() - phase_start).total_seconds()
+        duration = (utcnow() - phase_start).total_seconds()
         self.total_tokens += phase_tokens
         self.total_cost += phase_cost
 
@@ -435,7 +434,7 @@ class MultiStageDebate:
 
     async def _run_planning_phase(self, topic: str) -> PhaseResult:
         """Run planning phase to create final plan."""
-        phase_start = datetime.utcnow()
+        phase_start = utcnow()
         rounds: List[DebateRound] = []
         phase_tokens = 0
         phase_cost = 0.0
@@ -445,7 +444,7 @@ class MultiStageDebate:
 
         # Get selected ideas
         sorted_ideas = sorted(self.ideas, key=lambda x: x.total_score, reverse=True)
-        selected_ideas = sorted_ideas[:config.top_ideas_to_keep]
+        selected_ideas = sorted_ideas[: config.top_ideas_to_keep]
 
         draft_plan: Optional[str] = None
         approvals = 0
@@ -454,9 +453,7 @@ class MultiStageDebate:
         for round_num in range(1, config.planning_rounds + 1):
             logger.info(f"Planning Round {round_num}")
 
-            round_agents = self._select_agents_for_round(
-                agents, config.planning_agents_per_round
-            )
+            round_agents = self._select_agents_for_round(agents, config.planning_agents_per_round)
 
             round_data = DebateRound(
                 round_num=round_num,
@@ -529,7 +526,7 @@ class MultiStageDebate:
 
             rounds.append(round_data)
 
-        duration = (datetime.utcnow() - phase_start).total_seconds()
+        duration = (utcnow() - phase_start).total_seconds()
         self.total_tokens += phase_tokens
         self.total_cost += phase_cost
 
@@ -582,10 +579,10 @@ class MultiStageDebate:
 
         # Track counts for each axis value
         personality_counts = {
-            'thinking': {'optimistic': 0, 'cautious': 0},
-            'decision': {'intuitive': 0, 'analytical': 0},
-            'communication': {'challenger': 0, 'supporter': 0},
-            'action': {'innovative': 0, 'pragmatic': 0},
+            "thinking": {"optimistic": 0, "cautious": 0},
+            "decision": {"intuitive": 0, "analytical": 0},
+            "communication": {"challenger": 0, "supporter": 0},
+            "action": {"innovative": 0, "pragmatic": 0},
         }
 
         # Shuffle agents for randomness
@@ -640,19 +637,29 @@ class MultiStageDebate:
         action_val = personality.action.value
 
         # Get opposite values for each axis
-        thinking_opposite = 'cautious' if thinking_val == 'optimistic' else 'optimistic'
-        decision_opposite = 'analytical' if decision_val == 'intuitive' else 'intuitive'
-        communication_opposite = 'supporter' if communication_val == 'challenger' else 'challenger'
-        action_opposite = 'pragmatic' if action_val == 'innovative' else 'innovative'
+        thinking_opposite = "cautious" if thinking_val == "optimistic" else "optimistic"
+        decision_opposite = "analytical" if decision_val == "intuitive" else "intuitive"
+        communication_opposite = "supporter" if communication_val == "challenger" else "challenger"
+        action_opposite = "pragmatic" if action_val == "innovative" else "innovative"
 
         # Check if adding this agent would create too much imbalance
-        if counts['thinking'][thinking_val] - counts['thinking'][thinking_opposite] >= max_imbalance:
+        if (
+            counts["thinking"][thinking_val] - counts["thinking"][thinking_opposite]
+            >= max_imbalance
+        ):
             return False
-        if counts['decision'][decision_val] - counts['decision'][decision_opposite] >= max_imbalance:
+        if (
+            counts["decision"][decision_val] - counts["decision"][decision_opposite]
+            >= max_imbalance
+        ):
             return False
-        if counts['communication'][communication_val] - counts['communication'][communication_opposite] >= max_imbalance:
+        if (
+            counts["communication"][communication_val]
+            - counts["communication"][communication_opposite]
+            >= max_imbalance
+        ):
             return False
-        if counts['action'][action_val] - counts['action'][action_opposite] >= max_imbalance:
+        if counts["action"][action_val] - counts["action"][action_opposite] >= max_imbalance:
             return False
 
         return True
@@ -665,10 +672,10 @@ class MultiStageDebate:
         """Update personality axis counts for the agent."""
         personality = agent.personality
 
-        counts['thinking'][personality.thinking.value] += 1
-        counts['decision'][personality.decision.value] += 1
-        counts['communication'][personality.communication.value] += 1
-        counts['action'][personality.action.value] += 1
+        counts["thinking"][personality.thinking.value] += 1
+        counts["decision"][personality.decision.value] += 1
+        counts["communication"][personality.communication.value] += 1
+        counts["action"][personality.action.value] += 1
 
     def _ensure_challenger_presence(
         self,
@@ -683,8 +690,7 @@ class MultiStageDebate:
         """
         # Check if any selected agent is a challenger
         has_challenger = any(
-            agent.personality.communication == CommunicationStyle.CHALLENGER
-            for agent in selected
+            agent.personality.communication == CommunicationStyle.CHALLENGER for agent in selected
         )
 
         if has_challenger:
@@ -692,9 +698,9 @@ class MultiStageDebate:
 
         # Find a challenger from all agents that's not already selected
         challengers = [
-            a for a in all_agents
-            if a.personality.communication == CommunicationStyle.CHALLENGER
-            and a not in selected
+            a
+            for a in all_agents
+            if a.personality.communication == CommunicationStyle.CHALLENGER and a not in selected
         ]
 
         if challengers and selected:
@@ -747,12 +753,12 @@ class MultiStageDebate:
 
         # Find most common keywords (appearing in 50%+ of ideas)
         threshold = len(existing_ideas) / 2
-        common_keywords = [
-            token for token, count in token_counts.items()
-            if count >= threshold
-        ]
+        common_keywords = [token for token, count in token_counts.items() if count >= threshold]
 
-        return avg_similarity, sorted(common_keywords, key=lambda x: token_counts[x], reverse=True)[:5]
+        return (
+            avg_similarity,
+            sorted(common_keywords, key=lambda x: token_counts[x], reverse=True)[:5],
+        )
 
     def _get_similarity_feedback(
         self,
@@ -855,9 +861,7 @@ Present your opinion with your unique perspective and expertise.
             )
 
             # Extract idea
-            idea = self._extract_idea_from_response(
-                response.content, agent, round_num
-            )
+            idea = self._extract_idea_from_response(response.content, agent, round_num)
 
             return message, idea, response.input_tokens + response.output_tokens, response.cost
 
@@ -972,7 +976,12 @@ Your task is to write an actionable implementation plan.
                 },
             )
 
-            return message, response.content, response.input_tokens + response.output_tokens, response.cost
+            return (
+                message,
+                response.content,
+                response.input_tokens + response.output_tokens,
+                response.cost,
+            )
 
         except Exception as e:
             logger.error(f"Planning agent {agent.id} failed: {e}")
@@ -1030,9 +1039,17 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
             )
 
             # Check approval
-            is_approved = "[approved]" in response.content.lower() or "[approve]" in response.content.lower()
+            is_approved = (
+                "[approved]" in response.content.lower() or "[approve]" in response.content.lower()
+            )
 
-            return message, is_approved, response.content, response.input_tokens + response.output_tokens, response.cost
+            return (
+                message,
+                is_approved,
+                response.content,
+                response.input_tokens + response.output_tokens,
+                response.cost,
+            )
 
         except Exception as e:
             logger.error(f"Planning review agent {agent.id} failed: {e}")
@@ -1056,35 +1073,37 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         errors = []
 
         # Try to extract JSON content first
-        json_match = re.search(r'```json\s*([\s\S]*?)\s*```', content)
+        json_match = re.search(r"```json\s*([\s\S]*?)\s*```", content)
         if json_match:
             try:
                 idea_json = json.loads(json_match.group(1))
 
                 # Validate JSON structure
-                required_fields = ['idea_title', 'core_analysis', 'proposal']
+                required_fields = ["idea_title", "core_analysis", "proposal"]
                 for field in required_fields:
                     if field not in idea_json:
                         errors.append(f"Missing JSON field '{field}'")
 
                 # Validate title length
-                title = idea_json.get('idea_title', '')
+                title = idea_json.get("idea_title", "")
                 if len(title) < 30:
                     errors.append(f"Title too short ({len(title)} chars < 30 chars)")
 
                 # Validate core_analysis length
-                core = idea_json.get('core_analysis', '')
+                core = idea_json.get("core_analysis", "")
                 if len(core) < 100:
                     errors.append(f"Core analysis too short ({len(core)} chars < 100 chars)")
 
                 # Validate proposal description
-                proposal = idea_json.get('proposal', {})
+                proposal = idea_json.get("proposal", {})
                 if isinstance(proposal, dict):
-                    desc = proposal.get('description', '')
+                    desc = proposal.get("description", "")
                     if len(desc) < 150:
-                        errors.append(f"Proposal description too short ({len(desc)} chars < 150 chars)")
+                        errors.append(
+                            f"Proposal description too short ({len(desc)} chars < 150 chars)"
+                        )
 
-                    features = proposal.get('core_features', [])
+                    features = proposal.get("core_features", [])
                     if len(features) < 3:
                         errors.append(f"Insufficient core features ({len(features)} < 3)")
 
@@ -1105,9 +1124,9 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         for section_name, min_chars in required_sections:
             # Look for section header patterns
             patterns = [
-                rf'\*\*{section_name}\*\*[:\s]*([\s\S]*?)(?=\n\*\*|\n##|\n\d+\.|$)',
-                rf'##\s*{section_name}[:\s]*([\s\S]*?)(?=\n##|\n\*\*|\n\d+\.|$)',
-                rf'\d+\.\s*{section_name}[:\s]*([\s\S]*?)(?=\n\d+\.|\n##|\n\*\*|$)',
+                rf"\*\*{section_name}\*\*[:\s]*([\s\S]*?)(?=\n\*\*|\n##|\n\d+\.|$)",
+                rf"##\s*{section_name}[:\s]*([\s\S]*?)(?=\n##|\n\*\*|\n\d+\.|$)",
+                rf"\d+\.\s*{section_name}[:\s]*([\s\S]*?)(?=\n\d+\.|\n##|\n\*\*|$)",
             ]
 
             found = False
@@ -1119,7 +1138,9 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
                         found = True
                         break
                     else:
-                        errors.append(f"'{section_name}' section too short ({len(section_content)} chars < {min_chars} chars)")
+                        errors.append(
+                            f"'{section_name}' section too short ({len(section_content)} chars < {min_chars} chars)"
+                        )
                         found = True
                         break
 
@@ -1156,28 +1177,119 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
 
         # Tech keywords score
         tech_keywords = [
-            'AI', 'DeFi', 'NFT', 'DAO', 'Web3', 'GPT', 'LLM', 'SDK', 'API',
-            'DEX', 'CEX', 'AMM', 'TVL', 'APY', 'APR', 'L2', 'ZK', 'EVM',
-            'Solidity', 'React', 'Python', 'TypeScript', 'Rust',
-            'Uniswap', 'Aave', 'OpenAI', 'Claude', 'Anthropic',
-            'blockchain', 'metaverse', 'smart contract', 'token', 'wallet',
-            'agent', 'automation', 'analytics', 'tracking', 'dashboard', 'platform'
+            "AI",
+            "DeFi",
+            "NFT",
+            "DAO",
+            "Web3",
+            "GPT",
+            "LLM",
+            "SDK",
+            "API",
+            "DEX",
+            "CEX",
+            "AMM",
+            "TVL",
+            "APY",
+            "APR",
+            "L2",
+            "ZK",
+            "EVM",
+            "Solidity",
+            "React",
+            "Python",
+            "TypeScript",
+            "Rust",
+            "Uniswap",
+            "Aave",
+            "OpenAI",
+            "Claude",
+            "Anthropic",
+            "blockchain",
+            "metaverse",
+            "smart contract",
+            "token",
+            "wallet",
+            "agent",
+            "automation",
+            "analytics",
+            "tracking",
+            "dashboard",
+            "platform",
         ]
         tech_matches = sum(1 for kw in tech_keywords if kw.lower() in title.lower())
         score += min(tech_matches * 1.0, 3.0)
 
         # Numbers/metrics score
-        if re.search(r'\d+', title):
+        if re.search(r"\d+", title):
             score += 1.0
-        if re.search(r'%|\$|USD|KRW|ETH|BTC', title, re.IGNORECASE):
+        if re.search(r"%|\$|USD|KRW|ETH|BTC", title, re.IGNORECASE):
             score += 1.0
 
         # Mossland relevance score
-        mossland_keywords = ['mossland', 'moc', 'moss', 'ar', 'metaverse']
+        mossland_keywords = ["mossland", "moc", "moss", "ar", "metaverse"]
         if any(kw in title.lower() for kw in mossland_keywords):
             score += 2.0
 
         return min(score, 10.0)
+
+    @staticmethod
+    def _parse_idea_json(content: str) -> Optional[Dict[str, Any]]:
+        """Best-effort extraction of the idea JSON object from an LLM response.
+
+        Tries a fenced ```json block, then any fenced block, then the first
+        balanced ``{...}`` span, and tolerates trailing commas. Returns None if
+        no JSON object can be recovered. This is what makes the author-provided
+        ``idea_title`` reliably available instead of falling back to scraping a
+        raw line from the body.
+        """
+        import json
+        import re
+
+        candidates: List[str] = []
+        fenced_json = re.search(r"```json\s*([\s\S]*?)\s*```", content, re.IGNORECASE)
+        if fenced_json:
+            candidates.append(fenced_json.group(1))
+        fenced_any = re.search(r"```\s*([\s\S]*?)\s*```", content)
+        if fenced_any:
+            candidates.append(fenced_any.group(1))
+        brace = re.search(r"\{[\s\S]*\}", content)
+        if brace:
+            candidates.append(brace.group(0))
+
+        for raw in candidates:
+            raw = raw.strip()
+            if not raw:
+                continue
+            # Try as-is, then with trailing commas stripped (a common LLM defect).
+            for attempt in (raw, re.sub(r",\s*([}\]])", r"\1", raw)):
+                try:
+                    parsed = json.loads(attempt)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if isinstance(parsed, dict):
+                    return parsed
+        return None
+
+    @staticmethod
+    def _is_json_noise_line(line: str) -> bool:
+        """True for lines that are raw JSON structure (keys, braces, brackets).
+
+        Prevents the text fallback from promoting a line such as
+        ``"idea_title": "..."`` or ``"tech_stack": [...]`` into a title — the
+        defect that produced thousands of malformed GitHub issue titles.
+        """
+        import re
+
+        s = line.strip().strip(",")
+        if not s:
+            return False
+        if s[0] in "{}[]":
+            return True
+        # A ``"key": value`` JSON property line.
+        if re.match(r'^"[^"]+"\s*:', s):
+            return True
+        return False
 
     def _extract_idea_from_response(
         self,
@@ -1195,26 +1307,28 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         Supports both JSON and text formats.
         """
         import re
-        import json
 
-        # First, try to extract from JSON format
-        json_match = re.search(r'```json\s*([\s\S]*?)\s*```', content)
-        if json_match:
-            try:
-                idea_json = json.loads(json_match.group(1))
-                title = idea_json.get('idea_title', '')
-
+        # First, try to extract the structured idea_title from a JSON object in
+        # the response. The author-provided idea_title is authoritative: if it is
+        # present we MUST use it rather than scraping a raw line from the body,
+        # which is what produced thousands of malformed '"week1": ...' titles.
+        idea_json = self._parse_idea_json(content)
+        if idea_json is not None:
+            title = str(idea_json.get("idea_title") or "").strip()
+            if title:
                 # Validate JSON-based idea
                 is_valid, errors = self._validate_idea_content(content)
                 if not is_valid:
                     logger.warning(f"Idea validation failed for {agent.name}: {errors}")
                     # Continue anyway but log the issues
 
-                # Score title quality
+                # Score title quality (informational; does not gate acceptance)
                 title_score = self._score_title_quality(title)
                 logger.info(f"Title quality score for '{title[:50]}...': {title_score}/10")
 
-                if len(title) >= 30 and title_score >= 4.0:
+                # A short or low-scoring idea_title is still vastly better than a
+                # scraped JSON fragment, so accept any non-trivial author title.
+                if len(title) >= 15:
                     return Idea(
                         id=f"idea-{self.session_id}-{round_num}-{agent.id}",
                         title=title[:200],
@@ -1225,26 +1339,58 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
                         metadata={
                             "format": "json",
                             "title_score": title_score,
+                            "low_quality_title": title_score < 4.0 or len(title) < 30,
                             "validation_errors": errors if not is_valid else [],
-                            "proposal": idea_json.get('proposal', {}),
-                            "kpis": idea_json.get('kpis', []),
-                        }
+                            "proposal": idea_json.get("proposal", {}),
+                            "kpis": idea_json.get("kpis", []),
+                        },
                     )
-                else:
-                    logger.warning(f"Title too short or low quality: '{title}' (score: {title_score})")
-
-            except json.JSONDecodeError as e:
-                logger.debug(f"JSON parsing failed, falling back to text extraction: {e}")
+                logger.warning(f"JSON idea_title too short ('{title}'), trying text extraction")
 
         # Fallback to text-based extraction
         lines = content.strip().split("\n")
 
         # Generic section headers to skip (expanded list)
         skip_headers = [
-            'core analysis', 'opportunity', 'risk', 'proposal', 'priority', 'execution', 'overview', 'goals',
-            'summary', 'conclusion', 'background', 'status', 'analysis', 'strategy', 'plan', 'schedule',
-            'expected results', 'expected outcomes', 'reference', 'appendix', 'introduction',
-            'key points', 'key insights'
+            "core analysis",
+            "opportunity",
+            "risk",
+            "proposal",
+            "priority",
+            "execution",
+            "overview",
+            "goals",
+            "summary",
+            "conclusion",
+            "background",
+            "status",
+            "analysis",
+            "strategy",
+            "plan",
+            "schedule",
+            "expected results",
+            "expected outcomes",
+            "reference",
+            "appendix",
+            "introduction",
+            "key points",
+            "key insights",
+            # Korean section-header PHRASES (the English-only list let '핵심 분석'
+            # etc. leak as titles). Kept as multi-token phrases — NOT bare words
+            # like '분석'/'전략' — so legitimate titles containing those words are
+            # not wrongly skipped by is_generic_header's substring match.
+            "핵심 분석",
+            "핵심분석",
+            "기회/리스크",
+            "구체적 제안",
+            "실행 로드맵",
+            "실행 계획",
+            "성공 지표",
+            "성과 지표",
+            "프로젝트 개요",
+            "기술 아키텍처",
+            "향후 확장",
+            "향후 계획",
         ]
 
         def is_generic_header(text: str) -> bool:
@@ -1254,18 +1400,18 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
                 if skip in text_lower:
                     return True
             # Check for numbered generic headers
-            if re.match(r'^[\d]+[\.\)]\s*[a-z]{2,15}$', text_lower):
+            if re.match(r"^[\d]+[\.\)]\s*[a-z]{2,15}$", text_lower):
                 return True
             return False
 
         def has_specific_content(text: str) -> bool:
             """Check if title contains specific keywords that make it valuable."""
             specific_patterns = [
-                r'(AI|DeFi|NFT|DAO|Web3|GPT|LLM|SDK|API)',  # Tech acronyms
-                r'(Uniswap|Aave|OpenAI|Mossland)',  # Project names
-                r'\d+',  # Contains numbers (metrics, versions)
-                r'(holder|user|developer|creator)',  # User types
-                r'(platform|system|service|tool|bot)',  # Product types
+                r"(AI|DeFi|NFT|DAO|Web3|GPT|LLM|SDK|API)",  # Tech acronyms
+                r"(Uniswap|Aave|OpenAI|Mossland)",  # Project names
+                r"\d+",  # Contains numbers (metrics, versions)
+                r"(holder|user|developer|creator)",  # User types
+                r"(platform|system|service|tool|bot)",  # Product types
             ]
             for pattern in specific_patterns:
                 if re.search(pattern, text, re.IGNORECASE):
@@ -1304,6 +1450,8 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         if not title:
             for line in lines:
                 line = line.strip()
+                if self._is_json_noise_line(line):
+                    continue
                 if is_generic_header(line):
                     continue
                 if line.startswith("##") and "idea" not in line.lower():
@@ -1323,6 +1471,8 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
                 line = line.strip()
                 if line.startswith("#") or line.startswith("*") or line.startswith("-"):
                     continue
+                if self._is_json_noise_line(line):
+                    continue
                 if is_generic_header(line):
                     continue
                 if len(line) >= 30 and len(line) < 200 and has_specific_content(line):
@@ -1332,9 +1482,19 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         # Fallback: Generate descriptive title from content analysis
         if not title or len(title) < 30:
             # Extract meaningful keywords from content
-            tech_matches = re.findall(r'(AI|DeFi|NFT|DAO|Web3|blockchain|metaverse|agent|smart contract)', content[:1000], re.IGNORECASE)
-            action_matches = re.findall(r'(automation|analytics|tracking|monitoring|dashboard|optimization|integration)', content[:1000], re.IGNORECASE)
-            target_matches = re.findall(r'(holder|user|developer|community|investor)', content[:1000], re.IGNORECASE)
+            tech_matches = re.findall(
+                r"(AI|DeFi|NFT|DAO|Web3|blockchain|metaverse|agent|smart contract)",
+                content[:1000],
+                re.IGNORECASE,
+            )
+            action_matches = re.findall(
+                r"(automation|analytics|tracking|monitoring|dashboard|optimization|integration)",
+                content[:1000],
+                re.IGNORECASE,
+            )
+            target_matches = re.findall(
+                r"(holder|user|developer|community|investor)", content[:1000], re.IGNORECASE
+            )
 
             tech = list(dict.fromkeys(tech_matches))[:2]  # Unique, max 2
             actions = list(dict.fromkeys(action_matches))[:1]
@@ -1344,7 +1504,7 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
             if targets:
                 parts.append(f"{targets[0].capitalize()}-focused")
             if tech:
-                parts.append(' + '.join(tech))
+                parts.append(" + ".join(tech))
             if actions:
                 parts.append(f"{actions[0].capitalize()} System")
             else:
@@ -1364,7 +1524,9 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         title_score = self._score_title_quality(title)
 
         if not is_valid:
-            logger.warning(f"Text-based idea validation issues for {agent.name}: {validation_errors}")
+            logger.warning(
+                f"Text-based idea validation issues for {agent.name}: {validation_errors}"
+            )
 
         logger.info(f"Title quality score (text): '{title[:50]}...': {title_score}/10")
 
@@ -1379,7 +1541,7 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
                 "format": "text",
                 "title_score": title_score,
                 "validation_errors": validation_errors if not is_valid else [],
-            }
+            },
         )
 
     def _extract_scores_from_response(
@@ -1400,8 +1562,8 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
             # Look for patterns like "Idea 1: 8 points" or "Score: 7"
             patterns = [
                 rf"{re.escape(idea_title)}[^0-9]*(\d+)",
-                rf"Idea\s*\d+[^0-9]*(\d+)\s*(?:points?)?",
-                rf"Score[:\s]*(\d+)",
+                r"Idea\s*\d+[^0-9]*(\d+)\s*(?:points?)?",
+                r"Score[:\s]*(\d+)",
             ]
 
             for pattern in patterns:

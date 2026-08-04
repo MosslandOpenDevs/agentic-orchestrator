@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 
 type Locale = 'en' | 'ko';
 
@@ -126,6 +126,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'modal.plan.title': 'Plan Document',
     'modal.project.title': 'Project Details',
     'modal.agent.title': 'Agent Profile',
+    'modal.stats.title': 'System Statistics',
+    'modal.pipeline.title': 'Pipeline Status',
     'modal.close': 'Close',
 
     // Detail components
@@ -637,6 +639,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'modal.plan.title': '플랜 문서',
     'modal.project.title': '프로젝트 상세',
     'modal.agent.title': '에이전트 프로필',
+    'modal.stats.title': '시스템 통계',
+    'modal.pipeline.title': '파이프라인 상태',
     'modal.close': '닫기',
 
     // Detail components
@@ -1038,7 +1042,34 @@ const translations: Record<Locale, Record<string, string>> = {
 const I18nContext = createContext<I18nContextType | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocale] = useState<Locale>('en');
+  const [locale, setLocaleState] = useState<Locale>('en');
+
+  // Restore the saved language preference after mount. This runs in an effect
+  // (not a lazy useState initializer) on purpose: localStorage is unavailable
+  // during SSR, and reading it during the initial client render would cause a
+  // hydration mismatch. Rendering 'en' first then switching avoids that.
+  useEffect(() => {
+    const saved = localStorage.getItem('moss-locale');
+    if (saved === 'en' || saved === 'ko') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLocaleState(saved);
+    }
+  }, []);
+
+  // Keep <html lang> and the saved preference in sync with the active locale
+  // (important for screen readers and correct hyphenation).
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    try {
+      localStorage.setItem('moss-locale', locale);
+    } catch {
+      // Ignore storage failures (e.g. private mode).
+    }
+  }, [locale]);
+
+  const setLocale = useCallback((next: Locale) => {
+    setLocaleState(next);
+  }, []);
 
   const t = useCallback(
     (key: string): string => {
@@ -1066,23 +1097,31 @@ export function LanguageToggle() {
   const { locale, setLocale } = useI18n();
 
   return (
-    <div className="flex items-center gap-1 rounded-lg border border-zinc-700 bg-zinc-800/50 p-0.5">
+    <div
+      role="group"
+      aria-label="Language selector"
+      className="flex items-center gap-1 rounded-lg border border-zinc-700 bg-zinc-800/50 p-0.5"
+    >
       <button
         onClick={() => setLocale('en')}
-        className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+        aria-label="Switch to English"
+        aria-pressed={locale === 'en'}
+        className={`rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${
           locale === 'en'
             ? 'bg-zinc-600 text-white'
-            : 'text-zinc-400 hover:text-zinc-200'
+            : 'text-zinc-300 hover:text-white'
         }`}
       >
         EN
       </button>
       <button
         onClick={() => setLocale('ko')}
-        className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+        aria-label="한국어로 전환"
+        aria-pressed={locale === 'ko'}
+        className={`rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${
           locale === 'ko'
             ? 'bg-zinc-600 text-white'
-            : 'text-zinc-400 hover:text-zinc-200'
+            : 'text-zinc-300 hover:text-white'
         }`}
       >
         KO

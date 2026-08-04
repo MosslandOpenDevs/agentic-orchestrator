@@ -7,13 +7,14 @@ import { ApiClient, type ApiProject, type ApiPlan } from '@/lib/api';
 import { formatLocalDateTime } from '@/lib/date';
 import { TerminalWindow, TerminalBadge } from '@/components/TerminalWindow';
 import { useModal } from '@/components/modals/useModal';
+import { clickableProps } from '@/lib/a11y';
 
 interface ProjectWithPlan extends ApiProject {
   plan?: ApiPlan | null;
 }
 
 export default function ProjectsPage() {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
   const { openModal } = useModal();
   const [projects, setProjects] = useState<ProjectWithPlan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,11 +52,12 @@ export default function ProjectsPage() {
     return acc;
   }, {} as Record<string, number>);
 
-  const getStatusColor = (status: string): 'green' | 'cyan' | 'orange' | 'purple' => {
+  const getStatusColor = (status: string): 'green' | 'cyan' | 'orange' | 'purple' | 'red' => {
     switch (status) {
       case 'ready': return 'green';
       case 'generating': return 'cyan';
-      case 'error': return 'orange';
+      case 'ready_with_warnings': return 'orange';
+      case 'error': return 'red';
       default: return 'purple';
     }
   };
@@ -71,7 +73,7 @@ export default function ProjectsPage() {
           <h1 className="text-2xl font-bold text-[#39ff14] mb-2">
             {locale === 'ko' ? '프로젝트' : 'Projects'}
           </h1>
-          <p className="text-[#6b7280] text-sm">
+          <p className="text-[#8b949e] text-sm">
             {locale === 'ko'
               ? 'Plan에서 자동 생성된 프로젝트 스캐폴드'
               : 'Auto-generated project scaffolds from approved Plans'}
@@ -79,8 +81,8 @@ export default function ProjectsPage() {
         </motion.div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {['all', 'ready', 'generating', 'error'].map((status) => {
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        {['all', 'ready', 'ready_with_warnings', 'generating', 'error'].map((status) => {
           const count = status === 'all' ? projects.length : (statusCounts[status] || 0);
           const isActive = statusFilter === status;
           return (
@@ -89,19 +91,18 @@ export default function ProjectsPage() {
               onClick={() => setStatusFilter(status)}
               className={`
                 card-cli p-4 text-left transition-all
-                ${isActive ? 'border-[#39ff14] bg-[#39ff14]/5' : 'hover:border-[#6b7280]'}
+                ${isActive ? 'border-[#39ff14] bg-[#39ff14]/5' : 'hover:border-[#8b949e]'}
               `}
             >
               <div className="text-2xl font-bold text-[#c0c0c0]">{count}</div>
-              <div className="text-xs text-[#6b7280] uppercase">
-                {status === 'all'
-                  ? (locale === 'ko' ? '전체' : 'Total')
-                  : status === 'ready'
-                    ? (locale === 'ko' ? '완료' : 'Ready')
-                    : status === 'generating'
-                      ? (locale === 'ko' ? '생성 중' : 'Generating')
-                      : (locale === 'ko' ? '오류' : 'Error')
-                }
+              <div className="text-xs text-[#8b949e] uppercase">
+                {{
+                  all: locale === 'ko' ? '전체' : 'Total',
+                  ready: locale === 'ko' ? '완료' : 'Ready',
+                  ready_with_warnings: locale === 'ko' ? '경고' : 'Warnings',
+                  generating: locale === 'ko' ? '생성 중' : 'Generating',
+                  error: locale === 'ko' ? '오류' : 'Error',
+                }[status] ?? status}
               </div>
             </button>
           );
@@ -123,13 +124,13 @@ export default function ProjectsPage() {
           </div>
         ) : filteredProjects.length === 0 ? (
           <div className="text-center py-12">
-            <div className="text-[#6b7280] text-4xl mb-4">📁</div>
-            <div className="text-[#6b7280]">
+            <div className="text-[#8b949e] text-4xl mb-4">📁</div>
+            <div className="text-[#8b949e]">
               {locale === 'ko'
                 ? '프로젝트가 없습니다'
                 : 'No projects yet'}
             </div>
-            <div className="text-[#6b7280] text-sm mt-2">
+            <div className="text-[#8b949e] text-sm mt-2">
               {locale === 'ko'
                 ? '승인된 Plan에서 프로젝트를 생성하세요'
                 : 'Generate projects from approved Plans'}
@@ -144,7 +145,7 @@ export default function ProjectsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
                 className="p-4 hover:bg-[#161b22] cursor-pointer transition-colors"
-                onClick={() => openModal('project', { id: project.id, title: project.name })}
+                {...clickableProps(() => openModal('project', { id: project.id, title: project.name }), project.name)}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
@@ -172,12 +173,12 @@ export default function ProjectsPage() {
                       {project.name}
                     </h3>
                     {project.directory_path && (
-                      <div className="text-xs text-[#6b7280] mt-1 font-mono truncate">
+                      <div className="text-xs text-[#8b949e] mt-1 font-mono truncate">
                         <span className="text-[#00ffff]">→</span> {project.directory_path}
                       </div>
                     )}
                   </div>
-                  <div className="text-right text-xs text-[#6b7280] whitespace-nowrap">
+                  <div className="text-right text-xs text-[#8b949e] whitespace-nowrap">
                     <div>
                       {project.files_generated > 0 && (
                         <span className="text-[#39ff14]">{project.files_generated} files</span>
@@ -196,27 +197,27 @@ export default function ProjectsPage() {
 
       {/* Info Section */}
       <div className="card-cli p-4">
-        <div className="text-xs text-[#6b7280] uppercase mb-3">
+        <div className="text-xs text-[#8b949e] uppercase mb-3">
           {locale === 'ko' ? '프로젝트 생성 파이프라인' : 'Project Generation Pipeline'}
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-[#c0c0c0]">Plan</span>
-          <span className="text-[#6b7280]">→</span>
+          <span className="text-[#8b949e]">→</span>
           <span className="text-[#00ffff]">{locale === 'ko' ? '마크다운 파싱' : 'Parse Markdown'}</span>
-          <span className="text-[#6b7280]">→</span>
+          <span className="text-[#8b949e]">→</span>
           <span className="text-[#bd93f9]">{locale === 'ko' ? '스택 감지' : 'Detect Stack'}</span>
-          <span className="text-[#6b7280]">→</span>
+          <span className="text-[#8b949e]">→</span>
           <span className="text-[#ff6b35]">{locale === 'ko' ? 'LLM 코드 생성' : 'LLM Code Gen'}</span>
-          <span className="text-[#6b7280]">→</span>
+          <span className="text-[#8b949e]">→</span>
           <span className="text-[#39ff14]">{locale === 'ko' ? '프로젝트' : 'Project'}</span>
         </div>
         <div className="mt-3 grid grid-cols-2 md:grid-cols-2 gap-2 text-xs">
           <div className="p-2 border border-[#21262d] rounded">
-            <div className="text-[#6b7280]">{locale === 'ko' ? '채팅 / 생성' : 'Chat / Gen'}</div>
-            <div className="text-[#bd93f9] font-mono">qwen3.5:9b</div>
+            <div className="text-[#8b949e]">{locale === 'ko' ? '채팅 / 생성' : 'Chat / Gen'}</div>
+            <div className="text-[#bd93f9] font-mono">gemma3:4b</div>
           </div>
           <div className="p-2 border border-[#21262d] rounded">
-            <div className="text-[#6b7280]">{locale === 'ko' ? '임베딩' : 'Embedding'}</div>
+            <div className="text-[#8b949e]">{locale === 'ko' ? '임베딩' : 'Embedding'}</div>
             <div className="text-[#00ffff] font-mono">qwen3-embedding:0.6b</div>
           </div>
         </div>

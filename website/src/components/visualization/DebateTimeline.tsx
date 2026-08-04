@@ -75,13 +75,13 @@ const messageTypeDotColors: Record<string, string> = {
   synthesize: 'bg-[#bd93f9]',
   question: 'bg-[#f1fa8c]',
   answer: 'bg-[#00ffff]',
-  default: 'bg-[#6b7280]',
+  default: 'bg-[#8b949e]',
 };
 
 export function DebateTimeline({ messages, locale }: DebateTimelineProps) {
   if (messages.length === 0) {
     return (
-      <div className="text-center py-8 text-[#6b7280]">
+      <div className="text-center py-8 text-[#8b949e]">
         No messages in this debate yet.
       </div>
     );

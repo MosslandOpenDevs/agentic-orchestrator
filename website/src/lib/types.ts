@@ -181,8 +181,9 @@ export interface Project {
     blockchain?: string;
     additional?: string[];
   };
-  status: 'pending' | 'generating' | 'ready' | 'error';
+  status: 'pending' | 'generating' | 'ready' | 'ready_with_warnings' | 'error';
   files_generated: number;
+  generation_log?: string | null;
   created_at: string | null;
   completed_at: string | null;
 }

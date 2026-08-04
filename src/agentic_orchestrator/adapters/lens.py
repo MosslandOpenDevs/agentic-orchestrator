@@ -5,13 +5,15 @@ Collects signals from Lens Protocol (Web3 social network) via GraphQL API.
 """
 
 import asyncio
-from datetime import datetime
-from typing import List, Dict, Any, Optional
+import logging
 import time
+from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .base import BaseAdapter, AdapterConfig, AdapterResult, SignalData
+from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+
+logger = logging.getLogger(__name__)
 
 
 class LensAdapter(BaseAdapter):
@@ -30,16 +32,16 @@ class LensAdapter(BaseAdapter):
 
     # Profiles to track (Lens handles)
     TRACKED_PROFILES: List[str] = [
-        "stani.lens",          # Stani Kulechov (Aave founder)
-        "aaveaave.lens",       # Aave official
-        "lenster.lens",        # Lenster (Lens client)
-        "lensprotocol.lens",   # Lens Protocol official
-        "yoginth.lens",        # Developer/creator
-        "christina.lens",      # Active community member
-        "wagmi.lens",          # Web3 culture
-        "nader.lens",          # Developer advocate
-        "coopahtroopa.lens",   # Music NFTs
-        "poap.lens",           # POAP official
+        "stani.lens",  # Stani Kulechov (Aave founder)
+        "aaveaave.lens",  # Aave official
+        "lenster.lens",  # Lenster (Lens client)
+        "lensprotocol.lens",  # Lens Protocol official
+        "yoginth.lens",  # Developer/creator
+        "christina.lens",  # Active community member
+        "wagmi.lens",  # Web3 culture
+        "nader.lens",  # Developer advocate
+        "coopahtroopa.lens",  # Music NFTs
+        "poap.lens",  # POAP official
     ]
 
     # Keywords to search for
@@ -92,7 +94,7 @@ class LensAdapter(BaseAdapter):
             metadata={
                 "profiles_tracked": len(self.TRACKED_PROFILES),
                 "keywords_tracked": len(self.TRACKED_KEYWORDS),
-            }
+            },
         )
 
     async def _graphql_request(
@@ -106,14 +108,14 @@ class LensAdapter(BaseAdapter):
                 response = await client.post(
                     self.LENS_API,
                     json={"query": query, "variables": variables or {}},
-                    headers={"Content-Type": "application/json"}
+                    headers={"Content-Type": "application/json"},
                 )
 
                 if response.status_code == 200:
                     return response.json()
 
         except Exception as e:
-            print(f"Lens GraphQL error: {e}")
+            logger.warning(f"Lens GraphQL error: {e}")
 
         return None
 
@@ -180,9 +182,9 @@ class LensAdapter(BaseAdapter):
 
                 # Calculate engagement score
                 engagement = (
-                    (stats.get("upvotes", 0) * 1) +
-                    (stats.get("comments", 0) * 2) +
-                    (stats.get("mirrors", 0) * 3)
+                    (stats.get("upvotes", 0) * 1)
+                    + (stats.get("comments", 0) * 2)
+                    + (stats.get("mirrors", 0) * 3)
                 )
 
                 signal = SignalData(
@@ -202,7 +204,7 @@ class LensAdapter(BaseAdapter):
                     metadata={
                         "platform": "lens",
                         "engagement_score": engagement,
-                    }
+                    },
                 )
                 signals.append(signal)
 
@@ -275,7 +277,7 @@ class LensAdapter(BaseAdapter):
                         metadata={
                             "platform": "lens",
                             "tracked_profile": True,
-                        }
+                        },
                     )
                     signals.append(signal)
 
@@ -346,7 +348,7 @@ class LensAdapter(BaseAdapter):
                         metadata={
                             "platform": "lens",
                             "search_keyword": keyword,
-                        }
+                        },
                     )
                     signals.append(signal)
 
@@ -366,9 +368,11 @@ class LensAdapter(BaseAdapter):
                     json={
                         "query": "{ ping }",
                     },
-                    headers={"Content-Type": "application/json"}
+                    headers={"Content-Type": "application/json"},
                 )
-                base_health["lens_api_status"] = "connected" if response.status_code == 200 else "error"
+                base_health["lens_api_status"] = (
+                    "connected" if response.status_code == 200 else "error"
+                )
         except Exception as e:
             base_health["lens_api_status"] = f"error: {e}"
 

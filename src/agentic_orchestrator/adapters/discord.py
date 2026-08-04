@@ -8,14 +8,18 @@ Collects signals from Discord servers via:
 """
 
 import asyncio
+import logging
 import os
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
 import time
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .base import BaseAdapter, AdapterConfig, AdapterResult, SignalData
+from ..timeutil import utcnow
+from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+
+logger = logging.getLogger(__name__)
 
 
 class DiscordAdapter(BaseAdapter):
@@ -136,7 +140,7 @@ class DiscordAdapter(BaseAdapter):
                 "servers_tracked": len(self.TRACKED_SERVERS),
                 "has_bot_token": bool(self.bot_token),
                 "webhooks_configured": len(self.webhook_urls),
-            }
+            },
         )
 
     async def _fetch_via_bot(self) -> List[SignalData]:
@@ -157,8 +161,7 @@ class DiscordAdapter(BaseAdapter):
                 try:
                     # Get guild channels
                     response = await client.get(
-                        f"https://discord.com/api/v10/guilds/{guild_id}/channels",
-                        headers=headers
+                        f"https://discord.com/api/v10/guilds/{guild_id}/channels", headers=headers
                     )
 
                     if response.status_code != 200:
@@ -170,8 +173,7 @@ class DiscordAdapter(BaseAdapter):
                     for channel in channels:
                         channel_name = channel.get("name", "").lower()
                         if not any(
-                            ac in channel_name
-                            for ac in server.get("channels", ["announcements"])
+                            ac in channel_name for ac in server.get("channels", ["announcements"])
                         ):
                             continue
 
@@ -181,7 +183,7 @@ class DiscordAdapter(BaseAdapter):
                         msg_response = await client.get(
                             f"https://discord.com/api/v10/channels/{channel_id}/messages",
                             params={"limit": 10},
-                            headers=headers
+                            headers=headers,
                         )
 
                         if msg_response.status_code != 200:
@@ -196,7 +198,7 @@ class DiscordAdapter(BaseAdapter):
                             if msg_id in self._seen_messages:
                                 continue
 
-                            self._seen_messages[msg_id] = datetime.utcnow()
+                            self._seen_messages[msg_id] = utcnow()
 
                             content = msg.get("content", "")
                             if not content or len(content) < 20:
@@ -220,7 +222,7 @@ class DiscordAdapter(BaseAdapter):
                                     "platform": "discord",
                                     "server": server["name"],
                                     "channel": channel_name,
-                                }
+                                },
                             )
                             signals.append(signal)
 
@@ -228,7 +230,7 @@ class DiscordAdapter(BaseAdapter):
                         await asyncio.sleep(0.5)
 
                 except Exception as e:
-                    print(f"Error fetching from {server['name']}: {e}")
+                    logger.warning(f"Error fetching from {server['name']}: {e}")
 
         return signals
 
@@ -259,7 +261,7 @@ class DiscordAdapter(BaseAdapter):
                     # Try to get server info from public API
                     response = await client.get(
                         f"https://discord.com/api/v9/guilds/{guild_id}/preview",
-                        headers={"User-Agent": "Agentic-Orchestrator/0.4.0"}
+                        headers={"User-Agent": "Agentic-Orchestrator/0.4.0"},
                     )
 
                     if response.status_code == 200:
@@ -283,24 +285,21 @@ class DiscordAdapter(BaseAdapter):
                                 metadata={
                                     "platform": "discord",
                                     "server": server["name"],
-                                }
+                                },
                             )
                             signals.append(signal)
 
                     await asyncio.sleep(1)
 
         except Exception as e:
-            print(f"Error fetching public Discord data: {e}")
+            logger.warning(f"Error fetching public Discord data: {e}")
 
         return signals
 
     def _clean_cache(self) -> None:
         """Remove old entries from message cache."""
-        cutoff = datetime.utcnow() - timedelta(hours=24)
-        self._seen_messages = {
-            k: v for k, v in self._seen_messages.items()
-            if v > cutoff
-        }
+        cutoff = utcnow() - timedelta(hours=24)
+        self._seen_messages = {k: v for k, v in self._seen_messages.items() if v > cutoff}
 
     async def health_check(self) -> Dict[str, Any]:
         """Check adapter health."""
@@ -316,9 +315,11 @@ class DiscordAdapter(BaseAdapter):
                 async with httpx.AsyncClient(timeout=10) as client:
                     response = await client.get(
                         "https://discord.com/api/v10/users/@me",
-                        headers={"Authorization": f"Bot {self.bot_token}"}
+                        headers={"Authorization": f"Bot {self.bot_token}"},
                     )
-                    base_health["bot_status"] = "connected" if response.status_code == 200 else "error"
+                    base_health["bot_status"] = (
+                        "connected" if response.status_code == 200 else "error"
+                    )
             except Exception as e:
                 base_health["bot_status"] = f"error: {e}"
 

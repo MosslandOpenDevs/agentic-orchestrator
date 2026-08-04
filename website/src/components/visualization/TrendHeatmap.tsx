@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
+import { clickableProps } from '@/lib/a11y';
 import type { ApiTrend } from '@/lib/api';
 
 interface TrendHeatmapProps {
@@ -43,9 +44,13 @@ export function TrendHeatmap({ trends, onCellClick }: TrendHeatmapProps) {
         cat => trend.category?.toLowerCase().includes(cat.toLowerCase())
       ) || 'Other';
 
+      // When a trend has no analyzed_at date, derive a stable day bucket from
+      // its id so rendering stays pure and idempotent (no Math.random()).
+      const fallbackDayIndex =
+        Array.from(trend.id).reduce((acc, ch) => acc + ch.charCodeAt(0), 0) % 7;
       const dayIndex = trend.analyzed_at
         ? new Date(trend.analyzed_at).getDay()
-        : Math.floor(Math.random() * 7);
+        : fallbackDayIndex;
       const day = DAYS[dayIndex === 0 ? 6 : dayIndex - 1]; // Convert Sunday=0 to index 6
 
       if (grouped[category] && grouped[category][day]) {
@@ -96,10 +101,10 @@ export function TrendHeatmap({ trends, onCellClick }: TrendHeatmapProps) {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="text-xs text-[#6b7280] uppercase tracking-wider">
+        <span className="text-xs text-[#8b949e] uppercase tracking-wider">
           {t('trendHeatmap.title')}
         </span>
-        <span className="text-xs text-[#6b7280]">
+        <span className="text-xs text-[#8b949e]">
           {trends.length} {t('trendHeatmap.trends')}
         </span>
       </div>
@@ -111,7 +116,7 @@ export function TrendHeatmap({ trends, onCellClick }: TrendHeatmapProps) {
           <div className="flex mb-2">
             <div className="w-20" /> {/* Spacer for category labels */}
             {DAYS.map(day => (
-              <div key={day} className="flex-1 text-center text-xs text-[#6b7280]">
+              <div key={day} className="flex-1 text-center text-xs text-[#8b949e]">
                 {day}
               </div>
             ))}
@@ -127,7 +132,7 @@ export function TrendHeatmap({ trends, onCellClick }: TrendHeatmapProps) {
               className="flex mb-1"
             >
               {/* Category Label */}
-              <div className="w-20 text-xs text-[#6b7280] flex items-center pr-2 truncate">
+              <div className="w-20 text-xs text-[#8b949e] flex items-center pr-2 truncate">
                 {row[0].category}
               </div>
 
@@ -139,13 +144,18 @@ export function TrendHeatmap({ trends, onCellClick }: TrendHeatmapProps) {
                   animate={{ scale: 1 }}
                   transition={{ delay: rowIdx * 0.05 + cellIdx * 0.02 }}
                   className={`
-                    flex-1 h-6 m-0.5 rounded cursor-pointer transition-all
+                    flex-1 h-6 m-0.5 rounded transition-all
                     ${getHeatColor(cell.value)}
-                    ${cell.trends.length > 0 ? 'hover:ring-2 hover:ring-[#00ffff]' : ''}
+                    ${cell.trends.length > 0 ? 'cursor-pointer hover:ring-2 hover:ring-[#00ffff]' : ''}
                   `}
                   onMouseEnter={() => setHoveredCell(cell)}
                   onMouseLeave={() => setHoveredCell(null)}
-                  onClick={() => cell.trends.length > 0 && onCellClick?.(cell.category, cell.day)}
+                  {...(cell.trends.length > 0
+                    ? clickableProps(
+                        () => onCellClick?.(cell.category, cell.day),
+                        `${cell.category} - ${cell.day}`
+                      )
+                    : {})}
                 >
                   {cell.trends.length > 0 && (
                     <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-black/70">
@@ -161,13 +171,13 @@ export function TrendHeatmap({ trends, onCellClick }: TrendHeatmapProps) {
 
       {/* Legend */}
       <div className="flex items-center justify-between pt-3 border-t border-[#21262d]">
-        <span className="text-[10px] text-[#6b7280]">{t('trendHeatmap.less')}</span>
+        <span className="text-[10px] text-[#8b949e]">{t('trendHeatmap.less')}</span>
         <div className="flex gap-1">
           {['bg-[#0d1117]', 'bg-[#0e4429]', 'bg-[#006d32]', 'bg-[#26a641]', 'bg-[#39d353]', 'bg-[#39ff14]'].map((color, i) => (
             <div key={i} className={`w-3 h-3 rounded-sm ${color}`} />
           ))}
         </div>
-        <span className="text-[10px] text-[#6b7280]">{t('trendHeatmap.more')}</span>
+        <span className="text-[10px] text-[#8b949e]">{t('trendHeatmap.more')}</span>
       </div>
 
       {/* Hover Tooltip */}
@@ -181,7 +191,7 @@ export function TrendHeatmap({ trends, onCellClick }: TrendHeatmapProps) {
             <span className="text-xs text-[#00ffff]">
               {hoveredCell.category} - {hoveredCell.day}
             </span>
-            <span className="text-xs text-[#6b7280]">
+            <span className="text-xs text-[#8b949e]">
               {hoveredCell.trends.length} {t('trendHeatmap.trends')}
             </span>
           </div>
@@ -193,7 +203,7 @@ export function TrendHeatmap({ trends, onCellClick }: TrendHeatmapProps) {
               </div>
             ))}
             {hoveredCell.trends.length > 3 && (
-              <div className="text-[10px] text-[#6b7280]">
+              <div className="text-[10px] text-[#8b949e]">
                 +{hoveredCell.trends.length - 3} {t('trendHeatmap.more')}
               </div>
             )}

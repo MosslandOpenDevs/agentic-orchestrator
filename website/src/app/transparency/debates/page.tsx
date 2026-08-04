@@ -7,6 +7,7 @@ import { ApiClient, type ApiDebate } from '@/lib/api';
 import { formatLocalDate } from '@/lib/date';
 import { useModal } from '@/components/modals/useModal';
 import { TerminalWindow, TerminalBadge } from '@/components/TerminalWindow';
+import { clickableProps } from '@/lib/a11y';
 
 export default function DebatesPage() {
   const { t, locale } = useI18n();
@@ -64,7 +65,7 @@ export default function DebatesPage() {
           <h1 className="text-2xl font-bold text-[#ff6b35] mb-2">
             💬 {t('debates.title')}
           </h1>
-          <p className="text-sm text-[#6b7280]">
+          <p className="text-sm text-[#8b949e]">
             {t('debates.subtitle')}
           </p>
         </motion.div>
@@ -86,13 +87,13 @@ export default function DebatesPage() {
                 <div className={`text-xs font-bold ${['text-[#39ff14]', 'text-[#00ffff]', 'text-[#ff6b35]', 'text-[#bd93f9]'][idx]}`}>
                   {role}
                 </div>
-                <div className="text-[10px] text-[#6b7280] mt-1">
+                <div className="text-[10px] text-[#8b949e] mt-1">
                   {t(`role.${role.toLowerCase().replace(' ', '')}.perspective`)}
                 </div>
               </motion.div>
             ))}
           </div>
-          <div className="text-center text-xs text-[#6b7280] mt-4">
+          <div className="text-center text-xs text-[#8b949e] mt-4">
             {t('debates.rotationInfo')}
           </div>
         </TerminalWindow>
@@ -102,7 +103,7 @@ export default function DebatesPage() {
           <div className="flex flex-wrap gap-4">
             {/* Status Filter */}
             <div>
-              <label className="text-xs text-[#6b7280] block mb-1">{t('debates.status')}</label>
+              <label className="text-xs text-[#8b949e] block mb-1">{t('debates.status')}</label>
               <select
                 value={filter.status || ''}
                 onChange={(e) => setFilter({ ...filter, status: e.target.value || undefined })}
@@ -117,7 +118,7 @@ export default function DebatesPage() {
 
             {/* Phase Filter */}
             <div>
-              <label className="text-xs text-[#6b7280] block mb-1">{t('debates.phase')}</label>
+              <label className="text-xs text-[#8b949e] block mb-1">{t('debates.phase')}</label>
               <select
                 value={filter.phase || ''}
                 onChange={(e) => setFilter({ ...filter, phase: e.target.value || undefined })}
@@ -142,7 +143,7 @@ export default function DebatesPage() {
               </div>
             </div>
           ) : debates.length === 0 ? (
-            <div className="text-center py-12 text-[#6b7280]">
+            <div className="text-center py-12 text-[#8b949e]">
               {t('debates.noDebates')}
             </div>
           ) : (
@@ -153,7 +154,7 @@ export default function DebatesPage() {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: idx * 0.02 }}
-                  onClick={() => handleDebateClick(debate)}
+                  {...clickableProps(() => handleDebateClick(debate), `${t('debates.session')} #${debate.id.slice(0, 8)}`)}
                   className="card-cli p-4 cursor-pointer hover:border-[#ff6b35] transition-colors"
                 >
                   <div className="flex items-center gap-4">
@@ -162,7 +163,7 @@ export default function DebatesPage() {
                       <div className="text-xl font-bold text-[#ff6b35]">
                         R{debate.round_number}
                       </div>
-                      <div className="text-[10px] text-[#6b7280]">
+                      <div className="text-[10px] text-[#8b949e]">
                         /{debate.max_rounds}
                       </div>
                     </div>
@@ -194,7 +195,7 @@ export default function DebatesPage() {
                       <div className="text-lg font-bold text-[#00ffff]">
                         {debate.message_count || 0}
                       </div>
-                      <div className="text-[10px] text-[#6b7280]">{t('debates.messages')}</div>
+                      <div className="text-[10px] text-[#8b949e]">{t('debates.messages')}</div>
                     </div>
 
                     {/* Arrow */}
@@ -204,7 +205,7 @@ export default function DebatesPage() {
                   {/* Outcome preview */}
                   {debate.outcome && (
                     <div className="mt-3 pt-3 border-t border-[#21262d]">
-                      <div className="text-xs text-[#6b7280] line-clamp-1">
+                      <div className="text-xs text-[#8b949e] line-clamp-1">
                         <span className="text-[#39ff14]">✓</span> {debate.outcome}
                       </div>
                     </div>

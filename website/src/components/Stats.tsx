@@ -4,6 +4,7 @@ import { motion, useMotionValue, useTransform, animate } from 'framer-motion';
 import { useEffect } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { useModal } from '@/components/modals/useModal';
+import { clickableProps } from '@/lib/a11y';
 
 interface StatCardProps {
   label: string;
@@ -54,23 +55,24 @@ function StatCard({ label, value, subValue, color = 'green', delay = 0, onClick 
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: delay * 0.1 }}
       whileHover={{ y: -2 }}
-      onClick={onClick}
+      {...(onClick ? clickableProps(onClick, label) : {})}
       className={`
-        card-cli p-4 border cursor-pointer
+        card-cli p-4 border
+        ${onClick ? 'cursor-pointer' : ''}
         ${colorClasses[color]}
         ${glowClasses[color]}
         transition-all duration-200
       `}
     >
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] text-[#6b7280] uppercase tracking-wider">{label}</span>
+        <span className="text-[10px] text-[#8b949e] uppercase tracking-wider">{label}</span>
       </div>
       <div className="flex items-baseline gap-2">
         <span className={`text-2xl font-bold ${colorClasses[color].split(' ')[0]}`}>
           <AnimatedNumber value={value} delay={delay * 0.1} />
         </span>
         {subValue && (
-          <span className="text-xs text-[#6b7280]">
+          <span className="text-xs text-[#8b949e]">
             (<span className="text-[#ff5555]">{subValue.value}</span> {subValue.label})
           </span>
         )}

@@ -5,28 +5,26 @@ Defines the database schema for signals, trends, ideas, debates, plans,
 API usage tracking, and system logs.
 """
 
-from datetime import datetime
-from typing import Optional, List, Dict, Any
+import enum
 import uuid
+from typing import Any, Dict, Optional
 
 from sqlalchemy import (
+    JSON,
     Column,
-    String,
-    Text,
-    Integer,
-    Float,
-    Boolean,
-    DateTime,
     Date,
+    DateTime,
+    Float,
     ForeignKey,
     Index,
-    JSON,
-    Enum as SQLEnum,
+    Integer,
+    String,
+    Text,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-import enum
 
+from ..timeutil import utcnow
 
 Base = declarative_base()
 
@@ -50,14 +48,14 @@ class SignalCategory(str, enum.Enum):
 
 
 class IdeaStatus(str, enum.Enum):
-    PENDING = "pending"      # Awaiting scoring
-    SCORED = "scored"        # Scored but not yet promoted (middle score)
-    PROMOTED = "promoted"    # Auto-promoted to planning (high score)
+    PENDING = "pending"  # Awaiting scoring
+    SCORED = "scored"  # Scored but not yet promoted (middle score)
+    PROMOTED = "promoted"  # Auto-promoted to planning (high score)
     IN_DEBATE = "in_debate"  # Currently being debated
-    SELECTED = "selected"    # Manually selected for planning
-    REJECTED = "rejected"    # Manually rejected
-    PLANNED = "planned"      # Plan created
-    ARCHIVED = "archived"    # Archived (low score or old)
+    SELECTED = "selected"  # Manually selected for planning
+    REJECTED = "rejected"  # Manually rejected
+    PLANNED = "planned"  # Plan created
+    ARCHIVED = "archived"  # Archived (low score or old)
 
 
 class DebatePhase(str, enum.Enum):
@@ -93,7 +91,17 @@ class ProjectStatus(str, enum.Enum):
     PENDING = "pending"
     GENERATING = "generating"
     READY = "ready"
+    # Generated, but one or more source files failed post-generation
+    # verification and could not be auto-repaired. See the project's
+    # extra_metadata["verification"] for per-file details.
+    READY_WITH_WARNINGS = "ready_with_warnings"
     ERROR = "error"
+
+
+# Terminal statuses that mean a project already exists (successfully) for a plan.
+# Used by duplicate-prevention guards so a `ready_with_warnings` project is not
+# treated as missing and silently regenerated.
+COMPLETED_PROJECT_STATUSES = ("ready", "ready_with_warnings")
 
 
 class LogLevel(str, enum.Enum):
@@ -128,9 +136,9 @@ class Signal(Base):
     sentiment = Column(String(20))  # positive, negative, neutral
     topics = Column(JSON)  # List of topics
     entities = Column(JSON)  # List of extracted entities
-    collected_at = Column(DateTime, default=datetime.utcnow, index=True)
+    collected_at = Column(DateTime, default=utcnow, index=True)
     processed_at = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     __table_args__ = (
         Index("idx_signals_source_category", "source", "category"),
@@ -172,8 +180,8 @@ class Trend(Base):
     keywords = Column(JSON)  # List of keywords
     related_signals = Column(JSON)  # List of signal IDs
     analysis_data = Column(JSON)
-    analyzed_at = Column(DateTime, default=datetime.utcnow, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    analyzed_at = Column(DateTime, default=utcnow, index=True)
+    created_at = Column(DateTime, default=utcnow)
 
     # Relationships
     ideas = relationship("Idea", back_populates="source_trend")
@@ -215,19 +223,23 @@ class Idea(Base):
     source_type = Column(String(20), nullable=False)  # traditional, trend_based
     source_trend_id = Column(String(36), ForeignKey("trends.id"))
     source_signals = Column(JSON)  # List of signal IDs
-    debate_session_id = Column(String(36), ForeignKey("debate_sessions.id"), nullable=True, index=True)
+    debate_session_id = Column(
+        String(36), ForeignKey("debate_sessions.id"), nullable=True, index=True
+    )
     status = Column(String(20), default="pending", index=True)
     github_issue_id = Column(Integer)
     github_issue_url = Column(Text)
     score = Column(Float, default=0.0)
     extra_metadata = Column("metadata", JSON)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow, index=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     source_trend = relationship("Trend", back_populates="ideas")
     source_debate = relationship("DebateSession", foreign_keys=[debate_session_id])
-    debate_sessions = relationship("DebateSession", back_populates="idea", foreign_keys="DebateSession.idea_id")
+    debate_sessions = relationship(
+        "DebateSession", back_populates="idea", foreign_keys="DebateSession.idea_id"
+    )
     plans = relationship("Plan", back_populates="idea")
 
     def to_dict(self) -> Dict[str, Any]:
@@ -254,7 +266,9 @@ class DebateSession(Base):
     __tablename__ = "debate_sessions"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    idea_id = Column(String(36), ForeignKey("ideas.id"), nullable=True, index=True)  # nullable for standalone debates
+    idea_id = Column(
+        String(36), ForeignKey("ideas.id"), nullable=True, index=True
+    )  # nullable for standalone debates
     topic = Column(Text)  # Topic for standalone debates (when no idea_id)
     context = Column(Text)  # Context/background for the debate
     phase = Column(String(20), nullable=False, index=True)  # divergence, convergence, planning
@@ -269,15 +283,24 @@ class DebateSession(Base):
     total_tokens = Column(Integer, default=0)
     total_cost = Column(Float, default=0.0)
     extra_metadata = Column("metadata", JSON)
-    started_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, default=utcnow)
     completed_at = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     # Relationships
     idea = relationship("Idea", back_populates="debate_sessions", foreign_keys=[idea_id])
-    messages = relationship("DebateMessage", back_populates="session", order_by="DebateMessage.created_at")
+    messages = relationship(
+        "DebateMessage", back_populates="session", order_by="DebateMessage.created_at"
+    )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, message_count: Optional[int] = None) -> Dict[str, Any]:
+        """Serialize the session.
+
+        ``message_count`` should be supplied by the caller (e.g. via a bulk
+        ``COUNT ... GROUP BY`` query) so that serializing a list of sessions does
+        not lazy-load every session's messages just to count them (an N+1). When
+        omitted it defaults to 0 rather than triggering a relationship load.
+        """
         return {
             "id": self.id,
             "idea_id": self.idea_id,
@@ -296,7 +319,7 @@ class DebateSession(Base):
             "total_cost": self.total_cost,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "message_count": len(self.messages) if self.messages else 0,
+            "message_count": message_count if message_count is not None else 0,
         }
 
 
@@ -317,7 +340,7 @@ class DebateMessage(Base):
     personality_traits = Column(JSON)
     token_count = Column(Integer)
     model_used = Column(String(100))
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
 
     # Relationships
     session = relationship("DebateSession", back_populates="messages")
@@ -362,8 +385,8 @@ class Plan(Base):
     github_issue_url = Column(Text)
 
     extra_metadata = Column("metadata", JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     idea = relationship("Idea", back_populates="plans")
@@ -394,11 +417,13 @@ class Project(Base):
     name = Column(String(255), nullable=False)
     directory_path = Column(Text)
     tech_stack = Column(JSON)  # {"frontend": "nextjs", "backend": "fastapi", ...}
-    status = Column(String(20), default="pending", index=True)  # pending, generating, ready, error
+    status = Column(
+        String(20), default="pending", index=True
+    )  # pending, generating, ready, ready_with_warnings, error
     files_generated = Column(Integer, default=0)
     generation_log = Column(Text)
     extra_metadata = Column("metadata", JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     completed_at = Column(DateTime)
 
     # Relationships
@@ -413,6 +438,7 @@ class Project(Base):
             "tech_stack": self.tech_stack or {},
             "status": self.status,
             "files_generated": self.files_generated,
+            "generation_log": self.generation_log,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
         }
@@ -431,8 +457,8 @@ class APIUsage(Base):
     output_tokens = Column(Integer, default=0)
     cost_usd = Column(Float, default=0.0)
     request_count = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     __table_args__ = (
         Index("idx_usage_date_provider_model", "date", "provider", "model", unique=True),
@@ -462,11 +488,9 @@ class SystemLog(Base):
     message = Column(Text, nullable=False)
     details = Column(JSON)
     trace = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
 
-    __table_args__ = (
-        Index("idx_logs_level_source", "level", "source"),
-    )
+    __table_args__ = (Index("idx_logs_level_source", "level", "source"),)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -494,8 +518,8 @@ class AgentState(Base):
     total_tokens = Column(Integer, default=0)
     personality_config = Column(JSON)
     extra_metadata = Column("metadata", JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     def to_dict(self) -> Dict[str, Any]:
         return {

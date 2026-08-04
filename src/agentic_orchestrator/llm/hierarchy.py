@@ -9,15 +9,17 @@ from typing import Dict, List, Optional
 
 class ModelTier(Enum):
     """Model tier levels."""
-    FREE = "free"           # Local models (Ollama)
-    BUDGET = "budget"       # Cheap API models
-    STANDARD = "standard"   # Standard API models
-    PREMIUM = "premium"     # Premium API models
+
+    FREE = "free"  # Local models (Ollama)
+    BUDGET = "budget"  # Cheap API models
+    STANDARD = "standard"  # Standard API models
+    PREMIUM = "premium"  # Premium API models
 
 
 @dataclass
 class ModelConfig:
     """Configuration for a model."""
+
     name: str
     provider: str
     tier: ModelTier
@@ -55,8 +57,35 @@ class LLMHierarchy:
             context_size=32768,
             cost_per_1k_input=0.0,
             cost_per_1k_output=0.0,
-            capabilities=["reasoning", "analysis", "moderation", "planning", "coding", "evaluation", "generation", "translation", "summarization", "classification"],
-            recommended_for=["moderation", "final_evaluation", "complex_reasoning", "evaluation", "convergence", "technical_review", "generation", "idea_creation", "discussion", "translation", "summary", "classification", "filtering", "final_plan", "quality_check"]
+            capabilities=[
+                "reasoning",
+                "analysis",
+                "moderation",
+                "planning",
+                "coding",
+                "evaluation",
+                "generation",
+                "translation",
+                "summarization",
+                "classification",
+            ],
+            recommended_for=[
+                "moderation",
+                "final_evaluation",
+                "complex_reasoning",
+                "evaluation",
+                "convergence",
+                "technical_review",
+                "generation",
+                "idea_creation",
+                "discussion",
+                "translation",
+                "summary",
+                "classification",
+                "filtering",
+                "final_plan",
+                "quality_check",
+            ],
         ),
         "qwen3-embedding:0.6b": ModelConfig(
             name="qwen3-embedding:0.6b",
@@ -66,7 +95,7 @@ class LLMHierarchy:
             cost_per_1k_input=0.0,
             cost_per_1k_output=0.0,
             capabilities=["embedding"],
-            recommended_for=["embedding", "semantic_search", "similarity"]
+            recommended_for=["embedding", "semantic_search", "similarity"],
         ),
     }
 
@@ -80,7 +109,7 @@ class LLMHierarchy:
             cost_per_1k_input=0.015,
             cost_per_1k_output=0.075,
             capabilities=["reasoning", "analysis", "planning", "coding", "writing"],
-            recommended_for=["final_plan", "quality_check", "complex_documents"]
+            recommended_for=["final_plan", "quality_check", "complex_documents"],
         ),
         "claude-sonnet-4": ModelConfig(
             name="claude-sonnet-4",
@@ -90,7 +119,7 @@ class LLMHierarchy:
             cost_per_1k_input=0.003,
             cost_per_1k_output=0.015,
             capabilities=["reasoning", "analysis", "coding"],
-            recommended_for=["drafts", "review", "coding"]
+            recommended_for=["drafts", "review", "coding"],
         ),
         "gpt-5.2": ModelConfig(
             name="gpt-5.2",
@@ -100,7 +129,7 @@ class LLMHierarchy:
             cost_per_1k_input=0.0025,
             cost_per_1k_output=0.010,
             capabilities=["reasoning", "analysis", "coding"],
-            recommended_for=["technical_review", "architecture", "validation"]
+            recommended_for=["technical_review", "architecture", "validation"],
         ),
         "gemini-3-flash": ModelConfig(
             name="gemini-3-flash",
@@ -110,7 +139,7 @@ class LLMHierarchy:
             cost_per_1k_input=0.000075,
             cost_per_1k_output=0.0003,
             capabilities=["fast_tasks", "summarization"],
-            recommended_for=["quick_tasks", "bulk_processing"]
+            recommended_for=["quick_tasks", "bulk_processing"],
         ),
     }
 
@@ -123,30 +152,24 @@ class LLMHierarchy:
         "idea_generation": ["gemma3:4b"],
         "brainstorming": ["gemma3:4b"],
         "discussion": ["gemma3:4b"],
-
         # Convergence phase
         "evaluation": ["gemma3:4b"],
         "scoring": ["gemma3:4b"],
         "filtering": ["gemma3:4b"],
-
         # Moderation / final decision
         "moderation": ["gemma3:4b"],
         "final_decision": ["gemma3:4b"],
-
         # Fast / utility tasks
         "summary": ["gemma3:4b"],
         "classification": ["gemma3:4b"],
         "translation": ["gemma3:4b"],
-
         # Trend analysis
         "trend_analysis": ["gemma3:4b"],
-
         # Planning phase
         "final_plan": ["gemma3:4b"],
         "quality_check": ["gemma3:4b"],
         "technical_review": ["gemma3:4b"],
         "public_output": ["gemma3:4b"],
-
         # Embedding (separate model — kept resident alongside the chat model)
         "embedding": ["qwen3-embedding:0.6b"],
     }

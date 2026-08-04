@@ -4,14 +4,14 @@ Hybrid LLM router for intelligent model selection.
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
-from ..providers.ollama import OllamaProvider, OllamaResponse
 from ..providers.claude import ClaudeProvider
+from ..providers.ollama import OllamaProvider, OllamaResponse
 from ..providers.openai import OpenAIProvider
+from ..timeutil import utcnow
 from .budget import BudgetController
-from .hierarchy import LLMHierarchy, ModelTier
+from .hierarchy import LLMHierarchy
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class LLMResponse:
     """Unified response from any LLM provider."""
+
     content: str
     model: str
     provider: str
@@ -68,7 +69,10 @@ class HybridLLMRouter:
         # `quality` or `force_api` the caller asks for. Set to "false" to
         # re-enable the hybrid behavior.
         self.local_only = os.getenv("MOSS_LOCAL_LLM_ONLY", "true").lower() not in (
-            "0", "false", "no", "off",
+            "0",
+            "false",
+            "no",
+            "off",
         )
 
         self.ollama = ollama or OllamaProvider()
@@ -130,7 +134,7 @@ class HybridLLMRouter:
         Returns:
             LLMResponse with generated content
         """
-        start_time = datetime.utcnow()
+        start_time = utcnow()
 
         # In local-only mode any caller-supplied force_api / paid model
         # selection is silently overridden — we never make billed calls.
@@ -223,7 +227,7 @@ class HybridLLMRouter:
                 raise
 
         # Calculate duration
-        duration = (datetime.utcnow() - start_time).total_seconds()
+        duration = (utcnow() - start_time).total_seconds()
 
         # Record usage for API calls
         if provider_name != "ollama":
@@ -240,7 +244,9 @@ class HybridLLMRouter:
             provider=provider_name,
             input_tokens=response.input_tokens,
             output_tokens=response.output_tokens,
-            cost=self.budget.estimate_cost(selected_model, response.input_tokens, response.output_tokens),
+            cost=self.budget.estimate_cost(
+                selected_model, response.input_tokens, response.output_tokens
+            ),
             duration_seconds=duration,
         )
 
@@ -255,7 +261,7 @@ class HybridLLMRouter:
         # Check budget status
         budget_status = self.budget.get_budget_status()
         budget_available = budget_status["can_use_api"]
-        prefer_local = self.budget.should_use_local()
+        self.budget.should_use_local()
 
         # Force local if requested or no budget
         if force_local or not budget_available:

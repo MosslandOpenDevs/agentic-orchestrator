@@ -9,14 +9,16 @@ Collects signals from blockchain data:
 """
 
 import asyncio
+import logging
 import os
-from datetime import datetime
-from typing import List, Dict, Any, Optional
 import time
+from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .base import BaseAdapter, AdapterConfig, AdapterResult, SignalData
+from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+
+logger = logging.getLogger(__name__)
 
 
 class OnChainAdapter(BaseAdapter):
@@ -146,7 +148,7 @@ class OnChainAdapter(BaseAdapter):
                 "chains_tracked": len(self.TRACKED_CHAINS),
                 "dexes_tracked": len(self.TRACKED_DEXES),
                 "has_whale_alert": bool(self.whale_alert_api_key),
-            }
+            },
         )
 
     async def _fetch_defi_tvl(self) -> List[SignalData]:
@@ -189,12 +191,12 @@ class OnChainAdapter(BaseAdapter):
                                 "change_7d": change_7d,
                                 "chains": protocol.get("chains", []),
                             },
-                            metadata={"subtype": "tvl"}
+                            metadata={"subtype": "tvl"},
                         )
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching DeFi TVL: {e}")
+            logger.warning(f"Error fetching DeFi TVL: {e}")
 
         return signals
 
@@ -228,12 +230,12 @@ class OnChainAdapter(BaseAdapter):
                             "gecko_id": gecko_id,
                             "tvl": tvl,
                         },
-                        metadata={"subtype": "chain"}
+                        metadata={"subtype": "chain"},
                     )
                     signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching chain stats: {e}")
+            logger.warning(f"Error fetching chain stats: {e}")
 
         return signals
 
@@ -270,12 +272,12 @@ class OnChainAdapter(BaseAdapter):
                             "chains": raise_event.get("chains", []),
                             "category": raise_event.get("category"),
                         },
-                        metadata={"subtype": "funding"}
+                        metadata={"subtype": "funding"},
                     )
                     signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching protocol updates: {e}")
+            logger.warning(f"Error fetching protocol updates: {e}")
 
         return signals
 
@@ -293,7 +295,7 @@ class OnChainAdapter(BaseAdapter):
                 protocols = data.get("protocols", [])
 
                 for protocol in protocols:
-                    name = protocol.get("name", "").lower()
+                    protocol.get("name", "").lower()
                     slug = protocol.get("slug", "").lower()
 
                     if slug not in self.TRACKED_DEXES:
@@ -324,12 +326,12 @@ class OnChainAdapter(BaseAdapter):
                                 "change_7d": change_7d,
                                 "chains": protocol.get("chains", []),
                             },
-                            metadata={"subtype": "dex_volume"}
+                            metadata={"subtype": "dex_volume"},
                         )
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching DEX volume: {e}")
+            logger.warning(f"Error fetching DEX volume: {e}")
 
         return signals
 
@@ -350,7 +352,7 @@ class OnChainAdapter(BaseAdapter):
                         "api_key": self.whale_alert_api_key,
                         "min_value": 500000,  # Minimum $500K
                         "limit": 20,
-                    }
+                    },
                 )
 
                 if response.status_code == 200:
@@ -386,12 +388,12 @@ class OnChainAdapter(BaseAdapter):
                             metadata={
                                 "subtype": "whale",
                                 "flow_type": flow_type,
-                            }
+                            },
                         )
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching whale transactions: {e}")
+            logger.warning(f"Error fetching whale transactions: {e}")
 
         return signals
 
@@ -405,7 +407,7 @@ class OnChainAdapter(BaseAdapter):
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 # Get large ETH transactions (internal transactions)
-                response = await client.get(
+                await client.get(
                     self.etherscan_api,
                     params={
                         "module": "account",
@@ -413,14 +415,14 @@ class OnChainAdapter(BaseAdapter):
                         "address": "0x0000000000000000000000000000000000000000",  # Placeholder
                         "sort": "desc",
                         "apikey": self.etherscan_api_key,
-                    }
+                    },
                 )
 
                 # Note: This is a simplified version. Real implementation would
                 # track specific whale addresses or use a service that aggregates this.
 
         except Exception as e:
-            print(f"Error fetching from explorers: {e}")
+            logger.warning(f"Error fetching from explorers: {e}")
 
         return signals
 
@@ -479,7 +481,7 @@ class OnChainAdapter(BaseAdapter):
                                 "depeg_pct": depeg_pct,
                                 "circulating": total_circulating,
                             },
-                            metadata={"subtype": "stablecoin_alert"}
+                            metadata={"subtype": "stablecoin_alert"},
                         )
                         signals.append(signal)
 
@@ -505,12 +507,12 @@ class OnChainAdapter(BaseAdapter):
                                     "chain": chain_name,
                                     "total_usd": total_usd,
                                 },
-                                metadata={"subtype": "stablecoin_liquidity"}
+                                metadata={"subtype": "stablecoin_liquidity"},
                             )
                             signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching stablecoin data: {e}")
+            logger.warning(f"Error fetching stablecoin data: {e}")
 
         return signals
 
@@ -528,8 +530,8 @@ class OnChainAdapter(BaseAdapter):
                     params={
                         "module": "gastracker",
                         "action": "gasoracle",
-                        "apikey": self.etherscan_api_key
-                    }
+                        "apikey": self.etherscan_api_key,
+                    },
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -555,12 +557,12 @@ class OnChainAdapter(BaseAdapter):
                                 "standard": propose_gas,
                                 "fast": fast_gas,
                             },
-                            metadata={"subtype": "gas"}
+                            metadata={"subtype": "gas"},
                         )
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching gas prices: {e}")
+            logger.warning(f"Error fetching gas prices: {e}")
 
         return signals
 
@@ -572,7 +574,9 @@ class OnChainAdapter(BaseAdapter):
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.get(f"{self.defillama_api}/protocols")
-                base_health["defillama_status"] = "connected" if response.status_code == 200 else "error"
+                base_health["defillama_status"] = (
+                    "connected" if response.status_code == 200 else "error"
+                )
         except Exception as e:
             base_health["defillama_status"] = f"error: {e}"
 
@@ -582,9 +586,11 @@ class OnChainAdapter(BaseAdapter):
                 async with httpx.AsyncClient(timeout=10) as client:
                     response = await client.get(
                         f"{self.whale_alert_api}/status",
-                        params={"api_key": self.whale_alert_api_key}
+                        params={"api_key": self.whale_alert_api_key},
                     )
-                    base_health["whale_alert_status"] = "connected" if response.status_code == 200 else "error"
+                    base_health["whale_alert_status"] = (
+                        "connected" if response.status_code == 200 else "error"
+                    )
             except Exception as e:
                 base_health["whale_alert_status"] = f"error: {e}"
 

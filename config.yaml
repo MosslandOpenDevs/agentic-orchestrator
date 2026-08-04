@@ -108,11 +108,9 @@ project:
     max_concurrent: 1
 
   # LLM model selection for different tasks.
-  # All consolidated to gemma3:4b — the shared remote Ollama (~8GB GPU) can
-  # only fit one generation model, so we keep 9b resident at all times to
-  # avoid VRAM swap stalls. Architecture work was previously on 14b but is
-  # now intentionally downgraded to 9b: 14b is reserved exclusively for the
-  # scheduled debate planning phase to limit swap to once per 6h cycle.
+  # Consolidated to gemma3:4b: the shared remote Ollama (~8GB GPU) can only keep
+  # one generation model resident (plus the qwen3-embedding:0.6b embedder), so a
+  # single chat model is used everywhere to avoid VRAM swap stalls.
   llm:
     parsing: "gemma3:4b"
     code_generation: "gemma3:4b"
@@ -121,6 +119,19 @@ project:
 
   # Output directory
   output_dir: "projects"
+
+# =============================================================================
+# Backlog Controls (idea de-duplication + GitHub issue cap)
+# =============================================================================
+backlog:
+  # Skip creating an idea whose normalized title prefix already exists, so the
+  # same idea is not posted dozens of times (root cause of the 2026 issue flood).
+  dedup_enabled: true
+  dedup_prefix_tokens: 6
+  # Stop posting NEW idea/plan issues to GitHub once this many ideas exist in the
+  # DB. Ideas are still scored and stored in SQLite (the source of truth); only
+  # the GitHub mirror is paused. Set to 0 to disable the cap.
+  max_open_ideas: 800
 
 # Debate Configuration
 debate:

@@ -9,14 +9,16 @@ Collects market signals from Coingecko API:
 """
 
 import asyncio
+import logging
 import os
-from datetime import datetime
-from typing import List, Dict, Any, Optional
 import time
+from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .base import BaseAdapter, AdapterConfig, AdapterResult, SignalData
+from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+
+logger = logging.getLogger(__name__)
 
 
 class CoingeckoAdapter(BaseAdapter):
@@ -136,7 +138,7 @@ class CoingeckoAdapter(BaseAdapter):
                 "has_api_key": bool(self.api_key),
                 "tracked_coins": len(self.TRACKED_COINS),
                 "categories": len(self.CATEGORIES),
-            }
+            },
         )
 
     async def _fetch_trending(self) -> List[SignalData]:
@@ -176,7 +178,7 @@ class CoingeckoAdapter(BaseAdapter):
                             "price_btc": price_btc,
                             "thumb": coin.get("thumb"),
                         },
-                        metadata={"subtype": "trending"}
+                        metadata={"subtype": "trending"},
                     )
                     signals.append(signal)
 
@@ -202,12 +204,12 @@ class CoingeckoAdapter(BaseAdapter):
                                 "floor_price": floor_price,
                                 "floor_change_24h": floor_change_24h,
                             },
-                            metadata={"subtype": "trending_nft"}
+                            metadata={"subtype": "trending_nft"},
                         )
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching trending: {e}")
+            logger.warning(f"Error fetching trending: {e}")
 
         return signals
 
@@ -272,7 +274,7 @@ class CoingeckoAdapter(BaseAdapter):
                             "change_7d": coin.get("price_change_percentage_7d_in_currency"),
                             "volume_24h": coin.get("total_volume"),
                         },
-                        metadata={"subtype": "gainer", "change_pct": change}
+                        metadata={"subtype": "gainer", "change_pct": change},
                     )
                     signals.append(signal)
 
@@ -294,7 +296,7 @@ class CoingeckoAdapter(BaseAdapter):
                             "change_7d": coin.get("price_change_percentage_7d_in_currency"),
                             "volume_24h": coin.get("total_volume"),
                         },
-                        metadata={"subtype": "loser", "change_pct": change}
+                        metadata={"subtype": "loser", "change_pct": change},
                     )
                     signals.append(signal)
 
@@ -323,12 +325,12 @@ class CoingeckoAdapter(BaseAdapter):
                                     "market_cap": market_cap,
                                     "volume_to_mcap_pct": volume_to_mcap,
                                 },
-                                metadata={"subtype": "volume_spike"}
+                                metadata={"subtype": "volume_spike"},
                             )
                             signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching top movers: {e}")
+            logger.warning(f"Error fetching top movers: {e}")
 
         return signals
 
@@ -369,7 +371,7 @@ class CoingeckoAdapter(BaseAdapter):
                             "eth_dominance": eth_dominance,
                             "active_cryptocurrencies": data.get("active_cryptocurrencies"),
                         },
-                        metadata={"subtype": "global_market"}
+                        metadata={"subtype": "global_market"},
                     )
                     signals.append(signal)
 
@@ -388,12 +390,12 @@ class CoingeckoAdapter(BaseAdapter):
                             "eth_dominance": eth_dominance,
                             "status": status,
                         },
-                        metadata={"subtype": "dominance"}
+                        metadata={"subtype": "dominance"},
                     )
                     signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching global stats: {e}")
+            logger.warning(f"Error fetching global stats: {e}")
 
         return signals
 
@@ -447,12 +449,12 @@ class CoingeckoAdapter(BaseAdapter):
                                 "ath": coin.get("ath"),
                                 "ath_change_percentage": coin.get("ath_change_percentage"),
                             },
-                            metadata={"subtype": "tracked", "is_tracked": True}
+                            metadata={"subtype": "tracked", "is_tracked": True},
                         )
                         signals.append(signal)
 
         except Exception as e:
-            print(f"Error fetching tracked coins: {e}")
+            logger.warning(f"Error fetching tracked coins: {e}")
 
         return signals
 
@@ -467,7 +469,9 @@ class CoingeckoAdapter(BaseAdapter):
                     f"{self.api_url}/ping",
                     headers=self._get_headers(),
                 )
-                base_health["coingecko_status"] = "connected" if response.status_code == 200 else "error"
+                base_health["coingecko_status"] = (
+                    "connected" if response.status_code == 200 else "error"
+                )
                 base_health["api_type"] = "pro" if self.api_key else "free"
         except Exception as e:
             base_health["coingecko_status"] = f"error: {e}"

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, type ReactNode } from 'react';
+import { useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import type { ModalType, ModalData } from './ModalProvider';
@@ -58,8 +58,8 @@ function getModalTitle(type: ModalType, t: (key: string) => string): string {
     plan: t('modal.plan.title'),
     project: t('modal.project.title'),
     agent: t('modal.agent.title'),
-    stats: 'System Statistics',
-    pipeline: 'Pipeline Status',
+    stats: t('modal.stats.title'),
+    pipeline: t('modal.pipeline.title'),
   };
   return titles[type];
 }
@@ -82,12 +82,42 @@ function getModalColor(type: ModalType): string {
 
 export function TerminalModal({ type, data, onClose }: TerminalModalProps) {
   const { t } = useI18n();
+  const dialogRef = useRef<HTMLDivElement>(null);
 
-  // Handle ESC key
+  // ESC to close + Tab focus trap within the dialog.
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onClose();
+        return;
+      }
+      if (event.key === 'Tab' && dialogRef.current) {
+        const focusable = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
+          )
+        ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+        // No focusable children: keep focus on the dialog itself.
+        if (focusable.length === 0) {
+          event.preventDefault();
+          dialogRef.current.focus();
+          return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        const insideDialog = dialogRef.current.contains(active);
+        // Wrap at the edges, and pull focus back in if it escaped (or sits on
+        // the dialog container, which has tabindex=-1).
+        if (event.shiftKey) {
+          if (!insideDialog || active === first) {
+            event.preventDefault();
+            last.focus();
+          }
+        } else if (!insideDialog || active === last) {
+          event.preventDefault();
+          first.focus();
+        }
       }
     },
     [onClose]
@@ -99,6 +129,19 @@ export function TerminalModal({ type, data, onClose }: TerminalModalProps) {
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [handleKeyDown]);
+
+  // Lock background scroll, move focus into the dialog, and restore focus on close.
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    document.body.style.overflow = 'hidden';
+    dialogRef.current?.focus();
+    return () => {
+      // Reset to the default (visible) rather than a captured value: the app only
+      // ever locks body scroll for modals, so this can't leave it stuck hidden.
+      document.body.style.overflow = '';
+      previouslyFocused?.focus?.();
+    };
+  }, []);
 
   // Handle outside click
   const handleOverlayClick = (event: React.MouseEvent) => {
@@ -123,6 +166,11 @@ export function TerminalModal({ type, data, onClose }: TerminalModalProps) {
         <div className="modal-scanline" />
 
         <motion.div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${type.toUpperCase()}: ${title}`}
+          tabIndex={-1}
           className="modal-container"
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -138,6 +186,7 @@ export function TerminalModal({ type, data, onClose }: TerminalModalProps) {
                   onClick={onClose}
                   className="terminal-dot red hover:brightness-125 transition-all cursor-pointer"
                   title={t('modal.close')}
+                  aria-label={t('modal.close')}
                 />
                 <div className="terminal-dot yellow" />
                 <div className="terminal-dot green" />
@@ -148,7 +197,7 @@ export function TerminalModal({ type, data, onClose }: TerminalModalProps) {
                 </span>
               </div>
               <div className="w-[52px] flex justify-end">
-                <span className="text-[10px] text-[#6b7280]">ESC</span>
+                <span className="text-[10px] text-[#8b949e]">ESC</span>
               </div>
             </div>
 
@@ -159,7 +208,7 @@ export function TerminalModal({ type, data, onClose }: TerminalModalProps) {
 
             {/* Footer */}
             <div className="modal-footer">
-              <div className="flex items-center justify-between text-[10px] text-[#6b7280]">
+              <div className="flex items-center justify-between text-[10px] text-[#8b949e]">
                 <span>ID: {data.id}</span>
                 <button
                   onClick={onClose}

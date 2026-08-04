@@ -379,17 +379,14 @@ Brief overall assessment
 
         avg_score = sum(scores) / len(scores) if scores else 5.0
 
-        report = (
-            f"""# Combined Code Review
+        report = f"""# Combined Code Review
 
 **Average Score**: {avg_score:.1f}/10
 **Total Issues Found**: {total_issues}
 
 ---
 
-"""
-            + report
-        )
+""" + report
 
         return {
             "score": round(avg_score, 1),

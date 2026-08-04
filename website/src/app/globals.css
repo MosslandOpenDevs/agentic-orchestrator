@@ -12,7 +12,7 @@
   --accent-purple: #bd93f9;
   --accent-yellow: #f1fa8c;
   --accent-red: #ff5555;
-  --muted: #6b7280;
+  --muted: #8b949e;
   --card-bg: rgba(13, 17, 23, 0.8);
   --scanline-opacity: 0.03;
 }
@@ -719,4 +719,17 @@ body::before {
   border: none;
   border-top: 1px solid var(--terminal-border);
   margin: 1em 0;
+}
+
+/* Accessibility: honor the user's reduced-motion preference. Disables the
+   terminal blink/flicker/glow/scan CSS animations and long transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

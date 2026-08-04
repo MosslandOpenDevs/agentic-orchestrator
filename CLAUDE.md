@@ -50,7 +50,8 @@ agentic-orchestrator/
 │   ├── db/                      # SQLAlchemy 모델 & 리포지토리
 │   │   ├── models.py            # 데이터베이스 모델
 │   │   ├── repositories.py      # 데이터 액세스 레이어
-│   │   └── connection.py        # DB 연결 관리
+│   │   ├── connection.py        # DB 연결 관리
+│   │   └── backup.py            # SQLite 롤링 백업 (v0.6.10)
 │   ├── debate/                  # 멀티스테이지 토론 시스템
 │   │   ├── multi_stage.py       # 3단계 토론 (발산→수렴→기획)
 │   │   └── protocol.py          # 토론 프로토콜 정의
@@ -191,6 +192,31 @@ agentic-orchestrator/
 - **`ideas.score`**: 토론 중 에이전트들이 부여한 평균 점수
 - **`*_ko` 필드**: 한글 번역 필드 (양방향 번역 지원)
 
+### DB 자기치유 & 롤링 백업 (v0.6.10)
+
+프로덕션 DB는 git에 없는 단일 SQLite 파일이라 유실되면 모든 DB 엔드포인트가
+한꺼번에 500이 났다 (2026-07 장애). 세 겹의 방어가 추가됨:
+
+1. **기동 시 스키마 자기치유**: API의 FastAPI lifespan 훅과 스케줄러 CLI 명령
+   (`backup-db` 제외 — 백업은 대상 DB를 변경하면 안 됨)이 시작 시 멱등적
+   `ensure_schema()`(= `create_tables()` + 부팅 레이스 재시도)를 실행. 빈/유실
+   DB → "no such table" 500 대신 비어 있지만 동작하는 DB로 강등되고,
+   파이프라인이 다시 채움.
+2. **`/status` graceful degradation**: 통계 쿼리 실패 시 500 대신
+   `status="degraded"` + 0 stats로 200 응답 (moss.land 거버넌스 위젯 계약 유지).
+3. **롤링 백업** (`db/backup.py`): `moss-ao-health`(5분 주기)가 약 24시간 간격으로
+   `data/orchestrator.db` → `data/backup/`에 스냅샷 (최신 7개 보관). 증분 복사로
+   writer 블로킹 방지, `.tmp` 작성 → `quick_check` 통과 후 원자적 rename(부분/손상
+   파일이 간격을 막거나 슬롯을 차지할 수 없음), 실패 시 다음 5분 틱에 재시도.
+   **회귀 인지 프루닝**: 히스토리(ideas/plans/debate_sessions) 행 수가 직전 스냅샷
+   대비 급감하면 프루닝을 중단해 사고 이전 백업을 보존 — 시그널이 30분 만에
+   빈 DB를 다시 채워도 안전. DB가 없거나/비었거나/데이터가 없거나/무결성 실패면
+   건너뜀. 수동 실행: `python -m agentic_orchestrator.scheduler backup-db`
+
+**복원 절차**: 쓰기 프로세스 중지 → 최신 `data/backup/orchestrator-*.db`를
+`data/orchestrator.db`로 복사 → 재시작. 배포 시 `git clean -fdx`는 반드시
+`-e data -e .env`와 함께 사용할 것.
+
 ## 환경 변수
 
 ### 웹사이트 (`website/.env.local`)
@@ -237,7 +263,7 @@ pm2 logs moss-ao-debate --lines 100
 pm2 save
 ```
 
-### 현재 운영 모드: PRODUCTION (v0.6.8)
+### 현재 운영 모드: PRODUCTION (v0.6.9)
 
 `ecosystem.config.js`의 `TEST_MODE = false`로 프로덕션 스케줄 적용 중.
 `config.yaml`의 `debate.test_mode: false`, `throttling.test_mode: false` 모두 프로덕션 모드:
@@ -252,7 +278,7 @@ pm2 save
 토론 에이전트 설정 (`config.yaml`의 `debate.test_mode: false`):
 - Divergence: 8 에이전트/라운드, 3라운드
 - Convergence: 4 에이전트/라운드, 2라운드
-- Planning: 5 에이전트/라운드, 2라운드
+- Planning: 3 에이전트/라운드, 2라운드 (단일 GPU Ollama 타임아웃 방지를 위해 5→3으로 하향)
 - **예상 시간**: ~30분+
 
 ## 개발 워크플로우
@@ -349,7 +375,7 @@ const getLocalizedText = (en: string | null, ko: string | null): string => {
 - 콘텐츠 언어 자동 감지 (한글/영어)
 - 한글 원본 → 영어 번역 (main field) + 한글 유지 (`*_ko` field)
 - 영어 원본 → 영어 유지 (main field) + 한글 번역 (`*_ko` field)
-- LLM: `qwen3.5:9b` (로컬, 무료)
+- LLM: `gemma3:4b` (로컬, 무료)
 
 ## 자주 발생하는 문제와 해결책
 
@@ -428,11 +454,22 @@ npm run build 2>&1 | head -50  # 오류 확인
 
 **해결:**
 ```bash
-# 현재 운영 모델은 qwen3.5:9b(채팅) + qwen3-embedding:0.6b(임베딩) 두 개뿐이며
+# 현재 운영 모델은 gemma3:4b(채팅) + qwen3-embedding:0.6b(임베딩) 두 개뿐이며
 # 둘 다 ~8GB GPU에 상주하도록 설계되어 있어 일반적으로 언로드할 필요가 없다.
 # VRAM 점유 확인:
 curl -s "$OLLAMA_HOST/api/ps"
 ```
+
+### 8. 모든 DB 엔드포인트가 500 (`/health`만 200)
+
+**증상:** `/status`, `/ideas`, `/signals`, `/debates` 전부 500, `/health`·`/agents`·`/adapters`는 200
+
+**원인:** SQLite 파일(`data/orchestrator.db`) 유실/비워짐/손상 → 쿼리가 `no such table`로 실패
+
+**해결 (v0.6.10+):**
+- API·스케줄러가 기동 시 스키마를 자동 생성하므로 재시작만으로 500은 해소됨 (`pm2 restart moss-ao-api`)
+- 데이터 복원: 최신 `data/backup/orchestrator-*.db`를 `data/orchestrator.db`로 복사 후 재시작
+- `/status`가 `"degraded"`를 반환하면 DB가 실제로 죽어 있다는 뜻 — `pm2 logs moss-ao-api`에서 traceback 확인
 
 ## 콘텐츠 품질 요구사항
 
@@ -574,6 +611,30 @@ Plan (DB) → Deep LLM 파싱 → 엔티티/서비스 추출 → LLM 코드 생�
 - **데이터베이스 스키마 및 마이그레이션**
 - **Docker 설정**
 
+### 코드 생성 검증 게이트 (v0.6.9)
+
+작은 로컬 모델(gemma3:4b)이 만든 코드는 컴파일이 보장되지 않으므로, 디스크 기록·커밋
+**전에** 검증·자동수리하는 게이트가 있습니다 (`project/verifier.py`, `project/repair.py`).
+스캐폴드(`scaffold.py`의 `_verify_and_repair`)가 코드 파일마다 다음 파이프라인을 실행합니다:
+
+```
+결정적 수리(repair) → 검증(verify) → (실패 시) 컴파일 오류를 모델에 되먹이는 LLM 재수리 1회 → 재검증
+```
+
+- **정책: 차단하지 않음.** 수리 후에도 실패가 남으면 프로젝트를 `ready_with_warnings`로
+  표시하고 전달은 계속합니다. 파일별 요약은 `Project.extra_metadata["verification"]`,
+  한 줄 요약은 `generation_log`·`.moss-project.json`에 기록되고 Projects UI에 노출됩니다.
+- **CodeVerifier** (graceful degradation): Python은 내장 `compile()`(항상 사용), Solidity는
+  정적 검사(`pragma` 누락, 잘못된 `.length()`, 중괄호 불균형) + import 없는 컨트랙트 한정
+  선택적 `solc`, TS/JS는 선택적 `esbuild`. 툴체인이 없으면 거짓 실패 대신 `SKIPPED`.
+- **CodeRepairer** (결정적): SPDX/`pragma` 보강, `.length()`→`.length`, `now`→`block.timestamp`,
+  OpenZeppelin v5→**v4 핀 고정** 정규화(`utils/`→`security/` import, v5 `Ownable(...)` 베이스 호출
+  제거), OZ를 import하면 `contracts/package.json`에 `@openzeppelin/contracts@^4.9.6` 주입.
+  수리는 문자열/주석 바깥에서만 수행.
+
+> 참고: LLM 경로의 컨트랙트는 이제 `contracts/package.json`·`hardhat.config.ts`도 함께
+> 내보내므로 `hardhat compile`이 OZ import를 해석할 수 있습니다.
+
 ### 트리거 전략
 
 - **자동 생성 (score ≥ 8.0)**: 토론 완료 후 Plan이 자동 승인되고 프로젝트 생성
@@ -598,8 +659,10 @@ GPU(~8 GB)에 상주하는 모델은 두 개뿐이며 스왑이 발생하지 않
 
 | 작업 | 모델 | 용도 |
 |------|------|------|
-| 모든 채팅 / 생성 / 평가 / 모더레이션 / 번역 / 요약 | `qwen3.5:9b` | Divergence, Convergence, Planning, 트렌드 분석, 분류, 필터링 등 |
+| 모든 채팅 / 생성 / 평가 / 모더레이션 / 번역 / 요약 | `gemma3:4b` | Divergence, Convergence, Planning, 트렌드 분석, 분류, 필터링 등 |
 | 임베딩 / 의미 검색 | `qwen3-embedding:0.6b` | RAG 인덱싱, 유사도 비교 |
+
+> 실제 모델 정의는 `src/agentic_orchestrator/llm/hierarchy.py`의 `LOCAL_MODELS`, 프로젝트 생성 모델은 `config.yaml`의 `project.llm`을 단일 소스로 참조합니다.
 
 ### 생성되는 프로젝트 구조
 
@@ -626,10 +689,10 @@ project:
     min_score: 8.0        # 자동 생성 최소 점수
     max_concurrent: 1     # 동시 생성 제한
   llm:
-    parsing: "qwen3.5:4b"
-    code_generation: "qwen3.5:9b"
-    architecture: "qwen3.5:9b"
-    fallback: "qwen3.5:4b"
+    parsing: "gemma3:4b"
+    code_generation: "gemma3:4b"
+    architecture: "gemma3:4b"
+    fallback: "gemma3:4b"
   output_dir: "projects"
 ```
 

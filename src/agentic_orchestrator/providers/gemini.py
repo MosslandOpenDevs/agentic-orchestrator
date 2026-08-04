@@ -21,16 +21,18 @@ from .base import (
 
 logger = get_logger(__name__)
 
-# Try to import google-generativeai
+# Use the current google-genai SDK (the legacy google-generativeai SDK is EOL).
 try:
-    import google.generativeai as genai
-    from google.api_core import exceptions as google_exceptions
+    from google import genai
+    from google.genai import errors as genai_errors
+    from google.genai import types as genai_types
 
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
     genai = None
-    google_exceptions = None
+    genai_errors = None
+    genai_types = None
 
 
 class GeminiProvider(BaseProvider):
@@ -74,16 +76,16 @@ class GeminiProvider(BaseProvider):
         )
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         self.secondary_fallback = self.SECONDARY_FALLBACK
-        self._configured = False
+        self._client = None
 
     def _ensure_configured(self) -> None:
-        """Ensure the Gemini API is configured."""
-        if self._configured:
+        """Ensure the Gemini client is created."""
+        if self._client is not None:
             return
 
         if not GEMINI_AVAILABLE:
             raise ProviderError(
-                "google-generativeai package not installed. Run: pip install google-generativeai",
+                "google-genai package not installed. Run: pip install google-genai",
                 provider=self.provider_name,
             )
 
@@ -93,8 +95,7 @@ class GeminiProvider(BaseProvider):
                 provider=self.provider_name,
             )
 
-        genai.configure(api_key=self.api_key)
-        self._configured = True
+        self._client = genai.Client(api_key=self.api_key)
 
     def is_available(self) -> bool:
         """Check if Gemini provider is available."""
@@ -110,49 +111,39 @@ class GeminiProvider(BaseProvider):
         self._ensure_configured()
 
         try:
-            # Create model instance
-            gemini_model = genai.GenerativeModel(model)
-
-            # Convert messages to Gemini format
-            # Gemini uses a different format - combine into chat history
-            system_instruction = None
-            chat_messages = []
+            # Convert messages to the google-genai format: a list of Content
+            # objects (role "user"/"model") plus an optional system_instruction.
+            system_parts: list[str] = []
+            contents = []
 
             for msg in messages:
                 if msg.role == "system":
-                    system_instruction = msg.content
+                    system_parts.append(msg.content)
                 elif msg.role == "user":
-                    chat_messages.append({"role": "user", "parts": [msg.content]})
+                    contents.append(
+                        genai_types.Content(role="user", parts=[genai_types.Part(text=msg.content)])
+                    )
                 elif msg.role == "assistant":
-                    chat_messages.append({"role": "model", "parts": [msg.content]})
+                    contents.append(
+                        genai_types.Content(
+                            role="model", parts=[genai_types.Part(text=msg.content)]
+                        )
+                    )
 
-            # If there's a system message, prepend it to first user message
-            if system_instruction and chat_messages:
-                first_user_idx = next(
-                    (i for i, m in enumerate(chat_messages) if m["role"] == "user"), None
+            config = None
+            if system_parts:
+                config = genai_types.GenerateContentConfig(
+                    system_instruction="\n\n".join(system_parts)
                 )
-                if first_user_idx is not None:
-                    original_content = chat_messages[first_user_idx]["parts"][0]
-                    chat_messages[first_user_idx]["parts"][
-                        0
-                    ] = f"{system_instruction}\n\n{original_content}"
 
-            # Start chat and send last message
-            if len(chat_messages) > 1:
-                chat = gemini_model.start_chat(history=chat_messages[:-1])
-                last_message = chat_messages[-1]["parts"][0]
-                response = chat.send_message(last_message)
-            else:
-                # Single message case
-                content = chat_messages[0]["parts"][0] if chat_messages else ""
-                response = gemini_model.generate_content(content)
+            response = self._client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config,
+            )
 
-            # Extract response
-            response_text = ""
-            if response.text:
-                response_text = response.text
-            elif response.parts:
-                response_text = "".join(part.text for part in response.parts if part.text)
+            # Extract response text
+            response_text = response.text or ""
 
             # Get usage if available
             usage = None
@@ -182,16 +173,18 @@ class GeminiProvider(BaseProvider):
         """Convert Gemini exceptions to our exception types."""
         error_str = str(error).lower()
 
-        # Check for specific Google API errors
-        if GEMINI_AVAILABLE and google_exceptions:
-            if isinstance(error, google_exceptions.ResourceExhausted):
+        # Check for specific google-genai API errors (APIError carries an HTTP code)
+        if GEMINI_AVAILABLE and genai_errors and isinstance(error, genai_errors.APIError):
+            code = getattr(error, "code", None)
+
+            if code == 429 or "resource exhausted" in error_str:
                 raise RateLimitError(
                     str(error),
                     provider=self.provider_name,
                     model=model,
                 )
 
-            if isinstance(error, google_exceptions.PermissionDenied):
+            if code == 403:
                 if "quota" in error_str:
                     raise QuotaExhaustedError(
                         str(error),
@@ -205,7 +198,7 @@ class GeminiProvider(BaseProvider):
                     model=model,
                 )
 
-            if isinstance(error, google_exceptions.NotFound):
+            if code == 404:
                 raise ModelNotAvailableError(
                     str(error),
                     provider=self.provider_name,
