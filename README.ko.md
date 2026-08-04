@@ -4,26 +4,22 @@
 
 모스랜드 생태계를 위한 마이크로 Web3 서비스를 발굴, 기획, 구현하는 자율 멀티 에이전트 오케스트레이션 시스템입니다.
 
-**버전**: v0.6.13
+**버전**: v0.6.14
 
 ## 주요 기능
 
 - **멀티 스테이지 토론**: 34개 AI 에이전트가 3단계(발산 → 수렴 → 기획)를 거쳐 토론
-- **다양한 시그널 소스**: 11개 어댑터 — RSS, GitHub Events, 온체인 데이터, 소셜 미디어, News API, Twitter/X, Discord, Lens, Farcaster, Coingecko, Threads
+- **[다양한 시그널 소스](#시그널-소스)**: RSS, GitHub, 온체인, 소셜, 뉴스, 마켓 데이터를 아우르는 11개 어댑터
 - **하이브리드 LLM 라우팅**: 로컬 Ollama 모델 + 클라우드 API 폴백 지능형 라우팅
 - **휴먼 인 더 루프**: 라벨 프로모션을 통해 개발할 아이디어를 사람이 선택
 - **PM2 스케줄링**: PM2를 통한 자동화된 작업 스케줄링 (시그널, 트렌드, 토론, 백로그, 헬스체크)
 - **CLI 스타일 대시보드**: https://ao.moss.land 레트로 터미널 테마 웹 인터페이스
 - **REST API**: 프로그래밍 방식 접근을 위한 FastAPI 백엔드
-- **DB 복원력**: 기동 시 스키마 자기치유, `/status` graceful degradation, 롤링 SQLite 백업(약 1일 주기, 7개 보관, 무결성 검사, 회귀 인지 보존) — DB 파일이 유실/비워져도 전체 엔드포인트가 죽는 대신 우아하게 강등
+- **DB 복원력**: DB 파일이 유실/비워져도 전체 엔드포인트가 죽는 대신 우아하게 강등 — 기동 시 스키마 자기치유, `/status` degradation, 무결성 검사를 거친 롤링 백업(약 1일 주기, 7개 보관, 회귀 인지 보존)
 
 ## 대시보드
 
-오케스트레이터를 실시간으로 모니터링하는 Next.js 기반 CLI 스타일 대시보드입니다.
-
-**URL**: https://ao.moss.land
-
-### 페이지
+오케스트레이터를 실시간으로 모니터링하는 Next.js 기반 CLI 스타일 대시보드이며, 배포 주소는 **https://ao.moss.land**입니다. 로컬 실행은 `cd website && pnpm install && pnpm dev` 후 http://localhost:3000 에서 확인할 수 있습니다.
 
 | 페이지 | 설명 |
 |--------|------|
@@ -33,53 +29,35 @@
 | `/system` | 시스템 아키텍처 및 멀티 에이전트 토론 시각화 |
 | `/agents` | 3개 토론 단계의 34개 AI 에이전트 페르소나 |
 
-### 로컬 실행
-
-```bash
-cd website
-pnpm install
-pnpm dev
-```
-
-http://localhost:3000 에서 대시보드를 확인할 수 있습니다.
-
 ## 아키텍처
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                           시그널 수집                                     │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐           │
-│  │   RSS   │ │ GitHub  │ │ 온체인  │ │ 소셜    │ │News API │           │
-│  │ 어댑터  │ │ Events  │ │ 어댑터  │ │ 미디어  │ │ 어댑터  │           │
-│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘           │
-│       └───────────┴───────────┼───────────┴───────────┘                 │
-│                               ▼                                          │
-│                    ┌──────────────────┐                                  │
-│                    │ 시그널 집계기     │                                  │
-│                    │   + 스코어러     │                                  │
-│                    └────────┬─────────┘                                  │
-├─────────────────────────────┼───────────────────────────────────────────┤
-│                             ▼                                            │
-│                  멀티 스테이지 토론 (34 에이전트)                          │
-│  ┌────────────────────────────────────────────────────────────────┐     │
-│  │ 1단계: 발산 (16 에이전트)                                        │     │
-│  │   혁신가, 회의론자, 실용주의자, 비전가...                         │     │
-│  ├────────────────────────────────────────────────────────────────┤     │
-│  │ 2단계: 수렴 (8 에이전트)                                         │     │
-│  │   통합자, 평가자, 우선순위 결정자, 리스크 평가자...               │     │
-│  ├────────────────────────────────────────────────────────────────┤     │
-│  │ 3단계: 기획 (10 에이전트)                                        │     │
-│  │   아키텍트, 프로젝트 매니저, 테크니컬 리드...                     │     │
-│  └────────────────────────────────────────────────────────────────┘     │
+│  시그널 수집 - 어댑터 11개                                              │
+│  RSS, GitHub Events, On-Chain, Social, News API, Twitter/X,             │
+│  Discord, Lens, Farcaster, Coingecko, Threads                           │
+│                                    │                                    │
+│                                    ▼                                    │
+│                        ┌───────────────────────┐                        │
+│                        │  시그널 집계기        │                        │
+│                        │  + 스코어러           │                        │
+│                        └───────────┬───────────┘                        │
+├────────────────────────────────────┼────────────────────────────────────┤
+│                                    ▼                                    │
+│                    멀티 스테이지 토론 (34 에이전트)                     │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │ 1단계: 발산   (16)  엔지니어, 디자이너, PM, 마케터                │  │
+│  │ 2단계: 수렴    (8)  VC, 멘토, 창업자, 전문가                      │  │
+│  │ 3단계: 기획   (10)  CPO, PM, 리드, UX 리서치, QA, DevRel          │  │
+│  └───────────────────────────────────────────────────────────────────┘  │
 ├─────────────────────────────────────────────────────────────────────────┤
-│                LLM 라우터 (기본값: Ollama 전용)                          │
-│  ┌──────────────────────────┐    ┌──────────────────────────────────┐   │
-│  │   로컬 (Ollama)          │    │   클라우드 API (옵션)            │   │
-│  │   - gemma3:4b (채팅)     │    │   - Claude / OpenAI / Gemini    │   │
-│  │   - qwen3-embedding:0.6b │    │   MOSS_LOCAL_LLM_ONLY=true      │   │
-│  │     (임베딩)             │    │   설정 시 비활성화              │   │
-│  │                          │    │                                  │   │
-│  └──────────────────────────┘    └──────────────────────────────────┘   │
+│                    LLM 라우터 (기본값: Ollama 전용)                     │
+│  ┌─────────────────────────────┐    ┌────────────────────────────────┐  │
+│  │ 로컬 (Ollama)               │    │ 클라우드 API (옵션)            │  │
+│  │ - gemma3:4b (채팅)          │    │ - Claude / OpenAI / Gemini     │  │
+│  │ - qwen3-embedding:0.6b      │    │ MOSS_LOCAL_LLM_ONLY=true       │  │
+│  │   (임베딩)                  │    │ 설정 시 비활성화               │  │
+│  └─────────────────────────────┘    └────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -119,10 +97,7 @@ pm2 start ecosystem.config.js --only moss-ao-web
 pm2 start ecosystem.config.js --only moss-ao-api
 ```
 
-### 3. 대시보드 접속
-
-- **웹 대시보드**: http://localhost:3000
-- **API 문서**: http://localhost:3001/docs
+PM2가 기동되면 대시보드는 http://localhost:3000, API 문서는 http://localhost:3001/docs 에서 확인할 수 있습니다.
 
 ## PM2 서비스
 
@@ -136,24 +111,12 @@ pm2 start ecosystem.config.js --only moss-ao-api
 | `moss-ao-api` | 항시 실행 | FastAPI 백엔드 (포트 3001) |
 | `moss-ao-health` | 5분마다 | 헬스 모니터링 + 롤링 DB 백업 (약 1일 주기) |
 
-### PM2 명령어
-
 ```bash
-# 모든 서비스 보기
-pm2 status
-
-# 로그 보기
-pm2 logs moss-ao-web
-pm2 logs moss-ao-api
-
-# 서비스 재시작
-pm2 restart moss-ao-web
-
-# 모든 서비스 중지
-pm2 stop all
-
-# 리소스 모니터링
-pm2 monit
+pm2 status                  # 전체 서비스 상태
+pm2 logs moss-ao-api        # 특정 서비스 로그
+pm2 restart moss-ao-web     # 서비스 재시작
+pm2 stop all                # 전체 중지
+pm2 monit                   # 리소스 모니터링
 ```
 
 ## API 엔드포인트
@@ -171,48 +134,46 @@ FastAPI 백엔드는 REST API 접근을 제공합니다:
 
 ## 멀티 스테이지 토론 시스템
 
-아래 인원은 **페르소나 풀 정원**(`personas/catalog.py`)이며, 한 라운드에 동시에
-참여하는 인원이 아니다. 매 라운드 풀에서 성격 균형을 맞춘 부분집합만 참여하며,
-프로덕션 기준으로는 각각 8 / 4 / 3명이다
-(`config.yaml`의 `debate.normal.*_agents_per_round`).
+모든 토론은 3단계로 진행된다. **정원**은 페르소나 풀 크기(`personas/catalog.py`)이며,
+매 라운드는 성격 균형을 맞춘 더 작은 부분집합만 참여시킨다 — **라운드당** 열의 값으로,
+`config.yaml`의 `debate.normal.*_agents_per_round`에서 설정한다.
 
-### 1단계: 발산 (16 에이전트)
-다양한 아이디어와 관점 생성:
-- **혁신가**: 창의적 혁신 아이디어
-- **회의론자**: 비판적 분석 및 리스크 식별
-- **실용주의자**: 실용적 구현 중심
-- **비전가**: 장기 전략적 사고
-- 외 12개 특화 에이전트...
+| 단계 | 정원 | 라운드당 | 목적 | 페르소나 |
+|------|------|----------|------|----------|
+| 1. 발산 | 16 | 8 | 다양한 아이디어와 관점 생성 | 프론트엔드 / 백엔드 / 블록체인 엔지니어, 보안 리서처, DevOps, 프로덕트·UX 디자이너, 프로덕트 매니저, 그로스 마케터, 브랜드 전략가, 비즈니스 애널리스트, 커뮤니티 매니저 |
+| 2. 수렴 | 8 | 4 | 아이디어 통합 및 평가 | 크립토 VC·전통 VC 파트너, 액셀러레이터 멘토 2인, 연쇄 창업가와 초기 창업가, 기술·시장 도메인 전문가 |
+| 3. 기획 | 10 | 3 | 실행 가능한 구현 계획 생성 | CPO, 시니어 PM, 테크니컬 리드, 프론트엔드 / 백엔드 / 블록체인 리드, UX 리서처, QA 리드, 개발자 릴레이션, 프로젝트 매니저 |
 
-### 2단계: 수렴 (8 에이전트)
-아이디어 통합 및 평가:
-- **통합자**: 관련 아이디어 결합
-- **평가자**: 제안 점수화 및 순위 매김
-- **우선순위 결정자**: 실행 순서 결정
-- **리스크 평가자**: 잠재적 문제 식별
-- 외 4개 특화 에이전트...
+각 페르소나는 0-10으로 점수화된 4축 성격 프로필도 함께 가진다. 라운드 부분집합을 이
+축들에 걸쳐 균형 잡는 것이 같은 성향의 에이전트만 모이는 것을 막아준다.
 
-### 3단계: 기획 (10 에이전트)
-실행 가능한 구현 계획 생성:
-- **아키텍트**: 시스템 설계
-- **프로젝트 매니저**: 태스크 분해
-- **테크니컬 리드**: 기술 결정
-- **리소스 기획자**: 리소스 배분
-- 외 6개 특화 에이전트...
-
-### 에이전트 성격 시스템
-
-각 에이전트는 4축 성격 프로필을 가집니다:
-- **창의성**: 혁신 vs. 관습 (0-10)
-- **분석력**: 데이터 중심 vs. 직관 (0-10)
-- **리스크 허용도**: 공격적 vs. 보수적 (0-10)
-- **협업**: 팀 중심 vs. 독립적 (0-10)
+- **창의성**: 혁신 vs. 관습
+- **분석력**: 데이터 중심 vs. 직관
+- **리스크 허용도**: 공격적 vs. 보수적
+- **협업**: 팀 중심 vs. 독립적
 
 ## 시그널 소스
 
-### RSS 피드
-5개 카테고리의 31개 활성 피드. `config.yaml`의 최상위 `feeds:` 섹션에 정의되며,
-시그널 수집과 트렌드 분석이 이 목록 하나를 공유한다:
+어댑터 11개가 시그널을 수집하며 모두 `config.yaml`에서 설정한다. **인증**은 해당 어댑터에
+필요한 자격 증명이며, `—`는 자격 증명 없이도 동작한다는 뜻이다.
+
+| 어댑터 | 수집 내용 | 추적 범위 | 인증 |
+|--------|-----------|-----------|------|
+| RSS | AI, Crypto, Finance, Security, Dev 카테고리 피드 기사 | 활성 피드 31개 (아래 목록) | — |
+| GitHub Events | 저장소 활동, 트렌딩 프로젝트, 이슈·PR 분석 | — | — |
+| 온체인 | 웨일 트랜잭션 알림, DEX 거래량·스테이블코인 흐름(DefiLlama), DeFi 프로토콜 메트릭 | — | — |
+| 소셜 미디어 | Reddit 게시물과 Nitter RSS 기반 X 게시물, 커뮤니티 감성 분석 | 서브레딧 11개 | — |
+| News API | 실시간 뉴스 집계, 키워드 기반 필터링 | — | — |
+| Twitter / X | Nitter RSS 인스턴스 풀을 통한 계정 타임라인 | 계정 19개 (`MosslandMOC` 포함) | `TWITTER_BEARER_TOKEN` (선택 — API v2 키워드 검색 추가) |
+| Discord | 공지 채널 메시지 | 서버 7개 (Ethereum, Polygon, Arbitrum, Optimism, Aave, Uniswap, OpenAI) | `DISCORD_BOT_TOKEN` |
+| Lens Protocol | GraphQL API — 인기 퍼블리케이션, 프로필 게시물, 트렌딩 토픽 | 프로필 10개 | — |
+| Farcaster | Neynar API 기반 캐스트, Warpcast 공개 API 폴백 | 유저 10개, 채널 10개 | `NEYNAR_API_KEY` |
+| Coingecko | 트렌딩 코인, 상승/하락 상위 종목, 글로벌 시장 통계 | Mossland(MOC) 포함 코인 16개 | — |
+| Threads | Meta Threads 계정 공개 프로필 스크래핑 | 계정 3개 | — |
+
+RSS 피드는 `config.yaml`의 최상위 `feeds:` 섹션에 정의되며, 시그널 수집과 트렌드 분석이 이
+목록 하나를 공유한다. 피드 추가·수정은 이 파일만 편집하면 되고 코드 변경은 필요 없다.
+
 - **AI** (9개): OpenAI News, Google AI, arXiv AI, TechCrunch AI, Hacker News, Hugging Face, DeepMind, BAIR, Lil'Log
 - **Crypto** (7개): CoinDesk, Cointelegraph, Decrypt, The Defiant, CryptoSlate, Ethereum Blog, Solana
 - **Finance** (3개): CNBC Business News, CNBC Finance, Bloomberg Tech
@@ -220,49 +181,7 @@ FastAPI 백엔드는 REST API 접근을 제공합니다:
 - **Dev** (8개): The Verge, Ars Technica, Stack Overflow Blog, GitHub Blog, Meta Engineering, Netflix Tech, Cloudflare, AWS Blog
 
 이 외 크립토 피드 4개(Chainlink, Polygon, Paradigm, a16z Crypto)는 URL이 죽었고 대체 피드도
-없어 `config.yaml`에 `enabled: false`로 남겨두었다. 피드 추가·수정은 `config.yaml`만 편집하면
-되며 코드 변경은 필요 없다.
-
-### GitHub Events
-- 저장소 활동 추적
-- 트렌딩 프로젝트 모니터링
-- 이슈 및 PR 분석
-
-### 온체인 데이터
-- 웨일 트랜잭션 알림
-- DEX 거래량 및 스테이블코인 흐름 (DefiLlama)
-- DeFi 프로토콜 메트릭
-
-### 소셜 미디어
-- Reddit (11개 서브레딧) 및 Nitter RSS 기반 X(트위터) 게시물
-- 커뮤니티 감성 분석
-
-### News API
-- 실시간 뉴스 집계
-- 키워드 기반 필터링
-
-### Twitter / X
-- Nitter RSS 인스턴스 풀로 19개 계정 추적 (`MosslandMOC` 포함)
-- `TWITTER_BEARER_TOKEN` 설정 시 Twitter API v2 키워드 검색 사용
-
-### Discord
-- 7개 서버 추적 (Ethereum, Polygon, Arbitrum, Optimism, Aave, Uniswap, OpenAI)
-- 공지 채널 메시지 수집에는 `DISCORD_BOT_TOKEN` 필요
-
-### Lens Protocol
-- GraphQL API (인기 퍼블리케이션, 프로필 게시물, 트렌딩 토픽)
-- 10개 프로필 추적
-
-### Farcaster
-- Neynar API (`NEYNAR_API_KEY`), Warpcast 공개 API 폴백
-- 10개 유저 및 10개 채널 추적
-
-### Coingecko
-- 트렌딩 코인, 상승/하락 상위 종목, 글로벌 시장 통계
-- Mossland(MOC) 포함 16개 코인 추적
-
-### Threads
-- 3개 Meta Threads 계정 공개 프로필 스크래핑 (인증 불필요)
+없어 `enabled: false`로 남겨두었다.
 
 ## 환경 변수
 
@@ -284,18 +203,9 @@ agentic-orchestrator/
 ├── ecosystem.config.js      # PM2 설정
 ├── .venv/                   # Python 가상환경
 ├── src/agentic_orchestrator/
-│   ├── adapters/            # 시그널 소스 어댑터
-│   │   ├── rss.py
-│   │   ├── github_events.py
-│   │   ├── onchain.py
-│   │   ├── social.py
-│   │   ├── news.py
-│   │   ├── twitter.py
-│   │   ├── discord.py
-│   │   ├── lens.py
-│   │   ├── farcaster.py
-│   │   ├── coingecko.py
-│   │   └── threads.py
+│   ├── adapters/            # 시그널 소스 11종: rss, github_events, onchain,
+│   │                        #   social, news, twitter, discord, lens,
+│   │                        #   farcaster, coingecko, threads
 │   ├── api/                 # FastAPI 백엔드
 │   │   └── main.py
 │   ├── cache/               # 캐싱 레이어
@@ -321,41 +231,24 @@ agentic-orchestrator/
 
 ## 개발
 
-### 테스트 실행
-
 ```bash
 # 테스트 도구는 dev extra에 포함되어 있습니다
 pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-### 웹사이트 빌드
-
 ```bash
-cd website
-pnpm build
+cd website && pnpm build   # 변경 후 대시보드 재빌드
 ```
 
-### 수동 태스크 실행
-
 ```bash
-# 시그널 수집
+# 스케줄러 태스크 수동 실행
 python -m agentic_orchestrator.scheduler signal-collect
-
-# 트렌드 분석 (로컬 LLM)
-python -m agentic_orchestrator.scheduler analyze-trends
-
-# 토론 실행
+python -m agentic_orchestrator.scheduler analyze-trends    # 로컬 LLM
 python -m agentic_orchestrator.scheduler run-debate
-
-# 백로그 처리
 python -m agentic_orchestrator.scheduler process-backlog
-
-# 헬스 체크
 python -m agentic_orchestrator.scheduler health-check
-
-# SQLite DB를 data/backup/에 스냅샷 (약 1일 주기로 자동 실행되기도 함)
-python -m agentic_orchestrator.scheduler backup-db
+python -m agentic_orchestrator.scheduler backup-db         # data/backup/에 스냅샷, 약 1일 주기 자동
 ```
 
 ## 라이선스
@@ -364,12 +257,11 @@ MIT License - 자세한 내용은 [LICENSE](LICENSE)를 참조하세요.
 
 ## 관련 모스랜드 프로젝트
 
-- **[Alpha](https://alpha.moss.land?utm_source=github&utm_medium=referral&utm_campaign=ao-readme)** (`alpha.moss.land`) — 한국어 크립토 × AI 미디어 + 커뮤니티. 채널 스탠스, 데일리 AI 브리프, RAG Q&A, AI 페르소나, 12개 툴 MCP 서버를 제공합니다. Claude/Cursor/Cline 설치 방법은 [`MosslandOpenDevs/alpha-mcp`](https://github.com/MosslandOpenDevs/alpha-mcp) 참조.
-- **[SignalMap](https://signalmap.moss.land)** (`signalmap.moss.land`) — 멀티 소스 내러티브 파이프라인 (한국어 YouTube + 뉴스 + 매크로). Alpha가 사용하는 canonical 엔티티/토픽/이벤트 스토어를 제공합니다.
+- **[Alpha](https://alpha.moss.land?utm_source=github&utm_medium=referral&utm_campaign=ao-readme)** — 한국어 크립토 × AI 미디어 + 커뮤니티. 채널 스탠스, 데일리 AI 브리프, RAG Q&A, AI 페르소나, 12개 툴 MCP 서버.
+  - [`MosslandOpenDevs/alpha-mcp`](https://github.com/MosslandOpenDevs/alpha-mcp) — Claude·Cursor·Cline 설치 방법
+- **[SignalMap](https://signalmap.moss.land)** — 멀티 소스 내러티브 파이프라인 (한국어 YouTube + 뉴스 + 매크로). Alpha가 사용하는 canonical 엔티티/토픽/이벤트 스토어.
 - **[모스랜드 프로젝트 인덱스](https://github.com/mossland/Projects)** — 2018년부터의 전체 생태계 타임라인.
 
 ---
 
 *모스랜드 생태계를 위해 구축됨 - 사람이 가이드하고, AI가 구동하는 혁신.*
-
-*v0.6.12 - 라우트 등록 순서 수정: /signals/timeline·/plans/pending-approval 도달 가능 복구, 버전 표기가 pyproject.toml을 추종*
