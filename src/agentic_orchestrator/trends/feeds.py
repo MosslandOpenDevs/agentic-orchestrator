@@ -74,24 +74,50 @@ class FeedFetcher:
         return self._feed_configs
 
     def _load_feed_configs(self) -> list[FeedConfig]:
-        """Load feed configurations from config.yaml."""
+        """
+        Load feed configurations from the canonical top-level config.yaml `feeds`.
+
+        Falls back to the legacy `trends.feeds` location for deployments still
+        carrying a config.yaml from before 0.6.11. Disabled feeds are skipped.
+        """
         configs = []
-        feeds_config = self.config.get("trends", "feeds", default={})
+        feeds_config = self.config.get("feeds", default=None)
+
+        if not feeds_config:
+            feeds_config = self.config.get("trends", "feeds", default={})
+            if feeds_config:
+                logger.warning(
+                    "Using deprecated `trends.feeds` from config.yaml; "
+                    "move these feeds to the top-level `feeds` section"
+                )
 
         if not feeds_config:
             logger.warning("No feeds configured in config.yaml")
             return configs
 
+        if not isinstance(feeds_config, dict):
+            logger.warning(
+                "`feeds` in config.yaml must be a mapping of category -> list of feeds, got "
+                f"{type(feeds_config).__name__}; no feeds loaded"
+            )
+            return configs
+
+        skipped = 0
         for category, feeds in feeds_config.items():
             if not isinstance(feeds, list):
                 continue
             for feed_data in feeds:
                 try:
-                    configs.append(FeedConfig.from_dict(feed_data, category))
+                    feed = FeedConfig.from_dict(feed_data, category)
                 except (KeyError, TypeError) as e:
                     logger.warning(f"Invalid feed config in category '{category}': {e}")
+                    continue
+                if not feed.enabled:
+                    skipped += 1
+                    continue
+                configs.append(feed)
 
-        logger.info(f"Loaded {len(configs)} feed configurations")
+        logger.info(f"Loaded {len(configs)} feed configurations ({skipped} disabled)")
         return configs
 
     def fetch_all_feeds(self) -> list[FeedItem]:

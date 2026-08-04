@@ -45,6 +45,19 @@ RSS, GitHub, OnChain, Social, News, Twitter, Discord, Lens, Farcaster, Coingecko
 ```
 agentic-orchestrator/
 ├── src/agentic_orchestrator/    # Python 백엔드
+│   ├── adapters/                # 시그널 어댑터 (11개)
+│   │   ├── base.py              # BaseAdapter / AdapterConfig / SignalData
+│   │   ├── rss.py               # RSS 피드 (config.yaml `feeds`에서 로드)
+│   │   ├── github_events.py     # GitHub Trending/Releases
+│   │   ├── onchain.py           # DefiLlama, Whale Alert, DEX
+│   │   ├── social.py            # Reddit, Nitter
+│   │   ├── news.py              # NewsAPI, Cryptopanic, HN
+│   │   ├── twitter.py           # Twitter/X (Nitter RSS 풀)
+│   │   ├── discord.py           # Discord 서버 공지
+│   │   ├── lens.py              # Lens Protocol (GraphQL)
+│   │   ├── farcaster.py         # Farcaster (Neynar API)
+│   │   ├── coingecko.py         # Coingecko (시장 데이터, 트렌딩)
+│   │   └── threads.py           # Meta Threads (공개 프로필 스크래핑)
 │   ├── api/                     # FastAPI 서버 (포트 3001)
 │   │   └── main.py              # API 엔드포인트 정의
 │   ├── db/                      # SQLAlchemy 모델 & 리포지토리
@@ -70,20 +83,15 @@ agentic-orchestrator/
 │   │   └── translator.py        # ContentTranslator (EN↔KO)
 │   ├── scripts/                 # 유틸리티 스크립트
 │   │   └── migrate_bilingual.py # 기존 데이터 번역 마이그레이션
-│   └── signals/                 # 신호 수집기
-│       ├── aggregator.py        # 신호 수집 조율
-│       └── adapters/            # 시그널 어댑터 (11개)
-│           ├── rss.py           # RSS 피드 (28개 소스)
-│           ├── github_events.py # GitHub Trending/Releases
-│           ├── onchain.py       # DefiLlama, Whale Alert, DEX
-│           ├── social.py        # Reddit, Nitter
-│           ├── news.py          # NewsAPI, Cryptopanic, HN
-│           ├── twitter.py       # Twitter/X (Nitter RSS 풀)
-│           ├── discord.py       # Discord 서버 공지
-│           ├── lens.py          # Lens Protocol (GraphQL)
-│           ├── farcaster.py     # Farcaster (Neynar API)
-│           ├── coingecko.py     # Coingecko (시장 데이터, 트렌딩)
-│           └── threads.py      # Meta Threads (공개 프로필 스크래핑)
+│   ├── signals/                 # 신호 수집기 (어댑터는 위 adapters/ 참조)
+│   │   ├── aggregator.py        # 신호 수집 조율 (11개 어댑터 구성)
+│   │   ├── scorer.py            # 신호 점수화
+│   │   └── storage.py           # 신호 DB 저장
+│   └── trends/                  # 트렌드 분석
+│       ├── feeds.py             # RSS 페치 (config.yaml `feeds`에서 로드)
+│       ├── analyzer.py          # 트렌드 분석 (Ollama)
+│       ├── models.py            # FeedConfig / FeedItem
+│       └── storage.py           # 트렌드 마크다운 저장
 ├── website/                     # Next.js 프론트엔드 (포트 3000)
 │   ├── src/app/                 # App Router 페이지
 │   │   ├── page.tsx             # 대시보드 (/)
@@ -245,6 +253,45 @@ NEXT_PUBLIC_API_URL=/api
 1. `npm run build`
 2. `pm2 restart moss-ao-web`
 
+## RSS 피드 소스 (v0.6.11)
+
+**단일 소스: `config.yaml`의 최상위 `feeds:` 섹션.** 코드에 피드를 하드코딩하지 말 것.
+
+두 경로가 같은 리스트를 읽는다:
+
+| 소비자 | 파일 | 용도 |
+|--------|------|------|
+| 시그널 수집 | `adapters/rss.py` `RSSAdapter` (via `signals/aggregator.py`) | 30분마다 신호 수집 |
+| 트렌드 분석 | `trends/feeds.py` `FeedFetcher` | 2시간마다 트렌드 생성 |
+
+현재 등록: **35개 항목 중 31개 활성** (ai 9, crypto 7+4비활성, finance 3, security 4, dev 8).
+
+```yaml
+feeds:
+  ai:
+    - name: "OpenAI News"
+      url: "https://openai.com/news/rss.xml"
+    - name: "Dead Feed"
+      url: "https://example.com/gone.xml"
+      enabled: false   # 로드 시 제외됨 (fetch 루프까지 가지 않음)
+```
+
+- 키: `name`(필수), `url`(필수), `enabled`(기본 true)
+- `feeds` 값은 반드시 `카테고리 → 피드 리스트` 매핑이어야 한다. 플랫 리스트나 문자열로
+  잘못 쓰면 로드 시 거부되고 `FALLBACK_FEEDS`로 강등된다 (예외로 죽지 않음)
+- `trends/models.py`의 `FeedConfig`에 `weight` 필드가 남아 있지만 **읽는 코드가 없다** —
+  설정해도 아무 효과 없음. 트렌드 가중치를 실제로 쓰려면 먼저 소비 코드를 구현할 것
+- 피드 추가/수정은 config.yaml만 편집 → 코드 변경·재배포 불필요 (프로세스 재시작은 필요)
+- `RSSAdapter.FALLBACK_FEEDS`(5개)는 config.yaml을 못 읽을 때만 쓰는 비상용 — 여기에 피드를 추가하지 말 것
+- 구버전 `trends.feeds` 위치도 하위 호환으로 계속 읽지만 deprecated 경고를 남긴다
+
+> **배경 (v0.6.11 이전):** 리스트가 두 벌로 갈라져 있었다. `config.yaml`의 `trends.feeds`(16개)는
+> 트렌드 분석만 사용했고, 실제 신호 수집은 `adapters/rss.py`에 하드코딩된 32개를 사용했다
+> (`aggregator.py`가 `RSSAdapter()`를 인자 없이 생성). 두 리스트는 서로 다른 URL로 표류했고
+> 하드코딩 쪽 4개(Chainlink, Polygon, Paradigm, a16z Crypto)는 죽은 URL이었다.
+> 0.6.11에서 중복(같은 호스트·다른 URL 8건)을 정리한 합집합으로 병합해 config.yaml을
+> 단일 소스로 만들고, 죽은 4개는 `enabled: false`로 남겨 이력을 보존했다.
+
 ## PM2 프로세스 관리
 
 ```bash
@@ -287,11 +334,25 @@ pm2 save
 | Debate | 6시간마다 | `0 */6 * * *` |
 | Backlog | 4시간마다 | `0 */4 * * *` |
 
-토론 에이전트 설정 (`config.yaml`의 `debate.test_mode: false`):
-- Divergence: 8 에이전트/라운드, 3라운드
-- Convergence: 4 에이전트/라운드, 2라운드
-- Planning: 3 에이전트/라운드, 2라운드 (단일 GPU Ollama 타임아웃 방지를 위해 5→3으로 하향)
+토론 에이전트 설정 (`config.yaml`의 `debate.normal`, `debate.test_mode: false`):
+
+| 단계 | 페르소나 풀 (전체 정원) | 라운드당 참여 | 라운드 수 |
+|------|------------------------|--------------|----------|
+| Divergence | 16명 | 8명 | 3 |
+| Convergence | 8명 | 4명 | 2 |
+| Planning | 10명 | 3명 | 2 |
+
 - **예상 시간**: ~30분+
+- Planning은 단일 GPU Ollama 타임아웃 방지를 위해 라운드당 5→3으로 하향
+
+> **풀 정원 vs 라운드당 참여 인원은 서로 다른 숫자다.**
+> 정원(16/8/10)은 `personas/catalog.py`의 `DIVERGENCE_AGENTS`/`CONVERGENCE_AGENTS`/
+> `PLANNING_AGENTS` 리스트 길이(합계 34명)이고, 라운드당 참여 인원(8/4/3)은
+> `config.yaml`의 `debate.normal.*_agents_per_round` 값이다.
+> `multi_stage.py`의 `_select_agents_for_round()`가 매 라운드 풀에서 4축 성격 균형
+> (+ 도전자 1명 보장)을 맞춰 부분집합을 새로 뽑으므로, 라운드마다 참여자가 달라지고
+> 한 단계 전체로는 정원 수까지 서로 다른 페르소나가 등장할 수 있다.
+> 두 숫자 중 하나만 보고 문서가 틀렸다고 판단하지 말 것.
 
 ## 개발 워크플로우
 
@@ -549,9 +610,13 @@ Signals (30분) → Trends (2시간) → Debate (6시간) → Ideas → Auto-Sco
 
 ### 3단계 프로세스
 
-1. **Divergence (발산)** - 16명의 에이전트가 아이디어 생성
-2. **Convergence (수렴)** - 8명의 분석가가 아이디어 평가/병합
-3. **Planning (기획)** - 10명의 기획자가 실행 계획 작성
+아래 인원은 **페르소나 풀 정원**(`personas/catalog.py`)이며, 프로덕션에서 실제로
+매 라운드 참여하는 인원은 그보다 적다 (`config.yaml`의 `debate.normal`, 각각 8/4/3명).
+자세한 구분은 [현재 운영 모드](#현재-운영-모드-production-v069) 절의 표 참조.
+
+1. **Divergence (발산)** - 16명 풀에서 라운드당 8명이 아이디어 생성
+2. **Convergence (수렴)** - 8명 풀에서 라운드당 4명이 아이디어 평가/병합
+3. **Planning (기획)** - 10명 풀에서 라운드당 3명이 실행 계획 작성
 
 ### 에이전트 페르소나
 

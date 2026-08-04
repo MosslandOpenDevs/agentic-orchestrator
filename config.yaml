@@ -247,51 +247,115 @@ trends:
     directory: data/trends
     retention_days: 90
 
-  # RSS Feed Sources by Category
-  feeds:
-    # AI / Research / Big Tech
-    ai:
-      - name: "OpenAI News"
-        url: "https://openai.com/news/rss.xml"
-      - name: "Google Blog"
-        url: "https://blog.google/rss/"
-      - name: "arXiv AI"
-        url: "https://rss.arxiv.org/rss/cs.AI"
-      - name: "TechCrunch"
-        url: "https://techcrunch.com/feed/"
-      - name: "Hacker News"
-        url: "https://hnrss.org/frontpage"
+  # RSS feed sources moved to the top-level `feeds:` section below, which is
+  # now the single source of truth shared by trend analysis AND signal
+  # collection. `trends.feeds` is still read as a fallback for deployments
+  # carrying a locally modified config.yaml, but should be considered removed.
 
-    # Crypto / Web3
-    crypto:
-      - name: "CoinDesk"
-        url: "https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml"
-      - name: "Cointelegraph"
-        url: "https://cointelegraph.com/rss"
-      - name: "Decrypt"
-        url: "https://decrypt.co/feed"
-      - name: "The Defiant"
-        url: "https://thedefiant.io/feed/"
-      - name: "CryptoSlate"
-        url: "https://cryptoslate.com/feed/"
+# =============================================================================
+# RSS Feed Sources (canonical)
+# =============================================================================
+# SINGLE SOURCE OF TRUTH for every RSS feed the system reads. Consumed by:
+#   - signal collection: adapters/rss.py RSSAdapter (via signals/aggregator.py)
+#   - trend analysis:    trends/feeds.py FeedFetcher
+#
+# Before 0.6.11 these two paths used two divergent lists (16 feeds here vs 32
+# hardcoded in adapters/rss.py); this section is their merged union. Edit feeds
+# here only — no code change or redeploy required.
+#
+# Per-feed keys: name (required), url (required), enabled (default true).
+# The `feeds` value must be a mapping of category -> list of feeds; a flat list
+# or scalar is rejected at load time and falls back to the built-in defaults.
+# (trends/models.py FeedConfig also parses a `weight` field, but no code reads
+#  it today — setting it has no effect.)
+feeds:
+  # AI / Research / Big Tech
+  ai:
+    - name: "OpenAI News"
+      url: "https://openai.com/news/rss.xml"
+    - name: "Google AI"
+      url: "https://blog.google/technology/ai/rss/"
+    - name: "arXiv AI"
+      url: "https://rss.arxiv.org/rss/cs.AI"
+    - name: "TechCrunch AI"
+      url: "https://techcrunch.com/category/artificial-intelligence/feed/"
+    - name: "Hacker News"
+      url: "https://news.ycombinator.com/rss"
+    - name: "Hugging Face"
+      url: "https://huggingface.co/blog/feed.xml"
+    - name: "DeepMind"
+      url: "https://www.deepmind.com/blog/rss.xml"
+    - name: "BAIR"
+      url: "https://bair.berkeley.edu/blog/feed.xml"
+    - name: "Lil'Log"
+      url: "https://lilianweng.github.io/index.xml"
 
-    # Finance / Macro
-    finance:
-      - name: "CNBC Finance"
-        url: "https://www.cnbc.com/id/10000664/device/rss/rss.html"
+  # Crypto / Web3
+  crypto:
+    - name: "CoinDesk"
+      url: "https://www.coindesk.com/arc/outboundfeeds/rss/"
+    - name: "Cointelegraph"
+      url: "https://cointelegraph.com/rss"
+    - name: "Decrypt"
+      url: "https://decrypt.co/feed"
+    - name: "The Defiant"
+      url: "https://thedefiant.io/feed/"
+    - name: "CryptoSlate"
+      url: "https://cryptoslate.com/feed/"
+    - name: "Ethereum Blog"
+      url: "https://blog.ethereum.org/feed.xml"
+    - name: "Solana"
+      url: "https://solana.com/news/rss.xml"
+    # Disabled 2026-08-04: verified dead, no working replacement found.
+    # Re-enable if/when the publisher restores a feed.
+    - name: "Chainlink"
+      url: "https://blog.chain.link/rss/"
+      enabled: false  # 200 OK but redirects to an HTML page, not a feed
+    - name: "Polygon"
+      url: "https://polygon.technology/blog/feed"
+      enabled: false  # 404
+    - name: "Paradigm"
+      url: "https://research.paradigm.xyz/feed.xml"
+      enabled: false  # 525 (origin SSL handshake failure)
+    - name: "a16z Crypto"
+      url: "https://a16zcrypto.com/feed/"
+      enabled: false  # 404
 
-    # Security
-    security:
-      - name: "The Hacker News"
-        url: "https://feeds.feedburner.com/TheHackersNews?format=xml"
-      - name: "Krebs on Security"
-        url: "https://krebsonsecurity.com/feed/"
+  # Finance / Macro
+  finance:
+    - name: "CNBC Business News"
+      url: "https://www.cnbc.com/id/10001147/device/rss/rss.html"
+    - name: "CNBC Finance"
+      url: "https://www.cnbc.com/id/10000664/device/rss/rss.html"
+    - name: "Bloomberg Tech"
+      url: "https://feeds.bloomberg.com/technology/news.rss"
 
-    # Dev / Tech Trends
-    dev:
-      - name: "The Verge"
-        url: "https://www.theverge.com/rss/index.xml"
-      - name: "Ars Technica"
-        url: "https://feeds.arstechnica.com/arstechnica/index"
-      - name: "Stack Overflow Blog"
-        url: "https://stackoverflow.blog/feed"
+  # Security
+  security:
+    - name: "The Hacker News"
+      url: "https://feeds.feedburner.com/TheHackersNews?format=xml"
+    - name: "Krebs on Security"
+      url: "https://krebsonsecurity.com/feed/"
+    - name: "Trail of Bits"
+      url: "https://blog.trailofbits.com/feed/"
+    - name: "Schneier"
+      url: "https://www.schneier.com/feed/atom/"
+
+  # Dev / Tech Trends
+  dev:
+    - name: "The Verge"
+      url: "https://www.theverge.com/rss/index.xml"
+    - name: "Ars Technica"
+      url: "https://feeds.arstechnica.com/arstechnica/technology-lab"
+    - name: "Stack Overflow Blog"
+      url: "https://stackoverflow.blog/feed/"
+    - name: "GitHub Blog"
+      url: "https://github.blog/feed/"
+    - name: "Meta Engineering"
+      url: "https://engineering.fb.com/feed/"
+    - name: "Netflix Tech"
+      url: "https://netflixtechblog.com/feed"
+    - name: "Cloudflare"
+      url: "https://blog.cloudflare.com/rss/"
+    - name: "AWS Blog"
+      url: "https://aws.amazon.com/blogs/aws/feed/"

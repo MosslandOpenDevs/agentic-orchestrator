@@ -7,7 +7,7 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 이 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)를 기반으로 하며,
 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
-## [Unreleased]
+## [0.6.12] - 2026-08-04
 
 ### 수정
 - **라우트 등록 순서 때문에 두 개의 API 라우트가 영구히 도달 불가능했음.** Starlette/FastAPI는 라우트를 **등록된 순서대로** 매칭하므로, 같은 접두사의 파라미터 라우트보다 *뒤에* 선언된 리터럴 경로에는 절대 도달할 수 없다:
@@ -16,13 +16,32 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 
   이제 두 리터럴 라우트가 각각의 파라미터 라우트보다 앞에 온다. 핸들러 자체는 변경하지 않았고, 프론트엔드의 `SignalTimelineResponse` 타입은 이미 타임라인 핸들러의 응답 형태와 일치했다.
 - **`/adapters`가 `CoingeckoAdapter`를 누락**하여, `signals/aggregator.py`가 실제로 등록하는 11개 어댑터 중 10개만 노출했다. 이제 해당 어댑터도 열거되며, `TRACKED_COINS` 속성이 다른 어댑터들과 동일한 `sources`/`source_count` 계약에 연결된다.
-- **API 버전 문자열이 세 갈래로 드리프트**되어 있었다: `FastAPI(version=...)`와 `/health`는 `0.5.0`, `/`는 `0.6.0`, `cli --version`의 근거인 `__init__.py`는 `0.3.0`을 보고했으나 `pyproject.toml`은 `0.6.10`을 선언하고 있었다. 이제 `__version__`을 설치된 패키지 메타데이터에서 해석해 `pyproject.toml`을 단일 소스로 삼고, 세 곳의 API 호출부가 모두 이를 참조한다.
+- **API 버전 문자열이 세 갈래로 드리프트**되어 있었다: `FastAPI(version=...)`와 `/health`는 `0.5.0`, `/`는 `0.6.0`, `cli --version`의 근거인 `__init__.py`는 `0.3.0`을 보고했으나 `pyproject.toml`은 `0.6.10`을 선언하고 있었다. 이제 `__version__`이 **소스 트리의 `pyproject.toml`을 먼저** 읽고(설치 메타데이터 → 경고 로그와 함께 `0.0.0+unknown` 순으로 폴백), 세 곳의 API 호출부가 모두 이를 참조한다.
+  - 설치 메타데이터만 읽으면 안 되는 이유: `importlib.metadata`는 `pip install` 시점의 스냅샷이라 **버전을 올리는 바로 그 커밋에서 낡은 값이 된다**. 게다가 `ecosystem.config.js`의 모든 PM2 앱은 `.venv/bin/python`을 `PYTHONPATH: './src'`로 띄우므로 실제로 서빙되는 코드는 설치본이 아니라 **작업 트리**다 — 그 venv에 dist-info가 없으면 `/health`가 조용히 `0.0.0+unknown`을 노출하게 된다. 소스 트리를 먼저 읽으면 `git pull` + `pm2 restart`(CLAUDE.md의 문서화된 배포 절차)만으로 버전이 정확해진다.
 
 ### 테스트
-- `tests/test_api.py::TestLiteralRouteOrdering` 추가 — `/signals/timeline`과 `/plans/pending-approval`이 (단일 리소스 핸들러가 아닌) 의도된 응답 *형태*를 반환하는지, 파라미터 라우트가 여전히 정상 동작하고 알 수 없는 id에 404를 내는지 검증. 또한 등록된 모든 라우트를 순회해 리터럴 경로가 앞선 파라미터 라우트에 가려지면 실패하는 `test_no_literal_route_is_shadowed` 가드를 추가해 이 버그 유형의 재발을 차단.
-- `TestVersionReporting`(`/health`, `/`, `/openapi.json`, 패키지 메타데이터가 모두 `pyproject.toml`과 일치)과 `TestAdaptersEndpoint`(`/adapters` 목록이 aggregator 등록 집합과 동일해야 함) 추가.
+- `tests/test_api.py::TestLiteralRouteOrdering` 추가 — `/signals/timeline`과 `/plans/pending-approval`이 (단일 리소스 핸들러가 아닌) 의도된 응답 *형태*와 *집계 수치*를 반환하는지, 파라미터 라우트가 여전히 정상 동작하고 알 수 없는 id에 404를 내는지 검증. 또한 등록된 모든 라우트를 순회해 리터럴 경로가 앞선 파라미터 라우트에 가려지면 실패하는 `test_no_literal_route_is_shadowed` 가드를 추가해 이 버그 유형의 재발을 차단. 이 가드는 **HTTP 메서드를 함께 비교**한다 — Starlette은 경로만 맞고 메서드가 다르면 계속 탐색하므로, 겹치는 동사가 없는 두 라우트는 서로를 가리지 않기 때문.
+- `TestVersionReporting`(`/health`, `/`, `/openapi.json`, 패키지 버전이 모두 `pyproject.toml`과 일치)과 `TestAdaptersEndpoint`(`/adapters` 목록이 aggregator 등록 집합과 동일해야 함) 추가. `/adapters`는 어댑터 11개 전부에 `health_check()`를 호출하고 그중 다수가 실제 외부 HTTP를 발생시키므로, 두 테스트는 `health_check`를 스텁으로 대체해 테스트 스위트를 hermetic하게 유지한다.
 
----
+## [0.6.11] - 2026-08-04
+
+### 변경
+- **RSS 피드 리스트를 하나로 통합.** 시그널 수집과 트렌드 분석이 서로 다른, 조용히 표류하던 두 리스트를 읽고 있었다: `config.yaml`의 `trends.feeds`(16개)는 트렌드 경로(`trends/feeds.py`)만 사용했고, 실제 시그널 수집은 `adapters/rss.py`의 `DEFAULT_FEEDS`에 하드코딩된 32개를 사용했다 (`signals/aggregator.py`가 `RSSAdapter()`를 `feeds=` 인자 없이 생성하기 때문). 이제 합집합(35개 항목)이 **`config.yaml`의 새 최상위 `feeds:` 섹션**에 있고 두 소비자가 이 하나를 읽는다. 피드 추가·수정·비활성화에 코드 변경이나 재배포가 필요 없다.
+  - `RSSAdapter.DEFAULT_FEEDS`는 `RSSAdapter.load_configured_feeds()`와, 설정을 전혀 읽을 수 없을 때만 쓰는 5개짜리 `FALLBACK_FEEDS`로 대체 (사용 시 경고 로그). 구버전 `trends.feeds` 위치도 deprecation 경고와 함께 계속 읽으므로, 로컬 수정된 `config.yaml`을 쓰는 배포도 그대로 동작한다.
+  - 피드 항목에 `enabled: false`를 쓸 수 있고, 두 소비자 모두 로드 시점에 걸러내므로 비활성 피드는 fetch 루프까지 가지 않는다.
+  - 병합 과정에서 `config.yaml`에만 있던 살아 있는 소스 2개(arXiv AI, The Hacker News)가 추가됐고, 두 리스트가 서로 다른 URL로 담고 있던 호스트 8개를 정리했다. Hacker News는 양쪽이 서로 다른 호스트(`hnrss.org` 미러 vs 공식 `news.ycombinator.com`)로 갖고 있어 공식 쪽만 남겼다. 범위가 다른 경우 주제 특화 피드를 채택 (예: TechCrunch 전체 대신 TechCrunch AI).
+- **죽은 피드 4개는 삭제 대신 비활성화**하고 관측된 실패를 주석으로 기록: Chainlink(200이지만 HTML 페이지로 리다이렉트), Polygon(404), Paradigm(525), a16z Crypto(404). 넷 다 하드코딩 리스트에 있어 30분마다 매 시그널 수집에서 실패하고 있었다. 발행처가 제공하는 대체 피드는 없음 (2026-08-04 확인).
+
+### 수정
+- **잘못된 형태의 `feeds:` 섹션이 시그널 수집 전체를 죽이지 않도록 강등 처리.** `RSSAdapter`가 `SignalAggregator._default_adapters()` 안에서 생성되기 때문에, 피드 로더에서 난 `AttributeError`가 `SignalAggregator()` 생성 자체를 실패시켰다. 즉 `feeds:`를 플랫 리스트나 스칼라로 쓰면(이제 운영자에게 편집하라고 안내하는 바로 그 파일에서 충분히 나올 수 있는 실수) RSS뿐 아니라 **11개 어댑터 전체**가 30분마다 아무 신호도 수집하지 못했다. 이제 두 소비자 모두 매핑이 아닌 `feeds:`를 경고와 함께 거부하고 fallback으로 강등한다 — 읽을 수 없거나 문법이 깨진 config에 대해 이미 지키고 있던 로더의 계약과 동일하게 맞췄다.
+- **`custom_feeds`가 공유 리스트를 변경하던 문제.** `RSSAdapter.__init__`이 `self.feeds = feeds or self.DEFAULT_FEEDS`로 참조를 잡은 뒤 `custom_feeds`를 append해, 클래스 레벨 기본값(또는 호출자의 리스트)을 프로세스 수명 내내 오염시켰다. 이제 append 전에 복사한다.
+
+### 문서
+- **CLAUDE.md 정확성 점검** (#1935의 README 점검과 동일한 작업):
+  - 프로젝트 구조 트리가 시그널 어댑터를 `signals/adapters/`에 두고 있었으나 실제 위치는 `src/agentic_orchestrator/adapters/`다. 실제 레이아웃으로 수정하고, 문서에 없던 `trends/` 패키지도 추가했다.
+  - `rss.py`를 "RSS 피드 (28개 소스)"로 설명했으나 이 숫자는 두 리스트 어느 쪽과도 맞지 않았다.
+  - **페르소나 풀 정원과 라운드당 참여 인원의 구분을 명시**했다 (CLAUDE.md·README 양쪽). `personas/catalog.py`는 16/8/10(총 34명) 풀을 정의하고, `config.yaml`의 `debate.normal`은 라운드당 8/4/3명을 돌리며, `multi_stage.py`의 `_select_agents_for_round()`가 매 라운드 성격 균형을 맞춘 부분집합을 뽑는다. 두 숫자 모두 옳지만 한쪽만 적어두어 두 문서가 서로 모순돼 보였다.
+- CLAUDE.md에 `## RSS 피드 소스` 섹션 신설 — 단일 소스 계약, 피드별 키, 리스트가 갈라져 있던 배경 정리.
 
 ## [0.6.10] - 2026-07-02
 

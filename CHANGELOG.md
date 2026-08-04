@@ -7,7 +7,7 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.12] - 2026-08-04
 
 ### Fixed
 - **Two API routes were permanently unreachable due to registration order.** Starlette/FastAPI matches routes in the order they are registered, so a literal path declared *after* a same-prefix parameterized route can never be reached:
@@ -16,13 +16,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Both literal routes now precede their parameterized siblings. The handlers themselves are unchanged, and the frontend `SignalTimelineResponse` type already matched the payload the timeline handler emits.
 - **`/adapters` omitted `CoingeckoAdapter`**, listing 10 of the 11 adapters that `signals/aggregator.py` actually registers. The adapter is now enumerated, and its `TRACKED_COINS` attribute feeds the shared `sources`/`source_count` contract that the other adapters use.
-- **API version strings had drifted three ways**: `FastAPI(version=...)` and `/health` reported `0.5.0`, `/` reported `0.6.0`, and `__init__.py` (which backs `cli --version`) reported `0.3.0` — while `pyproject.toml` declared `0.6.10`. `__version__` is now resolved from installed package metadata, making `pyproject.toml` the single source of truth, and all three API call sites read from it.
+- **API version strings had drifted three ways**: `FastAPI(version=...)` and `/health` reported `0.5.0`, `/` reported `0.6.0`, and `__init__.py` (which backs `cli --version`) reported `0.3.0` — while `pyproject.toml` declared `0.6.10`. `__version__` now resolves from **the source tree's `pyproject.toml` first**, falling back to installed distribution metadata and then to a logged-warning `0.0.0+unknown`; all three API call sites read from it.
+  - Reading installed metadata alone would not have been enough. `importlib.metadata` returns a snapshot taken at `pip install` time, so it goes stale on the very commit that bumps the version. More importantly, every PM2 app in `ecosystem.config.js` launches `.venv/bin/python` with `PYTHONPATH: './src'` — the code being served is the **working tree**, not an installed copy — so a venv without dist-info would have silently published `0.0.0+unknown` on `/health`, `/` and `/openapi.json`. Reading the checkout first keeps the documented deploy flow (`git pull` + `pm2 restart`, CLAUDE.md) accurate with no reinstall step.
 
 ### Tests
-- Added `tests/test_api.py::TestLiteralRouteOrdering` — asserts `/signals/timeline` and `/plans/pending-approval` return their intended payload *shape* (not the single-resource handler's), that the parameterized siblings still route and still 404 on unknown ids, and a table-wide `test_no_literal_route_is_shadowed` guard that walks every registered route and fails if any literal path is shadowed by an earlier parameterized one — blocking this whole bug class from recurring.
-- Added `TestVersionReporting` (`/health`, `/`, `/openapi.json`, and package metadata all agree with `pyproject.toml`) and `TestAdaptersEndpoint` (the `/adapters` listing must equal the aggregator's registered set).
+- Added `tests/test_api.py::TestLiteralRouteOrdering` — asserts `/signals/timeline` and `/plans/pending-approval` return their intended payload *shape and counts* (not the single-resource handler's), that the parameterized siblings still route and still 404 on unknown ids, and a table-wide `test_no_literal_route_is_shadowed` guard that walks every registered route and fails if any literal path is shadowed by an earlier parameterized one — blocking this whole bug class from recurring. The guard compares **HTTP methods as well as paths**: Starlette keeps scanning past a path match whose method does not match, so routes sharing no verb cannot shadow each other and must not be flagged.
+- Added `TestVersionReporting` (`/health`, `/`, `/openapi.json` and the package version all agree with `pyproject.toml`) and `TestAdaptersEndpoint` (the `/adapters` listing must equal the aggregator's registered set). `/adapters` calls `health_check()` on all 11 adapters and many of those issue real outbound HTTP, so both tests stub `health_check` to keep the suite hermetic.
 
----
+## [0.6.11] - 2026-08-04
+
+### Changed
+- **One canonical RSS feed list.** Signal collection and trend analysis were reading two different, silently diverging lists: `config.yaml` `trends.feeds` (16 feeds) fed only the trend path (`trends/feeds.py`), while signal collection used 32 feeds hardcoded in `adapters/rss.py` `DEFAULT_FEEDS`, because `signals/aggregator.py` constructs `RSSAdapter()` with no `feeds=` argument. The merged union (35 entries) now lives in a new **top-level `feeds:` section of `config.yaml`**, which both consumers read. Feeds can be added, fixed, or disabled without a code change or redeploy.
+  - `RSSAdapter.DEFAULT_FEEDS` is replaced by `RSSAdapter.load_configured_feeds()` plus a 5-feed `FALLBACK_FEEDS` used only when no config can be read (logged as a warning). The legacy `trends.feeds` location is still read as a fallback, with a deprecation warning, so a deployment carrying a locally modified `config.yaml` keeps working.
+  - Feed entries accept `enabled: false`, honoured by both consumers at load time so disabled feeds never reach the fetch loop.
+  - Merging added 2 live sources that existed only in `config.yaml` (arXiv AI, The Hacker News) and de-duplicated 8 hosts the two lists carried under different URLs — including Hacker News, which both lists had via different hosts (`hnrss.org` mirror vs the official `news.ycombinator.com`; the official one was kept). Where the two disagreed on scope, the topic-specific feed was kept (e.g. TechCrunch AI over TechCrunch all).
+- **4 dead feeds disabled rather than deleted**, with the observed failure recorded inline: Chainlink (200 but redirects to an HTML page), Polygon (404), Paradigm (525), a16z Crypto (404). All four were in the hardcoded list and had been fetched — and failing — on every 30-minute signal run. No publisher-provided replacement feed exists; verified 2026-08-04.
+
+### Fixed
+- **A malformed `feeds:` section degrades instead of taking down signal collection.** Because `RSSAdapter` is constructed inside `SignalAggregator._default_adapters()`, an `AttributeError` from the feed loader propagated out of `SignalAggregator()` itself — so a `feeds:` written as a flat list or a scalar (a plausible hand-edit of the very file operators are now told to edit) would have stopped **all 11 adapters** from collecting, not just RSS, on every 30-minute cycle. Both consumers now reject a non-mapping `feeds:` with a warning and fall back, matching the loader's documented contract, which already degraded gracefully for an unreadable or syntactically broken config.
+- **`custom_feeds` no longer mutates a shared list.** `RSSAdapter.__init__` assigned `self.feeds = feeds or self.DEFAULT_FEEDS` and then appended `custom_feeds` to it, mutating the class-level default (or the caller's list) for the lifetime of the process. The feed list is now copied before appending.
+
+### Documentation
+- **CLAUDE.md accuracy pass**, matching the README pass in #1935:
+  - Its project-structure tree placed the signal adapters at `signals/adapters/`; the real location is `src/agentic_orchestrator/adapters/`. The tree now shows the actual layout, including the previously undocumented `trends/` package.
+  - `rss.py` was described as "RSS 피드 (28개 소스)" — a number that matched neither list.
+  - **Persona pool size vs agents-per-round is now stated explicitly** in both CLAUDE.md and the READMEs. `personas/catalog.py` defines pools of 16/8/10 (34 total) while `config.yaml` `debate.normal` runs 8/4/3 per round, `multi_stage.py` `_select_agents_for_round()` drawing a diversity-balanced subset each round. Both numbers are correct; documenting only one made the two documents look contradictory.
+- New `## RSS 피드 소스` section in CLAUDE.md documenting the canonical `feeds:` contract, the per-feed keys, and why the split existed.
 
 ## [0.6.10] - 2026-07-02
 
