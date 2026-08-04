@@ -28,6 +28,7 @@ class Labels:
     STATUS_PLANNED = "status:planned"
     STATUS_IN_DEV = "status:in-dev"
     STATUS_DONE = "status:done"
+    STATUS_ARCHIVED = "status:archived"
 
     # Promotion labels (human action)
     PROMOTE_TO_PLAN = "promote:to-plan"
@@ -52,9 +53,16 @@ class Labels:
         STATUS_PLANNED: {"color": "0E8A16", "description": "Idea has been planned"},
         STATUS_IN_DEV: {"color": "1D76DB", "description": "Currently in development"},
         STATUS_DONE: {"color": "006B75", "description": "Completed"},
+        STATUS_ARCHIVED: {
+            "color": "6A737D",
+            "description": "Low-scoring idea, not actively pursued",
+        },
         PROMOTE_TO_PLAN: {
+            # Applied automatically at score >= 7.0 as well as by hand; see the
+            # "Known Ambiguity" section of docs/labels.md before relying on it
+            # as a human approval gate.
             "color": "D93F0B",
-            "description": "Human action: Promote idea to planning",
+            "description": "Idea queued for planning (auto at score >= 7.0, or added by a human)",
         },
         PROMOTE_TO_DEV: {
             "color": "B60205",

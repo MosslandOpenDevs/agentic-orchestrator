@@ -517,6 +517,111 @@ def _idea_title_fingerprint(title: str, prefix_tokens: int = 6) -> str:
     return " ".join(tokens[:prefix_tokens])
 
 
+def _clean_issue_title(title: str) -> str:
+    """Strip markdown emphasis from a title before it becomes an issue title.
+
+    GitHub does not render markdown in issue titles, so ``**Foo**`` shows up
+    with the literal asterisks. Titles already only had ``#`` stripped, which
+    is why 27 open issues still read ``[IDEA] **...**``.
+    """
+    import re
+
+    text = (title or "").replace("#", "")
+    text = re.sub(r"\*{1,3}", "", text)
+    text = re.sub(r"[`_]{1,2}", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _render_json_idea(data: dict) -> str:
+    """Lay a parsed idea object out as readable markdown."""
+    lines: List[str] = []
+
+    def render(value, depth: int) -> None:
+        pad = "  " * depth
+        if isinstance(value, dict):
+            for key, val in value.items():
+                label = str(key).replace("_", " ").strip().title()
+                if isinstance(val, (dict, list)):
+                    lines.append(f"{pad}- **{label}**:")
+                    render(val, depth + 1)
+                else:
+                    lines.append(f"{pad}- **{label}**: {val}")
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, (dict, list)):
+                    render(item, depth)
+                else:
+                    lines.append(f"{pad}- {item}")
+        else:
+            lines.append(f"{pad}{value}")
+
+    render(data, 0)
+    return "\n".join(lines)
+
+
+def _format_idea_summary(content: str, limit: int = 1500) -> str:
+    """Render an idea body into a summary that is safe to embed in an issue.
+
+    Debate output arrives as a fenced ``json`` block. The previous
+    ``content[:500]`` slice cut that block mid-object and left the fence open,
+    so every following section of the issue rendered inside a code span — 12
+    still-open issues (7 of them ``curated:keep``) are in that state. Parse the
+    JSON and lay it out as markdown; when there is no JSON to recover, truncate
+    on a boundary and never leave a fence unclosed.
+
+    ``limit`` bounds both paths: the rendered markdown is truncated too, so a
+    large idea object cannot produce an unbounded issue body.
+    """
+    import json
+    import re
+
+    if not content:
+        return ""
+
+    candidates: List[str] = []
+    fenced_json = re.search(r"```json\s*([\s\S]*?)\s*```", content, re.IGNORECASE)
+    if fenced_json:
+        candidates.append(fenced_json.group(1))
+    fenced_any = re.search(r"```\s*([\s\S]*?)\s*```", content)
+    if fenced_any:
+        candidates.append(fenced_any.group(1))
+    brace = re.search(r"\{[\s\S]*\}", content)
+    if brace:
+        candidates.append(brace.group(0))
+
+    for raw in candidates:
+        raw = raw.strip()
+        if not raw:
+            continue
+        # Try as-is, then with trailing commas stripped (a common LLM defect).
+        for attempt in (raw, re.sub(r",\s*([}\]])", r"\1", raw)):
+            try:
+                parsed = json.loads(attempt)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(parsed, dict) and parsed:
+                return _truncate_markdown(_render_json_idea(parsed), limit)
+
+    return _truncate_markdown(content, limit)
+
+
+def _truncate_markdown(text: str, limit: int) -> str:
+    """Cut ``text`` to ``limit`` on a boundary, leaving no fence unclosed."""
+    if len(text) <= limit:
+        return text.strip()
+
+    cut = text[:limit]
+    for sep in ("\n\n", "\n", ". "):
+        idx = cut.rfind(sep)
+        if idx > limit // 2:
+            cut = cut[: idx + len(sep)]
+            break
+    cut = cut.rstrip()
+    if cut.count("```") % 2:
+        cut += "\n```"
+    return cut + "\n\n_(truncated)_"
+
+
 async def _auto_score_and_save_ideas(
     router,
     ideas: list,
@@ -614,7 +719,7 @@ async def _auto_score_and_save_ideas(
             # Build idea content string
             idea_title = getattr(idea, "title", str(idea)[:100])
             idea_content = getattr(idea, "content", getattr(idea, "description", str(idea)))
-            idea_summary = idea_content[:500] if idea_content else idea_title
+            idea_summary = _format_idea_summary(idea_content) if idea_content else idea_title
 
             # De-duplicate: skip ideas whose title fingerprint already exists in
             # the backlog or earlier in this batch.
@@ -681,12 +786,12 @@ async def _auto_score_and_save_ideas(
                     if status == "promoted":
                         issue_labels.append(Labels.PROMOTE_TO_PLAN)
                     elif status == "archived":
-                        issue_labels.append("archived")
+                        issue_labels.append(Labels.STATUS_ARCHIVED)
                     else:
                         issue_labels.append(Labels.STATUS_BACKLOG)
 
                     issue = github_client.create_issue(
-                        title=f"[Idea] {idea_title[:100]}",
+                        title=f"[Idea] {_clean_issue_title(idea_title)[:100]}",
                         body=issue_body,
                         labels=issue_labels,
                     )
@@ -767,7 +872,7 @@ async def _auto_score_and_save_ideas(
                             Labels.STATUS_BACKLOG,
                         ]
                         plan_issue = github_client.create_issue(
-                            title=f"[Plan] {idea_title[:100]}",
+                            title=f"[Plan] {_clean_issue_title(idea_title)[:100]}",
                             body=plan_body,
                             labels=plan_labels,
                         )

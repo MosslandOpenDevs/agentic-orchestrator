@@ -7,6 +7,26 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 이 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)를 기반으로 하며,
 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
+## [0.6.13] - 2026-08-04
+
+### 수정
+- **이슈 본문이 JSON 중간에서 잘리지 않는다.** `_auto_score_and_save_ideas`가 GitHub 이슈 본문을 `idea_content[:500]`으로 만들었다. 토론 출력은 ```` ```json ```` 펜스 객체라 이 슬라이스가 블록을 열어둔 채 잘랐고, 그 뒤의 모든 섹션(Auto-Score Results, Decision, Context)이 닫히지 않은 코드 스팬 안에 렌더링됐다. **열린 이슈 12건**이 이 상태이며 그중 7건이 `curated:keep`이다 (#529, #570, #583, #668, #698, #730, #731, #750, #762, #1011, #1252, #2437). 표본이 아니라 열린 이슈 전체를 펜스 개수 홀짝으로 검사해 확정했다. DB의 `summary`/`summary_ko`도 같은 방식으로 잘렸으나 `description`은 항상 온전해 유실된 데이터는 없다. 이제 `_format_idea_summary()`가 JSON을 파싱해 마크다운으로 렌더하고, 실패 시 `_truncate_markdown()`이 문단/줄/문장 경계에서 자르며 열린 펜스를 반드시 닫는다. 두 경로 모두 길이 상한을 지킨다. 기존 이슈 본문은 바뀌지 않으며, 백필하려면 프로덕션 DB가 필요하다.
+- **제목에 마크다운이 새지 않는다.** 제목 정리가 `title.replace("#", "")`뿐이라 강조 마커가 그대로 남았다. GitHub는 제목에 마크다운을 렌더하지 않으므로 열린 이슈 27건이 `[IDEA] **Foo**`처럼 별표를 노출하고 있었다. `_clean_issue_title()`이 `*`, `` ` ``, `_`를 제거하고 남은 공백을 정리하며, 이슈 제목을 만드는 4곳 전부에 적용된다. (기존 27건의 제목은 트래커에서 직접 수정했다.)
+- **`status == "archived"` 분기가 택소노미 밖 라벨을 만들었다.** 형제 분기 둘은 `Labels` 상수를 쓰는데 이 분기만 raw 문자열 `"archived"`를 붙여, 파이프라인이 재가동되면 레지스트리 밖 라벨이 생성될 상태였다. 처음부터 문서에만 있고 정의된 적 없던 `Labels.STATUS_ARCHIVED = "status:archived"`를 `ALL_LABELS`에 추가하고 사용하도록 수정.
+- **`website/src/lib/version.ts`가 0.6.10에 멈춰 있었다.** 파일 자체 주석이 동기화를 지시하고 있음에도 0.6.11과 0.6.12 모두 `pyproject.toml`만 올렸다.
+- **EN/KO README 줄 패리티 복원.** 0.6.11이 설명 문단을 영문 4줄·한글 3줄로 넣으면서 1줄이 어긋났다. 한글 문단을 내용 그대로 4줄로 재배치해 두 파일 모두 375줄, 헤딩 줄 번호도 다시 일치한다.
+
+### 문서
+- **`docs/labels.md`를 실제 레지스트리 기준으로 다시 씀.** 코드 어디에도 없는 라벨 3개(`status:promoted`, `status:archived`, `source:debate`)를 문서화하고 있었고, 실제로 존재하며 사용 중인 4개(`processed:to-plan`, `curated:keep`, `rejected`, `reject:plan`)는 누락했다. "Setting Up Labels" 블록은 그 없는 3개를 만들고 실제 라벨 대부분을 빠뜨렸으므로, `Labels.ALL_LABELS`에서 생성되는 `ao backlog setup`을 안내하도록 교체.
+  - `promote:to-plan`이 "Future / 미구현"으로 분류돼 있었다. 소비자(`find_ideas_to_promote` -> `BacklogOrchestrator.run_cycle`)는 완전히 구현돼 있고 2026-01-04에 마지막으로 정상 동작했다. 없는 것은 스케줄러 엔트리다 — `run_cycle`은 `ao backlog run` / `ao backlog process`에서만 도달 가능하고 어떤 PM2 잡도 호출하지 않는다 (`moss-ao-backlog`은 다른 작업이다).
+  - `promote:to-plan`의 **상충하는 두 의미**를 문서화했다. 문서와 이슈 템플릿은 사람의 승인 게이트라고 설명하지만 `scheduler/tasks.py`는 score >= 7.0에 자동으로 붙인다. 이를 정리하지 않고 소비자를 스케줄에 올리면 모든 플랜이 두 번 생성되고 사람 승인 게이트가 사라진다. 임의로 바꾸지 않고 메인테이너 결정 사항으로 남겼다.
+  - `promote:to-plan` 이슈 6건에 `status:` 라벨이 없는 이유를 기록했다 — `find_ideas_to_promote()`가 `[type:idea, promote:to-plan]`으로 조회하므로 `status:backlog`를 추가하면 배타적이어야 할 두 큐에 이중 계상된다. 현재 상태가 맞다.
+
+### 정리 (GitHub 트래커, 코드 변경 없음)
+- 사용되지 않던 GitHub 기본 라벨 9개 삭제 (`bug`, `documentation`, `duplicate`, `enhancement`, `good first issue`, `help wanted`, `invalid`, `question`, `wontfix`). 이슈 2,868건과 모든 PR에서 사용 0건임을 확인 후 삭제했다. 이제 라벨은 택소노미가 정의한 11개뿐이다.
+- #65, #66을 중복으로 닫음: 둘 다 `type:idea` 라벨이 붙었지만 본문은 플랜 #12/#10의 기획 문서이고 제목은 아이디어 #11/#7의 중복인 백필 산출물이다. 원본과 플랜은 모두 열린 상태로 남아 있다.
+- 홍보성 코멘트 3건을 스팸으로 접음 (#583, #1252, #2437). minimize는 코멘트를 삭제하지 않으므로 2026-06 keep-set의 "비봇 코멘트 보유" 보호 근거는 그대로다 — 사후 재검증했다.
+
 ## [0.6.12] - 2026-08-04
 
 ### 수정

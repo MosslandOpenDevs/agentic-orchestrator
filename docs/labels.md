@@ -2,21 +2,46 @@
 
 This document describes the labels used in the Mossland Agentic Orchestrator workflow.
 
-> **Note**: The current system is **DB-centric**. GitHub Issues and labels are used for visibility and tracking, but the primary data store is SQLite. The label-based promotion workflow described below is for reference and future implementation.
+> **Note**: The system is **DB-centric**. GitHub Issues and labels exist for visibility;
+> SQLite (`data/orchestrator.db`) is the source of truth. Closing an issue does not delete data.
+
+> **`promote:to-plan` is not a "future" label.** Its consumer is implemented
+> (`GitHubClient.find_ideas_to_promote` → `BacklogOrchestrator.run_cycle`) and last ran
+> successfully on 2026-01-04. What is missing is a *scheduler entry*: `run_cycle` is reachable
+> only from `ao backlog run` / `ao backlog process`, and no PM2 process invokes it. The PM2
+> `moss-ao-backlog` job is a different task (DB aggregation/retention). Note also that the
+> orchestrator adds this label **itself** to any idea scoring >= 7.0, so it is not purely a human
+> approval signal today — see [Known Ambiguity](#known-ambiguity-promoteto-plan-has-two-meanings).
 
 ## Quick Reference
+
+Source of truth for this table is `Labels.ALL_LABELS` in
+[`github_client.py`](../src/agentic_orchestrator/github_client.py).
 
 | Label | Purpose | Who Adds It | Status |
 |-------|---------|-------------|--------|
 | `type:idea` | Marks an idea issue | Orchestrator | Active |
 | `type:plan` | Marks a planning issue | Orchestrator | Active |
 | `status:backlog` | In backlog, awaiting action | Orchestrator | Active |
-| `status:promoted` | High-scoring idea (>=7.0) | Orchestrator | Active |
-| `status:archived` | Low-scoring idea (<4.0) | Orchestrator | Active |
-| `generated:by-orchestrator` | Auto-generated content | Orchestrator | Active |
-| `source:debate` | Generated from debate | Orchestrator | Active |
-| `promote:to-plan` | Promote idea to planning | Human | *Future* |
-| `promote:to-dev` | Start development from plan | Human | *Future* |
+| `status:planned` | A plan exists for this idea | Orchestrator | Active |
+| `status:archived` | Low-scoring idea (<4.0) | Orchestrator | Defined; unused on this repo |
+| `status:in-dev` | Plan is being implemented | Orchestrator | Defined; unused on this repo |
+| `status:done` | Completed | Orchestrator | Defined; unused on this repo |
+| `generated:by-orchestrator` | Auto-generated content | Orchestrator | Active (all 65 open issues) |
+| `source:trend` | Generated from trend analysis | Orchestrator | Active |
+| `promote:to-plan` | Queue idea for planning | Orchestrator (score >= 7.0) **and** Human | Active |
+| `processed:to-plan` | Promotion consumed; plan created | Orchestrator | Active |
+| `reject:plan` | Reject a plan and regenerate | Human | Defined; unused on this repo |
+| `rejected` | Terminal marker written by `reject_plan()` | Orchestrator | Active (closed issues) |
+| `curated:keep` | Survived the 2026-06 issue-cleanup triage | Human | Active (12 issues) |
+| `promote:to-dev` | Start development from plan | Human | *Not implemented* |
+
+`curated:keep` is the only label in the set that the orchestrator neither adds nor reads. It is a
+human triage marker applied during the 2026-06 cleanup (2,803 issues closed) and is what any
+future bulk-close pass must exclude.
+
+`rejected` and `reject:plan` are **not** duplicates: `reject:plan` is the input a human adds, and
+`rejected` is the terminal marker `reject_plan()` writes afterwards. Do not retire either one.
 
 ## Current Workflow (DB-Centric)
 
@@ -60,12 +85,20 @@ The current system uses SQLite as the primary data store. GitHub Issues are crea
 
 ### Status Mapping
 
+Written by `_auto_score_and_save_ideas` in
+[`scheduler/tasks.py`](../src/agentic_orchestrator/scheduler/tasks.py).
+
 | DB Status | GitHub Labels | Description |
 |-----------|---------------|-------------|
-| `promoted` | `type:idea`, `status:promoted` | High-quality idea, ready for planning |
+| `promoted` | `type:idea`, `promote:to-plan` | High-quality idea, queued for planning |
 | `scored` | `type:idea`, `status:backlog` | Medium-quality, needs review |
-| `archived` | `type:idea`, `archived` | Low-quality, not pursued |
+| `archived` | `type:idea`, `status:archived` | Low-quality, not pursued |
 | `planned` | `type:plan`, `status:backlog` | Plan document exists |
+
+Note that the `promoted` row carries **no** `status:` label. That is deliberate:
+`find_ideas_to_promote()` queries `[type:idea, promote:to-plan]`, and adding `status:backlog`
+would double-count the issue across two queues that are meant to be exclusive. The six open
+issues in that state are correct, not untagged.
 
 ## Label Categories
 
@@ -86,35 +119,53 @@ These indicate what kind of issue it is:
 These track the current state of an issue:
 
 - **`status:backlog`** - In the backlog, waiting for review
-- **`status:promoted`** - High-scoring idea ready for planning
-- **`status:archived`** - Low-scoring idea, not actively pursued
+- **`status:planned`** - A plan has been generated from this idea
+- **`status:archived`** - Low-scoring idea (<4.0), not actively pursued
+- **`status:in-dev`**, **`status:done`** - Defined for the development stage; not in use yet
+
+There is no `status:promoted`. A promoted idea is identified by `promote:to-plan`.
 
 ### Source Labels
 
 These indicate where the content came from:
 
-- **`source:debate`** - Generated from multi-agent debate
 - **`source:trend`** - Generated from trend analysis
 - **`generated:by-orchestrator`** - Auto-generated (all orchestrator content)
 
+There is no `source:debate` label. Debate-originated ideas carry only
+`generated:by-orchestrator`; to tell the two apart, read `ideas.source_type` in the DB
+(`debate` vs `trend_based`).
+
 ---
 
-## Future Feature: Label-Based Promotion
+## Label-Based Promotion
 
-> **Status**: Not yet implemented. The following describes the planned workflow.
+### Known Ambiguity: `promote:to-plan` has two meanings
 
-### Promotion Labels (Human Action)
+The docs and the issue template describe this label as a **human approval gate**
+(`.github/ISSUE_TEMPLATE/idea.yml`: "If selected, add the `promote:to-plan` label to start
+planning"). The code also has the orchestrator apply it **automatically** to every idea scoring
+>= 7.0 (`scheduler/tasks.py`, the `status == "promoted"` branch). All six issues currently
+carrying it were labelled by the bot in the same second the issue was created; the only
+human-applied instances are #7 and #11 from 2026-01-04.
 
-These labels will allow humans to trigger actions:
+That matters before anyone puts `run_cycle` on a schedule: with both behaviours live, a
+high-scoring idea gets a plan generated automatically **and** gets queued for the label consumer,
+so plans are generated twice and the human approval gate disappears. Pick one before scheduling:
 
-- **`promote:to-plan`** - Tell the orchestrator to create a detailed plan
-  - Add to any `type:idea` issue you want to develop
-  - Planned behavior:
+- keep auto-promotion but give it its own label, leaving `promote:to-plan` purely human; or
+- accept that promotion is automatic and correct the docs and issue template instead.
+
+### Promotion Labels
+
+- **`promote:to-plan`** — implemented. Consumer: `find_ideas_to_promote()` →
+  `BacklogOrchestrator.run_cycle`. Behaviour when it runs:
     1. Generate a detailed planning document
     2. Create a new `type:plan` issue
-    3. Update the idea with `status:planned`
+    3. Swap the idea's labels to `processed:to-plan` + `status:planned`
+  - Reachable today only via `ao backlog run` / `ao backlog process`; no PM2 job calls it.
 
-- **`promote:to-dev`** - Tell the orchestrator to start development
+- **`promote:to-dev`** - *Not implemented.* Tell the orchestrator to start development
   - Add to any `type:plan` issue you want to implement
   - Planned behavior:
     1. Create project scaffold in `projects/` directory
@@ -164,30 +215,16 @@ These labels will allow humans to trigger actions:
 
 ## Setting Up Labels
 
-Run this command to create all required labels in your repository:
+Do not hand-write `gh label create` calls — an earlier version of this page created three labels
+that no code uses and omitted most of the ones that matter. Create them from the registry
+instead, which is idempotent and always matches `Labels.ALL_LABELS`:
 
 ```bash
-# Using GitHub CLI
-gh label create "type:idea" --color "0052CC" --description "An idea for a new service"
-gh label create "type:plan" --color "5319E7" --description "A detailed planning document"
-gh label create "status:backlog" --color "FBCA04" --description "In backlog, awaiting action"
-gh label create "status:promoted" --color "0E8A16" --description "High-scoring idea"
-gh label create "status:archived" --color "666666" --description "Archived, not pursued"
-gh label create "source:debate" --color "C5DEF5" --description "Generated from debate"
-gh label create "generated:by-orchestrator" --color "BFD4F2" --description "Auto-generated content"
+ao backlog setup
 ```
 
-## Label Colors
-
-| Label | Color | Hex |
-|-------|-------|-----|
-| type:idea | Blue | `#0052CC` |
-| type:plan | Purple | `#5319E7` |
-| status:backlog | Yellow | `#FBCA04` |
-| status:promoted | Green | `#0E8A16` |
-| status:archived | Gray | `#666666` |
-| source:debate | Light Blue | `#C5DEF5` |
-| generated:by-orchestrator | Light Blue | `#BFD4F2` |
+`curated:keep` is deliberately **not** in the registry: it is a human triage marker, so
+`setup_labels()` will not recreate it if you delete it.
 
 ## Common Scenarios
 
@@ -214,7 +251,7 @@ sqlite3 data/orchestrator.db "SELECT id, title, score FROM ideas WHERE status='p
 curl "https://ao.moss.land/api/ideas?status=promoted"
 
 # Via GitHub
-# Filter issues by label:status:promoted
+# Filter issues by label:promote:to-plan
 ```
 
 ### "I want to check plan details"

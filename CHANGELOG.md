@@ -7,6 +7,26 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.13] - 2026-08-04
+
+### Fixed
+- **Issue bodies no longer break mid-JSON.** `_auto_score_and_save_ideas` built the GitHub issue body from `idea_content[:500]`. Debate output is a fenced ```` ```json ```` object, so that slice cut the block open and every following section — Auto-Score Results, Decision, Context — rendered inside the unclosed code span. **12 still-open issues** are in that state, 7 of them `curated:keep` (#529, #570, #583, #668, #698, #730, #731, #750, #762, #1011, #1252, #2437), verified by scanning every open issue for an odd fence count. The DB `summary`/`summary_ko` columns were truncated the same way; `description` was always intact, so nothing was lost. `_format_idea_summary()` now parses the JSON and lays it out as markdown, falling back to `_truncate_markdown()`, which cuts on a paragraph/line/sentence boundary and closes any fence it would otherwise leave open. Both paths honour the length bound. Existing issue bodies are untouched; backfilling them needs the production DB.
+- **Markdown no longer leaks into issue titles.** Titles were cleaned with `title.replace("#", "")`, which left emphasis markers intact — GitHub renders no markdown in titles, so 27 open issues read `[IDEA] **Foo**` with literal asterisks. `_clean_issue_title()` now strips `*`, `` ` `` and `_` and collapses the whitespace left behind, at all four issue-title construction sites. (The 27 existing titles were corrected directly on the tracker.)
+- **`status == "archived"` created an off-taxonomy label.** The branch appended the raw string `"archived"` while its two sibling branches used `Labels` constants, so a resumed pipeline would create a stray `archived` label outside the registry. Added `Labels.STATUS_ARCHIVED = "status:archived"` — documented since the beginning, never actually defined — to `ALL_LABELS` and used it.
+- **`website/src/lib/version.ts` was still on 0.6.10**, three releases behind, despite its own comment instructing that it be kept in sync. 0.6.11 and 0.6.12 both bumped `pyproject.toml` without it.
+- **Restored EN/KO README line parity**, which 0.6.11 broke by one line: an explanatory paragraph landed as 4 lines in English and 3 in Korean. The Korean paragraph is rewrapped to 4 lines with identical content; both files are 375 lines with identical heading positions again.
+
+### Documentation
+- **`docs/labels.md` rewritten against the real registry.** It documented three labels that exist nowhere in the code (`status:promoted`, `status:archived`, `source:debate`) and omitted four that are in active use (`processed:to-plan`, `curated:keep`, `rejected`, `reject:plan`). Its "Setting Up Labels" block created the three phantom labels and missed most real ones; it now points at `ao backlog setup`, which is generated from `Labels.ALL_LABELS`.
+  - `promote:to-plan` was filed under "Future / Not yet implemented". Its consumer (`find_ideas_to_promote` -> `BacklogOrchestrator.run_cycle`) is fully implemented and last ran on 2026-01-04; what is missing is a scheduler entry, since `run_cycle` is reachable only from `ao backlog run` / `ao backlog process` and no PM2 job calls it. (`moss-ao-backlog` is a different task.)
+  - Documented the **two conflicting meanings** of `promote:to-plan`: the docs and issue template call it a human approval gate, while `scheduler/tasks.py` applies it automatically at score >= 7.0. Scheduling the consumer before resolving that would generate every plan twice and remove the human gate. Recorded as a decision for a maintainer, deliberately not resolved here.
+  - Recorded why the six `promote:to-plan` issues carry no `status:` label — `find_ideas_to_promote()` queries `[type:idea, promote:to-plan]`, so adding `status:backlog` would double-count them across two queues meant to be exclusive. They are correct as they are.
+
+### Housekeeping (GitHub tracker, no code change)
+- Deleted the 9 unused GitHub default labels (`bug`, `documentation`, `duplicate`, `enhancement`, `good first issue`, `help wanted`, `invalid`, `question`, `wontfix`) — all verified at 0 usage across 2,868 issues and every PR. The label set is now exactly the 11 the taxonomy defines.
+- Closed #65 and #66 as duplicates: both are backfill artifacts labelled `type:idea` whose bodies are the planning documents for #12 and #10, with titles duplicating ideas #11 and #7. Originals and plans all remain open.
+- Collapsed three promotional comments as spam (#583, #1252, #2437). Minimising retains the comment, so the "has a non-bot comment" protection on the 2026-06 keep-set is unaffected — re-verified afterwards.
+
 ## [0.6.12] - 2026-08-04
 
 ### Fixed
