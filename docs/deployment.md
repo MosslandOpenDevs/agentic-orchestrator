@@ -47,7 +47,7 @@ git push → main 머지
 | 변경된 경로 | 수행 |
 |-------------|------|
 | `src/`, `config.yaml`, `prompts/` | `pm2 restart moss-ao-api` |
-| `pyproject.toml` | `pip install -e .` + API 재시작 |
+| `pyproject.toml` | 의존성 설치 + API 재시작 — 체크아웃이 uv 관리면 `uv sync`, 아니면 `pip install -e .` |
 | `website/` | `npm run build` + `pm2 restart moss-ao-web` |
 | `website/package*.json` | `npm ci` + 빌드 + 재시작 |
 | 문서만 (`*.md` 등) | 체크아웃만 갱신, 재시작 없음 |
@@ -119,8 +119,16 @@ tail -f logs/deploy.log
 | `GITHUB_TOKEN` | (없음) | 선택. CI 상태 조회의 rate limit 완화용 |
 | `DEPLOY_VERBOSE` | `0` | `1`이면 변경 없는 틱도 로그에 남김 |
 
-그 외 조정 가능한 값(`DEPLOY_HEALTH_RETRIES`, `DEPLOY_API_URL` 등)은
+그 외 조정 가능한 값(`DEPLOY_HEALTH_RETRIES`, `DEPLOY_API_URL`, `UV_BIN` 등)은
 `scripts/deploy.sh` 상단 주석에 정리돼 있습니다.
+
+### uv / pip 자동 판별
+
+의존성 설치는 체크아웃 형태를 보고 고릅니다. `uv.lock`이 있거나 `.venv/pyvenv.cfg`에
+`uv = ...`가 적혀 있으면 `uv sync`, 아니면 `pip install -e .`입니다. 운영 서버의
+`.venv`는 uv가 만든 것이라 **내부에 pip이 아예 없어서** `pip install -e .`는 실패합니다
+(`uv.lock`은 저장소에 커밋돼 있지 않고 서버에만 있으므로, 이 판별은 커밋이 아니라
+머신의 속성입니다).
 
 ## 운영
 

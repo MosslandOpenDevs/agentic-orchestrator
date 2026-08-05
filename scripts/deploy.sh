@@ -29,7 +29,11 @@
 #   DEPLOY_HEALTH_INTERVAL seconds between attempts            (default: 3)
 #   DEPLOY_ALERT_WEBHOOK   Slack/Discord webhook for failures   (default: none)
 #   DEPLOY_VERBOSE         1 = also log no-op ticks            (default: 0)
-#   PYTHON_BIN / PM2_BIN / NPM_BIN / GITHUB_TOKEN
+#   PYTHON_BIN / PM2_BIN / NPM_BIN / UV_BIN / GITHUB_TOKEN
+#
+# Dependency install adapts to the checkout: `uv sync` when the venv is
+# uv-managed (as on the production box, whose .venv contains no pip at all),
+# `pip install -e .` otherwise.
 #
 # Data safety: this script only ever runs `git reset --hard`, which leaves
 # untracked files alone. It must NEVER run `git clean` -- data/orchestrator.db,
@@ -59,6 +63,7 @@ DEPLOY_LOCK_STALE_MIN=${DEPLOY_LOCK_STALE_MIN:-90}
 PYTHON_BIN=${PYTHON_BIN:-${REPO_ROOT}/.venv/bin/python}
 PM2_BIN=${PM2_BIN:-pm2}
 NPM_BIN=${NPM_BIN:-npm}
+UV_BIN=${UV_BIN:-$(command -v uv 2>/dev/null || echo "${HOME}/.local/bin/uv")}
 
 FORCE=0
 CHECK_ONLY=0
@@ -267,6 +272,15 @@ else
   log "WARN ${PYTHON_BIN} not found -- skipping DB snapshot"
 fi
 
+# uv-managed checkout? Either the lockfile is present (it is untracked on the
+# server, so this is a property of the machine, not of the commit) or the venv
+# itself records that uv built it.
+uses_uv() {
+  [ -x "${UV_BIN}" ] || return 1
+  [ -f "${REPO_ROOT}/uv.lock" ] && return 0
+  grep -qs '^uv = ' "${REPO_ROOT}/.venv/pyvenv.cfg"
+}
+
 # Build + restart for whatever the current checkout is. Used for the deploy and,
 # unchanged, for the rollback -- so a rollback restores a consistent build too.
 #
@@ -276,8 +290,17 @@ build_and_restart() {
   local py="$1" web="$2" pydeps="$3" nodedeps="$4"
 
   if [ "${pydeps}" = "1" ]; then
-    log "pip install -e . (pyproject.toml changed)"
-    "${PYTHON_BIN}" -m pip install -e . --quiet || { log "ERROR pip install failed"; return 1; }
+    # The production checkout's .venv is created and owned by `uv` and has no
+    # pip inside it, so `pip install -e .` there fails outright; a plain
+    # pip/venv checkout is still the documented local setup. Use whichever
+    # this checkout actually is.
+    if uses_uv; then
+      log "uv sync (pyproject.toml changed)"
+      "${UV_BIN}" sync --quiet || { log "ERROR uv sync failed"; return 1; }
+    else
+      log "pip install -e . (pyproject.toml changed)"
+      "${PYTHON_BIN}" -m pip install -e . --quiet || { log "ERROR pip install failed"; return 1; }
+    fi
   fi
 
   if [ "${web}" = "1" ]; then
