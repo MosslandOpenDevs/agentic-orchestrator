@@ -17,6 +17,7 @@ from .base import (
     QuotaExhaustedError,
     RateLimitError,
     RetryConfig,
+    enforce_local_only,
 )
 
 logger = get_logger(__name__)
@@ -301,6 +302,8 @@ def create_gemini_provider(
     from ..utils.config import load_config
 
     config = load_config()
+    dry_run = dry_run or config.dry_run
+    enforce_local_only("gemini", dry_run=dry_run)
 
     return GeminiProvider(
         model=model or config.gemini_model,
@@ -309,5 +312,5 @@ def create_gemini_provider(
             max_retries=config.rate_limit_max_retries,
             max_wait_seconds=config.rate_limit_max_wait,
         ),
-        dry_run=dry_run or config.dry_run,
+        dry_run=dry_run,
     )

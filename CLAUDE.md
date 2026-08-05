@@ -833,6 +833,42 @@ GPU(~8 GB)에 상주하는 모델은 두 개뿐이며 스왑이 발생하지 않
 
 > 실제 모델 정의는 `src/agentic_orchestrator/llm/hierarchy.py`의 `LOCAL_MODELS`, 프로젝트 생성 모델은 `config.yaml`의 `project.llm`을 단일 소스로 참조합니다.
 
+### 유료 모델로 가는 두 입구 — 둘 다 통제된다
+
+과금 호출에 도달하는 경로는 서로 겹치지 않는 두 개다. 새 코드를 붙일 때 어느 쪽인지
+먼저 확인할 것.
+
+| 경로 | 흐름 | 누가 통제하나 |
+|------|------|--------------|
+| **라우터** (파이프라인 전체) | `HybridLLMRouter.route()` → `provider.generate()` → `_make_request()` | 라우터 자신: 로컬 온리 플래그, `paid_tiers` 허용목록, 예산 확인, `record_usage` |
+| **레거시** (`ao` CLI 전용) | 스테이지·백로그의 `@property` → `provider.complete()` / `.chat()` → `_complete_with_retry()` → `_make_request()` | 팩토리의 `enforce_local_only()` + `BaseProvider._complete_with_retry`의 예산 확인·원장 기록 |
+
+- **레거시 경로는 스케줄된 곳 어디에서도 도달하지 않는다.** `ecosystem.config.js`는
+  `scheduler/*`와 uvicorn만 띄우고, 그들도 `api/main.py`도 `backlog.py`·`stages/*`를
+  import하지 않는다. 실행 주체는 서버에서 사람이 치는 `ao step` / `ao loop` /
+  `ao backlog run` / `process`뿐이다 (`docs/labels.md` 참조).
+- **`create_claude_provider` / `create_openai_provider` / `create_gemini_provider`는
+  `MOSS_LOCAL_LLM_ONLY`가 켜져 있으면 생성 자체를 거부한다** (`PaidProviderBlockedError`).
+  `dry_run=True`만 면제 — 리허설은 네트워크에 나가지 않기 때문. 플래그가 미설정이거나
+  값에 오타가 있으면 **닫힌 쪽**(지출 없음)으로 실패한다.
+- **과금된 완성 결과는 전부 `api_usage` 원장에 기록되어 `/usage`에 잡힌다.** 기록 지점이
+  `complete()`가 아니라 `_complete_with_retry`인 이유: Gemini가 `complete()`를 `super()`
+  호출 없이 오버라이드하므로 상위에 걸면 Gemini만 빠진다. 라우터는 `generate()`로
+  `_make_request`에 직접 가므로 이중 계상되지 않는다.
+- **예산 소진 시 레거시 경로는 거부한다** (`BudgetExhaustedError`, `QuotaExhaustedError`
+  서브클래스라 상태 머신이 일시정지·알림으로 처리). 라우터처럼 로컬로 강등할 수 없기
+  때문 — 레거시 스테이지에는 Ollama 대안이 없다. 반대로 **원장(DB) 자체가 불가용이면
+  열린 쪽으로 실패**한다: DB 장애가 파이프라인을 죽여선 안 된다.
+- 유료 프로바이더를 팩토리 밖에서 직접 생성하면 게이트를 우회하게 된다. 유일한 예외는
+  스스로 `if self.local_only: return`으로 가드하는 `llm/router.py`의
+  `_init_api_providers`이며, `tests/test_paid_provider_gating.py`의 소스 불변식이
+  그 외의 직접 생성을 차단한다.
+- 플래그 파싱은 `providers/base.py`의 `local_llm_only()` 한 곳뿐 — 라우터와 팩토리가
+  공유하므로 두 입구가 서로 다른 판단을 내릴 수 없다.
+
+> **서버는 `MOSS_LOCAL_LLM_ONLY=false`로 운영된다** (토론 유료 티어에 필요). 즉 거기서
+> 수동 `ao` 실행을 묶는 것은 킬 스위치가 아니라 **원장과 예산 상한**이다.
+
 > **임베딩은 현재 어떤 코드도 호출하지 않는다 (2026-08-05 확인).** `hierarchy.py`에
 > `qwen3-embedding:0.6b`가 등록돼 있고 이 문서도 오랫동안 "RAG 인덱싱, 유사도 비교"에
 > 쓴다고 적어 왔지만, 임베딩 API를 호출하는 코드 경로가 소스 어디에도 없다 — 시그널의

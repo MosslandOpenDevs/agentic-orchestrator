@@ -24,6 +24,7 @@ from .base import (
     QuotaExhaustedError,
     RateLimitError,
     RetryConfig,
+    enforce_local_only,
 )
 
 logger = get_logger(__name__)
@@ -572,6 +573,11 @@ def create_claude_provider(
     from ..utils.config import load_config
 
     config = load_config()
+    dry_run = dry_run or config.dry_run
+    # Gated even for prefer_cli: Claude Code is not a local model either, and
+    # `mode` is decided inside the constructor, so the factory cannot know
+    # which of the two billing surfaces it is about to hand out.
+    enforce_local_only("claude", dry_run=dry_run)
 
     return ClaudeProvider(
         model=model or config.claude_model,
@@ -581,5 +587,5 @@ def create_claude_provider(
             max_retries=config.rate_limit_max_retries,
             max_wait_seconds=config.rate_limit_max_wait,
         ),
-        dry_run=dry_run or config.dry_run,
+        dry_run=dry_run,
     )
