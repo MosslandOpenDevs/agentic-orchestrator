@@ -1535,28 +1535,36 @@ def _process_backlog():
             TrendRepository,
         )
 
-        retention_session = db.get_session()
-        try:
-            trend_repo = TrendRepository(retention_session)
-            debate_repo_r = DebateRepository(retention_session)
+        # Each sweep gets its own transaction. They used to share one, so a
+        # failure in either rolled back both -- and the debate sweep failed
+        # every run on a foreign key, which meant retention pruned nothing at
+        # all while logging a single warning.
+        RETENTION_DAYS = 180  # noqa: N806  (constant-like local)
 
-            trends_deleted = trend_repo.delete_older_than(days=180)
-            sessions_deleted = debate_repo_r.delete_older_than(days=180)
-            retention_session.commit()
-            stats["trends_deleted"] = trends_deleted
-            stats["debate_sessions_deleted"] = sessions_deleted
-            logger.info(
-                f"Retention: pruned {trends_deleted} trends, "
-                f"{sessions_deleted} debate sessions (older than 180 days)"
-            )
-        except Exception as e:
-            logger.warning(f"Retention sweep skipped: {e}")
+        def _sweep(label: str, repo_factory, stat_key: str) -> None:
+            retention_session = db.get_session()
             try:
-                retention_session.rollback()
-            except Exception:
-                pass
-        finally:
-            retention_session.close()
+                repo = repo_factory(retention_session)
+                deleted = repo.delete_older_than(days=RETENTION_DAYS)
+                kept = repo.count_older_than_still_referenced(days=RETENTION_DAYS)
+                retention_session.commit()
+                stats[stat_key] = deleted
+                logger.info(
+                    f"Retention: pruned {deleted} {label} older than "
+                    f"{RETENTION_DAYS} days; kept {kept} still referenced by "
+                    f"surviving ideas/plans"
+                )
+            except Exception as e:
+                logger.warning(f"Retention sweep for {label} skipped: {e}")
+                try:
+                    retention_session.rollback()
+                except Exception:
+                    pass
+            finally:
+                retention_session.close()
+
+        _sweep("trends", TrendRepository, "trends_deleted")
+        _sweep("debate sessions", DebateRepository, "debate_sessions_deleted")
 
         # Backlog triage — the consumer that matches idea production.
         # Re-scores the oldest 'scored' ideas against today's trends and
@@ -1674,16 +1682,24 @@ async def _health_check_async():
         try:
             ollama = OllamaProvider()
             ollama_health = await ollama.health_check()
+            # The key is "available_models"; reading "models" always yielded []
+            # and logged "0 models" no matter how healthy the server was.
+            models = ollama_health.get("available_models", [])
             if ollama_health.get("status") == "healthy":
                 health_status["components"]["ollama"] = {
                     "status": "healthy",
-                    "models": ollama_health.get("models", []),
+                    "models": models,
                 }
-                logger.info(f"Ollama: healthy ({len(ollama_health.get('models', []))} models)")
+                logger.info(f"Ollama: healthy ({len(models)} models)")
             else:
-                health_status["components"]["ollama"] = {"status": "degraded"}
+                detail = ollama_health.get("detail") or ollama_health.get("error") or ""
+                health_status["components"]["ollama"] = {
+                    "status": "degraded",
+                    "models": models,
+                    "detail": detail,
+                }
                 health_status["status"] = "degraded"
-                logger.warning("Ollama: degraded")
+                logger.warning(f"Ollama: degraded {detail}".rstrip())
         except Exception as e:
             health_status["components"]["ollama"] = {"status": "unhealthy", "error": str(e)}
             health_status["status"] = "degraded"

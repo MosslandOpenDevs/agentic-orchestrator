@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..db.models import COMPLETED_PROJECT_STATUSES
 from ..timeutil import utcnow
 from .generator import GeneratedFile, ProjectCodeGenerator
 from .parser import ParsedPlan, PlanParser
@@ -135,16 +136,36 @@ class ProjectScaffold:
                     error=f"Plan not found: {plan_id}",
                 )
 
-            # Check if project already exists
+            # Check if project already exists.
+            #
+            # Only a project that succeeded (or is mid-flight) is a reason to
+            # stop. This used to return early for *any* existing row, so a
+            # retry of a failed generation -- which is exactly what the API
+            # allows an `error` project to request -- reported success=True
+            # with project_path=None and did no work at all, and the background
+            # job recorded it as "completed".
             existing_project = await self._get_existing_project(plan_id)
             if existing_project and not force_regenerate:
-                return ProjectGenerationResult(
-                    success=True,
-                    project_id=existing_project.get("id"),
-                    project_path=existing_project.get("directory_path"),
-                    plan_id=plan_id,
-                    tech_stack=existing_project.get("tech_stack", {}),
-                    error="Project already exists. Use force_regenerate=True to regenerate.",
+                existing_status = existing_project.get("status")
+                if existing_status in COMPLETED_PROJECT_STATUSES:
+                    return ProjectGenerationResult(
+                        success=True,
+                        project_id=existing_project.get("id"),
+                        project_path=existing_project.get("directory_path"),
+                        plan_id=plan_id,
+                        tech_stack=existing_project.get("tech_stack", {}),
+                        error="Project already exists. Use force_regenerate=True to regenerate.",
+                    )
+                if existing_status == "generating":
+                    return ProjectGenerationResult(
+                        success=False,
+                        project_id=existing_project.get("id"),
+                        plan_id=plan_id,
+                        error="Project generation is already in progress for this plan.",
+                    )
+                logger.info(
+                    f"Existing project for plan {plan_id} is in state "
+                    f"'{existing_status}'; regenerating"
                 )
 
             # Parse plan content with deep extraction
