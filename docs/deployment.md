@@ -62,8 +62,11 @@ git push → main 머지
   파일을 건드리지 않으므로 `data/orchestrator.db`, `data/backup/`, `.env`,
   `website/.env.local`이 그대로 남습니다. 2026-07 DB 유실 사고의 재발 방지선이며
   `tests/test_deploy.py`가 이 불변식을 실제로 검증합니다.
-- **배포 전 DB 스냅샷** — 매 배포 직전 `scheduler backup-db`(강제 스냅샷)를 실행합니다.
+- **배포 전 DB 스냅샷** — 코드 배포 직전 `scheduler backup-db`(강제 스냅샷)를 실행합니다.
   헬스체크가 쓰는 약 1일 주기 `maybe_backup_database()`와 달리 항상 찍습니다.
+  단, **문서만 바뀐 동기화는 스냅샷을 생략**합니다 — 아무것도 재시작하지 않고
+  `reset --hard`는 untracked DB를 건드릴 수 없어 보호할 대상이 없는데, 스냅샷마다
+  7슬롯 백업 창이 돌기 때문입니다.
 - **CI 게이트** — GitHub check-runs API로 해당 커밋이 초록불일 때만 배포합니다.
   진행 중이면 다음 틱으로 미루고, 빨간불이면 배포하지 않습니다. API를 못 읽어도(네트워크
   장애 등) 눈감고 배포하지 않고 미룹니다.

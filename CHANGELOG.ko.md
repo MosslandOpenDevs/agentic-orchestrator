@@ -7,6 +7,11 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 이 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)를 기반으로 하며,
 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
+## [Unreleased]
+
+### 수정
+- 문서만 바뀐 배포는 더 이상 배포 전 DB 스냅샷을 찍지 않는다. 문서 동기화는 아무것도 재시작하지 않고 `reset --hard`는 untracked DB를 건드릴 수 없어 스냅샷이 보호할 대상이 없는데, 스냅샷마다 7슬롯 백업 창이 돌아 문서 머지가 몰리면 며칠치 복원 지점이 몇 분짜리로 갈릴 수 있었다. 코드 배포는 여전히 스냅샷을 먼저 찍는다. 게이트는 뮤테이션 검증됨.
+
 ## [0.6.15] - 2026-08-05
 
 ### 수정

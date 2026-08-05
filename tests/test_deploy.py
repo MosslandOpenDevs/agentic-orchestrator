@@ -330,6 +330,16 @@ class TestDeploy:
         assert "pm2 restart" not in server.calls()
         assert "npm run build" not in server.calls()
 
+    def test_docs_only_change_skips_the_db_snapshot(self, server: Server):
+        """Nothing restarts, so a snapshot protects nothing — and each one
+        rotates the 7-slot backup window. A docs merge burst must not churn
+        days of restore points into minutes."""
+        server.push({"README.md": "docs only again\n"})
+        result = server.run()
+
+        assert "scheduler backup-db" not in server.calls()
+        assert "skipping DB snapshot" in result.stdout
+
     def test_frontend_change_alone_does_not_restart_the_api(self, server: Server):
         server.push({"website/page.tsx": "export default () => 1\n"})
         server.run()

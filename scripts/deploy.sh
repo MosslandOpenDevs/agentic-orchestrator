@@ -262,14 +262,22 @@ fi
 
 # Pre-deploy snapshot: forced (not the ~daily "maybe" variant the health check
 # uses) so there is always a restore point from immediately before this change.
-if [ -x "${PYTHON_BIN}" ]; then
-  if PYTHONPATH=./src "${PYTHON_BIN}" -m agentic_orchestrator.scheduler backup-db >/dev/null 2>&1; then
-    log "pre-deploy DB snapshot written to data/backup/"
+# Docs-only syncs skip it: nothing restarts and reset --hard cannot touch the
+# untracked DB, so a snapshot protects nothing -- and each one rotates the
+# 7-slot backup window, so a burst of docs merges would churn days of restore
+# points into minutes.
+if [ "${PY_CHANGED}" = "1" ] || [ "${WEB_CHANGED}" = "1" ]; then
+  if [ -x "${PYTHON_BIN}" ]; then
+    if PYTHONPATH=./src "${PYTHON_BIN}" -m agentic_orchestrator.scheduler backup-db >/dev/null 2>&1; then
+      log "pre-deploy DB snapshot written to data/backup/"
+    else
+      log "WARN pre-deploy DB snapshot failed (continuing)"
+    fi
   else
-    log "WARN pre-deploy DB snapshot failed (continuing)"
+    log "WARN ${PYTHON_BIN} not found -- skipping DB snapshot"
   fi
 else
-  log "WARN ${PYTHON_BIN} not found -- skipping DB snapshot"
+  log "docs-only sync -- skipping DB snapshot (nothing restarts)"
 fi
 
 # uv-managed checkout? Either the lockfile is present (it is untracked on the
