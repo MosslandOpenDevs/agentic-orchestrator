@@ -215,9 +215,11 @@ DB까지 되돌려야 하면 `CLAUDE.md`의 복원 절차(최신 `data/backup/or
    영구히 남고, **배포가 일어날 때마다 재적용**된다 — 깨끗하게 재등록해도
    다음 배포에서 다시 오염됐던 이유.
 
-**수정** (이 저장소에 반영됨): deploy.sh가 ① 시작 시 PM2가 주입한 설정 키
-환경변수를 전부 `unset`하고 ② 재시작에서 `--update-env`를 쓰지 않는다. 앱의
-env는 등록 시점의 `ecosystem.config.js`가 단일 소스다.
+**수정** (이 저장소에 반영됨): deploy.sh가 ① 시작 시 PM2가 주입하는 주요 설정
+키 환경변수(`cron_restart`, `autorestart`, `watch` 등 9종 — 방어선)를 `unset`하고
+② 재시작에서 `--update-env`를 쓰지 않는다(근본 수정 — 이 플래그가 없으면 주입
+키가 남아 있어도 새지 않음을 검증했다). 앱의 env는 등록 시점의
+`ecosystem.config.js`가 단일 소스다.
 `tests/test_deploy.py::TestPm2EnvHygiene`가 두 가지 모두 회귀를 차단한다.
 
 **서버에 남은 오염 제거**: `pm2 restart X --cron-restart 0`은 PM2 7.0.3에서

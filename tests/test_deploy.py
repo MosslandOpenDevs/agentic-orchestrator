@@ -116,15 +116,20 @@ class Server:
         # The real PM2 injects the calling app's config keys (cron_restart,
         # autorestart, ...) into child environments as plain variables. If
         # deploy.sh lets them through, `--update-env` stamps them onto the
-        # restarted apps (the 2026-08-05 incident) -- so the stub reports any
-        # it can see and TestPm2EnvHygiene asserts it never sees one.
+        # restarted apps (the 2026-08-05 incident) -- so the stub reports every
+        # scrub-list key it can see and TestPm2EnvHygiene asserts it sees none.
+        # The name list must match deploy.sh's `unset -v` line: dropping a key
+        # there makes the stub report it here.
         _write(
             self.bin / "pm2",
             f"""#!/usr/bin/env bash
 echo "pm2 $*" >> "{self.stub_log}"
-if [ -n "${{cron_restart:-}}${{autorestart:-}}" ]; then
-  echo "pm2-saw-env cron_restart=${{cron_restart:-}} autorestart=${{autorestart:-}}" >> "{self.stub_log}"
-fi
+for k in cron_restart autorestart watch instances exec_mode \\
+         max_memory_restart node_args name namespace; do
+  if [ -n "${{!k:-}}" ]; then
+    echo "pm2-saw-env $k=${{!k}}" >> "{self.stub_log}"
+  fi
+done
 if [ "$1" = "jlist" ]; then cat "{self.jlist}"; fi
 exit 0
 """,
@@ -518,9 +523,17 @@ class TestPm2EnvHygiene:
     These tests run the deploy with that injection simulated and pin both
     halves of the fix: no --update-env, and the injected keys are scrubbed."""
 
+    # Every key deploy.sh's `unset -v` scrubs, with the value PM2 would inject.
     PM2_INJECTED = {
         "cron_restart": "4-59/5 * * * *",
         "autorestart": "false",
+        "watch": "true",
+        "instances": "1",
+        "exec_mode": "fork_mode",
+        "max_memory_restart": "1073741824",
+        "node_args": "--max-old-space-size=512",
+        "name": "moss-ao-deploy",
+        "namespace": "default",
     }
 
     def test_restarts_never_pass_update_env(self, server: Server):
@@ -535,7 +548,28 @@ class TestPm2EnvHygiene:
         assert result.returncode == 0, result.stdout + result.stderr
         restarts = [c for c in server.calls().splitlines() if c.startswith("pm2 restart")]
         assert restarts, "expected pm2 restarts to happen"
-        assert all("--update-env" not in c for c in restarts), restarts
+        # Whole-log, not restart-lines-only: --update-env on ANY pm2 verb
+        # (start/reload/startOrRestart) re-creates the incident just as well.
+        assert "--update-env" not in server.calls()
+
+    def test_deploy_only_uses_safe_pm2_verbs(self, server: Server):
+        """A deploy may query (jlist) and plain-restart -- never register
+        (`pm2 start`), never `pm2 save`: registration from inside the poller
+        captures the poller's entire environment (GITHUB_TOKEN, DEPLOY_*, and
+        config-shaped keys beyond the scrub list) into every app's stored
+        definition, --update-env or not."""
+        server.push(
+            {
+                "src/agentic_orchestrator/api.py": "VERSION = 20\n",
+                "website/page.tsx": "export default () => 6\n",
+            }
+        )
+        result = server.run(**self.PM2_INJECTED)
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        verbs = {c.split()[1] for c in server.calls().splitlines() if c.startswith("pm2 ")}
+        assert verbs, "expected pm2 to be invoked"
+        assert verbs <= {"jlist", "restart"}, verbs
 
     def test_pm2_never_sees_the_pollers_injected_config_keys(self, server: Server):
         server.push(
