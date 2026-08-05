@@ -523,6 +523,12 @@ const translations: Record<Locale, Record<string, string>> = {
     'agents.supporter': 'Supporter',
     'agents.innovative': 'Innovative',
     'agents.pragmatic': 'Pragmatic',
+
+    // Mossland ecosystem wayfinding (footer) — keep in sync with sister sites
+    'ecosystem.label': 'MOSSLAND ECOSYSTEM',
+    'ecosystem.bridge.desc': 'Governance OS',
+    'ecosystem.algora.desc': 'AI Deliberation Lab',
+    'ecosystem.ao.desc': 'Agentic Orchestrator',
   },
   ko: {
     'nav.dashboard': '대시보드',
@@ -1036,6 +1042,12 @@ const translations: Record<Locale, Record<string, string>> = {
     'agents.supporter': '지지자',
     'agents.innovative': '혁신적',
     'agents.pragmatic': '실용적',
+
+    // Mossland ecosystem wayfinding (footer) — keep in sync with sister sites
+    'ecosystem.label': '모스랜드 에코시스템',
+    'ecosystem.bridge.desc': '거버넌스 OS',
+    'ecosystem.algora.desc': 'AI 숙의 실험실',
+    'ecosystem.ao.desc': '에이전트 오케스트레이터',
   },
 };
 
