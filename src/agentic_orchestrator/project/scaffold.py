@@ -352,7 +352,20 @@ class ProjectScaffold:
         try:
             from ..db.models import Project
 
-            project = self.db_session.query(Project).filter(Project.plan_id == plan_id).first()
+            # A plan can now have more than one project row: retrying a failed
+            # generation leaves the `error` record and adds a new one. Without
+            # an order, `first()` may keep returning the stale error row, which
+            # would make every retry regenerate forever. Prefer a project that
+            # succeeded, then the most recent attempt.
+            project = (
+                self.db_session.query(Project)
+                .filter(Project.plan_id == plan_id)
+                .order_by(
+                    Project.status.in_(COMPLETED_PROJECT_STATUSES).desc(),
+                    Project.created_at.desc(),
+                )
+                .first()
+            )
             if project:
                 return {
                     "id": project.id,

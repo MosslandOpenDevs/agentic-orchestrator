@@ -309,6 +309,30 @@ if [ "${PY_CHANGED}" = "1" ] && [ "${FORCE}" = "0" ]; then
   fi
 fi
 
+# Don't deploy into an environment that is already failing readiness.
+#
+# The post-deploy check gates on /ready, which reads the database. If the
+# database is down, a deploy cannot pass that check no matter how good the
+# code is: it would restart the API, fail, roll back, and do the same thing
+# again five minutes later -- restart churn every tick for the length of an
+# unrelated outage. Three states, three different right answers:
+#
+#   /ready ok                  -> normal, deploy
+#   /health ok, /ready not     -> the process is up and the database is not.
+#                                 Deploying cannot fix that and cannot be
+#                                 verified either. Defer and say so.
+#   /health also failing       -> the API is down; a deploy may well be the
+#                                 fix, so proceed.
+if [ "${PY_CHANGED}" = "1" ] && [ "${FORCE}" = "0" ]; then
+  if ! curl -fsS -m 5 "${DEPLOY_API_URL}/ready" >/dev/null 2>&1 \
+     && curl -fsS -m 5 "${DEPLOY_API_URL}/health" >/dev/null 2>&1; then
+    log "API is up but not ready (database unhealthy) -- deferring: a deploy \
+could not be verified and would restart-and-roll-back every tick"
+    alert "MOSS.AO deploy deferred: API not ready (database unhealthy)"
+    exit 0
+  fi
+fi
+
 if [ "${CHECK_ONLY}" = "1" ]; then
   log "--check: would deploy ${TARGET:0:8} (python=${PY_CHANGED} web=${WEB_CHANGED} \
 pydeps=${DEPS_CHANGED} nodedeps=${NODE_DEPS_CHANGED} ecosystem=${ECOSYSTEM_CHANGED})"

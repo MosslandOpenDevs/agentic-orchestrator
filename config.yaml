@@ -57,9 +57,19 @@ throttling:
 
   # Local LLM (Ollama) specific - Production settings
   ollama:
-    # Minimum seconds between requests
+    # Minimum seconds between requests. Enforced per request: a debate round
+    # fires its agents with asyncio.gather, and before 2026-08 the interval was
+    # computed but the slot was claimed only after sleeping, so every caller in
+    # a round woke together and the interval throttled nothing.
     min_request_interval: 5
-    # Maximum concurrent requests (1 = sequential only)
+    # Maximum concurrent requests (1 = sequential only).
+    #
+    # Also newly enforced: nothing read this value until 2026-08, so despite
+    # saying 1 the GPU could be hit by every agent in a round at once. Now that
+    # both guards are real, a debate takes longer than it used to -- the change
+    # is in wall clock, not in output. If debates start approaching the 90-minute
+    # cycle budget, this is the knob: raise it to let a couple of requests
+    # overlap, or lower min_request_interval.
     max_concurrent_requests: 1
     # Cooling period after N requests (seconds)
     cooling_period_seconds: 60

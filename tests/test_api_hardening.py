@@ -6,6 +6,8 @@ Covers:
 - a retry of a failed project generation that did nothing and reported success
 """
 
+from datetime import timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -195,6 +197,50 @@ class TestFailedGenerationRetry:
 
         assert not result.success
         assert "already in progress" in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_a_stale_error_row_does_not_shadow_the_successful_one(
+        self, tmp_path, scaffold_session
+    ):
+        """Retrying leaves the failed row behind and adds a new one, so a plan
+        can have several projects. Picking an arbitrary one would let the old
+        error record trigger a regeneration on every single call."""
+        scaffold_session.add(
+            Idea(id="idea-4", title="Retried", summary="seed", source_type="debate")
+        )
+        scaffold_session.add(
+            Plan(id="plan-4", idea_id="idea-4", title="Retried", final_plan="# Plan\n")
+        )
+        scaffold_session.add(
+            Project(
+                id="proj-old-error",
+                plan_id="plan-4",
+                name="x",
+                status="error",
+                created_at=utcnow() - timedelta(hours=2),
+            )
+        )
+        scaffold_session.add(
+            Project(
+                id="proj-new-ok",
+                plan_id="plan-4",
+                name="x",
+                status="ready",
+                directory_path="/somewhere",
+                created_at=utcnow() - timedelta(hours=1),
+            )
+        )
+        scaffold_session.commit()
+
+        scaffold = ProjectScaffold(
+            router=None,
+            projects_dir=str(tmp_path / "projects"),
+            db_session=scaffold_session,
+        )
+        result = await scaffold.generate_project(plan_id="plan-4")
+
+        assert result.project_id == "proj-new-ok"
+        assert "already exists" in (result.error or "")
 
     @pytest.mark.asyncio
     async def test_completed_project_still_short_circuits(self, tmp_path, scaffold_session):

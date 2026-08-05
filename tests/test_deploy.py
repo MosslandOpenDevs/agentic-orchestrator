@@ -82,9 +82,11 @@ class Server:
         self.stub_log = tmp_path / "stub.log"
         self.jlist = tmp_path / "jlist.json"
         self.health_fail = tmp_path / "health_fail"
-        # "1" makes /ready 404 while /health still answers -- what a
-        # rollback to a commit predating the /ready route looks like.
-        self.ready_missing = tmp_path / "ready_missing"
+        # How many more /ready calls answer before the route starts 404ing
+        # while /health keeps working. 0 = the database is down from the
+        # start; 1 = the pre-deploy check passes and the rollback target
+        # then turns out to predate the route.
+        self.ready_ok_remaining = tmp_path / "ready_ok_remaining"
 
         subprocess.run(
             ["git", "init", "--quiet", "--bare", "-b", "main", str(self.origin)],
@@ -118,7 +120,7 @@ class Server:
 
         self.jlist.write_text("[]")
         self.health_fail.write_text("0")
-        self.ready_missing.write_text("0")
+        self.ready_ok_remaining.write_text("999")
         self._write_stubs()
 
     def _scripts_dir(self) -> Path:
@@ -172,9 +174,9 @@ case "$url" in
     exit 0
     ;;
   */ready)
-    if [ "$(cat "{self.ready_missing}" 2>/dev/null || echo 0)" = "1" ]; then
-      exit 22
-    fi
+    k=$(cat "{self.ready_ok_remaining}" 2>/dev/null || echo 999)
+    if [ "$k" -le 0 ]; then exit 22; fi
+    echo $((k - 1)) > "{self.ready_ok_remaining}"
     n=$(cat "{self.health_fail}" 2>/dev/null || echo 0)
     if [ "$n" -gt 0 ]; then
       echo $((n - 1)) > "{self.health_fail}"
@@ -620,6 +622,32 @@ class TestGuards:
         assert server.head() == target
         assert "CI: green" in result.stdout
 
+    def test_deploy_defers_while_the_database_is_unhealthy(self, server: Server):
+        """The post-deploy gate reads the database. With the database down no
+        deploy can pass it, so deploying would restart, fail, roll back and
+        repeat every five minutes for the length of an unrelated outage."""
+        before = server.head()
+        server.ready_ok_remaining.write_text("0")  # /ready 404s, /health answers
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 40\n"})
+
+        result = server.run()
+
+        assert result.returncode == 0
+        assert server.head() == before
+        assert "not ready" in result.stdout
+        assert "pm2 restart" not in server.calls()
+
+    def test_deploy_proceeds_when_the_api_is_down_entirely(self, server: Server):
+        """A stopped API is a different case: the deploy may be the fix."""
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 41\n"})
+        # Everything fails for the pre-check, then recovers for the real one.
+        server.health_fail.write_text("2")
+
+        result = server.run()
+
+        assert server.head() == target
+        assert "DEPLOYED" in result.stdout
+
     def test_backend_deploy_waits_for_a_running_debate(self, server: Server):
         before = server.head()
         server.jlist.write_text(
@@ -664,9 +692,12 @@ class TestRollback:
                 "website/page.tsx": "export default () => 3\n",
             }
         )
-        # 2 retries x 2 probes = 4 failing health calls, then healthy again, so
-        # the deploy fails and the rollback comes back up.
-        server.health_fail.write_text("4")
+        # Call accounting: the pre-deploy readiness gate probes /ready and then
+        # /health (2 calls, both failing here, which is the "API is down
+        # entirely" case so it proceeds), then 2 retries x 2 probes = 4 more.
+        # After those 6 the stub is healthy again, so the deploy fails its
+        # health check and the rollback comes back up.
+        server.health_fail.write_text("6")
 
         result = server.run()
 
@@ -691,9 +722,10 @@ class TestRollback:
         would report a healthy rollback as CRITICAL."""
         before = server.head()
         server.push({"src/agentic_orchestrator/api.py": "VERSION = 31\n"})
-        # /ready always 404s; /health answers. The forward deploy therefore
-        # fails its health check and rolls back, and the rollback must pass.
-        server.ready_missing.write_text("1")
+        # /ready answers once -- for the pre-deploy check -- then 404s, so
+        # the forward deploy fails its health check and rolls back onto a
+        # target that predates the route. That rollback must still pass.
+        server.ready_ok_remaining.write_text("1")
 
         result = server.run()
 
