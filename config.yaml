@@ -113,8 +113,12 @@ budget:
 # =============================================================================
 project:
   # Auto-generation settings
+  # PAUSED 2026-08-06 while the debate diversity gate is verified: until the
+  # clustering gate has run a real debate end to end, a promoted duplicate
+  # would scaffold another near-identical project. Re-enable after the
+  # golden replay passes and one live debate looks right.
   auto_generate:
-    enabled: true
+    enabled: false
     # Minimum score for automatic project generation
     min_score: 8.0
     # Maximum concurrent project generations
@@ -166,6 +170,33 @@ backlog:
   # is paused. With triage draining the backlog this is an emergency valve
   # that should never trip. Set to 0 to disable the cap.
   max_open_ideas: 800
+
+  # Idea diversity gate (v0.6.20). A capable debate model given one topic
+  # returns one idea many times over, in wordings distinct enough that the
+  # title-prefix fingerprint above sees nothing: 2026-08-05 produced 24 ideas
+  # of which 8 were the same payment gateway, three of those were each
+  # promoted, and each scaffolded a project whose plan document was
+  # byte-identical to the others. Ideas are clustered per debate BEFORE
+  # scoring (so the LLM is not paid to score copies) and before GitHub (so
+  # the tracker mirrors decisions, not noise); only the representative of
+  # each cluster proceeds, the rest are stored as linked `duplicate` rows.
+  #
+  # TUNE ON PRECISION, NEVER ON CLUSTER COUNT. Measured on the 24 golden
+  # ideas (tests/data/golden_debate_x402.json): threshold 0.18 is the lowest
+  # value reaching pairwise precision 1.00 — 11 clusters, zero cross-theme
+  # merges. Lower thresholds do reach the "6-7 themes" the eye expects, but
+  # they get there by merging distinct ideas (precision 0.60-0.79), and a
+  # merged idea is deleted for good because only the representative
+  # proceeds. Precision >= 0.96 holds across 0.16-0.30, so erring high is
+  # harmless; erring low destroys ideas.
+  # min_shared_terms is the safety rail that makes a mis-set threshold
+  # survivable: with it, 24 unrelated ideas stay 24 clusters even at 0.04.
+  clustering:
+    enabled: true
+    threshold: 0.18
+    content_weight: 0.5
+    max_df_ratio: 0.6
+    min_shared_terms: 2
 
   # Backlog triage — the consumer that matches idea production (~40/day from
   # debates) with terminal decisions. Every backlog cycle (4h in production)
