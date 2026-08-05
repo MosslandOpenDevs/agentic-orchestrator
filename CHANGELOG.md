@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Debate diversity gate — one debate no longer ships one idea 24 times.** On 2026-08-05 a single debate emitted 24 ideas of which 8 were the same payment gateway in 8 wordings; all 24 title strings were distinct, so the 6-token prefix fingerprint caught none of them, three same-theme ideas were each promoted, and each scaffolded a project whose plan document was **byte-identical** (three plans of exactly 16,453 chars). Four root causes, all fixed:
+  - **The creativity technique was assigned per ROUND, not per agent** (`protocol.py`): the key was `round_num` alone, so all 8 agents of a round received the same SCAMPER/lateral prompt — and since the round runs concurrently off one `self.ideas` snapshot, nothing else told them apart either. A capable model given identical instructions returns identical thinking; gemma3:4b's incoherence had been supplying diversity by accident. Now each agent draws its own technique and the assignment rotates by round, so 8 agents span all six techniques instead of one.
+  - **A clustering gate before scoring, DB and GitHub** (new `scheduler/idea_clustering.py`): hand-rolled TF-IDF cosine with greedy max-degree star clustering — stdlib only, deterministic, O(n²). Chosen over three alternatives by measuring all four against the incident's own 24 ideas: at `threshold: 0.18` it yields pairwise precision **1.00** (11 clusters, zero cross-theme merges) and collapses the 8-member gateway theme to exactly one representative. **Tune on precision, never on cluster count** — the 6-7 themes an eyeball count expects *are* reachable at 0.11-0.14, but only by merging distinct ideas (precision 0.60-0.79), and a merged idea is deleted for good because only the representative proceeds. A `min_shared_terms: 2` rail makes a mis-set threshold survivable: 24 unrelated ideas stay 24 clusters even at threshold 0.04, where the unguarded version collapses them to 15.
+  - **Non-representatives are kept, not dropped**: they are stored as `duplicate` rows carrying `duplicate_of`, outside backlog triage's queue, with no GitHub issue and no LLM score. A wrong merge is therefore auditable and reversible rather than a silent deletion.
+  - **One plan (and one project) per debate**: the planning phase produces exactly one `final_plan` document, and it was being copied into every promoted idea's plan. It now goes to the first promotion only; auto-approval additionally requires the plan document to be present, so a later promotion can no longer scaffold a project from an empty plan.
+- 14 new tests in `tests/test_idea_clustering.py` replay the incident from `tests/data/golden_debate_x402.json` (the real 24 ideas) with no external effects, and pin the precision guards, the low-threshold rail, degenerate batches (n=0,1,2) and determinism.
+
+### Fixed
+- **Idea rows are committed before their GitHub issue is created.** The order was inverted: the issue went out first and the row was only committed at the end of the whole loop, so a crash, a 30-minute Ollama translation timeout or an operator kill left an issue with no DB row and nothing that could ever reconcile it (issue #2965, 2026-08-05). DB first means the worst case is a committed idea whose mirror is missing — which the source of truth can always re-mirror.
+
+### Changed
+- `project.auto_generate.enabled: false` — paused until the diversity gate has been verified against a live debate. Re-enable after that.
+
+### Fixed
+
 ### Changed
 - **Monthly API budget $45 → $100.** The v0.6.19 pair was inconsistent: at $2/day the monthly cap must clear $62 (daily × 31) or the month dies before the day does. Measured cost of one debate on gpt-5.4-mini is **$0.446** (38 calls, 273k input / 54k output — debate context accumulates across rounds, so input dominates), i.e. ~$1.78/day and ~$54/month at 4 debates/day; the old $45 cap would have bitten around day 25 and silently degraded every later debate to local gemma. $100 covers the measured usage plus manual runs.
 
