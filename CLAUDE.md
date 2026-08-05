@@ -827,7 +827,8 @@ GPU(~8 GB)에 상주하는 모델은 두 개뿐이며 스왑이 발생하지 않
 
 | 작업 | 모델 | 용도 |
 |------|------|------|
-| 모든 채팅 / 생성 / 평가 / 모더레이션 / 번역 / 요약 | `gemma3:4b` | Divergence, Convergence, Planning, 트렌드 분석, 분류, 필터링 등 |
+| **토론 (Divergence/Convergence/Planning/품질게이트)** | `gpt-5.4-mini` (유료, v0.6.19) | 4B 로컬 모델이 품질 상한이던 유일한 작업. `config.yaml`의 `llm.paid_tiers.debate` + 서버 `.env`의 `MOSS_LOCAL_LLM_ONLY=false` 두 스위치가 모두 켜져야 과금됨. 예산 초과·API 장애 시 gemma로 자동 강등 |
+| 채점 / 번역 / 트렌드 분석 / 프로젝트 생성 등 나머지 전부 | `gemma3:4b` (로컬, 무료) | 채점은 `num_ctx=4096` 고정 (v0.6.18) |
 | 임베딩 / 의미 검색 | `qwen3-embedding:0.6b` (예약만 됨 — 아래 참조) | (현재 미사용) |
 
 > 실제 모델 정의는 `src/agentic_orchestrator/llm/hierarchy.py`의 `LOCAL_MODELS`, 프로젝트 생성 모델은 `config.yaml`의 `project.llm`을 단일 소스로 참조합니다.

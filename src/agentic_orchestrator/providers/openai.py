@@ -4,6 +4,7 @@ OpenAI provider adapter.
 Handles API calls to OpenAI's GPT models with proper error handling.
 """
 
+import asyncio
 import os
 from typing import Any
 
@@ -90,7 +91,14 @@ class OpenAIProvider(BaseProvider):
                     "OpenAI API key not set. Set OPENAI_API_KEY environment variable.",
                     provider=self.provider_name,
                 )
-            self._client = OpenAI(api_key=self.api_key)
+            # max_retries=0: the SDK's default of 2 retries silently re-sends
+            # on timeouts and 429/5xx, and OpenAI bills every server-side
+            # attempt — but only the returned attempt's tokens reach
+            # record_usage, so the budget ledger (the one spend control)
+            # would under-count real billing. The router already implements
+            # retry-once-then-fall-back-to-local around this call, so the
+            # SDK's own loop is redundant as well as invisible.
+            self._client = OpenAI(api_key=self.api_key, max_retries=0)
         return self._client
 
     def is_available(self) -> bool:
@@ -221,14 +229,42 @@ class OpenAIProvider(BaseProvider):
 
         target_model = model or self.model
 
-        response = self._make_request(
+        # GPT-5-family models reject the legacy `max_tokens` parameter with a
+        # 400 ("Use 'max_completion_tokens' instead") — verified live against
+        # gpt-5.4-mini on 2026-08-06; temperature is accepted. The modern
+        # parameter is accepted by every model this provider targets, so it
+        # is used unconditionally. A 400 here would not crash the pipeline —
+        # the router would silently fall back to local gemma — which is
+        # exactly why it must not happen: the paid debate tier would become
+        # a silent no-op.
+        #
+        # to_thread: the OpenAI SDK client is synchronous, so calling it
+        # directly from this coroutine blocks the whole event loop. The
+        # Ollama path it now replaces for debates is genuinely async
+        # (httpx.AsyncClient), so without this a debate round's concurrent
+        # agents would serialize — and every other task sharing the loop
+        # would stall for the duration of each API call.
+        response = await asyncio.to_thread(
+            self._make_request,
             messages=messages,
             model=target_model,
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_tokens,
         )
 
         usage = response.usage or {}
+        # An empty completion is billed like any other: GPT-5-family models
+        # spend reasoning tokens against max_completion_tokens and can
+        # return finish_reason="length" with no text at all. Returning that
+        # silently would feed an empty agent turn into the debate, so raise
+        # and let the router fall back to local for this call.
+        if not (response.content or "").strip():
+            raise ProviderError(
+                f"{target_model} returned an empty completion "
+                f"(finish_reason={response.finish_reason!r}, "
+                f"completion_tokens={usage.get('completion_tokens', 0)})",
+                provider=self.provider_name,
+            )
         return {
             "content": response.content,
             "input_tokens": usage.get("prompt_tokens", 0),

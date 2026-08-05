@@ -81,10 +81,48 @@ class HybridLLMRouter:
         self.budget = budget or BudgetController()
         self.hierarchy = hierarchy or LLMHierarchy()
 
+        # Paid-tier allowlist (config.yaml `llm.paid_tiers`): call sites may
+        # name a tier ("debate"); only enabled tiers whose provider is
+        # actually initialized can reach a paid model. Two independent
+        # switches must both be on before a single cent is spent: the env
+        # flag (MOSS_LOCAL_LLM_ONLY=false) and the tier's `enabled` in
+        # config — everything not listed stays on local Ollama either way.
+        self.paid_tiers = self._load_paid_tiers()
+
         if not self.local_only:
             self._init_api_providers()
         else:
             logger.info("HybridLLMRouter: MOSS_LOCAL_LLM_ONLY active — paid providers disabled")
+
+    @staticmethod
+    def _load_paid_tiers() -> dict:
+        """Read `llm.paid_tiers` from config.yaml; {} on any failure."""
+        from pathlib import Path
+
+        import yaml
+
+        config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
+        try:
+            with open(config_path) as f:
+                config = yaml.safe_load(f) or {}
+            tiers = (config.get("llm") or {}).get("paid_tiers") or {}
+            if not isinstance(tiers, dict):
+                return {}
+            # Drop malformed entries here rather than at the call site: a
+            # one-line YAML typo (`debate: true`) would otherwise reach
+            # `tier.get(...)` in route() as a bool and raise AttributeError
+            # on every debate call — outside the try/fallback block, so it
+            # would kill the debate instead of degrading it to local.
+            clean = {}
+            for name, tier in tiers.items():
+                if isinstance(tier, dict):
+                    clean[name] = tier
+                else:
+                    logger.warning(f"Ignoring malformed paid tier '{name}': expected a mapping")
+            return clean
+        except Exception as e:
+            logger.warning(f"Could not load paid-tier config, staying fully local: {e}")
+            return {}
 
     def _init_api_providers(self):
         """Initialize API providers if not provided. No-op in local-only mode."""
@@ -118,6 +156,7 @@ class HybridLLMRouter:
         max_tokens: Optional[int] = None,
         response_schema: Optional[dict] = None,
         num_ctx: Optional[int] = None,
+        paid_tier: Optional[str] = None,
     ) -> LLMResponse:
         """
         Route a request to the appropriate LLM.
@@ -146,6 +185,15 @@ class HybridLLMRouter:
                 None keeps the throttle-config default. Forwarded on every
                 Ollama path, including both fallbacks — a dropped override
                 would silently reintroduce the hang.
+            paid_tier: Name of a paid-API tier from config.yaml
+                `llm.paid_tiers` (e.g. "debate"). Honored only when the tier
+                is enabled, its provider is initialized (needs
+                MOSS_LOCAL_LLM_ONLY=false plus an API key), the caller did
+                not pass an explicit `model` or `force_local`, and the
+                budget has headroom. Any missing precondition silently
+                falls back to the normal local selection — an API outage or
+                an exhausted budget must degrade the tier's task to local,
+                never kill it.
 
         Returns:
             LLMResponse with generated content
@@ -176,6 +224,32 @@ class HybridLLMRouter:
                 force_local=force_local,
                 force_api=force_api,
             )
+            # Paid-tier override — the ONLY doorway to paid models besides
+            # an explicit force_api/model. Note force_local has already
+            # absorbed local-only mode above, so the env kill-switch also
+            # kills tiers. If the provider object is missing (no key /
+            # local-only) the provider branch below falls back to local by
+            # itself, but checking here keeps the budget math honest.
+            if paid_tier and not force_local:
+                # _load_paid_tiers guarantees dict values; be defensive
+                # anyway since paid_tiers is a public attribute callers and
+                # tests may set directly, and this runs outside the try.
+                tier = self.paid_tiers.get(paid_tier)
+                tier = tier if isinstance(tier, dict) else {}
+                tier_model = tier.get("model")
+                tier_provider_name = str(tier.get("provider") or "")
+                tier_provider = getattr(self, tier_provider_name, None)
+                if (
+                    tier.get("enabled")
+                    and tier_model
+                    and tier_provider is not None
+                    and self.budget.get_budget_status()["can_use_api"]
+                ):
+                    selected_model = tier_model
+                    logger.info(
+                        f"Paid tier '{paid_tier}' active: routing to "
+                        f"{tier_provider_name}:{tier_model}"
+                    )
 
         # Get model config
         model_config = self.hierarchy.get_model_config(selected_model)
