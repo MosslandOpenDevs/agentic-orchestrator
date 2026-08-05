@@ -8,8 +8,16 @@ its real code paths against fake infrastructure.
 What is deliberately pinned here:
 
 * the no-op fast path (it runs every 5 minutes -- it must stay free and silent),
-* the guards that stop a bad deploy (CI red/pending, dirty tree, busy scheduler),
+* the guards that stop a bad deploy (CI red/pending, dirty tree, local commits,
+  busy scheduler),
 * rollback when the post-deploy health check fails,
+* deploy state: the last-success SHA file is the baseline, written only after
+  a deploy fully succeeds, so a poller killed mid-deploy (SIGKILL skips the
+  EXIT trap) is detected and retried instead of hidden forever,
+* failure backoff: a SHA that just failed is not re-deployed -- full cycle,
+  snapshot and restarts included -- on every 5-minute tick,
+* the atomic frontend build: website/ builds go to a staging dir and are
+  swapped in whole, so a failed build never corrupts the live .next,
 * and above all that untracked server state -- data/orchestrator.db, .env --
   survives a deploy. That is the 2026-07 outage in test form: the DB is a single
   untracked SQLite file, and a deployer that reaches for `git clean` destroys it.
@@ -21,6 +29,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -71,6 +80,9 @@ class Server:
         self.stub_log = tmp_path / "stub.log"
         self.jlist = tmp_path / "jlist.json"
         self.health_fail = tmp_path / "health_fail"
+        # Deploy bookkeeping lives inside .git/ -- out of reset --hard's reach.
+        self.state_file = self.checkout / ".git" / "moss-ao-deployed-sha"
+        self.attempt_file = self.checkout / ".git" / "moss-ao-deploy-attempt"
 
         subprocess.run(
             ["git", "init", "--quiet", "--bare", "-b", "main", str(self.origin)],
@@ -135,11 +147,20 @@ exit 0
 """,
             executable=True,
         )
+        # `npm run build` is invoked with cwd=website and NEXT_DIST_DIR set to
+        # the staging dir; mimic next.config.ts honouring it so the swap path
+        # (promote_web_build) is exercised for real. NPM_STUB_EXIT simulates a
+        # failed build, which must leave nothing for the swap to pick up.
         _write(
             self.bin / "npm",
             f"""#!/usr/bin/env bash
 echo "npm $*" >> "{self.stub_log}"
-exit 0
+if [ "$1 ${{2:-}}" = "run build" ] && [ -n "${{NEXT_DIST_DIR:-}}" ] \\
+   && [ "${{NPM_STUB_EXIT:-0}}" = "0" ]; then
+  mkdir -p "$NEXT_DIST_DIR"
+  echo "stub-build" > "$NEXT_DIST_DIR/BUILD_ID"
+fi
+exit ${{NPM_STUB_EXIT:-0}}
 """,
             executable=True,
         )
@@ -208,6 +229,12 @@ exit ${{UV_STUB_EXIT:-0}}
 
     def head(self) -> str:
         return _git(self.checkout, "rev-parse", "HEAD")
+
+    def state(self) -> str | None:
+        """The last-success SHA the deploy script has recorded, if any."""
+        if not self.state_file.exists():
+            return None
+        return self.state_file.read_text().strip()
 
     def run(self, *args: str, **env: str) -> subprocess.CompletedProcess:
         full_env = {
@@ -513,6 +540,225 @@ class TestRollback:
         assert "CRITICAL" in result.stdout
 
 
+class TestDeployState:
+    """Deploy state is the SHA of the last SUCCESSFUL deploy, not HEAD.
+
+    `git reset --hard` moves HEAD before the build and health check run, so a
+    poller killed mid-deploy (PM2 max_memory_restart SIGKILL, OOM, reboot)
+    used to leave HEAD at the new commit with the old build live -- and every
+    later tick read "up to date" and hid the failure forever."""
+
+    def test_success_records_the_deployed_sha(self, server: Server):
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 30\n"})
+        server.run()
+
+        assert server.state() == target
+
+    def test_docs_only_sync_advances_the_state(self, server: Server):
+        """A sync is a success too; without this every later tick re-syncs."""
+        target = server.push({"README.md": "docs\n"})
+        server.run()
+
+        assert server.state() == target
+
+    def test_failed_deploy_does_not_advance_the_state(self, server: Server):
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 31\n"})
+        server.health_fail.write_text("999")
+
+        result = server.run()
+
+        assert result.returncode == 1
+        assert server.state() == before
+
+    def test_interrupted_deploy_is_detected_and_retried(self, server: Server):
+        """SIGKILL right after reset --hard: HEAD is at the target but nothing
+        was built or restarted. HEAD == origin/main must NOT read as done."""
+        good = server.push({"src/agentic_orchestrator/api.py": "VERSION = 32\n"})
+        server.run()
+        assert server.state() == good
+
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 33\n"})
+        # The crashed tick: the checkout moved, the state file did not.
+        _git(server.checkout, "fetch", "origin")
+        _git(server.checkout, "reset", "--hard", "origin/main")
+        restarts = server.calls().count("pm2 restart moss-ao-api")
+
+        result = server.run()
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "incomplete deploy" in result.stdout
+        assert server.calls().count("pm2 restart moss-ao-api") == restarts + 1
+        assert server.state() == target
+
+
+class TestLocalCommitGuard:
+    """Commits made by hand on the server would be discarded by reset --hard;
+    the deploy must stop instead (merge-base --is-ancestor guard)."""
+
+    def test_local_commits_block_the_deploy(self, server: Server):
+        _write(server.checkout / "hotfix.txt", "server-side hotfix\n")
+        _git(server.checkout, "add", "hotfix.txt")
+        _git(server.checkout, "commit", "--quiet", "-m", "server-local hotfix")
+        local = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 40\n"})
+
+        result = server.run()
+
+        assert result.returncode == 0
+        assert server.head() == local
+        assert "ABORT" in result.stdout
+        assert "local commits" in result.stdout
+        assert "pm2 restart" not in server.calls()
+        # The commit itself survived, reachable, on the branch.
+        assert "server-local hotfix" in _git(server.checkout, "log", "--oneline")
+
+    def test_force_overrides_the_local_commit_guard(self, server: Server):
+        _git(server.checkout, "commit", "--quiet", "--allow-empty", "-m", "server-local hotfix")
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 41\n"})
+
+        result = server.run("--force")
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert server.head() == target
+
+
+class TestFailureBackoff:
+    """A SHA that just failed to deploy must not re-run the full cycle --
+    forced DB snapshot, build, double restart, rollback, webhook -- on every
+    5-minute tick. Attempts are journaled per target SHA and retried on an
+    exponential backoff; a new commit resets the journal at once."""
+
+    def _fail_once(self, server: Server) -> str:
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 50\n"})
+        server.health_fail.write_text("999")
+        result = server.run()
+        assert result.returncode == 1, result.stdout + result.stderr
+        server.health_fail.write_text("0")  # infrastructure is healthy again
+        return target
+
+    def _backdate_attempt(self, server: Server, minutes: int) -> None:
+        old = time.time() - minutes * 60
+        os.utime(server.attempt_file, (old, old))
+
+    def test_repeated_failure_backs_off_instead_of_redeploying(self, server: Server):
+        self._fail_once(server)
+        assert server.attempt_file.exists()
+        snapshots = server.calls().count("scheduler backup-db")
+
+        result = server.run()  # next tick, seconds later
+
+        assert result.returncode == 0
+        assert "backing off" in result.stdout
+        # None of the expensive cycle ran again.
+        assert server.calls().count("scheduler backup-db") == snapshots
+
+    def test_backoff_expires_and_a_clean_retry_clears_the_journal(self, server: Server):
+        target = self._fail_once(server)
+        self._backdate_attempt(server, minutes=6)  # past the 5-minute base backoff
+
+        result = server.run()
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "retrying" in result.stdout
+        assert server.state() == target
+        assert not server.attempt_file.exists()
+
+    def test_second_failure_extends_the_journal(self, server: Server):
+        target = self._fail_once(server)
+        self._backdate_attempt(server, minutes=6)
+        server.health_fail.write_text("999")
+
+        result = server.run()
+
+        assert result.returncode == 1
+        sha, count = server.attempt_file.read_text().split()
+        assert count == "2"
+        assert sha == target  # HEAD itself was rolled back to the last good SHA
+
+    def test_new_commit_resets_the_backoff(self, server: Server):
+        self._fail_once(server)  # journaled seconds ago: in backoff
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 51\n"})
+
+        result = server.run()
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "backing off" not in result.stdout
+        assert server.state() == target
+
+    def test_force_bypasses_the_backoff(self, server: Server):
+        target = self._fail_once(server)  # journaled seconds ago: in backoff
+
+        result = server.run("--force")
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "backing off" not in result.stdout
+        assert server.state() == target
+
+
+class TestAtomicWebBuild:
+    """website/ builds go to a staging dir (.next.new) and are swapped in
+    whole right before the web restart, so a failed build can never leave the
+    live .next -- the dir moss-ao-web is serving from -- half-written."""
+
+    def test_web_build_is_staged_then_promoted(self, server: Server):
+        _write(server.checkout / "website" / ".next" / "BUILD_ID", "old")
+        server.push({"website/page.tsx": "export default () => 7\n"})
+
+        result = server.run()
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        live = server.checkout / "website" / ".next"
+        assert (live / "BUILD_ID").read_text().strip() == "stub-build"
+        assert not (server.checkout / "website" / ".next.new").exists()
+        assert not (server.checkout / "website" / ".next.old").exists()
+
+    def test_failed_web_build_never_touches_the_live_next(self, server: Server):
+        _write(server.checkout / "website" / ".next" / "BUILD_ID", "old")
+        server.push({"website/page.tsx": "export default () => 8\n"})
+
+        result = server.run(NPM_STUB_EXIT="1")
+
+        assert result.returncode == 1
+        assert (server.checkout / "website" / ".next" / "BUILD_ID").read_text() == "old"
+
+
+class TestLockOwnership:
+    """A SIGKILLed poller (PM2 max_memory_restart, OOM) never runs its EXIT
+    trap. The lock records its owner's PID, so the next tick reclaims a dead
+    owner's lock immediately instead of waiting out the 90-minute age check."""
+
+    def _lock_dir(self, server: Server) -> Path:
+        d = server.checkout / "logs" / ".deploy.lock"
+        d.mkdir(parents=True)
+        return d
+
+    def test_dead_owner_lock_is_reclaimed_immediately(self, server: Server):
+        lock = self._lock_dir(server)
+        proc = subprocess.Popen(["bash", "-c", "exit 0"])
+        proc.wait()
+        (lock / "pid").write_text(f"{proc.pid}\n")
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 60\n"})
+
+        result = server.run()
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "reclaiming" in result.stdout
+        assert server.head() == target
+
+    def test_live_owner_lock_is_respected(self, server: Server):
+        lock = self._lock_dir(server)
+        (lock / "pid").write_text(f"{os.getpid()}\n")  # this test process: alive
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 61\n"})
+
+        result = server.run(DEPLOY_VERBOSE="1")
+
+        assert result.returncode == 0
+        assert server.head() == before
+        assert "another deploy is running" in result.stdout
+
+
 class TestPm2EnvHygiene:
     """PM2 injects the deploy poller's own config keys (cron_restart,
     autorestart, ...) into this script's environment as plain variables, and
@@ -601,6 +847,19 @@ class TestSourceInvariants:
             if "--update-env" in line:
                 assert line.lstrip().startswith(("log ", "#")), line
 
+    def test_script_body_is_wrapped_in_main(self):
+        """deploy.sh deploys itself, and bash reads scripts incrementally: an
+        in-place self-update mid-run would have bash continue at a byte offset
+        of the NEW file. Everything must run from main(), invoked at the very
+        end, so the whole file is parsed before any of it executes."""
+        lines = [
+            stripped
+            for raw in DEPLOY_SH.read_text().splitlines()
+            if (stripped := raw.strip()) and not stripped.startswith("#")
+        ]
+        assert "main() {" in lines
+        assert lines[-2:] == ['main "$@"', "exit $?"]
+
     def test_deploy_script_is_executable(self):
         assert os.access(DEPLOY_SH, os.X_OK)
 
@@ -646,6 +905,15 @@ class TestEcosystemRegistration:
         assert app["interpreter"] == "bash"
         assert app["autorestart"] is False
         assert app["cron_restart"]
+
+    def test_deploy_poller_has_memory_headroom_for_the_build(self):
+        """`npm run build` runs inside the poller's memory budget, and PM2
+        enforces max_memory_restart with SIGKILL -- which skips the EXIT trap
+        and used to wedge the deploy lock for 90 minutes. 1G was not enough
+        for a Next.js production build."""
+        app = next(a for a in self._apps("1") if a["name"] == "moss-ao-deploy")
+
+        assert app["max_memory_restart"] == "3G"
 
     def test_long_running_apps_have_no_cron_restart(self):
         """api/web are always-on: a cron_restart here (or leaked onto the

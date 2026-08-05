@@ -3,8 +3,9 @@
 # MOSS.AO pull-based auto-deploy.
 #
 # Runs ON the application server (the box PM2 lives on) and brings the checkout
-# up to origin/main. Idempotent: when HEAD already equals the remote tip it does
-# nothing and exits 0, so it is safe to run from PM2's cron every few minutes.
+# up to origin/main. Idempotent: when the last successful deploy already matches
+# the remote tip it does nothing and exits 0, so it is safe to run from PM2's
+# cron every few minutes.
 #
 # Why pull-based instead of a push from CI: the app server has no public inbound
 # route (it is reachable over Tailscale only), the repo is public (a self-hosted
@@ -12,11 +13,29 @@
 # needed to add runners/secrets. Fetching a public repo outbound needs none of
 # that -- no deploy key, no open port, no GitHub configuration at all.
 #
+# Deploy state is NOT the git HEAD. `git reset --hard` moves HEAD before the
+# build and health check have run, so a poller killed mid-deploy (PM2
+# max_memory_restart SIGKILL, OOM, reboot) would leave HEAD at the new commit
+# with the old build still live -- and every later tick would read "up to date"
+# and hide the failure forever. Instead the SHA of the last SUCCESSFUL deploy is
+# recorded in DEPLOY_STATE_FILE (inside .git/, out of reach of the reset), it is
+# written only after the health check passes, and a tick whose state disagrees
+# with HEAD treats the previous deploy as unfinished and retries it. Repeated
+# failures of the same target SHA back off exponentially (DEPLOY_RETRY_*)
+# instead of re-running the full snapshot/build/restart/alert cycle every five
+# minutes; a new commit on the remote resets the backoff at once.
+#
+# The script body only runs from main(), invoked on the last line: this file
+# deploys itself, and bash reads scripts incrementally, so without the wrapper
+# an in-place update mid-run would have bash continue at a byte offset of the
+# NEW file. main() forces the whole file to be parsed before any of it runs.
+#
 # Usage:
 #   scripts/deploy.sh              # deploy if the remote moved (normal cron use)
 #   scripts/deploy.sh --check      # report what would happen, change nothing
-#   scripts/deploy.sh --force      # ignore the CI gate, busy-scheduler and
-#                                  # dirty-tree guards (manual use)
+#   scripts/deploy.sh --force      # ignore the CI gate, busy-scheduler,
+#                                  # dirty-tree and local-commit guards and the
+#                                  # failure backoff (manual use)
 #
 # Configuration (env, all optional -- ecosystem.config.js loads .env first):
 #   DEPLOY_BRANCH          branch to track                     (default: main)
@@ -29,6 +48,11 @@
 #   DEPLOY_HEALTH_INTERVAL seconds between attempts            (default: 3)
 #   DEPLOY_ALERT_WEBHOOK   Slack/Discord webhook for failures   (default: none)
 #   DEPLOY_VERBOSE         1 = also log no-op ticks            (default: 0)
+#   DEPLOY_STATE_FILE      last-success SHA    (default: .git/moss-ao-deployed-sha)
+#   DEPLOY_ATTEMPT_FILE    per-SHA attempt journal used for the failure backoff
+#                                      (default: .git/moss-ao-deploy-attempt)
+#   DEPLOY_RETRY_BASE_MIN  backoff after the 1st failure, minutes  (default: 5)
+#   DEPLOY_RETRY_MAX_MIN   backoff cap, minutes                (default: 60)
 #   PYTHON_BIN / PM2_BIN / NPM_BIN / UV_BIN / GITHUB_TOKEN
 #
 # Dependency install adapts to the checkout: `uv sync` when the venv is
@@ -56,42 +80,6 @@ set -euo pipefail
 unset -v cron_restart autorestart watch instances exec_mode \
          max_memory_restart node_args name namespace || true
 
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-REPO_ROOT=$(cd -- "${SCRIPT_DIR}/.." && pwd)
-cd "${REPO_ROOT}"
-
-DEPLOY_BRANCH=${DEPLOY_BRANCH:-main}
-DEPLOY_REMOTE=${DEPLOY_REMOTE:-origin}
-DEPLOY_REQUIRE_CI=${DEPLOY_REQUIRE_CI:-1}
-DEPLOY_GITHUB_REPO=${DEPLOY_GITHUB_REPO:-MosslandOpenDevs/agentic-orchestrator}
-DEPLOY_API_URL=${DEPLOY_API_URL:-http://127.0.0.1:3001}
-DEPLOY_WEB_URL=${DEPLOY_WEB_URL:-http://127.0.0.1:3000}
-DEPLOY_HEALTH_RETRIES=${DEPLOY_HEALTH_RETRIES:-20}
-DEPLOY_HEALTH_INTERVAL=${DEPLOY_HEALTH_INTERVAL:-3}
-DEPLOY_ALERT_WEBHOOK=${DEPLOY_ALERT_WEBHOOK:-}
-DEPLOY_VERBOSE=${DEPLOY_VERBOSE:-0}
-DEPLOY_LOG=${DEPLOY_LOG:-${REPO_ROOT}/logs/deploy.log}
-DEPLOY_LOCK=${DEPLOY_LOCK:-${REPO_ROOT}/logs/.deploy.lock}
-DEPLOY_LOCK_STALE_MIN=${DEPLOY_LOCK_STALE_MIN:-90}
-
-PYTHON_BIN=${PYTHON_BIN:-${REPO_ROOT}/.venv/bin/python}
-PM2_BIN=${PM2_BIN:-pm2}
-NPM_BIN=${NPM_BIN:-npm}
-UV_BIN=${UV_BIN:-$(command -v uv 2>/dev/null || echo "${HOME}/.local/bin/uv")}
-
-FORCE=0
-CHECK_ONLY=0
-
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --force) FORCE=1 ;;
-    --check) CHECK_ONLY=1 ;;
-    -h|--help) sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "unknown option: $1" >&2; exit 64 ;;
-  esac
-  shift
-done
-
 log() {
   local line
   line="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -116,63 +104,44 @@ json_string() {
 }
 
 # ---------------------------------------------------------------------------
-# Single-flight lock. A crash mid-deploy would otherwise wedge every later tick,
-# so a lock older than DEPLOY_LOCK_STALE_MIN is reclaimed.
+# Single-flight lock. The lock directory records its owner's PID: a poller
+# killed with SIGKILL (PM2 max_memory_restart, OOM) never runs its EXIT trap,
+# and making every later tick wait out DEPLOY_LOCK_STALE_MIN would stall
+# deploys for that long. A lock whose recorded owner is no longer alive is
+# reclaimed immediately; the age check stays as a backstop for locks with an
+# unreadable PID file (crash before the write, recycled PID).
 # ---------------------------------------------------------------------------
-mkdir -p "$(dirname "${DEPLOY_LOCK}")"
-if ! mkdir "${DEPLOY_LOCK}" 2>/dev/null; then
-  if [ -n "$(find "${DEPLOY_LOCK}" -maxdepth 0 -mmin "+${DEPLOY_LOCK_STALE_MIN}" 2>/dev/null)" ]; then
+acquire_lock() {
+  mkdir -p "$(dirname "${DEPLOY_LOCK}")"
+  if mkdir "${DEPLOY_LOCK}" 2>/dev/null; then
+    printf '%s\n' "$$" >"${DEPLOY_LOCK}/pid" 2>/dev/null || true
+    return 0
+  fi
+
+  local owner
+  owner=$(cat "${DEPLOY_LOCK}/pid" 2>/dev/null || true)
+  case "${owner}" in *[!0-9]*|'') owner="" ;; esac
+
+  if [ -n "${owner}" ] && ! kill -0 "${owner}" 2>/dev/null; then
+    log "WARN lock owner (pid ${owner}) is gone -- reclaiming its lock"
+    rm -rf "${DEPLOY_LOCK}"
+  elif [ -n "$(find "${DEPLOY_LOCK}" -maxdepth 0 -mmin "+${DEPLOY_LOCK_STALE_MIN}" 2>/dev/null)" ]; then
     log "WARN stale lock older than ${DEPLOY_LOCK_STALE_MIN}m -- reclaiming"
     rm -rf "${DEPLOY_LOCK}"
-    mkdir "${DEPLOY_LOCK}" 2>/dev/null || { log "could not reclaim lock; skipping"; exit 0; }
   else
-    [ "${DEPLOY_VERBOSE}" = "1" ] && log "another deploy is running -- skipping"
-    exit 0
+    if [ "${DEPLOY_VERBOSE}" = "1" ]; then
+      log "another deploy is running -- skipping"
+    fi
+    return 1
   fi
-fi
-trap 'rm -rf "${DEPLOY_LOCK}" 2>/dev/null || true' EXIT
 
-# ---------------------------------------------------------------------------
-# 1. Is there anything to deploy?
-# ---------------------------------------------------------------------------
-git fetch --quiet "${DEPLOY_REMOTE}" "${DEPLOY_BRANCH}" || {
-  log "WARN git fetch failed -- will retry next tick"
-  exit 0
+  if mkdir "${DEPLOY_LOCK}" 2>/dev/null; then
+    printf '%s\n' "$$" >"${DEPLOY_LOCK}/pid" 2>/dev/null || true
+    return 0
+  fi
+  log "could not reclaim lock; skipping"
+  return 1
 }
-
-CURRENT=$(git rev-parse HEAD)
-TARGET=$(git rev-parse "${DEPLOY_REMOTE}/${DEPLOY_BRANCH}")
-
-if [ "${CURRENT}" = "${TARGET}" ]; then
-  if [ "${DEPLOY_VERBOSE}" = "1" ] || [ "${CHECK_ONLY}" = "1" ]; then
-    log "up to date at ${CURRENT:0:8}"
-  fi
-  exit 0
-fi
-
-CHANGED=$(git diff --name-only "${CURRENT}" "${TARGET}")
-SUBJECT=$(git log -1 --format='%s' "${TARGET}")
-log "update available: ${CURRENT:0:8} -> ${TARGET:0:8} (${SUBJECT})"
-
-# ---------------------------------------------------------------------------
-# 2. Guards
-# ---------------------------------------------------------------------------
-BRANCH_NOW=$(git rev-parse --abbrev-ref HEAD)
-if [ "${BRANCH_NOW}" != "${DEPLOY_BRANCH}" ] && [ "${FORCE}" = "0" ]; then
-  log "ABORT checkout is on '${BRANCH_NOW}', not '${DEPLOY_BRANCH}' -- not touching it"
-  exit 0
-fi
-
-# Tracked-file edits made by hand on the server would be silently discarded by
-# the reset below, so stop and let a human look. Untracked files (.env, the DB)
-# are never at risk and are deliberately not checked.
-if [ -n "$(git status --porcelain --untracked-files=no)" ] && [ "${FORCE}" = "0" ]; then
-  log "ABORT working tree has local modifications to tracked files:"
-  git status --short --untracked-files=no | while read -r l; do log "       ${l}"; done
-  log "       resolve on the server, or re-run with --force to discard them"
-  alert "MOSS.AO deploy blocked: local modifications on the server checkout"
-  exit 0
-fi
 
 # CI gate: deploy only commits GitHub Actions has gone green on.
 ci_conclusion() {
@@ -202,42 +171,6 @@ else:
 ' 2>/dev/null || echo "unknown"
 }
 
-if [ "${DEPLOY_REQUIRE_CI}" = "1" ] && [ "${FORCE}" = "0" ]; then
-  CI=$(ci_conclusion "${TARGET}")
-  case "${CI}" in
-    success) log "CI: green" ;;
-    none)    log "CI: no checks reported for this commit -- proceeding" ;;
-    pending) log "CI: still running -- deferring to next tick"; exit 0 ;;
-    failure) log "CI: FAILED -- refusing to deploy ${TARGET:0:8}"
-             alert "MOSS.AO deploy skipped: CI failed on ${TARGET:0:8} (${SUBJECT})"
-             exit 0 ;;
-    *)       log "CI: status unavailable (network/API) -- deferring to next tick"; exit 0 ;;
-  esac
-fi
-
-# What kind of change is this?
-PY_CHANGED=0
-WEB_CHANGED=0
-DEPS_CHANGED=0
-NODE_DEPS_CHANGED=0
-ECOSYSTEM_CHANGED=0
-while IFS= read -r f; do
-  [ -n "${f}" ] || continue
-  case "${f}" in
-    src/*|config.yaml|pyproject.toml|prompts/*) PY_CHANGED=1 ;;
-  esac
-  case "${f}" in
-    website/*) WEB_CHANGED=1 ;;
-  esac
-  case "${f}" in
-    pyproject.toml) DEPS_CHANGED=1 ;;
-    website/package.json|website/package-lock.json) NODE_DEPS_CHANGED=1 ;;
-    ecosystem.config.js) ECOSYSTEM_CHANGED=1 ;;
-  esac
-done <<EOF
-${CHANGED}
-EOF
-
 # A debate takes ~30 min and runs as its own PM2 cron process. Reinstalling
 # Python packages underneath it can break a live import, so back-end changes
 # wait for the next tick; a website-only change cannot affect it and proceeds.
@@ -256,44 +189,6 @@ print(",".join(busy))
 ' 2>/dev/null || echo ""
 }
 
-if [ "${PY_CHANGED}" = "1" ] && [ "${FORCE}" = "0" ]; then
-  BUSY=$(scheduler_busy)
-  if [ -n "${BUSY}" ]; then
-    log "scheduler busy (${BUSY}) -- deferring back-end deploy to next tick"
-    exit 0
-  fi
-fi
-
-if [ "${CHECK_ONLY}" = "1" ]; then
-  log "--check: would deploy ${TARGET:0:8} (python=${PY_CHANGED} web=${WEB_CHANGED} \
-pydeps=${DEPS_CHANGED} nodedeps=${NODE_DEPS_CHANGED} ecosystem=${ECOSYSTEM_CHANGED})"
-  exit 0
-fi
-
-# ---------------------------------------------------------------------------
-# 3. Deploy
-# ---------------------------------------------------------------------------
-
-# Pre-deploy snapshot: forced (not the ~daily "maybe" variant the health check
-# uses) so there is always a restore point from immediately before this change.
-# Docs-only syncs skip it: nothing restarts and reset --hard cannot touch the
-# untracked DB, so a snapshot protects nothing -- and each one rotates the
-# 7-slot backup window, so a burst of docs merges would churn days of restore
-# points into minutes.
-if [ "${PY_CHANGED}" = "1" ] || [ "${WEB_CHANGED}" = "1" ]; then
-  if [ -x "${PYTHON_BIN}" ]; then
-    if PYTHONPATH=./src "${PYTHON_BIN}" -m agentic_orchestrator.scheduler backup-db >/dev/null 2>&1; then
-      log "pre-deploy DB snapshot written to data/backup/"
-    else
-      log "WARN pre-deploy DB snapshot failed (continuing)"
-    fi
-  else
-    log "WARN ${PYTHON_BIN} not found -- skipping DB snapshot"
-  fi
-else
-  log "docs-only sync -- skipping DB snapshot (nothing restarts)"
-fi
-
 # uv-managed checkout? Either the lockfile is present (it is untracked on the
 # server, so this is a property of the machine, not of the commit) or the venv
 # itself records that uv built it.
@@ -301,6 +196,30 @@ uses_uv() {
   [ -x "${UV_BIN}" ] || return 1
   [ -f "${REPO_ROOT}/uv.lock" ] && return 0
   grep -qs '^uv = ' "${REPO_ROOT}/.venv/pyvenv.cfg"
+}
+
+# Swap the staged frontend build into place: two renames, run immediately
+# before the web restart, so the live .next is only ever replaced whole --
+# never partially overwritten by a build in progress.
+promote_web_build() {
+  if [ ! -d website/.next.new ]; then
+    # The build wrote straight into .next: this checkout's next.config.ts does
+    # not honour NEXT_DIST_DIR (or the build tool is stubbed, as in the test
+    # harness). Nothing to swap -- same behaviour as the pre-staging deploy.
+    log "WARN website/.next.new missing after build -- built in place, nothing to swap"
+    return 0
+  fi
+  rm -rf website/.next.old
+  if [ -d website/.next ]; then
+    mv website/.next website/.next.old \
+      || { log "ERROR could not move the live .next aside"; return 1; }
+  fi
+  if ! mv website/.next.new website/.next; then
+    log "ERROR could not promote the staged build"
+    [ -d website/.next.old ] && mv website/.next.old website/.next 2>/dev/null
+    return 1
+  fi
+  rm -rf website/.next.old
 }
 
 # Build + restart for whatever the current checkout is. Used for the deploy and,
@@ -332,9 +251,25 @@ build_and_restart() {
         || { log "ERROR npm ci failed"; return 1; }
     fi
     # NEXT_PUBLIC_* is baked in at build time, so the frontend always needs a
-    # rebuild -- restarting alone would serve the previous bundle.
+    # rebuild -- restarting alone would serve the previous bundle. The build
+    # goes into a staging dir (website/.next.new -- next.config.ts honours
+    # NEXT_DIST_DIR) rather than the live .next that moss-ao-web is serving
+    # from, so a failed or SIGKILLed build can never leave the live dir
+    # half-written; promote_web_build swaps it in right before the restart.
+    #
+    # The live .next/types were generated for the OLD commit and are matched
+    # by website/tsconfig.json, so a page deleted in this deploy would fail
+    # the staged build's typecheck against them. They are typecheck-time
+    # only, never served -- drop them. The previous build cache is seeded
+    # into the staging dir to keep builds incremental.
+    rm -rf website/.next/types
+    if [ -d website/.next/cache ] && [ ! -d website/.next.new ]; then
+      mkdir -p website/.next.new
+      cp -R website/.next/cache website/.next.new/cache 2>/dev/null || true
+    fi
     log "npm run build"
-    (cd website && "${NPM_BIN}" run build) || { log "ERROR npm run build failed"; return 1; }
+    (cd website && NEXT_DIST_DIR=".next.new" "${NPM_BIN}" run build) \
+      || { log "ERROR npm run build failed"; return 1; }
   fi
 
   # No --update-env on these restarts. It would merge THIS process's
@@ -349,6 +284,7 @@ build_and_restart() {
       || { log "ERROR pm2 restart moss-ao-api failed"; return 1; }
   fi
   if [ "${web}" = "1" ]; then
+    promote_web_build || return 1
     log "pm2 restart moss-ao-web"
     "${PM2_BIN}" restart moss-ao-web >/dev/null \
       || { log "ERROR pm2 restart moss-ao-web failed"; return 1; }
@@ -377,53 +313,318 @@ health_ok() {
   return 1
 }
 
+# Roll back to the last KNOWN-GOOD deploy (the state file), not merely to the
+# pre-tick HEAD: after a crashed deploy HEAD may already sit at the broken
+# target, and "rolling back" to it would change nothing.
 rollback() {
   ROLLING_BACK=1
-  log "ROLLBACK -> ${CURRENT:0:8}"
-  git reset --hard --quiet "${CURRENT}"
+  log "ROLLBACK -> ${DEPLOYED:0:8}"
+  git reset --hard --quiet "${DEPLOYED}"
   if build_and_restart "${PY_CHANGED}" "${WEB_CHANGED}" "${DEPS_CHANGED}" "${NODE_DEPS_CHANGED}"; then
     if health_ok; then
-      log "rollback healthy at ${CURRENT:0:8}"
-      alert "MOSS.AO deploy of ${TARGET:0:8} failed; rolled back to ${CURRENT:0:8} (healthy)"
+      log "rollback healthy at ${DEPLOYED:0:8}"
+      alert "MOSS.AO deploy of ${TARGET:0:8} failed; rolled back to ${DEPLOYED:0:8} (healthy)"
       return 0
     fi
   fi
   log "CRITICAL rollback did not come back healthy -- manual intervention needed"
-  alert "MOSS.AO CRITICAL: deploy of ${TARGET:0:8} failed AND rollback to ${CURRENT:0:8} is unhealthy"
+  alert "MOSS.AO CRITICAL: deploy of ${TARGET:0:8} failed AND rollback to ${DEPLOYED:0:8} is unhealthy"
   return 1
 }
 
-log "checking out ${TARGET:0:8}"
-git reset --hard --quiet "${TARGET}"
+# Persist TARGET as the last successful deploy and clear the failure journal.
+# Called only once everything (or the docs-only sync) has fully succeeded --
+# this write is what makes a deploy "done" as far as later ticks are concerned.
+record_success() {
+  printf '%s\n' "${TARGET}" >"${DEPLOY_STATE_FILE}" || {
+    log "ERROR cannot write ${DEPLOY_STATE_FILE} -- next tick will re-run this deploy"
+    return 1
+  }
+  rm -f "${DEPLOY_ATTEMPT_FILE}" 2>/dev/null || true
+}
 
-if [ "${ECOSYSTEM_CHANGED}" = "1" ]; then
-  log "NOTE ecosystem.config.js changed -- process definitions (cron, env) are"
-  log "     NOT re-registered automatically. Run on the server when convenient:"
-  log "     pm2 restart ecosystem.config.js --update-env && pm2 save"
-  log "     (from a login shell only -- never from inside a PM2-managed process:"
-  log "      PM2 injects config keys like cron_restart into the environment and"
-  log "      --update-env would copy them onto every app; see docs/deployment.md)"
-fi
+main() {
+  SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+  REPO_ROOT=$(cd -- "${SCRIPT_DIR}/.." && pwd)
+  cd "${REPO_ROOT}"
 
-# Docs-only changes are synced (checkout updated above) but not deployed:
-# nothing to build or restart, and the log says SYNCED rather than DEPLOYED.
-if [ "${PY_CHANGED}" = "0" ] && [ "${WEB_CHANGED}" = "0" ]; then
-  log "SYNCED ${CURRENT:0:8} -> ${TARGET:0:8} (docs only -- no deploy)"
+  DEPLOY_BRANCH=${DEPLOY_BRANCH:-main}
+  DEPLOY_REMOTE=${DEPLOY_REMOTE:-origin}
+  DEPLOY_REQUIRE_CI=${DEPLOY_REQUIRE_CI:-1}
+  DEPLOY_GITHUB_REPO=${DEPLOY_GITHUB_REPO:-MosslandOpenDevs/agentic-orchestrator}
+  DEPLOY_API_URL=${DEPLOY_API_URL:-http://127.0.0.1:3001}
+  DEPLOY_WEB_URL=${DEPLOY_WEB_URL:-http://127.0.0.1:3000}
+  DEPLOY_HEALTH_RETRIES=${DEPLOY_HEALTH_RETRIES:-20}
+  DEPLOY_HEALTH_INTERVAL=${DEPLOY_HEALTH_INTERVAL:-3}
+  DEPLOY_ALERT_WEBHOOK=${DEPLOY_ALERT_WEBHOOK:-}
+  DEPLOY_VERBOSE=${DEPLOY_VERBOSE:-0}
+  DEPLOY_LOG=${DEPLOY_LOG:-${REPO_ROOT}/logs/deploy.log}
+  DEPLOY_LOCK=${DEPLOY_LOCK:-${REPO_ROOT}/logs/.deploy.lock}
+  DEPLOY_LOCK_STALE_MIN=${DEPLOY_LOCK_STALE_MIN:-90}
+
+  # Deploy state lives inside the git dir -- the one place in the checkout
+  # that `git reset --hard` can never touch and no build ever writes to.
+  GIT_DIR_ABS=$(git rev-parse --absolute-git-dir 2>/dev/null || echo "${REPO_ROOT}/.git")
+  DEPLOY_STATE_FILE=${DEPLOY_STATE_FILE:-${GIT_DIR_ABS}/moss-ao-deployed-sha}
+  DEPLOY_ATTEMPT_FILE=${DEPLOY_ATTEMPT_FILE:-${GIT_DIR_ABS}/moss-ao-deploy-attempt}
+  DEPLOY_RETRY_BASE_MIN=${DEPLOY_RETRY_BASE_MIN:-5}
+  DEPLOY_RETRY_MAX_MIN=${DEPLOY_RETRY_MAX_MIN:-60}
+
+  PYTHON_BIN=${PYTHON_BIN:-${REPO_ROOT}/.venv/bin/python}
+  PM2_BIN=${PM2_BIN:-pm2}
+  NPM_BIN=${NPM_BIN:-npm}
+  UV_BIN=${UV_BIN:-$(command -v uv 2>/dev/null || echo "${HOME}/.local/bin/uv")}
+
+  FORCE=0
+  CHECK_ONLY=0
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --force) FORCE=1 ;;
+      --check) CHECK_ONLY=1 ;;
+      -h|--help) sed -n '2,65p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+      *) echo "unknown option: $1" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  acquire_lock || exit 0
+  trap 'rm -rf "${DEPLOY_LOCK}" 2>/dev/null || true' EXIT
+
+  # -------------------------------------------------------------------------
+  # 1. Is there anything to deploy?
+  # -------------------------------------------------------------------------
+  git fetch --quiet "${DEPLOY_REMOTE}" "${DEPLOY_BRANCH}" || {
+    log "WARN git fetch failed -- will retry next tick"
+    exit 0
+  }
+
+  CURRENT=$(git rev-parse HEAD)
+  TARGET=$(git rev-parse "${DEPLOY_REMOTE}/${DEPLOY_BRANCH}")
+
+  # Last-success baseline (see the header). A missing/invalid state file
+  # (first run, manual surgery) falls back to HEAD -- and that fallback is
+  # persisted BEFORE anything can move HEAD: were "reset succeeded, build
+  # failed, poller died" to happen now, the next tick's fallback would
+  # otherwise be the already-advanced HEAD and the failed deploy would never
+  # be retried, which is the exact hole the state file closes.
+  DEPLOYED=$(cat "${DEPLOY_STATE_FILE}" 2>/dev/null || true)
+  if [ -z "${DEPLOYED}" ] || ! git cat-file -e "${DEPLOYED}^{commit}" 2>/dev/null; then
+    if [ -n "${DEPLOYED}" ]; then
+      log "WARN state file SHA (${DEPLOYED}) is not a commit here -- assuming HEAD was deployed"
+    fi
+    DEPLOYED=${CURRENT}
+    printf '%s\n' "${DEPLOYED}" >"${DEPLOY_STATE_FILE}" || {
+      log "ERROR cannot write ${DEPLOY_STATE_FILE} -- refusing to run without retry protection"
+      exit 1
+    }
+  fi
+
+  if [ "${DEPLOYED}" = "${TARGET}" ] && [ "${CURRENT}" = "${TARGET}" ]; then
+    if [ "${DEPLOY_VERBOSE}" = "1" ] || [ "${CHECK_ONLY}" = "1" ]; then
+      log "up to date at ${TARGET:0:8}"
+    fi
+    exit 0
+  fi
+
+  SUBJECT=$(git log -1 --format='%s' "${TARGET}")
+  if [ "${CURRENT}" = "${TARGET}" ]; then
+    log "incomplete deploy detected: HEAD is ${TARGET:0:8} but last success is ${DEPLOYED:0:8} -- retrying"
+  else
+    log "update available: ${DEPLOYED:0:8} -> ${TARGET:0:8} (${SUBJECT})"
+  fi
+
+  # Union of both diffs: DEPLOYED..TARGET carries the work a crashed deploy
+  # never finished (HEAD may already equal TARGET), CURRENT..TARGET carries
+  # anything a hand-moved HEAD would otherwise hide.
+  CHANGED=$(
+    {
+      git diff --name-only "${DEPLOYED}" "${TARGET}"
+      git diff --name-only "${CURRENT}" "${TARGET}"
+    } | sort -u
+  )
+
+  # -------------------------------------------------------------------------
+  # Failure backoff. Re-deploying a SHA that just failed -- full cycle:
+  # forced DB snapshot, build, double restart, rollback, webhook -- every
+  # 5-minute tick helps nobody. Attempts are journaled per target SHA (below,
+  # before any work starts); after n failed attempts the next try waits
+  # DEPLOY_RETRY_BASE_MIN * 2^(n-1) minutes, capped at DEPLOY_RETRY_MAX_MIN.
+  # A new commit on the remote resets the journal at once; --force ignores
+  # the wait entirely.
+  # -------------------------------------------------------------------------
+  ATTEMPT_SHA=""
+  ATTEMPT_COUNT=0
+  if [ -f "${DEPLOY_ATTEMPT_FILE}" ]; then
+    read -r ATTEMPT_SHA ATTEMPT_COUNT <"${DEPLOY_ATTEMPT_FILE}" 2>/dev/null || true
+    if [ "${ATTEMPT_SHA:-}" != "${TARGET}" ]; then
+      ATTEMPT_COUNT=0
+    fi
+    case "${ATTEMPT_COUNT:-}" in *[!0-9]*|'') ATTEMPT_COUNT=0 ;; esac
+  fi
+  if [ "${ATTEMPT_COUNT}" -gt 0 ] && [ "${FORCE}" = "0" ] && [ "${CHECK_ONLY}" = "0" ]; then
+    BACKOFF_EXP=$((ATTEMPT_COUNT - 1))
+    if [ "${BACKOFF_EXP}" -gt 10 ]; then BACKOFF_EXP=10; fi
+    BACKOFF_MIN=$((DEPLOY_RETRY_BASE_MIN * (1 << BACKOFF_EXP)))
+    if [ "${BACKOFF_MIN}" -gt "${DEPLOY_RETRY_MAX_MIN}" ]; then BACKOFF_MIN=${DEPLOY_RETRY_MAX_MIN}; fi
+    if [ -z "$(find "${DEPLOY_ATTEMPT_FILE}" -mmin "+${BACKOFF_MIN}" 2>/dev/null)" ]; then
+      log "deploy of ${TARGET:0:8} already failed ${ATTEMPT_COUNT} time(s) -- backing off (retry ${BACKOFF_MIN}m after the last attempt)"
+      exit 0
+    fi
+    log "retrying ${TARGET:0:8} after ${ATTEMPT_COUNT} failed attempt(s)"
+  fi
+
+  # -------------------------------------------------------------------------
+  # 2. Guards
+  # -------------------------------------------------------------------------
+  BRANCH_NOW=$(git rev-parse --abbrev-ref HEAD)
+  if [ "${BRANCH_NOW}" != "${DEPLOY_BRANCH}" ] && [ "${FORCE}" = "0" ]; then
+    log "ABORT checkout is on '${BRANCH_NOW}', not '${DEPLOY_BRANCH}' -- not touching it"
+    exit 0
+  fi
+
+  # Tracked-file edits made by hand on the server would be silently discarded by
+  # the reset below, so stop and let a human look. Untracked files (.env, the DB)
+  # are never at risk and are deliberately not checked.
+  if [ -n "$(git status --porcelain --untracked-files=no)" ] && [ "${FORCE}" = "0" ]; then
+    log "ABORT working tree has local modifications to tracked files:"
+    git status --short --untracked-files=no | while read -r l; do log "       ${l}"; done
+    log "       resolve on the server, or re-run with --force to discard them"
+    alert "MOSS.AO deploy blocked: local modifications on the server checkout"
+    exit 0
+  fi
+
+  # Commits made by hand on the server -- HEAD ahead of, or diverged from,
+  # the remote branch -- would be thrown away by the reset below. Unlike
+  # dirty tracked files they do survive in the reflog, but discarding them
+  # silently is still wrong: stop and let a human reconcile.
+  if [ "${CURRENT}" != "${TARGET}" ] && [ "${FORCE}" = "0" ] \
+     && ! git merge-base --is-ancestor "${CURRENT}" "${TARGET}" 2>/dev/null; then
+    log "ABORT HEAD ${CURRENT:0:8} carries local commits not on ${DEPLOY_REMOTE}/${DEPLOY_BRANCH}:"
+    git log --oneline "${TARGET}..${CURRENT}" 2>/dev/null | head -10 \
+      | while read -r l; do log "       ${l}"; done
+    log "       push or drop them on the server, or re-run with --force to discard them"
+    alert "MOSS.AO deploy blocked: local commits on the server checkout"
+    exit 0
+  fi
+
+  if [ "${DEPLOY_REQUIRE_CI}" = "1" ] && [ "${FORCE}" = "0" ]; then
+    CI=$(ci_conclusion "${TARGET}")
+    case "${CI}" in
+      success) log "CI: green" ;;
+      none)    log "CI: no checks reported for this commit -- proceeding" ;;
+      pending) log "CI: still running -- deferring to next tick"; exit 0 ;;
+      failure) log "CI: FAILED -- refusing to deploy ${TARGET:0:8}"
+               alert "MOSS.AO deploy skipped: CI failed on ${TARGET:0:8} (${SUBJECT})"
+               exit 0 ;;
+      *)       log "CI: status unavailable (network/API) -- deferring to next tick"; exit 0 ;;
+    esac
+  fi
+
+  # What kind of change is this?
+  PY_CHANGED=0
+  WEB_CHANGED=0
+  DEPS_CHANGED=0
+  NODE_DEPS_CHANGED=0
+  ECOSYSTEM_CHANGED=0
+  while IFS= read -r f; do
+    [ -n "${f}" ] || continue
+    case "${f}" in
+      src/*|config.yaml|pyproject.toml|prompts/*) PY_CHANGED=1 ;;
+    esac
+    case "${f}" in
+      website/*) WEB_CHANGED=1 ;;
+    esac
+    case "${f}" in
+      pyproject.toml) DEPS_CHANGED=1 ;;
+      website/package.json|website/package-lock.json) NODE_DEPS_CHANGED=1 ;;
+      ecosystem.config.js) ECOSYSTEM_CHANGED=1 ;;
+    esac
+  done <<EOF
+${CHANGED}
+EOF
+
+  if [ "${PY_CHANGED}" = "1" ] && [ "${FORCE}" = "0" ]; then
+    BUSY=$(scheduler_busy)
+    if [ -n "${BUSY}" ]; then
+      log "scheduler busy (${BUSY}) -- deferring back-end deploy to next tick"
+      exit 0
+    fi
+  fi
+
+  if [ "${CHECK_ONLY}" = "1" ]; then
+    log "--check: would deploy ${TARGET:0:8} (python=${PY_CHANGED} web=${WEB_CHANGED} \
+pydeps=${DEPS_CHANGED} nodedeps=${NODE_DEPS_CHANGED} ecosystem=${ECOSYSTEM_CHANGED})"
+    exit 0
+  fi
+
+  # -------------------------------------------------------------------------
+  # 3. Deploy
+  # -------------------------------------------------------------------------
+
+  # Journal this attempt BEFORE any work starts: a poller SIGKILLed mid-build
+  # never reaches a failure handler, and the next tick must still know this
+  # SHA was already tried so the backoff above can kick in.
+  printf '%s %s\n' "${TARGET}" "$((ATTEMPT_COUNT + 1))" >"${DEPLOY_ATTEMPT_FILE}" \
+    || log "WARN cannot write ${DEPLOY_ATTEMPT_FILE} -- failure backoff disabled"
+
+  # Pre-deploy snapshot: forced (not the ~daily "maybe" variant the health check
+  # uses) so there is always a restore point from immediately before this change.
+  # Docs-only syncs skip it: nothing restarts and reset --hard cannot touch the
+  # untracked DB, so a snapshot protects nothing -- and each one rotates the
+  # 7-slot backup window, so a burst of docs merges would churn days of restore
+  # points into minutes.
+  if [ "${PY_CHANGED}" = "1" ] || [ "${WEB_CHANGED}" = "1" ]; then
+    if [ -x "${PYTHON_BIN}" ]; then
+      if PYTHONPATH=./src "${PYTHON_BIN}" -m agentic_orchestrator.scheduler backup-db >/dev/null 2>&1; then
+        log "pre-deploy DB snapshot written to data/backup/"
+      else
+        log "WARN pre-deploy DB snapshot failed (continuing)"
+      fi
+    else
+      log "WARN ${PYTHON_BIN} not found -- skipping DB snapshot"
+    fi
+  else
+    log "docs-only sync -- skipping DB snapshot (nothing restarts)"
+  fi
+
+  log "checking out ${TARGET:0:8}"
+  git reset --hard --quiet "${TARGET}"
+
+  if [ "${ECOSYSTEM_CHANGED}" = "1" ]; then
+    log "NOTE ecosystem.config.js changed -- process definitions (cron, env) are"
+    log "     NOT re-registered automatically. Run on the server when convenient:"
+    log "     pm2 restart ecosystem.config.js --update-env && pm2 save"
+    log "     (from a login shell only -- never from inside a PM2-managed process:"
+    log "      PM2 injects config keys like cron_restart into the environment and"
+    log "      --update-env would copy them onto every app; see docs/deployment.md)"
+  fi
+
+  # Docs-only changes are synced (checkout updated above) but not deployed:
+  # nothing to build or restart, and the log says SYNCED rather than DEPLOYED.
+  if [ "${PY_CHANGED}" = "0" ] && [ "${WEB_CHANGED}" = "0" ]; then
+    record_success || exit 1
+    log "SYNCED ${DEPLOYED:0:8} -> ${TARGET:0:8} (docs only -- no deploy)"
+    exit 0
+  fi
+
+  if ! build_and_restart "${PY_CHANGED}" "${WEB_CHANGED}" "${DEPS_CHANGED}" "${NODE_DEPS_CHANGED}"; then
+    log "ERROR build/restart failed"
+    rollback || exit 1
+    exit 1
+  fi
+
+  if ! health_ok; then
+    log "ERROR health check failed after deploy"
+    rollback || exit 1
+    exit 1
+  fi
+
+  record_success || exit 1
+  log "DEPLOYED ${DEPLOYED:0:8} -> ${TARGET:0:8}"
+  git log --oneline "${DEPLOYED}..${TARGET}" | head -10 | while read -r l; do log "       ${l}"; done
   exit 0
-fi
+}
 
-if ! build_and_restart "${PY_CHANGED}" "${WEB_CHANGED}" "${DEPS_CHANGED}" "${NODE_DEPS_CHANGED}"; then
-  log "ERROR build/restart failed"
-  rollback || exit 1
-  exit 1
-fi
-
-if ! health_ok; then
-  log "ERROR health check failed after deploy"
-  rollback || exit 1
-  exit 1
-fi
-
-log "DEPLOYED ${CURRENT:0:8} -> ${TARGET:0:8}"
-git log --oneline "${CURRENT}..${TARGET}" | head -10 | while read -r l; do log "       ${l}"; done
-exit 0
+main "$@"
+exit $?
