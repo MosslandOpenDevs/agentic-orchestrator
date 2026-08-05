@@ -29,13 +29,18 @@ services:
   db:
     image: postgres:15-alpine
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=app
+      - POSTGRES_USER=${POSTGRES_USER:?set POSTGRES_USER in .env}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      - POSTGRES_DB=${POSTGRES_DB:-app}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # No published port. This used to be `5432:5432` with the superuser
+    # credentials hardcoded to postgres/postgres, so anyone who could reach the
+    # host on 5432 -- any other machine on the network, and on many setups the
+    # internet -- had database administrator access. `backend` reaches it over
+    # the compose network by hostname; for local psql use
+    # `docker compose exec db psql`, or add `127.0.0.1:5432:5432` to bind to
+    # loopback only.
 
 
 volumes:
