@@ -369,8 +369,14 @@ pm2 save
 - **활성화**: 서버 `.env`에 `MOSS_AO_AUTO_DEPLOY=1` → `pm2 start ecosystem.config.js
   --only moss-ao-deploy && pm2 save`. 이 플래그가 없으면 PM2 앱 목록에 등록조차 되지 않아
   다른 체크아웃이 자기 자신을 배포하는 사고가 나지 않는다.
-- **가드**: CI 초록불일 때만 / 서버에 로컬 수정이 있으면 중단 / 토론 실행 중이면 백엔드
-  배포는 다음 틱으로 연기 / 배포 전 강제 DB 스냅샷 / 헬스체크 실패 시 자동 롤백(재빌드 포함).
+- **가드**: CI 초록불일 때만 / 서버에 로컬 수정·로컬 커밋이 있으면 중단 / 토론 실행 중이면
+  백엔드 배포는 다음 틱으로 연기 / 배포 전 강제 DB 스냅샷 / 헬스체크 실패 시 자동 롤백(재빌드 포함).
+- **배포 상태는 HEAD가 아니라 "마지막 성공 SHA"** (`.git/moss-ao-deployed-sha`, 헬스체크
+  통과 후에만 기록): 배포 도중 죽으면(OOM SIGKILL·재부팅) 다음 틱이 미완 배포로 감지해
+  재시도한다. 같은 SHA가 반복 실패하면 지수 백오프(5분→…→60분)로 풀 사이클 반복을 막고,
+  새 커밋이 오면 즉시 리셋. 프론트 빌드는 라이브 `.next`가 아니라 `website/.next.new`에
+  스테이징 후 성공 시에만 스왑(`next.config.ts`의 `NEXT_DIST_DIR`). 락은 소유 PID를 기록해
+  SIGKILL로 죽은 폴러의 락을 다음 틱에 즉시 회수한다.
 - **`git clean` 금지**: `git reset --hard`만 사용한다. DB(`data/`)·`.env`는 untracked라
   reset은 건드리지 않지만 clean은 지운다 (2026-07 사고). `tests/test_deploy.py`가 이
   불변식을 실제 실행으로 검증하므로 스크립트에 clean을 추가하면 테스트가 깨진다.

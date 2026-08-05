@@ -15,6 +15,9 @@
 
 # next.js
 /.next/
+# staging/backup dirs used by the auto-deploy's atomic build swap
+/.next.new/
+/.next.old/
 /out/
 
 # production
