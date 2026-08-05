@@ -382,6 +382,13 @@ if [ "${ECOSYSTEM_CHANGED}" = "1" ]; then
   log "     pm2 restart ecosystem.config.js --update-env && pm2 save"
 fi
 
+# Docs-only changes are synced (checkout updated above) but not deployed:
+# nothing to build or restart, and the log says SYNCED rather than DEPLOYED.
+if [ "${PY_CHANGED}" = "0" ] && [ "${WEB_CHANGED}" = "0" ]; then
+  log "SYNCED ${CURRENT:0:8} -> ${TARGET:0:8} (docs only -- no deploy)"
+  exit 0
+fi
+
 if ! build_and_restart "${PY_CHANGED}" "${WEB_CHANGED}" "${DEPS_CHANGED}" "${NODE_DEPS_CHANGED}"; then
   log "ERROR build/restart failed"
   rollback || exit 1
