@@ -291,7 +291,7 @@ Auto-Scorer는 4가지 차원으로 아이디어를 평가합니다:
 `scored` 아이디어를 오늘의 트렌드 기준으로 재채점해 종결 결정을 강제한다:
 
 ```
-scored (24h 이상 경과, 오래된 순 per_run개)
+scored (6h 이상 경과, 오래된 순 per_run개)
    │  IdeaScorer 재채점 (현재 트렌드 컨텍스트)
    ├─ score >= 7.0 → promoted + draft 플랜 (사람이 /plans/{id}/approve로 승인)
    │                 → [Idea] 이슈는 lifecycle이 completed로 닫음
@@ -302,7 +302,8 @@ scored (24h 이상 경과, 오래된 순 per_run개)
 - 모든 아이디어는 최대 `max_strikes`번의 재평가 안에 `promoted|archived`로
   종결 → 열린 백로그 크기는 "생산율 × 결정 소요일"로 유계
 - **사이징 규칙**: `per_run × 6회/일`이 일일 아이디어 생산량을 넘어야 한다
-  (기본 15 × 6 = 90터치/일 ≥ 45결정/일 > 생산 ~40/일)
+  (기본 25 × 6 = 150터치/일 ≥ 75결정/일 > 생산 ~40/일; v0.6.17에서 per_run 15→25,
+  min_age 24h→6h로 상향 — 24h 격리는 첫날 소비가 정확히 0이었다)
 - 트리아지는 **DB만** 쓴다. 이슈 닫기는 같은 주기에서 바로 뒤에 도는 issue
   lifecycle의 몫 (GitHub 장애 시 다음 주기에 자기치유)
 - LLM 폴백(중립 5.0 + reasoning 없음) 감지 시 스트라이크를 주지 않고 건너뜀 —

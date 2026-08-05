@@ -7,7 +7,10 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 이 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)를 기반으로 하며,
 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
-## [Unreleased]
+## [0.6.17] - 2026-08-05
+
+### 변경
+- **트리아지를 더 낮은 열린-이슈 평형점으로 튜닝 — 라이브 첫날이 기본값이 너무 소극적임을 증명했다.** v0.6.16은 `min_age_hours: 24`로 나갔는데, 이는 모든 아이디어를 만 하루 격리하는 설정이었다: 12:00 UTC 백로그 틱이 돌았지만 백로그의 모든 아이디어가 24시간 미만이라 소비가 **정확히 0** — 그날 생산분 전체가 D+1까지 건드릴 수 없는 상태였다. 튜닝 내역 (config + 코드 기본값 + 문서 모두 동기화): `per_run` 15 → **25** (용량 150터치/일 ≥ 75결정/일 vs 생산 ~40/일; 토론 1회의 ~20개 버스트가 두 주기 안에 소화됨), `min_age_hours` 24 → **6** (트렌드는 2시간마다 갱신되므로 6시간이면 이미 유의미하게 다른 컨텍스트; 아이디어가 당일 결정됨), 에이징 백스톱 `max_age_days` 30 → **14** (결정 기반 닫기가 정상 경로가 된 지금, 타이머는 DB 행이 없는 고아 이슈만 잡는다). 기대 평형점: 큐레이션 keep-set 62개(`curated:keep` 12, `source:trend` 43, 사람 코멘트 7) 위에 유동 [Idea] 이슈 ~15–25개 → 총 **~80–90개** (v0.6.16 기본값의 ~100–150 대비 하향). `max_strikes`는 2 유지 — gemma3:4b 점수 노이즈는 실재하고 6–7점 밴드는 두 번째 검토를 받을 자격이 있다.
 
 ### 수정
 - **자동 배포가 자신의 cron을 api/web에 심지 않는다.** PM2는 관리 프로세스의 설정 키(`cron_restart`, `autorestart` 등)를 그 프로세스 환경에 일반 환경변수로 주입하는데, `pm2 restart --update-env`는 호출자 환경을 대상 앱의 저장된 정의에 병합한다 — 그래서 `moss-ao-deploy` 폴러(cron `4-59/5 * * * *`)가 배포할 때마다 그 cron이 `moss-ao-api`/`moss-ao-web`에 찍혀 둘 다 5분마다 강제 재시작됐다 (2026-08-05: 약 5시간 동안 59회; 깨끗이 재등록해도 다음 배포가 재적용해 소용없었다 — PM2는 재시작 시 `ecosystem.config.js`를 다시 읽지 않는다, 업스트림 #3742/#4504). 수정 전 스크래치 PM2 앱으로 메커니즘을 재현해 확증했다. 이제 `deploy.sh`는 시작 시 주입되는 주요 설정 키 변수(`cron_restart` 등 9종)를 제거하고 `--update-env` 없이 재시작한다 (이 플래그는 `GITHUB_TOKEN` 같은 배포 전용 env도 앱에 흘리고 있었다); 앱 env는 등록 시점의 `ecosystem.config.js`가 단일 소스다. `pm2 restart X --cron-restart 0`은 PM2 7.0.3에서 저장된 cron을 지우지 **못한다** — 삭제 후 재등록만이 확실한 정리법이며, 탐지 원라이너와 사고 전문은 `docs/deployment.md`에 있다. 스크럽 대상 9종 키를 전부 주입해 실제 배포를 실행하는 `TestPm2EnvHygiene`(배포가 `pm2 jlist`/일반 `restart`만 쓰고 `start`/`save`·어떤 동사의 `--update-env`도 쓰지 않음을 함께 고정)과 소스 불변식은 수정 전 스크립트에서 실패함을 확인했고, ecosystem 등록 불변식은 `ecosystem.config.js` 자체(api/web: `cron_restart` 없음, `autorestart: true`)를 별도로 지킨다 — 파일은 애초에 잘못된 적이 없으므로 이 불변식은 수정 전에도 통과한다. 가드들은 적대적 리뷰가 뮤테이션으로 실증한 두 구멍(비-restart 동사의 `--update-env` 미탐지, 스크럽 9종 중 2종만 감지)을 보강한 결과다.

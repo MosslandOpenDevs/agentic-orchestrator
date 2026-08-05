@@ -21,7 +21,8 @@ Every idea therefore reaches ``promoted`` or ``archived`` within at most
 ``max_strikes`` touches, and the steady-state backlog is bounded by
 production_rate x days_to_decision instead of growing without limit. Sizing
 rule: ``per_run x 6 runs/day`` must exceed daily idea production, or the
-queue still grows (12+/day margin is plenty at current ~40/day production).
+queue still grows (25 x 6 = 150 touches/day vs ~40/day produced leaves a
+wide margin and drains bursts within two cycles).
 
 Triage writes ONLY to the DB — SQLite is the source of truth. Closing the
 mirrored GitHub issues is the issue lifecycle's job (it runs right after
@@ -43,8 +44,12 @@ TRIAGE_STATUSES = ("scored", "pending")
 
 TRIAGE_DEFAULTS = {
     "enabled": True,
-    "per_run": 15,
-    "min_age_hours": 24,
+    "per_run": 25,
+    # 6h, not 24h: a whole-day quarantine meant day-one consumption was
+    # exactly zero and every idea idled untouchable until D+1. Trends
+    # refresh every 2h, so a 6h-old idea already faces a materially
+    # different context than the debate that produced it.
+    "min_age_hours": 6,
     "max_strikes": 2,
 }
 
@@ -127,8 +132,8 @@ async def run_backlog_triage(
     if not config.get("enabled", True):
         return stats
 
-    per_run = int(config.get("per_run", 15))
-    min_age = timedelta(hours=float(config.get("min_age_hours", 24)))
+    per_run = int(config.get("per_run", 25))
+    min_age = timedelta(hours=float(config.get("min_age_hours", 6)))
     max_strikes = int(config.get("max_strikes", 2))
 
     try:
