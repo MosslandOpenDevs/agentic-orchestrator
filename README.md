@@ -4,7 +4,7 @@
 
 An autonomous multi-agent orchestration system for discovering, planning, and implementing micro Web3 services for the Mossland ecosystem.
 
-**Version**: v0.6.14
+**Version**: v0.6.15
 
 ## Key Features
 
@@ -16,6 +16,8 @@ An autonomous multi-agent orchestration system for discovering, planning, and im
 - **CLI-Style Dashboard**: Retro terminal-themed web interface at https://ao.moss.land
 - **REST API**: FastAPI backend for programmatic access
 - **DB Resilience**: a lost or emptied SQLite file degrades gracefully instead of taking every endpoint down — startup schema self-heal, `/status` degradation, and integrity-checked rolling backups (~daily, 7 kept, regression-aware retention)
+- **Self-Deploying**: production follows `main` on its own — a 5-minute pull loop gated on green CI, with pre-deploy DB snapshots and automatic rollback ([Deployment](#deployment))
+- **Structured LLM Output**: trend analysis and idea scoring enforce JSON schemas at decode time (Ollama `format`), with truncation detection and salvage parsing behind them
 
 ## Dashboard
 
@@ -54,9 +56,9 @@ A Next.js CLI-style dashboard for monitoring the orchestrator in real time, live
 │                   LLM ROUTER (Ollama-only by default)                   │
 │  ┌─────────────────────────────┐    ┌────────────────────────────────┐  │
 │  │ Local (Ollama)              │    │ Cloud API (opt-in via flag)    │  │
-│  │ - gemma3:4b (chat)          │    │ - Claude / OpenAI / Gemini     │  │
-│  │ - qwen3-embedding:0.6b      │    │ Disabled when                  │  │
-│  │   (embeddings)              │    │ MOSS_LOCAL_LLM_ONLY=true       │  │
+│  │ - gemma3:4b (all tasks)     │    │ - Claude / OpenAI / Gemini     │  │
+│  │ - JSON schemas enforced     │    │ Disabled when                  │  │
+│  │   at decode time (format)   │    │ MOSS_LOCAL_LLM_ONLY=true       │  │
 │  └─────────────────────────────┘    └────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -119,6 +121,23 @@ pm2 restart moss-ao-web     # restart one service
 pm2 stop all                # stop everything
 pm2 monit                   # resource monitor
 ```
+
+## Deployment
+
+Production deploys itself: the opt-in `moss-ao-deploy` job fetches `main` every
+5 minutes and acts only when it moved — deploying commits GitHub Actions has
+passed, after a DB snapshot, building only what the diff touches, and rolling
+back (rebuild included) if the post-deploy health check fails. `git clean` is
+never used, so untracked server state (`data/orchestrator.db`, `.env`) survives
+every deploy. Back-end deploys wait while a debate is running; docs-only
+commits restart nothing.
+
+```bash
+bash scripts/deploy.sh --check   # dry run: report what would happen
+bash scripts/deploy.sh           # deploy now, without waiting for the next tick
+```
+
+Setup, configuration, and troubleshooting: [docs/deployment.md](docs/deployment.md).
 
 ## API Endpoints
 
