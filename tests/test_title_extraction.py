@@ -53,6 +53,13 @@ class TestIsJsonNoiseLine:
             '"Dynamic website domain verification and reputation scoring using'
         )
 
+    def test_entirely_curly_quoted_line_is_noise(self):
+        # gemma3 uses curly quotes AS JSON delimiters too (same habit that
+        # broke trend parsing) — the exact shape that became issue #2893.
+        assert MultiStageDebate._is_json_noise_line(
+            "“Automated website domain verification & reputation scoring using multiple blacklists”,"
+        )
+
     def test_curly_quoted_title_is_not_noise(self):
         # LLMs use curly quotes decoratively in real titles — keep those.
         assert not MultiStageDebate._is_json_noise_line(
