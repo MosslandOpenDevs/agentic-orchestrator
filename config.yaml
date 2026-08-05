@@ -93,12 +93,16 @@ throttling:
 
 # API Budget Configuration
 budget:
-  # Daily spending limit in USD (raised 1.0 -> 2.0 for the debate paid tier:
-  # 4 debates/day x ~$0.30-0.50 each plus headroom; the tier silently falls
-  # back to local gemma when either limit is hit)
+  # Daily spending limit in USD. Measured cost of one debate on gpt-5.4-mini
+  # is $0.446 (38 calls, 273k in / 54k out — debate context accumulates
+  # across rounds, which is why the input side dominates), so 4 debates/day
+  # is ~$1.78 and this leaves headroom for a retry or a manual run.
   daily_limit_usd: 2.0
-  # Monthly spending limit in USD
-  monthly_limit_usd: 45.0
+  # Monthly spending limit in USD. Must exceed daily x 31 ($62) or the month
+  # dies before the day does: at $45 the cap bit around day 25 and every
+  # later debate silently degraded to local gemma. $100 covers the measured
+  # ~$54/month with room for extra manual debates.
+  monthly_limit_usd: 100.0
   # Warn when usage reaches this percentage
   warning_threshold: 0.7
   # Critical alert at this percentage (prefer local models)
