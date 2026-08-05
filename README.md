@@ -110,6 +110,7 @@ Once PM2 is up, the dashboard is at http://localhost:3000 and the API reference 
 | `moss-ao-web` | Always on | Next.js dashboard (port 3000) |
 | `moss-ao-api` | Always on | FastAPI backend (port 3001) |
 | `moss-ao-health` | Every 5 min | Health monitoring + rolling DB backup (~daily) |
+| `moss-ao-deploy` | Every 5 min | Pull-based auto-deploy, opt-in ([docs/deployment.md](docs/deployment.md)) |
 
 ```bash
 pm2 status                  # all services

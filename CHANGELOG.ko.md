@@ -9,7 +9,19 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 
 ## [Unreleased]
 
+### 추가
+- **풀(pull) 방식 자동 배포** (`scripts/deploy.sh` + 옵트인 PM2 잡 `moss-ao-deploy`): 사람이 서버에 들어가 `git pull` + `npm run build` + `pm2 restart`를 치는 대신, 운영 서버가 5분마다 스스로 `main`을 따라간다. CI에서 밀어넣는(push) 방식을 쓰지 않은 이유는 기록해 둘 가치가 있다 — 앱 서버는 공개 인바운드 경로가 없고(테일넷 안에서만 접근 가능하며 공개 도메인 `ao.moss.land`는 별도 Lightsail의 Nginx가 프록시), 이 저장소는 public이라 self-hosted 러너를 붙이면 포크 PR이 사내 머신에서 코드를 실행할 수 있으며, 운영 계정 권한은 admin이 아닌 `MAINTAIN`이라 러너·시크릿 등록이 403이다. 당겨오는 방식은 이 중 아무것도 필요 없다: public repo는 익명 fetch가 되므로 서버는 포트를 열지 않고, 배포 키도 없고, GitHub 쪽 설정이 아예 없다. Tailscale은 원래대로 사람이 서버에 들어가는 관리 경로로 남고 배포 경로에는 관여하지 않는다.
+- 배포기는 diff가 요구하는 일만 한다: `pyproject.toml`이 바뀌면 `pip install -e .`, 락파일이 바뀌면 `npm ci`, `website/` 변경이면 `npm run build`(`NEXT_PUBLIC_*`가 빌드 시점에 박히므로 재시작만 하면 이전 번들이 계속 나간다), 재시작 대상은 `moss-ao-api`·`moss-ao-web`뿐. 스케줄러 잡은 **의도적으로 재시작하지 않는다** — signals/trends/debate/backlog/health는 cron 틱마다 `.venv/bin/python`을 새로 띄우므로 새 코드를 알아서 집어가고, 재시작하면 진행 중인 작업만 죽는다. 따라서 문서만 바뀐 커밋은 아무것도 재시작하지 않는다.
+- 가드 — 각각은 그것이 없을 때의 구체적인 사고에 대응한다: GitHub Actions가 초록불인 커밋만 배포(진행 중이면 다음 틱으로 연기, API를 못 읽어도 눈감고 배포하지 않고 연기), 서버에서 추적 파일이 손으로 수정돼 있으면 중단(`git reset --hard`가 조용히 지운다), 토론(~30분) 실행 중에는 백엔드 배포를 연기(라이브 import 밑에서 패키지를 다시 깔면 깨질 수 있다 — 프론트엔드 전용 변경은 그대로 진행), 겹치는 틱이 섞이지 않도록 하는 stale 회수형 락, 매 배포 직전 강제 DB 스냅샷, 그리고 빌드나 배포 후 헬스체크가 실패하면 **재빌드까지 포함한** 자동 롤백(복구된 커밋이 일관되게 서비스되도록).
+- `docs/deployment.md`: 설치, 설정(`MOSS_AO_AUTO_DEPLOY`, `DEPLOY_*`), 운영, 수동 롤백, 문제 해결, 그리고 즉시 배포(GitHub Actions + Tailscale)로 가려면 무엇이 선행돼야 하는지(`tag:ci`와 OAuth 클라이언트를 위한 테일넷 관리자, 시크릿을 위한 저장소 admin) — 그때도 워크플로가 이 스크립트를 그대로 호출해야 가드와 롤백이 두 벌로 갈라지지 않는다는 점을 함께 기록.
+
+### 변경
+- `ecosystem.config.js`: `pm2 deploy` 블록 제거. 애초에 실행 가능한 적이 없었다 — 존재하지 않는 호스트(`server1.moss.land`), 잘못된 저장소(`MosslandOpenDevs/`가 아닌 `mossland/`), 이 프로젝트에 없는 `requirements.txt`를 가리켰고, 테일넷 밖에서는 앱 서버로 SSH 자체가 불가능하므로 원리적으로도 동작할 수 없었다. 남겨두면 존재하지 않는 배포 경로가 있는 것처럼 읽힌다.
+
 ### 테스트
+- `tests/test_deploy.py` 추가 (29개). 배포 스크립트는 `git push`와 프로덕션 사이에 서 있는 물건이라, 실제로 실행해서 검증한다: 매 테스트가 일회용 origin/체크아웃 쌍을 만들고 스텁 `pm2`·`npm`·`curl`을 `PATH` 앞에 두어, 진짜 스크립트가 가짜 인프라 위에서 진짜 코드 경로를 타게 한다. 커버 범위: 무변경 fast path(5분마다 도는 만큼 조용하고 공짜여야 한다), 변경 경로별 빌드/재시작 선택, 위의 모든 가드, 헬스체크 실패 후 롤백과 빌드 실패 후 롤백, 그리고 롤백조차 정상 복구되지 않는 `CRITICAL` 케이스.
+- 가장 중요한 테스트는 배포 후에도 추적되지 않는 서버 상태가 살아남는지다: `data/orchestrator.db`, `data/backup/`, `.env`, `website/.env.local`은 모두 서버에 untracked로 존재하고, 2026-07 장애가 바로 그 DB의 유실이었다. `git reset --hard`는 이들을 건드리지 않고 `git clean`은 지우므로, 이 불변식을 두 겹으로 고정했다 — 동작으로(배포 후에도 파일이 그대로) 그리고 정적으로(스크립트 코드 어디에도 `git clean`이 없음).
+- 이 로직이 회귀할 수 있는 6가지 방식을 스크립트 사본에 각각 적용해 뮤테이션 검증했다 — `git clean` 추가, 로컬 수정 가드 제거, 롤백 제거, CI 실패 무시, 토론 진행 중 가드 제거, 무변경 fast path 상실 — 모두 대응 테스트가 실패하는 것을 확인했다.
 - `tests/test_version_resolution.py` 추가 (10개) — `__init__.py`의 버전 해석 *로직*을 검증. 0.6.12의 `TestVersionReporting`은 표면(`/health`, `/`, `/openapi.json`)이 `__version__`과 일치하는지만 보므로, 해석기를 소스 트리보다 **설치 메타데이터를 먼저** 읽도록 바꿔도 네 테스트가 모두 통과한다 (뮤테이션으로 확인). 이게 중요한 이유: metadata-first는 0.6.12가 고친 드리프트를 조용히 되살린다 — `importlib.metadata`는 `pip install` 시점의 스냅샷이라, editable 설치 후 체크아웃만 버전이 올라가면 계속 낡은 값을 보고하며, 재설치 없는 `git pull` + `pm2 restart`가 바로 문서화된 배포 절차다. 이제 다음이 커버된다: 소스 트리 우선 순위, wheel 설치용 메타데이터 폴백, `0.0.0+unknown` 센티널 *및* 경고 로그, 패키지가 site-packages에 있을 때 남의 `pyproject.toml`을 가져다 쓰지 못하게 막는 `[project].name` 가드, 그리고 깨진/버전 없는/존재하지 않는 `pyproject.toml`에 대한 강등 동작(import 시 예외를 던지지 않고 강등돼야 함). 이름이 일치하는 합성 트리는 실제로 채택되는지 확인하는 포지티브 컨트롤을 두어, 네거티브 케이스가 엉뚱한 이유로 통과하는 일이 없도록 했다.
 - 하드코딩 리터럴 가드를 `api/main.py`뿐 아니라 `__init__.py`까지 확대 — 리터럴 재도입을 다음 버전 업이 아니라 그것을 넣는 커밋에서 잡는다.
 - 10개 테스트 전부 뮤테이션 검증 완료: 이 로직이 회귀할 수 있는 9가지 방식 — `__version__` 자체를 다시 하드코딩하는, 이 수정을 되돌리는 가장 뻔한 경로 포함 — 을 소스 사본에 각각 적용해, 대응하는 테스트가 실패하는 것을 확인했다.

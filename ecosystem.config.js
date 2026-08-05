@@ -8,6 +8,7 @@
  * - Backlog processor: Processes every 30 minutes (TEST) / 4 hours (PROD)
  * - Web interface: Next.js dashboard (port 3000)
  * - API server: FastAPI backend (port 3001)
+ * - Auto-deploy: pulls origin/main every 5 minutes (opt-in, see MOSS_AO_AUTO_DEPLOY)
  *
  * Usage:
  *   pm2 start ecosystem.config.js
@@ -56,6 +57,13 @@
 // Toggle between TEST and PRODUCTION schedules
 const TEST_MODE = false;  // Set to false for production schedules
 
+// Auto-deploy is opt-in per machine: the moss-ao-deploy poller is only
+// registered when MOSS_AO_AUTO_DEPLOY=1 is present in .env (loaded above).
+// Without that gate every checkout of this repo -- a laptop, a second box, a
+// staging clone -- would start fast-forwarding itself to origin/main as soon
+// as someone ran `pm2 start ecosystem.config.js`. See docs/deployment.md.
+const AUTO_DEPLOY = process.env.MOSS_AO_AUTO_DEPLOY === '1';
+
 // Cron minutes are staggered so the PM2 workers do not all fire on the
 // hour and flood the single-instance Ollama queue (which returned HTTP
 // 503 'maximum pending requests exceeded' under the previous schedule).
@@ -64,6 +72,7 @@ const TEST_MODE = false;  // Set to false for production schedules
 //   debate   → :25 of every 6 h     (LLM-bound, longest)
 //   backlog  → :45 of every 4 h     (mostly DB / retention)
 //   health   → :02/:07/.../:57      (cheap, no LLM)
+//   deploy   → :04/:09/.../:59      (cheap; no-op unless origin/main moved)
 const SCHEDULES = {
   test: {
     signals: '5,35 * * * *',    // :05 and :35 every hour
@@ -71,6 +80,7 @@ const SCHEDULES = {
     debate: '25 * * * *',       // :25 every hour
     backlog: '45 * * * *',      // :45 every hour
     health: '2-57/5 * * * *',   // every 5 min, offset by 2 to avoid :00
+    deploy: '4-59/5 * * * *',   // every 5 min, offset by 4 (staggered off health)
   },
   production: {
     signals: '5,35 * * * *',    // :05 and :35 every hour (= every 30 min)
@@ -78,6 +88,7 @@ const SCHEDULES = {
     debate: '25 */6 * * *',     // :25 every 6 hours
     backlog: '45 */4 * * *',    // :45 every 4 hours
     health: '2-57/5 * * * *',   // every 5 min, offset by 2
+    deploy: '4-59/5 * * * *',   // every 5 min, offset by 4
   },
 };
 
@@ -231,33 +242,42 @@ module.exports = {
       out_file: './logs/health-out.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
     },
-  ],
 
-  // Deployment configuration
-  deploy: {
-    production: {
-      user: 'deploy',
-      host: ['server1.moss.land'],
-      ref: 'origin/main',
-      repo: 'git@github.com:mossland/agentic-orchestrator.git',
-      path: '/var/www/moss-ao',
-      'pre-deploy-local': '',
-      'post-deploy': 'npm install && pip install -r requirements.txt && pm2 reload ecosystem.config.js --env production',
-      'pre-setup': '',
+    // Auto-Deploy - fast-forwards this checkout to origin/main every 5 minutes.
+    // Only registered when MOSS_AO_AUTO_DEPLOY=1 (see AUTO_DEPLOY above).
+    // Exits immediately when the remote has not moved, so the steady-state cost
+    // is one `git fetch`. All DEPLOY_* knobs are documented in scripts/deploy.sh
+    // and are read from .env -- they are forwarded explicitly here because PM2
+    // otherwise hands the app whatever environment the daemon was started with.
+    ...(AUTO_DEPLOY ? [{
+      name: 'moss-ao-deploy',
+      script: 'scripts/deploy.sh',
+      interpreter: 'bash',
+      cwd: __dirname,
+      instances: 1,
+      autorestart: false,  // Don't auto-restart, wait for cron
+      watch: false,
+      max_memory_restart: '1G',  // headroom for `npm run build`
+      cron_restart: schedule.deploy,
       env: {
         NODE_ENV: 'production',
+        PYTHONPATH: './src',
+        DEPLOY_BRANCH: process.env.DEPLOY_BRANCH || 'main',
+        DEPLOY_REQUIRE_CI: process.env.DEPLOY_REQUIRE_CI || '1',
+        DEPLOY_ALERT_WEBHOOK: process.env.DEPLOY_ALERT_WEBHOOK || '',
+        GITHUB_TOKEN: process.env.GITHUB_TOKEN || '',
       },
-    },
-    staging: {
-      user: 'deploy',
-      host: ['staging.moss.land'],
-      ref: 'origin/develop',
-      repo: 'git@github.com:mossland/agentic-orchestrator.git',
-      path: '/var/www/moss-ao-staging',
-      'post-deploy': 'npm install && pip install -r requirements.txt && pm2 reload ecosystem.config.js --env development',
-      env: {
-        NODE_ENV: 'development',
-      },
-    },
-  },
+      error_file: './logs/deploy-error.log',
+      out_file: './logs/deploy-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+    }] : []),
+  ],
+
+  // NOTE: the `pm2 deploy` (SSH push) block that used to live here was removed
+  // with the auto-deploy work. It had never been runnable -- it pointed at a host that does not
+  // exist (server1.moss.land), the wrong repo (mossland/ instead of
+  // MosslandOpenDevs/) and a requirements.txt this project does not have. It
+  // also could not work by design: the app server has no public inbound route,
+  // so nothing can SSH into it from outside the tailnet. Deployment is the
+  // pull-based moss-ao-deploy poller above -- see docs/deployment.md.
 };

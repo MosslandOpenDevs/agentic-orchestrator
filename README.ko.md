@@ -110,6 +110,7 @@ PM2가 기동되면 대시보드는 http://localhost:3000, API 문서는 http://
 | `moss-ao-web` | 항시 실행 | Next.js 대시보드 (포트 3000) |
 | `moss-ao-api` | 항시 실행 | FastAPI 백엔드 (포트 3001) |
 | `moss-ao-health` | 5분마다 | 헬스 모니터링 + 롤링 DB 백업 (약 1일 주기) |
+| `moss-ao-deploy` | 5분마다 | 풀 방식 자동 배포, 옵트인 ([docs/deployment.md](docs/deployment.md)) |
 
 ```bash
 pm2 status                  # 전체 서비스 상태
