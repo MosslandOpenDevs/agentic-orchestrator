@@ -24,6 +24,17 @@ from .base import ProviderError
 logger = logging.getLogger(__name__)
 
 
+# Context window requested on every generate/chat call. Ollama's server-side
+# default is 4096, and a model loaded at that size silently truncates: the
+# trend-analysis prompt alone is ~3,300 tokens, so generation stopped at
+# exactly prompt+output == 4096 with done_reason="length" (0 trends parsed,
+# 2026-08-05). gemma3:4b supports 131k; 16k gives every pipeline prompt
+# comfortable headroom while keeping the KV cache small (gemma3's sliding-
+# window attention keeps per-token KV cost low). Override per deployment via
+# `throttling.ollama.num_ctx` in config.yaml.
+DEFAULT_NUM_CTX = 16384
+
+
 def load_throttle_config() -> Dict[str, Any]:
     """Load throttling configuration from config.yaml."""
     config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
@@ -34,6 +45,7 @@ def load_throttle_config() -> Dict[str, Any]:
         "requests_before_cooling": 5,
         "request_timeout": 120,
         "batch_delay_seconds": 10,
+        "num_ctx": DEFAULT_NUM_CTX,
     }
 
     try:
@@ -82,6 +94,14 @@ class OllamaResponse:
     prompt_eval_count: Optional[int] = None
     eval_count: Optional[int] = None
     done: bool = True
+    # Ollama's reason for ending generation: "stop" is a natural finish,
+    # "length" means the output was cut off (num_predict or context full).
+    done_reason: Optional[str] = None
+
+    @property
+    def truncated(self) -> bool:
+        """True when generation was cut off rather than finishing naturally."""
+        return self.done_reason == "length" or not self.done
 
     @property
     def input_tokens(self) -> int:
@@ -242,6 +262,10 @@ class OllamaProvider:
             "stream": False,
             "options": {
                 "temperature": temperature,
+                # Always sent: without it Ollama loads the model at its own
+                # default (4096), and long prompts silently truncate the
+                # output at prompt+output == num_ctx. See DEFAULT_NUM_CTX.
+                "num_ctx": self.config.throttle.get("num_ctx", DEFAULT_NUM_CTX),
             },
         }
 
@@ -284,7 +308,7 @@ class OllamaProvider:
 
                     response.raise_for_status()
                     data = response.json()
-                    return OllamaResponse(
+                    result = OllamaResponse(
                         content=data.get("response", ""),
                         model=model,
                         total_duration=data.get("total_duration"),
@@ -292,7 +316,19 @@ class OllamaProvider:
                         prompt_eval_count=data.get("prompt_eval_count"),
                         eval_count=data.get("eval_count"),
                         done=data.get("done", True),
+                        done_reason=data.get("done_reason"),
                     )
+                    if result.truncated:
+                        # Callers parse this content (JSON, plans, debate
+                        # arguments); a silent cut-off produced 0-trend cycles
+                        # for weeks. Make truncation impossible to miss.
+                        logger.warning(
+                            f"[Ollama] TRUNCATED generation from {model}: "
+                            f"done={result.done} reason={result.done_reason!r} "
+                            f"prompt_eval={result.prompt_eval_count} "
+                            f"eval={result.eval_count} chars={len(result.content)}"
+                        )
+                    return result
 
             except httpx.TimeoutException as e:
                 raise ProviderError(f"Ollama timeout after {timeout}s") from e
@@ -325,6 +361,7 @@ class OllamaProvider:
             "stream": True,
             "options": {
                 "temperature": temperature,
+                "num_ctx": self.config.throttle.get("num_ctx", DEFAULT_NUM_CTX),
             },
         }
 
@@ -388,6 +425,7 @@ class OllamaProvider:
             "stream": False,
             "options": {
                 "temperature": temperature,
+                "num_ctx": self.config.throttle.get("num_ctx", DEFAULT_NUM_CTX),
             },
         }
 

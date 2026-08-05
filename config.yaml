@@ -74,6 +74,13 @@ throttling:
     request_timeout: 1800
     # Batch delay between multiple generations
     batch_delay_seconds: 10
+    # Context window requested on EVERY generate/chat call. Without this
+    # option Ollama loads the model at its server default (4096), and long
+    # prompts silently truncate output at prompt+output == 4096 with
+    # done_reason="length" — trend analysis produced 0 trends for weeks
+    # (its prompt alone is ~3,300 tokens). gemma3:4b supports 131k;
+    # 16k covers every pipeline prompt while keeping KV-cache cost low.
+    num_ctx: 16384
 
   # Cloud API throttling (cost-conscious limits)
   cloud:
