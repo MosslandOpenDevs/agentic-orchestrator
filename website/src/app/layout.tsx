@@ -19,15 +19,15 @@ export const metadata: Metadata = {
   // URLs against http://localhost:3000 in the production build, so social
   // shares of ao.moss.land pointed their preview image at localhost.
   metadataBase: new URL("https://ao.moss.land"),
-  title: "MOSS.AO // Agentic Orchestrator",
+  title: "MOSS.AO — Agentic Orchestrator · Mossland",
   description: "Multi-agent AI orchestration system for Mossland ecosystem",
   keywords: ["AI", "agents", "orchestrator", "mossland", "crypto", "debate"],
   authors: [{ name: "Mossland" }],
   openGraph: {
-    title: "MOSS.AO // Agentic Orchestrator",
+    title: "MOSS.AO — Agentic Orchestrator · Mossland",
     description: "Multi-agent AI orchestration system for Mossland ecosystem",
     url: "https://ao.moss.land",
-    siteName: "Mossland AO",
+    siteName: "Mossland",
     type: "website",
     images: [
       {
@@ -40,7 +40,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "MOSS.AO // Agentic Orchestrator",
+    title: "MOSS.AO — Agentic Orchestrator · Mossland",
     description: "Multi-agent AI orchestration system for Mossland ecosystem",
   },
   icons: {

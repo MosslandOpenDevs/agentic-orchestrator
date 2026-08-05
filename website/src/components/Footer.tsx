@@ -1,7 +1,31 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import { useI18n } from '@/lib/i18n';
 import { APP_VERSION, APP_CODENAME } from '@/lib/version';
+
+// Mossland ecosystem wayfinding — order and content are kept identical
+// across the sister sites (BRIDGE, Algora, MOSS.AO); only styling is local.
+const ecosystemSites = [
+  {
+    name: 'BRIDGE',
+    descKey: 'ecosystem.bridge.desc',
+    href: 'https://bridge.moss.land',
+    current: false,
+  },
+  {
+    name: 'Algora',
+    descKey: 'ecosystem.algora.desc',
+    href: 'https://algora.moss.land',
+    current: false,
+  },
+  {
+    name: 'MOSS.AO',
+    descKey: 'ecosystem.ao.desc',
+    href: 'https://ao.moss.land',
+    current: true,
+  },
+];
 
 const socialLinks = [
   {
@@ -43,6 +67,8 @@ const socialLinks = [
 ];
 
 export function Footer() {
+  const { t } = useI18n();
+
   return (
     <motion.footer
       initial={{ opacity: 0 }}
@@ -125,6 +151,46 @@ export function Footer() {
             </div>
           </div>
         </div>
+
+        {/* Mossland ecosystem wayfinding */}
+        <nav
+          aria-label={t('ecosystem.label')}
+          className="mt-8 pt-4 border-t border-[#21262d]"
+        >
+          <div className="text-[10px] text-[#8b949e] mb-2">
+            <span className="text-[#00ffff]">$ </span>
+            <span className="text-[#c0c0c0]">moss ecosystem --list</span>
+            <span className="text-[#bd93f9]"> # </span>
+            <span className="uppercase tracking-wider">{t('ecosystem.label')}</span>
+          </div>
+          <ul className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs">
+            {ecosystemSites.map((site) => (
+              <li key={site.name}>
+                {site.current ? (
+                  <span aria-current="true" className="text-[#39ff14]">
+                    <span aria-hidden="true">● </span>
+                    {site.name}
+                    <span className="ml-1.5 text-[10px] text-[#8b949e]">
+                      {t(site.descKey)}
+                    </span>
+                  </span>
+                ) : (
+                  <a
+                    href={site.href}
+                    target="_blank"
+                    rel="noopener"
+                    className="text-[#c0c0c0] hover:text-[#39ff14] transition-colors"
+                  >
+                    {site.name}
+                    <span className="ml-1.5 text-[10px] text-[#8b949e]">
+                      {t(site.descKey)}
+                    </span>
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+        </nav>
 
         {/* Bottom bar */}
         <div className="mt-8 pt-4 border-t border-[#21262d] flex flex-wrap items-center justify-between gap-4">
