@@ -64,7 +64,7 @@ DEPLOY_BRANCH=${DEPLOY_BRANCH:-main}
 DEPLOY_REMOTE=${DEPLOY_REMOTE:-origin}
 DEPLOY_REQUIRE_CI=${DEPLOY_REQUIRE_CI:-1}
 # Comma-separated GitHub check-run names that must have passed, e.g.
-# "test (3.12),test (3.13),lint". Empty = accept whatever checks reported.
+# "test (3.12),test (3.13),lint,website". Empty = accept whatever reported.
 DEPLOY_REQUIRE_CI_JOBS=${DEPLOY_REQUIRE_CI_JOBS:-}
 DEPLOY_GITHUB_REPO=${DEPLOY_GITHUB_REPO:-MosslandOpenDevs/agentic-orchestrator}
 DEPLOY_API_URL=${DEPLOY_API_URL:-http://127.0.0.1:3001}
@@ -337,13 +337,18 @@ else
   log "docs-only sync -- skipping DB snapshot (nothing restarts)"
 fi
 
-# uv-managed checkout? Either the lockfile is present (it is untracked on the
-# server, so this is a property of the machine, not of the commit) or the venv
-# itself records that uv built it.
+# uv-managed checkout? The venv records how it was built, and that is the
+# authoritative answer. uv.lock used to imply "uv" on its own, which was fine
+# while the lockfile was untracked (a property of the machine); now that it is
+# committed every checkout has one, so it only decides the case where no venv
+# exists yet.
 uses_uv() {
   [ -x "${UV_BIN}" ] || return 1
-  [ -f "${REPO_ROOT}/uv.lock" ] && return 0
-  grep -qs '^uv = ' "${REPO_ROOT}/.venv/pyvenv.cfg"
+  if [ -f "${REPO_ROOT}/.venv/pyvenv.cfg" ]; then
+    grep -qs '^uv = ' "${REPO_ROOT}/.venv/pyvenv.cfg"
+    return
+  fi
+  [ -f "${REPO_ROOT}/uv.lock" ]
 }
 
 # Build + restart for whatever the current checkout is. Used for the deploy and,

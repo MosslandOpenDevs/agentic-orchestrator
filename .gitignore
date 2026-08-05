@@ -87,4 +87,6 @@ data/orchestrator.db.bak*
 # Anchored to the repo root so it does NOT also ignore nested dirs such as
 # website/src/app/projects/ (the frontend Projects page).
 /projects/
-uv.lock
+# uv.lock is TRACKED: CI and production must install the same dependency
+# graph for a given commit, and an ignored lock meant each machine resolved
+# its own (pyproject pins mostly lower bounds).

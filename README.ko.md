@@ -21,7 +21,7 @@
 
 ## 대시보드
 
-오케스트레이터를 실시간으로 모니터링하는 Next.js 기반 CLI 스타일 대시보드이며, 배포 주소는 **https://ao.moss.land**입니다. 로컬 실행은 `cd website && pnpm install && pnpm dev` 후 http://localhost:3000 에서 확인할 수 있습니다.
+오케스트레이터를 실시간으로 모니터링하는 Next.js 기반 CLI 스타일 대시보드이며, 배포 주소는 **https://ao.moss.land**입니다. 로컬 실행은 `cd website && npm ci && npm run dev` 후 http://localhost:3000 에서 확인할 수 있습니다.
 
 | 페이지 | 설명 |
 |--------|------|
@@ -89,7 +89,7 @@ cp .env.example .env
 npm install -g pm2
 
 # 대시보드 먼저 빌드 (moss-ao-web은 next start 실행이라 빌드 산출물 필요)
-cd website && pnpm install && pnpm build && cd ..
+cd website && npm ci && npm run build && cd ..
 
 # 모든 서비스 시작
 pm2 start ecosystem.config.js
@@ -258,7 +258,7 @@ pytest tests/ -v
 ```
 
 ```bash
-cd website && pnpm build   # 변경 후 대시보드 재빌드
+cd website && npm run build   # 변경 후 대시보드 재빌드
 ```
 
 ```bash

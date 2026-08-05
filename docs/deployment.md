@@ -29,7 +29,7 @@ CI에서 서버로 밀어넣는(push) 방식이 아니라 서버가 당겨오는
 ```
 git push → main 머지
               ↓
-        GitHub Actions CI (test + lint)
+     GitHub Actions CI (test + lint + website)
               ↓  (초록불일 때만)
    서버: moss-ao-deploy (5분마다, :04/:09/…/:59)
               ↓
@@ -135,7 +135,7 @@ tail -f logs/deploy.log
 | `MOSS_AO_AUTO_DEPLOY` | (없음) | `1`이어야 `moss-ao-deploy`가 PM2에 등록됨 |
 | `DEPLOY_BRANCH` | `main` | 추적할 브랜치 |
 | `DEPLOY_REQUIRE_CI` | `1` | `0`이면 CI 결과와 무관하게 배포 |
-| `DEPLOY_REQUIRE_CI_JOBS` | (없음) | 반드시 통과해야 할 check-run 이름들(쉼표 구분). 예: `test (3.12),test (3.13),lint` |
+| `DEPLOY_REQUIRE_CI_JOBS` | (없음) | 반드시 통과해야 할 check-run 이름들(쉼표 구분). 예: `test (3.12),test (3.13),lint,website` |
 | `DEPLOY_ALERT_WEBHOOK` | (없음) | 실패·롤백 시 알릴 Slack/Discord 웹훅 |
 | `GITHUB_TOKEN` | (없음) | 선택. CI 상태 조회의 rate limit 완화용 |
 | `DEPLOY_VERBOSE` | `0` | `1`이면 변경 없는 틱도 로그에 남김 |
@@ -145,11 +145,14 @@ tail -f logs/deploy.log
 
 ### uv / pip 자동 판별
 
-의존성 설치는 체크아웃 형태를 보고 고릅니다. `uv.lock`이 있거나 `.venv/pyvenv.cfg`에
-`uv = ...`가 적혀 있으면 `uv sync`, 아니면 `pip install -e .`입니다. 운영 서버의
-`.venv`는 uv가 만든 것이라 **내부에 pip이 아예 없어서** `pip install -e .`는 실패합니다
-(`uv.lock`은 저장소에 커밋돼 있지 않고 서버에만 있으므로, 이 판별은 커밋이 아니라
-머신의 속성입니다).
+의존성 설치는 체크아웃 형태를 보고 고릅니다. **`.venv/pyvenv.cfg`에 `uv = ...`가 적혀
+있으면 `uv sync`, 아니면 `pip install -e .`** 입니다. 운영 서버의 `.venv`는 uv가 만든
+것이라 **내부에 pip이 아예 없어서** `pip install -e .`는 실패합니다.
+
+> `uv.lock`은 이제 저장소에 **커밋**되어 있습니다 (CI와 운영이 같은 커밋에서 같은
+> 의존성 그래프를 설치해야 하므로). 그래서 모든 체크아웃에 lockfile이 존재하며,
+> 판별 기준은 lockfile이 아니라 venv가 스스로 기록한 생성 방식입니다. venv가 아직
+> 없을 때만 lockfile 존재 여부로 판단합니다.
 
 ## 운영
 

@@ -29,14 +29,9 @@ export const metadata: Metadata = {
     url: "https://ao.moss.land",
     siteName: "Mossland",
     type: "website",
-    images: [
-      {
-        url: "/og-image.png",
-        width: 1200,
-        height: 630,
-        alt: "Mossland Agentic Orchestrator",
-      },
-    ],
+    // The image comes from app/opengraph-image.tsx, which Next.js wires up
+    // automatically. Declaring a URL here instead is what left the metadata
+    // pointing at a /og-image.png that was never added.
   },
   twitter: {
     card: "summary_large_image",

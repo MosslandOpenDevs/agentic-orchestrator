@@ -21,7 +21,7 @@ An autonomous multi-agent orchestration system for discovering, planning, and im
 
 ## Dashboard
 
-A Next.js CLI-style dashboard for monitoring the orchestrator in real time, live at **https://ao.moss.land**. To run it locally: `cd website && pnpm install && pnpm dev`, then open http://localhost:3000.
+A Next.js CLI-style dashboard for monitoring the orchestrator in real time, live at **https://ao.moss.land**. To run it locally: `cd website && npm ci && npm run dev`, then open http://localhost:3000.
 
 | Page | Description |
 |------|-------------|
@@ -89,7 +89,7 @@ cp .env.example .env
 npm install -g pm2
 
 # Build the dashboard first (moss-ao-web runs `next start`, which needs a build)
-cd website && pnpm install && pnpm build && cd ..
+cd website && npm ci && npm run build && cd ..
 
 # Start all services
 pm2 start ecosystem.config.js
@@ -258,7 +258,7 @@ pytest tests/ -v
 ```
 
 ```bash
-cd website && pnpm build   # rebuild the dashboard after a change
+cd website && npm run build   # rebuild the dashboard after a change
 ```
 
 ```bash

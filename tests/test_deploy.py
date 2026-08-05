@@ -376,6 +376,22 @@ class TestDeploy:
         assert "pip install" in calls
         assert "uv sync" not in calls
 
+    def test_a_pip_venv_wins_over_the_committed_lockfile(self, server: Server):
+        """uv.lock is tracked now, so every checkout has one. What the venv
+        records about how it was built has to take precedence, or a pip-managed
+        machine would be handed to `uv sync`."""
+        _write(server.checkout / "uv.lock", "# lock\n")
+        _write(
+            server.checkout / ".venv" / "pyvenv.cfg",
+            "home = /usr/bin\ninclude-system-site-packages = false\n",
+        )
+        server.push({"pyproject.toml": 'version = "0.0.12"\n'})
+        server.run()
+
+        calls = server.calls()
+        assert "pip install" in calls
+        assert "uv sync" not in calls
+
     def test_failed_uv_sync_rolls_back(self, server: Server):
         before = server.head()
         server.make_uv_managed()
