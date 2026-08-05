@@ -493,7 +493,7 @@ def _load_backlog_config() -> dict:
     }
     lifecycle_defaults = {
         "enabled": True,
-        "max_age_days": 30,
+        "max_age_days": 14,
         "max_closes_per_run": 50,
     }
     config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"

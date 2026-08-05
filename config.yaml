@@ -152,13 +152,19 @@ backlog:
   # Every idea reaches promoted|archived within max_strikes touches, so the
   # open backlog is bounded by production_rate x days_to_decision instead of
   # growing forever. Sizing: per_run x 6 runs/day must exceed daily idea
-  # production (15 x 6 = 90 touches/day >= 45 decisions/day at max_strikes=2,
+  # production (25 x 6 = 150 touches/day >= 75 decisions/day at max_strikes=2,
   # vs ~40 ideas/day produced). Triage writes only to the DB; the issue
   # lifecycle below closes the mirrored issues.
+  # Tuned 2026-08-05 (v0.6.17) for a lower open-issue steady state: the
+  # original min_age_hours: 24 meant a whole day's ideas sat untouchable —
+  # the first live day consumed exactly zero. At 6h an idea still gets a
+  # meaningfully different trend context (trends refresh every 2h) but is
+  # decided the same day; expected in-flight window ~15-25 open [Idea]
+  # issues on top of the human-curated keep-set.
   triage:
     enabled: true
-    per_run: 15
-    min_age_hours: 24
+    per_run: 25
+    min_age_hours: 6
     max_strikes: 2
 
   # GitHub issue lifecycle (runs in the backlog cycle, every 4h in production).
@@ -169,9 +175,12 @@ backlog:
   #   max_age_days (issues labeled curated:keep or source:trend are never
   #   aged out; any human comment also exempts an issue)
   # Closing is visibility-only: DB rows are untouched, issues can be reopened.
+  # max_age_days is the BACKSTOP only — with triage making decision-based
+  # closes, the timer mainly catches issues with no DB row behind them
+  # (e.g. pre-restore orphans). Tightened 30 -> 14 in v0.6.17.
   issue_lifecycle:
     enabled: true
-    max_age_days: 30
+    max_age_days: 14
     max_closes_per_run: 50
 
 # Debate Configuration

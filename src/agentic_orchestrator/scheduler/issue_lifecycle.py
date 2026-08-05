@@ -155,7 +155,7 @@ def run_issue_lifecycle(
     """
     config = config or {}
     now = now or utcnow()
-    max_age_days = int(config.get("max_age_days", 30))
+    max_age_days = int(config.get("max_age_days", 14))
     budget = int(config.get("max_closes_per_run", 50))
     stats = {
         "reconciled_ideas": 0,

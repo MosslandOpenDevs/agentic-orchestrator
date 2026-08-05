@@ -7,6 +7,11 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.17] - 2026-08-05
+
+### Changed
+- **Triage tuned for a lower open-issue steady state — the first live day proved the defaults too timid.** v0.6.16 shipped with `min_age_hours: 24`, which quarantined every idea for a full day: the 12:00 UTC backlog tick ran against a backlog whose newest-to-oldest ideas were all under 24h old and consumed **exactly zero** — the whole day's production sat untouchable until D+1. Tuning (config + code defaults + docs, all in sync): `per_run` 15 → **25** (capacity 150 touches/day ≥ 75 decisions/day vs ~40/day produced; a debate's ~20-idea burst drains within two cycles), `min_age_hours` 24 → **6** (trends refresh every 2h, so a 6h-old idea already faces a materially different context; ideas are now decided the same day), and the aging-sweep backstop `max_age_days` 30 → **14** (with decision-based closes as the normal path, the timer only catches orphan issues with no DB row behind them). Expected steady state: ~15–25 in-flight [Idea] issues on top of the 62-issue human-curated keep-set (12 `curated:keep`, 43 `source:trend`, 7 with human comments), so ~80–90 open total, down from the ~100–150 the v0.6.16 defaults implied. `max_strikes` stays 2 — gemma3:4b score noise is real and the 6–7 band deserves its second look.
+
 ## [0.6.16] - 2026-08-05
 
 ### Added
