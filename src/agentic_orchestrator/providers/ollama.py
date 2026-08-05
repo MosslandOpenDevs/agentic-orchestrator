@@ -235,6 +235,7 @@ class OllamaProvider:
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         stream: bool = False,
+        format_schema: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> OllamaResponse:
         """
@@ -247,6 +248,12 @@ class OllamaProvider:
             temperature: Sampling temperature (0.0-1.0)
             max_tokens: Maximum tokens to generate
             stream: Whether to stream the response
+            format_schema: JSON schema for structured outputs. Passed as
+                Ollama's ``format`` field, which enforces the schema with
+                grammar-constrained decoding — invalid tokens (curly-quote
+                delimiters, prose preambles, markdown fences) cannot be
+                sampled at all. Supported since Ollama v0.5.0; only works on
+                the native API, not the /v1 OpenAI-compatible endpoint.
 
         Returns:
             OllamaResponse with generated text
@@ -274,6 +281,9 @@ class OllamaProvider:
 
         if max_tokens:
             payload["options"]["num_predict"] = max_tokens
+
+        if format_schema:
+            payload["format"] = format_schema
 
         timeout = self.config.throttle.get("request_timeout", self.config.timeout)
 
@@ -394,6 +404,7 @@ class OllamaProvider:
         model: Optional[str] = None,
         system: Optional[str] = None,
         temperature: float = 0.7,
+        format_schema: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> OllamaResponse:
         """
@@ -428,6 +439,9 @@ class OllamaProvider:
                 "num_ctx": self.config.throttle.get("num_ctx", DEFAULT_NUM_CTX),
             },
         }
+
+        if format_schema:
+            payload["format"] = format_schema
 
         timeout = self.config.throttle.get("request_timeout", self.config.timeout)
 

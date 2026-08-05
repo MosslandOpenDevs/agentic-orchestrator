@@ -48,6 +48,41 @@ Prioritize trends with:
 - Clear user needs or pain points
 - Technical feasibility for small teams"""
 
+    # JSON schema enforced by Ollama structured outputs (the `format` field,
+    # grammar-constrained decoding). With this in place the model cannot emit
+    # the failure shapes the lenient parser exists for — smart-quote
+    # delimiters, prose preambles, markdown fences. The parser stays as
+    # defense in depth: schema-valid is not semantically-valid, and a
+    # max_tokens truncation can still cut the document short.
+    #
+    # `required` lists only the fields the parser has no default for;
+    # article_count/sources/sample_headlines degrade gracefully when absent.
+    TRENDS_RESPONSE_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "trends": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "topic": {"type": "string"},
+                        "keywords": {"type": "array", "items": {"type": "string"}},
+                        "score": {"type": "number"},
+                        "sources": {"type": "array", "items": {"type": "string"}},
+                        "article_count": {"type": "integer"},
+                        "sample_headlines": {"type": "array", "items": {"type": "string"}},
+                        "category": {"type": "string"},
+                        "summary": {"type": "string"},
+                        "web3_relevance": {"type": "string"},
+                        "idea_seeds": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["topic", "keywords", "score", "category", "summary"],
+                },
+            },
+        },
+        "required": ["trends"],
+    }
+
     def __init__(
         self,
         router: Optional[HybridLLMRouter] = None,
@@ -128,6 +163,7 @@ Prioritize trends with:
                 # only stop is the context window itself — which is exactly
                 # how the 2026-08 truncation presented.
                 max_tokens=4096,
+                response_schema=self.TRENDS_RESPONSE_SCHEMA,
             )
             response = llm_response.content
 

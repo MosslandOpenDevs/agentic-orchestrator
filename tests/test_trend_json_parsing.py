@@ -262,6 +262,116 @@ class TestProviderNumCtx:
         assert fake_ollama.captured["payload"]["options"]["num_predict"] == 4096
 
 
+class TestStructuredOutputs:
+    """Ollama's `format` field: grammar-constrained decoding (since v0.5.0).
+
+    With a schema attached the model physically cannot emit the failure
+    shapes the lenient parser tolerates — this is the transport-level fix,
+    with the parser retained as defense in depth.
+    """
+
+    async def test_format_schema_lands_in_the_generate_payload(self, fake_ollama):
+        schema = {"type": "object", "required": ["trends"]}
+        provider = OllamaProvider(OllamaConfig(throttle={}))
+        await provider.generate("hello", format_schema=schema)
+
+        assert fake_ollama.captured["payload"]["format"] == schema
+
+    async def test_no_schema_means_no_format_field(self, fake_ollama):
+        provider = OllamaProvider(OllamaConfig(throttle={}))
+        await provider.generate("hello")
+
+        assert "format" not in fake_ollama.captured["payload"]
+
+    async def test_chat_supports_format_schema_too(self, fake_ollama):
+        fake_ollama.reply = {"message": {"content": "ok"}, "done": True}
+        schema = {"type": "object"}
+        provider = OllamaProvider(OllamaConfig(throttle={}))
+        await provider.chat([{"role": "user", "content": "hi"}], format_schema=schema)
+
+        assert fake_ollama.captured["payload"]["format"] == schema
+
+    async def test_router_plumbs_response_schema_to_ollama(self, fake_ollama):
+        """A schema dropped in the router would fail silently — pin the plumb."""
+        from agentic_orchestrator.llm.hierarchy import LLMHierarchy
+        from agentic_orchestrator.llm.router import HybridLLMRouter
+
+        class FakeBudget:
+            def get_budget_status(self):
+                return {"can_use_api": False}
+
+            def should_use_local(self):
+                return True
+
+            def estimate_cost(self, *a):
+                return 0.0
+
+        router = HybridLLMRouter.__new__(HybridLLMRouter)
+        router.local_only = True
+        router.ollama = OllamaProvider(OllamaConfig(throttle={}))
+        router.claude = None
+        router.openai = None
+        router.hierarchy = LLMHierarchy()
+        router.budget = FakeBudget()
+
+        schema = {"type": "object", "required": ["trends"]}
+        await router.route(prompt="p", force_local=True, response_schema=schema)
+
+        assert fake_ollama.captured["payload"]["format"] == schema
+
+    async def test_analyzer_sends_its_trends_schema(self):
+        from agentic_orchestrator.timeutil import utcnow
+        from agentic_orchestrator.trends.models import FeedItem
+
+        captured = {}
+
+        class FakeRouter:
+            async def route(self, **kwargs):
+                captured.update(kwargs)
+
+                class R:
+                    content = '{"trends": []}'
+                    model = "gemma3:4b"
+
+                return R()
+
+        analyzer = make_analyzer()
+        analyzer._router = FakeRouter()
+        analyzer.dry_run = False
+        item = FeedItem(
+            title="t", link="l", summary="s", source="rss", category="ai", published=utcnow()
+        )
+        await analyzer.analyze_trends([item], "24h")
+
+        assert captured.get("response_schema") == TrendAnalyzer.TRENDS_RESPONSE_SCHEMA
+
+    def test_schema_matches_what_the_parser_reads(self):
+        """Every field the parser consumes must exist in the schema, so the
+        grammar never forbids a field the pipeline stores."""
+        item_props = TrendAnalyzer.TRENDS_RESPONSE_SCHEMA["properties"]["trends"]["items"][
+            "properties"
+        ]
+        parser_fields = {
+            "topic",
+            "keywords",
+            "score",
+            "sources",
+            "article_count",
+            "sample_headlines",
+            "category",
+            "summary",
+            "web3_relevance",
+            "idea_seeds",
+        }
+        assert parser_fields == set(item_props)
+
+    def test_bare_constrained_json_parses(self):
+        """Constrained output is pure JSON: no fence, no prose. The parser's
+        raw layer must take it as-is."""
+        response = wrap([trend_obj(1), trend_obj(2)])
+        assert len(make_analyzer()._parse_trends_response(response, "24h")) == 2
+
+
 class TestTruncationDetection:
     async def test_done_reason_is_captured(self, fake_ollama):
         fake_ollama.reply = {"response": "cut", "done": True, "done_reason": "length"}
