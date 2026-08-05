@@ -7,6 +7,11 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Docs-only deploys no longer take a pre-deploy DB snapshot. Nothing restarts on a docs sync and `reset --hard` cannot touch the untracked DB, so the snapshot protected nothing — while each one rotated the 7-slot backup window, meaning a burst of docs merges could churn days of restore points into minutes. Code deploys still snapshot first. Gate mutation-verified.
+
 ## [0.6.15] - 2026-08-05
 
 ### Fixed
