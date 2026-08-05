@@ -838,6 +838,7 @@ Present your opinion with your unique perspective and expertise.
             response = await self.router.route(
                 prompt=prompt,
                 task_type="idea_generation",
+                paid_tier="debate",
                 system=system_prompt,
                 quality="normal",
                 temperature=self.protocol.get_temperature(DebatePhase.DIVERGENCE),
@@ -898,6 +899,7 @@ Assign a score between 1-10 for each idea.
             response = await self.router.route(
                 prompt=prompt,
                 task_type="evaluation",
+                paid_tier="debate",
                 system=system_prompt,
                 quality="normal",
                 temperature=self.protocol.get_temperature(DebatePhase.CONVERGENCE),
@@ -956,6 +958,7 @@ Your task is to write an actionable implementation plan.
             response = await self.router.route(
                 prompt=prompt,
                 task_type="final_plan",
+                paid_tier="debate",
                 system=system_prompt,
                 quality="high",  # Use better model for planning
                 temperature=self.protocol.get_temperature(DebatePhase.PLANNING),
@@ -1018,6 +1021,7 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
             response = await self.router.route(
                 prompt=prompt,
                 task_type="quality_check",
+                paid_tier="debate",
                 system=system_prompt,
                 quality="normal",
                 temperature=self.protocol.get_temperature(DebatePhase.PLANNING),

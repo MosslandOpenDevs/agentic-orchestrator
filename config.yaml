@@ -93,10 +93,12 @@ throttling:
 
 # API Budget Configuration
 budget:
-  # Daily spending limit in USD
-  daily_limit_usd: 1.0
+  # Daily spending limit in USD (raised 1.0 -> 2.0 for the debate paid tier:
+  # 4 debates/day x ~$0.30-0.50 each plus headroom; the tier silently falls
+  # back to local gemma when either limit is hit)
+  daily_limit_usd: 2.0
   # Monthly spending limit in USD
-  monthly_limit_usd: 30.0
+  monthly_limit_usd: 45.0
   # Warn when usage reaches this percentage
   warning_threshold: 0.7
   # Critical alert at this percentage (prefer local models)
@@ -126,6 +128,25 @@ project:
 
   # Output directory
   output_dir: "projects"
+
+# =============================================================================
+# Paid-API routing (v0.6.19)
+# =============================================================================
+# The debate was the one task where local gemma3:4b visibly capped quality
+# (score inflation, generic titles) AND the one most exposed to the shared
+# GPU's congestion (needs 16k context locally). Everything else (scoring,
+# translation, trends, project generation) stays on local Ollama.
+#
+# TWO switches must both be on before a single cent is spent:
+#   1. server .env: MOSS_LOCAL_LLM_ONLY=false  (enables paid providers at all)
+#   2. a tier below with enabled: true          (names who may use them)
+# Budget limits above still apply — over budget, the tier degrades to local.
+llm:
+  paid_tiers:
+    debate:
+      enabled: true
+      provider: openai
+      model: gpt-5.4-mini   # $0.75/M in, $4.50/M out (2026-08)
 
 # =============================================================================
 # Backlog Controls (idea de-duplication + GitHub issue cap)
