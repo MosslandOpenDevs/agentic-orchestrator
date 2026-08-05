@@ -1,4 +1,8 @@
+export type SystemHealth = 'operational' | 'degraded' | 'unknown';
+
 export interface SystemStats {
+  /** What /status actually reported, not an assumption. */
+  systemStatus: SystemHealth;
   totalIdeas: number;
   totalPlans: number;
   plansRejected: number;
@@ -25,7 +29,10 @@ export interface Trend {
 }
 
 export interface Idea {
+  /** Display number (position in the list), not an API identifier. */
   id: number;
+  /** The backend's UUID. Detail lookups must use this, never `id`. */
+  apiId: string;
   title: string;
   status: string;
   source: string;
@@ -34,7 +41,10 @@ export interface Idea {
 }
 
 export interface Plan {
+  /** Display number (position in the list), not an API identifier. */
   id: number;
+  /** The backend's UUID. Detail lookups must use this, never `id`. */
+  apiId: string;
   title: string;
   ideaId: number;
   status: string;

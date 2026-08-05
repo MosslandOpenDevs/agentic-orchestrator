@@ -4,24 +4,35 @@ import { motion } from 'framer-motion';
 import { formatDistanceToNow, parseISO, format, isValid, isPast } from 'date-fns';
 import { ko, enUS } from 'date-fns/locale';
 import { useI18n } from '@/lib/i18n';
+import type { SystemHealth } from '@/lib/types';
 
 interface SystemStatusProps {
-  lastRun: string;
-  nextRun: string;
+  lastRun?: string;
+  nextRun?: string;
+  /** What /status reported. The banner used to read SYSTEM ONLINE with a
+   *  green dot no matter what -- including while the API was unreachable. */
+  status?: SystemHealth;
 }
 
-export function SystemStatus({ lastRun, nextRun }: SystemStatusProps) {
+const STATUS_PRESENTATION: Record<SystemHealth, { dot: string; text: string; label: string }> = {
+  operational: { dot: 'online', text: '#39ff14', label: 'SYSTEM ONLINE' },
+  degraded: { dot: 'pending', text: '#ff6b35', label: 'SYSTEM DEGRADED' },
+  unknown: { dot: 'unknown', text: '#8b949e', label: 'STATUS UNKNOWN' },
+};
+
+export function SystemStatus({ lastRun, nextRun, status = 'unknown' }: SystemStatusProps) {
   const { locale } = useI18n();
   const dateLocale = locale === 'ko' ? ko : enUS;
-  const lastRunDate = parseISO(lastRun);
-  const nextRunDate = parseISO(nextRun);
+  const presentation = STATUS_PRESENTATION[status];
+  const lastRunDate = lastRun ? parseISO(lastRun) : null;
+  const nextRunDate = nextRun ? parseISO(nextRun) : null;
   // A "next run" in the past (stale data) should not render as "6 months ago".
-  const nextRunPending = !isValid(nextRunDate) || isPast(nextRunDate);
+  const nextRunPending = !nextRunDate || !isValid(nextRunDate) || isPast(nextRunDate);
   const nextRunLabel = nextRunPending
     ? locale === 'ko'
       ? '대기 중'
       : 'pending'
-    : formatDistanceToNow(nextRunDate, { addSuffix: true, locale: dateLocale });
+    : formatDistanceToNow(nextRunDate!, { addSuffix: true, locale: dateLocale });
 
   return (
     <div className="card-cli p-4">
@@ -29,7 +40,7 @@ export function SystemStatus({ lastRun, nextRun }: SystemStatusProps) {
         {/* System Status */}
         <div className="flex items-center gap-3">
           <motion.div
-            className="status-dot online"
+            className={`status-dot ${presentation.dot}`}
             animate={{
               scale: [1, 1.2, 1],
             }}
@@ -40,8 +51,11 @@ export function SystemStatus({ lastRun, nextRun }: SystemStatusProps) {
             }}
           />
           <div>
-            <span className="text-[#39ff14] text-xs font-bold tracking-wider">
-              SYSTEM ONLINE
+            <span
+              className="text-xs font-bold tracking-wider"
+              style={{ color: presentation.text }}
+            >
+              {presentation.label}
             </span>
           </div>
         </div>
@@ -52,10 +66,12 @@ export function SystemStatus({ lastRun, nextRun }: SystemStatusProps) {
         <div className="flex items-center gap-2">
           <span className="text-[#8b949e] text-xs">last_run:</span>
           <span className="text-[#c0c0c0] text-xs" suppressHydrationWarning>
-            {formatDistanceToNow(lastRunDate, { addSuffix: true, locale: dateLocale })}
+            {lastRunDate && isValid(lastRunDate)
+              ? formatDistanceToNow(lastRunDate, { addSuffix: true, locale: dateLocale })
+              : '--'}
           </span>
           <span className="text-[#8b949e] text-[10px]" suppressHydrationWarning>
-            ({format(lastRunDate, 'HH:mm:ss')})
+            ({lastRunDate && isValid(lastRunDate) ? format(lastRunDate, 'HH:mm:ss') : '--:--:--'})
           </span>
         </div>
 

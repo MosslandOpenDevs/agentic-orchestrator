@@ -1,6 +1,7 @@
-import type { SystemStats, ActivityItem, Trend, Idea, Plan, PipelineStage } from '@/lib/types';
+import type { SystemStats, Trend, PipelineStage } from '@/lib/types';
 
 export const mockStats: SystemStats = {
+  systemStatus: 'unknown',
   totalIdeas: 8,
   totalPlans: 4,
   plansRejected: 2,
@@ -13,18 +14,6 @@ export const mockStats: SystemStats = {
   lastRun: new Date(Date.now() - 6 * 60_000).toISOString(),
   nextRun: new Date(Date.now() + 24 * 60_000).toISOString(),
 };
-
-export const mockActivity: ActivityItem[] = [
-  { time: '08:00', type: 'trend', message: 'Trend analysis completed (254 articles from 17 feeds)' },
-  { time: '08:01', type: 'idea', message: 'Generated idea #8: DeFi Protocol Risk Monitor' },
-  { time: '08:02', type: 'idea', message: 'Generated idea #7: AI Trading Signal Aggregator' },
-  { time: '08:03', type: 'debate', message: 'Debate started for Plan #4 - Round 1/5' },
-  { time: '08:04', type: 'debate', message: 'Founder presented initial plan (Claude)' },
-  { time: '08:05', type: 'debate', message: 'VC feedback received (GPT) - market concerns' },
-  { time: '08:06', type: 'debate', message: 'Accelerator feedback (Gemini) - MVP scope' },
-  { time: '08:07', type: 'plan', message: 'Plan #4 finalized after 3 debate rounds' },
-  { time: '08:08', type: 'system', message: 'Cycle completed. Next run in ~6h (debate cycle)' },
-];
 
 export const mockTrends: Trend[] = [
   {
@@ -83,26 +72,6 @@ export const mockTrends: Trend[] = [
     summary: 'Growing demand for Web3 privacy solutions and self-sovereign identity',
     ideaSeeds: ['ZK-based identity verification', 'Privacy-preserving KYC layer'],
   },
-];
-
-const GITHUB_REPO = 'https://github.com/MosslandOpenDevs/agentic-orchestrator';
-
-export const mockIdeas: Idea[] = [
-  { id: 8, title: 'DeFi Protocol Risk Monitor', status: 'backlog', source: 'trend', created: '2026-01-05', issueUrl: `${GITHUB_REPO}/issues/8` },
-  { id: 7, title: 'AI Trading Signal Aggregator', status: 'backlog', source: 'trend', created: '2026-01-05', issueUrl: `${GITHUB_REPO}/issues/7` },
-  { id: 6, title: 'MOC Token Analytics Dashboard', status: 'planned', source: 'traditional', created: '2026-01-04', issueUrl: `${GITHUB_REPO}/issues/6` },
-  { id: 5, title: 'Cross-chain Yield Optimizer', status: 'planned', source: 'trend', created: '2026-01-04', issueUrl: `${GITHUB_REPO}/issues/5` },
-  { id: 4, title: 'NFT Metadata Indexer', status: 'backlog', source: 'traditional', created: '2026-01-03', issueUrl: `${GITHUB_REPO}/issues/4` },
-  { id: 3, title: 'Community Governance Portal', status: 'backlog', source: 'traditional', created: '2026-01-03', issueUrl: `${GITHUB_REPO}/issues/3` },
-  { id: 2, title: 'Memecoin Sentiment Tracker', status: 'backlog', source: 'trend', created: '2026-01-04', issueUrl: `${GITHUB_REPO}/issues/2` },
-  { id: 1, title: 'Wallet Activity Monitor', status: 'backlog', source: 'traditional', created: '2026-01-03', issueUrl: `${GITHUB_REPO}/issues/1` },
-];
-
-export const mockPlans: Plan[] = [
-  { id: 4, title: 'Cross-chain Yield Optimizer', ideaId: 5, status: 'approved', debateRounds: 3, created: '2026-01-04', issueUrl: `${GITHUB_REPO}/issues/12` },
-  { id: 3, title: 'MOC Token Analytics Dashboard', ideaId: 6, status: 'approved', debateRounds: 4, created: '2026-01-04', issueUrl: `${GITHUB_REPO}/issues/11` },
-  { id: 2, title: 'NFT Metadata Indexer', ideaId: 4, status: 'rejected', debateRounds: 2, created: '2026-01-03', issueUrl: `${GITHUB_REPO}/issues/10` },
-  { id: 1, title: 'Community Governance Portal', ideaId: 3, status: 'rejected', debateRounds: 1, created: '2026-01-03', issueUrl: `${GITHUB_REPO}/issues/9` },
 ];
 
 export const mockPipeline: PipelineStage[] = [

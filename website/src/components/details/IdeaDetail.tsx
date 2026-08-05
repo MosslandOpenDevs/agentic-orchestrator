@@ -115,12 +115,11 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
 
       {/* Score Breakdown */}
       <div className="card-cli p-4">
-        <ScoreBreakdown
-          score={idea.score}
-          consensus={debates.length > 0 ? Math.min(95, 70 + debates.length * 5) : undefined}
-          confidence={idea.score >= 7 ? 'high' : idea.score >= 5 ? 'medium' : 'low'}
-          showDetails={true}
-        />
+        {/* consensus and confidence used to be invented here
+            (70 + 5 per debate, capped at 95; a +/- range derived from the
+            score itself) and rendered as measurements. The backend records
+            neither, so neither is passed. */}
+        <ScoreBreakdown score={idea.score} showDetails={true} />
       </div>
 
       {/* Stats Summary */}

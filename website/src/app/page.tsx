@@ -13,7 +13,7 @@ import { TerminalWindow, TerminalBadge } from '@/components/TerminalWindow';
 import { AdapterDetailModal } from '@/components/AdapterDetailModal';
 import { useModal } from '@/components/modals/useModal';
 import { clickableProps } from '@/lib/a11y';
-import { rssCategories, aiProviders, mockStats, mockPipeline } from '@/data/mock';
+import { rssCategories, aiProviders } from '@/data/mock';
 import { fetchSystemStats, fetchActivity, fetchPipeline, fetchAdapters, ApiClient, type ApiProject } from '@/lib/api';
 import { formatLocalDateTime } from '@/lib/date';
 import type { SystemStats, ActivityItem, PipelineStage, AdapterInfo } from '@/lib/types';
@@ -30,9 +30,11 @@ const ASCII_LOGO = `
 export default function Dashboard() {
   const { locale } = useI18n();
   const { openModal } = useModal();
-  const [stats, setStats] = useState<SystemStats>(mockStats);
+  // null until the API answers: seeding with demo numbers showed a
+  // populated dashboard before (and, on failure, instead of) real data.
+  const [stats, setStats] = useState<SystemStats | null>(null);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
-  const [pipeline, setPipeline] = useState<PipelineStage[]>(mockPipeline);
+  const [pipeline, setPipeline] = useState<PipelineStage[]>([]);
   const [adapters, setAdapters] = useState<AdapterInfo[]>([]);
   const [projects, setProjects] = useState<ApiProject[]>([]);
   const [isActivityLoading, setIsActivityLoading] = useState(true);
@@ -110,7 +112,11 @@ export default function Dashboard() {
           transition={{ delay: 0.1 }}
           className="mb-6"
         >
-          <SystemStatus lastRun={stats.lastRun} nextRun={stats.nextRun} />
+          <SystemStatus
+            lastRun={stats?.lastRun}
+            nextRun={stats?.nextRun}
+            status={stats?.systemStatus ?? 'unknown'}
+          />
         </motion.div>
 
         {/* Stats Grid */}
@@ -120,7 +126,13 @@ export default function Dashboard() {
           transition={{ delay: 0.2 }}
           className="mb-6"
         >
-          <StatsGrid stats={stats} />
+          {stats ? (
+            <StatsGrid stats={stats} />
+          ) : (
+            <div className="card-cli p-4 text-sm text-[#8b949e]">
+              $ {locale === 'ko' ? '통계를 불러오지 못했습니다' : 'statistics unavailable'}
+            </div>
+          )}
         </motion.div>
 
         {/* Pipeline Visualization */}

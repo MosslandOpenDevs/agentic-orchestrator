@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { useModal } from '@/components/modals/useModal';
 import { formatLocalDateTime } from '@/lib/date';
-import { TrendSparklineCompact } from '@/components/visualization/TrendSparkline';
 import type { Trend } from '@/lib/types';
 
 interface TrendCardProps {
@@ -80,7 +79,6 @@ export function TrendCard({ trend, index, trendId }: TrendCardProps) {
               <div className="font-mono text-2xl font-bold text-white">{trend.score.toFixed(1)}</div>
               <span className="text-xs text-zinc-500">{t('trends.score')}</span>
             </div>
-            <TrendSparklineCompact signalCount={trend.articles} />
             <motion.span
               animate={{ rotate: isExpanded ? 180 : 0 }}
               className="text-zinc-500"

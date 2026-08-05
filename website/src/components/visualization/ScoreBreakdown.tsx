@@ -18,25 +18,11 @@ interface ScoreBreakdownProps {
   showDetails?: boolean;
 }
 
-// Default dimensions based on MOSS.AO scoring criteria
-const defaultDimensions: ScoreDimension[] = [
-  { key: 'novelty', label: 'novelty', value: 0, weight: 30 },
-  { key: 'feasibility', label: 'feasibility', value: 0, weight: 25 },
-  { key: 'marketFit', label: 'marketFit', value: 0, weight: 20 },
-  { key: 'impact', label: 'impact', value: 0, weight: 15 },
-  { key: 'urgency', label: 'urgency', value: 0, weight: 10 },
-];
-
-// Generate simulated dimensions based on overall score
-function generateDimensionsFromScore(score: number): ScoreDimension[] {
-  // Create realistic variation around the score
-  const variation = () => Math.random() * 2 - 1; // -1 to +1
-
-  return defaultDimensions.map(d => ({
-    ...d,
-    value: Math.max(0, Math.min(10, score + variation() * 1.5)),
-  }));
-}
+// This component used to invent the per-dimension scores it displays --
+// `score + Math.random() * 1.5` per bar, re-rolled on every render, printed to
+// one decimal place next to the real weights. On a page titled "transparency"
+// that is the one thing it must not do. The backend records a single overall
+// score today, so when a caller has no real breakdown to pass we say so.
 
 export function ScoreBreakdown({
   score,
@@ -47,8 +33,7 @@ export function ScoreBreakdown({
 }: ScoreBreakdownProps) {
   const { t } = useI18n();
 
-  // Use provided dimensions or generate from score
-  const displayDimensions = dimensions || generateDimensionsFromScore(score);
+  const displayDimensions = dimensions;
 
   // Calculate confidence range based on confidence level
   const confidenceRange = confidence === 'high' ? 0.3 : confidence === 'medium' ? 0.8 : 1.5;
@@ -92,8 +77,13 @@ export function ScoreBreakdown({
         </motion.span>
       </div>
 
-      {/* Dimension bars */}
-      {showDetails && (
+      {/* Dimension bars, only when a real breakdown was recorded */}
+      {showDetails && !displayDimensions && (
+        <p className="text-xs text-[#8b949e] leading-relaxed">
+          {t('scoreBreakdown.noBreakdown')}
+        </p>
+      )}
+      {showDetails && displayDimensions && (
         <div className="space-y-3">
           {displayDimensions.map((dim, idx) => (
             <motion.div
@@ -145,10 +135,16 @@ export function ScoreBreakdown({
   );
 }
 
-// Compact version for cards
-export function ScoreBreakdownCompact({ score }: { score: number }) {
+// Compact version for cards. Renders nothing without a real breakdown --
+// the sparkline of invented bars it used to draw was pure decoration that read
+// as data.
+export function ScoreBreakdownCompact({
+  dimensions,
+}: {
+  dimensions?: ScoreDimension[];
+}) {
   const { t } = useI18n();
-  const dimensions = generateDimensionsFromScore(score);
+  if (!dimensions) return null;
 
   return (
     <div className="flex items-center gap-1">

@@ -8,6 +8,11 @@ import { formatLocalDateTime } from '@/lib/date';
 import type { ModalData } from '../modals/ModalProvider';
 import { TerminalBadge } from '../TerminalWindow';
 
+// Mirrors COMPLETED_PROJECT_STATUSES in db/models.py: a project that
+// finished with verification warnings is finished, not in limbo. Checking
+// only for 'ready' rendered an entirely blank panel for those.
+const COMPLETED_PROJECT_STATUSES = ['ready', 'ready_with_warnings'];
+
 interface PlanDetailProps {
   data: ModalData;
 }
@@ -95,14 +100,30 @@ export function PlanDetail({ data }: PlanDetailProps) {
           // Continue polling
           setTimeout(() => pollJobStatus(jobId), 3000);
         }
+      } else {
+        // The job is gone (jobs live in memory, so an API restart loses them).
+        setProjectState(prev => ({
+          ...prev,
+          jobId: null,
+          generating: false,
+          error: 'Generation job is no longer being tracked. Check the project list.',
+        }));
       }
     } catch (err) {
+      // Leaving `generating` true here left the spinner running forever and
+      // killed the polling chain with no way to retry.
       console.warn('Failed to poll job status:', err);
+      setProjectState(prev => ({
+        ...prev,
+        jobId: null,
+        generating: false,
+        error: 'Lost contact with the generation job.',
+      }));
     }
   }, [fetchProjectStatus, plan?.id]);
 
   // Handle generate project button click
-  const handleGenerateProject = async () => {
+  const handleGenerateProject = async (force = false) => {
     if (!plan?.id) return;
 
     setProjectState(prev => ({
@@ -112,7 +133,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
     }));
 
     try {
-      const response = await ApiClient.generateProject(plan.id, false);
+      const response = await ApiClient.generateProject(plan.id, force);
       if (response.data) {
         if (response.data.status === 'accepted') {
           setProjectState(prev => ({
@@ -328,11 +349,16 @@ export function PlanDetail({ data }: PlanDetailProps) {
           </div>
         )}
 
-        {/* Project exists and ready */}
-        {projectState.project?.status === 'ready' && (
+        {/* Project exists and finished (with or without verification warnings) */}
+        {projectState.project &&
+          COMPLETED_PROJECT_STATUSES.includes(projectState.project.status) && (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <TerminalBadge variant="green">READY</TerminalBadge>
+              <TerminalBadge
+                variant={projectState.project.status === 'ready' ? 'green' : 'orange'}
+              >
+                {projectState.project.status === 'ready' ? 'READY' : 'READY (WARNINGS)'}
+              </TerminalBadge>
               <span className="text-[#c0c0c0] text-sm">
                 {projectState.project.name}
               </span>
@@ -359,7 +385,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
               <span className="text-[#39ff14]">{projectState.project.files_generated}</span>
             </div>
             <button
-              onClick={() => handleGenerateProject()}
+              onClick={() => handleGenerateProject(true)}
               className="w-full mt-2 px-4 py-2 text-sm border border-[#8b949e] text-[#8b949e] hover:border-[#00ffff] hover:text-[#00ffff] rounded transition-colors"
             >
               $ regenerate --force
@@ -440,7 +466,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
         {/* No project yet - show generate button for approved plans */}
         {!projectState.project && !projectState.generating && plan.status === 'approved' && (
           <button
-            onClick={handleGenerateProject}
+            onClick={() => handleGenerateProject()}
             disabled={projectState.generating}
             className="w-full px-4 py-3 text-sm border border-[#39ff14] text-[#39ff14] hover:bg-[#39ff14]/10 rounded transition-colors font-mono disabled:opacity-50"
           >

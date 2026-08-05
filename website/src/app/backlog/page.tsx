@@ -4,17 +4,26 @@ import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { IdeaCard } from '@/components/IdeaCard';
-import { mockIdeas, mockPlans } from '@/data/mock';
 import { fetchIdeas, fetchPlans } from '@/lib/api';
 import type { Idea, Plan } from '@/lib/types';
 
 type SortOption = 'newest' | 'oldest' | 'score-high' | 'score-low';
 
+// These are IdeaStatus values from the backend (db/models.py). The tabs
+// used to filter on 'in-dev' and 'planned', a vocabulary that only ever
+// existed in the demo fixtures -- so the In Development tab was always
+// empty no matter what the pipeline was doing.
+const IN_DEVELOPMENT_STATUSES = ['promoted', 'selected'];
+const PLANNED_STATUSES = ['planned'];
+
 export default function BacklogPage() {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<'ideas' | 'plans' | 'in-dev'>('ideas');
-  const [ideas, setIdeas] = useState<Idea[]>(mockIdeas);
-  const [plans, setPlans] = useState<Plan[]>(mockPlans);
+  // Start empty: seeding with demo rows meant the page rendered a
+  // convincing fake backlog before the first fetch, and kept it forever
+  // if the fetch threw.
+  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Filter states
@@ -55,7 +64,7 @@ export default function BacklogPage() {
   const tabs = [
     { id: 'ideas' as const, label: t('backlog.ideas'), count: ideas.length },
     { id: 'plans' as const, label: t('backlog.plans'), count: plans.length },
-    { id: 'in-dev' as const, label: t('backlog.inDevelopment'), count: ideas.filter(i => i.status === 'in-dev').length },
+    { id: 'in-dev' as const, label: t('backlog.inDevelopment'), count: ideas.filter(i => IN_DEVELOPMENT_STATUSES.includes(i.status)).length },
   ];
 
   const filteredIdeas = useMemo(() => {
@@ -63,9 +72,9 @@ export default function BacklogPage() {
 
     // Tab filter
     if (activeTab === 'in-dev') {
-      result = result.filter(i => i.status === 'in-dev');
+      result = result.filter(i => IN_DEVELOPMENT_STATUSES.includes(i.status));
     } else if (activeTab === 'plans') {
-      result = result.filter(i => i.status === 'planned');
+      result = result.filter(i => PLANNED_STATUSES.includes(i.status));
     }
 
     // Status filter
