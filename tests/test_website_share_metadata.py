@@ -60,7 +60,11 @@ class TestSharedConvention:
         source = _read(WEBSITE_SRC / "lib" / "metadata.ts")
         assert "SITE_NAME = 'Mossland'" in source
         assert "'%s — MOSS.AO · Mossland'" in source
-        assert "og-image.png" in source, "shared og:image must be part of detail metadata"
+        # Pin the *usage* inside detailMetadata(), not just the OG_IMAGE
+        # constant — the constant stays alive via layout.tsx, so a bare
+        # "og-image.png" check stays green even if detail routes lose images.
+        assert "images: [OG_IMAGE]" in source, "detailMetadata must attach the shared og:image"
+        assert "og-image.png" in source
         assert "summary_large_image" in source
 
     def test_root_layout_uses_title_template(self):
