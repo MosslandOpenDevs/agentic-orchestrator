@@ -459,7 +459,8 @@ Use the creativity techniques above to derive novel ideas that differ from exist
 - Must start with `## Idea: [Title]` format
 - Title must be at least 30 characters, specific and descriptive
 - Bad examples: "AI-based Service", "Token Economy Improvement"
-- Good examples: "GPT-5 Based DeFi Position Auto-Rebalancing Agent Development", "Real-time Metaverse Asset Value Tracker for Mossland NFT Holders"
+- A good title names the specific technology or protocol used, the concrete mechanism or action, and the target user or asset (pattern: [specific tech/protocol] + [what it does] + [for whom])
+- The title must be YOUR OWN: never reuse or lightly rephrase a title you have seen in this discussion, the background information, or these instructions
 
 **Content Rules:**
 Each idea must **include** the following sections:
