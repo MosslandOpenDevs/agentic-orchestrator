@@ -489,6 +489,11 @@ def _load_backlog_config() -> dict:
         "dedup_prefix_tokens": 6,
         "max_open_ideas": 800,
     }
+    lifecycle_defaults = {
+        "enabled": True,
+        "max_age_days": 30,
+        "max_closes_per_run": 50,
+    }
     config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
     try:
         with open(config_path) as f:
@@ -496,10 +501,14 @@ def _load_backlog_config() -> dict:
         backlog_config = config.get("backlog", {}) or {}
         for key, value in defaults.items():
             backlog_config.setdefault(key, value)
+        lifecycle = backlog_config.get("issue_lifecycle") or {}
+        for key, value in lifecycle_defaults.items():
+            lifecycle.setdefault(key, value)
+        backlog_config["issue_lifecycle"] = lifecycle
         return backlog_config
     except Exception as e:
         logger.warning(f"Failed to load backlog config, using defaults: {e}")
-        return defaults
+        return {**defaults, "issue_lifecycle": dict(lifecycle_defaults)}
 
 
 def _idea_title_fingerprint(title: str, prefix_tokens: int = 6) -> str:
@@ -756,10 +765,12 @@ async def _auto_score_and_save_ideas(
                 logger.info(f"Scored (pending): {idea_title[:50]}... (score: {score.total:.1f})")
 
             # Create GitHub Issue for the idea (if GitHub is configured and the
-            # backlog cap has not been reached)
+            # backlog cap has not been reached). Archived ideas (score below
+            # the archive threshold) get NO issue: an issue that is dead on
+            # arrival is pure tracker noise — the DB row is the record.
             github_issue_url = None
             github_issue_id = None
-            if github_client and not backlog_full:
+            if github_client and not backlog_full and status != "archived":
                 try:
                     # Build issue body
                     issue_body = f"""## Idea Summary
@@ -785,8 +796,6 @@ async def _auto_score_and_save_ideas(
                     issue_labels = [Labels.TYPE_IDEA, Labels.GENERATED_BY_ORCHESTRATOR]
                     if status == "promoted":
                         issue_labels.append(Labels.PROMOTE_TO_PLAN)
-                    elif status == "archived":
-                        issue_labels.append(Labels.STATUS_ARCHIVED)
                     else:
                         issue_labels.append(Labels.STATUS_BACKLOG)
 
@@ -941,6 +950,20 @@ async def _auto_score_and_save_ideas(
                     if plan_final_content_en:
                         logger.info(
                             f"Plan includes final_plan content: {len(plan_final_content_en)} chars"
+                        )
+
+                    # The plan now carries this idea forward — close the idea
+                    # issue so the tracker follows the pipeline instead of
+                    # keeping both open forever. Best-effort; the lifecycle
+                    # sweep in the backlog cycle retries missed ones.
+                    if github_client and github_issue_id:
+                        from .issue_lifecycle import close_idea_issue_for_plan
+
+                        close_idea_issue_for_plan(
+                            github_client,
+                            idea_issue_number=github_issue_id,
+                            plan_issue_number=plan_github_id,
+                            plan_id=plan_id,
                         )
 
                     # Auto-generate project for high-scoring plans
@@ -1516,6 +1539,30 @@ def _process_backlog():
                 pass
         finally:
             retention_session.close()
+
+        # GitHub issue lifecycle — close idea/plan issues the pipeline has
+        # outgrown and age out untouched backlog issues. Best-effort: GitHub
+        # being down must not fail the backlog cycle.
+        lifecycle_config = _load_backlog_config().get("issue_lifecycle", {})
+        if lifecycle_config.get("enabled", True):
+            try:
+                from ..db import ProjectRepository
+                from ..github_client import GitHubClient
+                from .issue_lifecycle import run_issue_lifecycle
+
+                lifecycle_session = db.get_session()
+                try:
+                    stats["issue_lifecycle"] = run_issue_lifecycle(
+                        client=GitHubClient(),
+                        idea_repo=IdeaRepository(lifecycle_session),
+                        plan_repo=PlanRepository(lifecycle_session),
+                        project_repo=ProjectRepository(lifecycle_session),
+                        config=lifecycle_config,
+                    )
+                finally:
+                    lifecycle_session.close()
+            except Exception as e:
+                logger.warning(f"Issue lifecycle sweep skipped: {e}")
 
         duration = (utcnow() - start_time).total_seconds()
         logger.info(f"Backlog processing completed in {duration:.1f}s")

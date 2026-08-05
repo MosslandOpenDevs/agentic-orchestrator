@@ -632,7 +632,24 @@ Signals (30분) → Trends (2시간) → Debate (6시간) → Ideas → Auto-Sco
 - **score >= 8.0**: `promoted` → 플랜 자동 생성 + **프로젝트 자동 생성**
 - **score 7.0-8.0**: `promoted` → 플랜 자동 생성 (프로젝트는 수동 버튼)
 - **score 4.0-7.0**: `scored` → 백로그 대기
-- **score < 4.0**: `archived` → 아카이브
+- **score < 4.0**: `archived` → 아카이브 (**GitHub 이슈 생성 안 함**, v0.6.15)
+
+### GitHub 이슈 라이프사이클 (v0.6.15)
+
+GitHub 이슈는 DB의 가시성 미러일 뿐인데, 예전에는 생성만 있고 닫힘이 없어
+2,866개까지 쌓였다 (닫힘률 0.07%). 이제 트래커가 파이프라인을 **따라간다**
+(`scheduler/issue_lifecycle.py`, moss-ao-backlog 4시간 주기에서 실행):
+
+- **파이프라인 연동 닫기** (`completed`): 아이디어가 플랜으로 승격되면 [Idea]
+  이슈에 [Plan] 링크 코멘트 후 닫기 (승격 시점 인라인 + 백로그 주기 보정 스윕);
+  플랜에서 프로젝트가 생성되면 [Plan] 이슈 닫기
+- **에이징 스위프** (`not_planned`): 생성 후 30일간 코멘트 0개인 봇 이슈 자동
+  닫기. **`curated:keep`·`source:trend` 라벨은 절대 닫지 않음** — 계속 열어둘
+  이슈에는 `curated:keep`을 붙일 것. 사람 코멘트가 하나라도 있으면 제외
+- 설정: `config.yaml`의 `backlog.issue_lifecycle` (enabled/max_age_days/
+  max_closes_per_run). 닫기는 가시성 전용 — DB 행은 그대로, 재오픈 가능
+- 스윕은 search API가 아니라 **list API**를 사용한다 (search 인덱스가 일부
+  이슈를 조용히 누락하는 저장소라서)
 
 ## 토론 시스템 (Multi-Stage Debate)
 

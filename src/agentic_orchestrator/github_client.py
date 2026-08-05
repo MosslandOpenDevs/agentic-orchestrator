@@ -45,6 +45,10 @@ class Labels:
     # Source markers
     SOURCE_TREND = "source:trend"
 
+    # Human curation marker: keep this issue open; the aging sweep must
+    # never auto-close it.
+    CURATED_KEEP = "curated:keep"
+
     # All labels with descriptions for setup
     ALL_LABELS = {
         TYPE_IDEA: {"color": "0052CC", "description": "Idea for a new micro Web3 service"},
@@ -79,6 +83,10 @@ class Labels:
         PROCESSED_TO_PLAN: {"color": "BFD4F2", "description": "Processed: plan was generated"},
         PROCESSED_TO_DEV: {"color": "BFD4F2", "description": "Processed: dev was started"},
         SOURCE_TREND: {"color": "7057FF", "description": "Idea generated from trend analysis"},
+        CURATED_KEEP: {
+            "color": "FEF2C0",
+            "description": "Human-curated: keep open, exempt from the aging sweep",
+        },
     }
 
 
@@ -98,6 +106,7 @@ class GitHubIssue:
     # Optional metadata
     user: str | None = None
     assignees: list[str] = field(default_factory=list)
+    comments: int = 0
 
     @classmethod
     def from_api_response(cls, data: dict) -> "GitHubIssue":
@@ -113,6 +122,7 @@ class GitHubIssue:
             html_url=data["html_url"],
             user=data.get("user", {}).get("login"),
             assignees=[a["login"] for a in data.get("assignees", [])],
+            comments=int(data.get("comments") or 0),
         )
 
     def has_label(self, label: str) -> bool:
@@ -288,6 +298,7 @@ class GitHubClient:
         body: str | None = None,
         state: str | None = None,
         labels: list[str] | None = None,
+        state_reason: str | None = None,
     ) -> GitHubIssue:
         """
         Update an issue.
@@ -298,6 +309,7 @@ class GitHubClient:
             body: New body (optional).
             state: New state (open/closed) (optional).
             labels: Replace all labels (optional).
+            state_reason: Reason when closing (completed/not_planned) (optional).
 
         Returns:
             Updated GitHubIssue.
@@ -311,6 +323,8 @@ class GitHubClient:
             data["state"] = state
         if labels is not None:
             data["labels"] = labels
+        if state_reason is not None:
+            data["state_reason"] = state_reason
 
         response = self._request(
             "PATCH",
@@ -360,6 +374,54 @@ class GitHubClient:
             json={"body": body},
         )
         return response
+
+    def list_issues(
+        self,
+        labels: list[str] | None = None,
+        state: str = "open",
+        per_page: int = 100,
+        max_pages: int = 10,
+    ) -> list[GitHubIssue]:
+        """
+        List repository issues via the list API (not the search API).
+
+        The search index (`/search/issues`) is known to silently omit some
+        issues in this repo, so anything that must see EVERY issue — e.g. the
+        lifecycle sweep — must use this endpoint instead. Pull requests, which
+        the list endpoint interleaves with issues, are filtered out.
+
+        Args:
+            labels: Labels the issues must ALL carry (comma-joined).
+            state: open/closed/all.
+            per_page: Page size (max 100).
+            max_pages: Safety cap on pagination.
+
+        Returns:
+            List of GitHubIssue (never pull requests).
+        """
+        issues: list[GitHubIssue] = []
+        params: dict[str, Any] = {"state": state, "per_page": per_page}
+        if labels:
+            params["labels"] = ",".join(labels)
+
+        for page in range(1, max_pages + 1):
+            params["page"] = page
+            response = self._request(
+                "GET",
+                f"/repos/{self.repo_path}/issues",
+                params=dict(params),
+            )
+            if not response:
+                break
+            issues.extend(
+                GitHubIssue.from_api_response(item)
+                for item in response
+                if "pull_request" not in item
+            )
+            if len(response) < per_page:
+                break
+
+        return issues
 
     # Search operations
 
