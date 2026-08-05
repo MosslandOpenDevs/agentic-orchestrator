@@ -1289,6 +1289,13 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         # A ``"key": value`` JSON property line.
         if re.match(r'^"[^"]+"\s*:', s):
             return True
+        # A bare JSON string value — an array element like
+        # ``"Decentralized Oracle Integration (Chainlink)",`` or a string left
+        # open by generation truncation. Straight quotes only: LLMs use curly
+        # quotes (“…”) decoratively in real titles, but a line *starting* with
+        # a straight double quote inside these responses is JSON, not prose.
+        if s.startswith('"'):
+            return True
         return False
 
     def _extract_idea_from_response(
@@ -1478,6 +1485,14 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
                 if len(line) >= 30 and len(line) < 200 and has_specific_content(line):
                     title = line
                     break
+
+        # Defensive cleanup: even when a scraped line passes the noise filter,
+        # never ship JSON punctuation (wrapping quotes, trailing commas) as
+        # part of an issue title.
+        if title:
+            title = title.strip().rstrip(",;").strip()
+            if len(title) >= 2 and title[0] == '"' and title[-1] == '"':
+                title = title[1:-1].strip()
 
         # Fallback: Generate descriptive title from content analysis
         if not title or len(title) < 30:

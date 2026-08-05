@@ -87,3 +87,4 @@ data/orchestrator.db.bak*
 # Anchored to the repo root so it does NOT also ignore nested dirs such as
 # website/src/app/projects/ (the frontend Projects page).
 /projects/
+uv.lock
