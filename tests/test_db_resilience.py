@@ -70,6 +70,46 @@ class TestStatusDegradation:
         assert stats["plans_created"] == 0
 
 
+class TestReadinessProbe:
+    """/ready is what the deployer gates on.
+
+    /health answers 200 whenever the process is alive -- it did so throughout
+    the 2026-07 incident while every DB-backed endpoint returned 500, which is
+    exactly the state an auto-deploy must not record as a success.
+    """
+
+    def test_ready_200_when_the_database_serves(self, tmp_path, monkeypatch):
+        db = Database(f"sqlite:///{tmp_path / 'ok.db'}")
+        db.create_tables()
+        monkeypatch.setattr(api_main, "get_db", lambda: db)
+
+        response = TestClient(app).get("/ready")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "ready"
+        assert body["checks"]["database"] == "ok"
+
+    def test_ready_503_when_the_schema_is_missing(self, tmp_path, monkeypatch):
+        db_file = tmp_path / "empty.db"
+        db_file.touch()  # connectable, but no tables
+        monkeypatch.setattr(api_main, "get_db", lambda: Database(f"sqlite:///{db_file}"))
+
+        response = TestClient(app).get("/ready")
+
+        assert response.status_code == 503
+        assert response.json()["detail"]["checks"]["database"].startswith("unavailable")
+
+    def test_liveness_still_answers_when_readiness_does_not(self, tmp_path, monkeypatch):
+        db_file = tmp_path / "empty.db"
+        db_file.touch()
+        monkeypatch.setattr(api_main, "get_db", lambda: Database(f"sqlite:///{db_file}"))
+        client = TestClient(app)
+
+        assert client.get("/health").status_code == 200
+        assert client.get("/ready").status_code == 503
+
+
 class TestStartupSelfHeal:
     """The lifespan hook must turn an empty DB file into a working schema."""
 
@@ -426,11 +466,95 @@ class TestSchedulerCLI:
         assert calls == []
         assert "Backup written" in capsys.readouterr().out
 
-    def test_backup_db_exits_nonzero_when_nothing_backed_up(self, monkeypatch):
+    def test_backup_db_exits_2_when_there_is_nothing_to_back_up(self, monkeypatch):
+        """Distinct from a failure (1): deploy.sh refuses to deploy when the
+        snapshot fails, but an empty database is not a failure."""
         monkeypatch.setattr(db_backup, "backup_database", lambda: None)
         monkeypatch.setattr(sys, "argv", ["scheduler", "backup-db"])
 
         with pytest.raises(SystemExit) as excinfo:
             sched_main.main()
 
-        assert excinfo.value.code == 1
+        assert excinfo.value.code == 2
+
+
+class TestFileDatabaseSessionIsolation:
+    """A file database must not put every Session on one shared connection.
+
+    With ``StaticPool`` on a file URL (the pre-fix behaviour) every Session in
+    the process shared one DBAPI connection and therefore one transaction: a
+    rollback anywhere discarded everyone else's uncommitted writes, and a long
+    project generation held the whole API inside its transaction.
+    """
+
+    def test_sessions_get_separate_connections(self, tmp_path):
+        db = Database(f"sqlite:///{tmp_path / 'orchestrator.db'}")
+        db.create_tables()
+
+        s1, s2 = db.get_session(), db.get_session()
+        try:
+            # Compare the DBAPI connections, not the per-checkout proxies.
+            assert (
+                s1.connection().connection.driver_connection
+                is not s2.connection().connection.driver_connection
+            )
+        finally:
+            s1.close()
+            s2.close()
+
+    def test_one_sessions_rollback_cannot_discard_anothers_write(self, tmp_path):
+        from agentic_orchestrator.db.models import Signal
+
+        db = Database(f"sqlite:///{tmp_path / 'orchestrator.db'}")
+        db.create_tables()
+
+        writer, other = db.get_session(), db.get_session()
+        try:
+            writer.add(Signal(id="sig-1", source="rss", title="t", category="ai"))
+            writer.flush()
+
+            # Uncommitted work is invisible to a different session ...
+            assert other.query(Signal).filter(Signal.id == "sig-1").count() == 0
+            # ... and rolling that session back must not touch the writer.
+            other.rollback()
+            writer.commit()
+        finally:
+            writer.close()
+            other.close()
+
+        reader = db.get_session()
+        try:
+            assert reader.query(Signal).filter(Signal.id == "sig-1").count() == 1
+        finally:
+            reader.close()
+
+    def test_file_database_uses_wal_and_waits_for_locks(self, tmp_path):
+        from sqlalchemy import text
+
+        db = Database(f"sqlite:///{tmp_path / 'orchestrator.db'}")
+        db.create_tables()
+
+        session = db.get_session()
+        try:
+            assert session.execute(text("PRAGMA journal_mode")).scalar() == "wal"
+            assert session.execute(text("PRAGMA busy_timeout")).scalar() == 30_000
+            # The FK enforcement the retention sweeps rely on stays on.
+            assert session.execute(text("PRAGMA foreign_keys")).scalar() == 1
+        finally:
+            session.close()
+
+    def test_in_memory_database_still_shares_its_one_connection(self):
+        """``:memory:`` *is* its connection -- a second one is a second, empty
+        database, so StaticPool must stay for it."""
+        db = Database("sqlite:///:memory:")
+        db.create_tables()
+
+        s1, s2 = db.get_session(), db.get_session()
+        try:
+            assert (
+                s1.connection().connection.driver_connection
+                is s2.connection().connection.driver_connection
+            )
+        finally:
+            s1.close()
+            s2.close()

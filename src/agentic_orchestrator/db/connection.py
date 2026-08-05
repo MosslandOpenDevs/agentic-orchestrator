@@ -19,6 +19,9 @@ from .models import Base
 
 logger = logging.getLogger(__name__)
 
+# How long a blocked SQLite writer waits for the lock before giving up.
+SQLITE_BUSY_TIMEOUT_MS = 30_000
+
 
 class Database:
     """
@@ -58,19 +61,41 @@ class Database:
                 db_path = self.url.replace("sqlite:///", "")
                 Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
-            self.engine = create_engine(
-                self.url,
-                poolclass=StaticPool,
-                connect_args={"check_same_thread": False},
-                echo=os.getenv("DB_ECHO", "false").lower() == "true",
-            )
+            in_memory = self._is_in_memory()
 
-            # Enable foreign keys for SQLite
+            engine_kwargs = {
+                "connect_args": {"check_same_thread": False},
+                "echo": os.getenv("DB_ECHO", "false").lower() == "true",
+            }
+            if in_memory:
+                # An in-memory database lives *inside* its connection: open a
+                # second one and you get a second, empty database. StaticPool
+                # (one connection, reused) is the only thing that works.
+                engine_kwargs["poolclass"] = StaticPool
+            # A file database must NOT use StaticPool. Every Session would
+            # share the one connection and therefore one transaction, so a
+            # rollback in any request discards every other request's
+            # uncommitted writes -- and one long project generation would hold
+            # the whole API in its transaction. Let SQLAlchemy pool normally.
+
+            self.engine = create_engine(self.url, **engine_kwargs)
+
             @event.listens_for(self.engine, "connect")
             def set_sqlite_pragma(dbapi_connection, connection_record):
                 cursor = dbapi_connection.cursor()
                 cursor.execute("PRAGMA foreign_keys=ON")
+                if not in_memory:
+                    # Sessions now hold separate connections, so concurrency is
+                    # real: WAL lets readers run while the writer commits, and
+                    # busy_timeout makes a blocked writer wait rather than
+                    # raise "database is locked".
+                    cursor.execute("PRAGMA journal_mode=WAL")
+                    cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
                 cursor.close()
+
+    def _is_in_memory(self) -> bool:
+        """True for SQLite URLs that name a memory database."""
+        return ":memory:" in self.url or "mode=memory" in self.url
 
     def create_tables(self):
         """Create all tables in the database."""

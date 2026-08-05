@@ -63,6 +63,9 @@ cd "${REPO_ROOT}"
 DEPLOY_BRANCH=${DEPLOY_BRANCH:-main}
 DEPLOY_REMOTE=${DEPLOY_REMOTE:-origin}
 DEPLOY_REQUIRE_CI=${DEPLOY_REQUIRE_CI:-1}
+# Comma-separated GitHub check-run names that must have passed, e.g.
+# "test (3.12),test (3.13),lint". Empty = accept whatever checks reported.
+DEPLOY_REQUIRE_CI_JOBS=${DEPLOY_REQUIRE_CI_JOBS:-}
 DEPLOY_GITHUB_REPO=${DEPLOY_GITHUB_REPO:-MosslandOpenDevs/agentic-orchestrator}
 DEPLOY_API_URL=${DEPLOY_API_URL:-http://127.0.0.1:3001}
 DEPLOY_WEB_URL=${DEPLOY_WEB_URL:-http://127.0.0.1:3000}
@@ -184,34 +187,61 @@ ci_conclusion() {
     auth="X-No-Auth: 1"
   fi
   curl -fsS -m 20 -H 'Accept: application/vnd.github+json' -H "${auth}" "${url}" 2>/dev/null \
-    | python3 -c '
-import json, sys
+    | REQUIRED_JOBS="${DEPLOY_REQUIRE_CI_JOBS}" python3 -c '
+import json, os, sys
 try:
     runs = json.load(sys.stdin).get("check_runs", [])
 except Exception:
     print("unknown"); raise SystemExit
+
+# Zero checks is not evidence of success. GitHub commonly has not registered
+# them yet when the 5-minute poller fires seconds after a push, so treat it the
+# same as "still running": defer and look again next tick. (Deploying on it was
+# a fail-open -- an unverified commit reached production.)
 if not runs:
     print("none"); raise SystemExit
-bad = {"failure", "cancelled", "timed_out", "action_required", "startup_failure"}
+
+hard_fail = {"failure", "cancelled", "timed_out", "action_required", "startup_failure"}
+# Only these two mean "this check verified the commit". skipped/stale/null do
+# not, and were previously counted as green.
+green = {"success", "neutral"}
+
 if any(r.get("status") != "completed" for r in runs):
-    print("pending")
-elif any(r.get("conclusion") in bad for r in runs):
-    print("failure")
-else:
-    print("success")
+    print("pending"); raise SystemExit
+if any(r.get("conclusion") in hard_fail for r in runs):
+    print("failure"); raise SystemExit
+if any(r.get("conclusion") not in green for r in runs):
+    print("incomplete"); raise SystemExit
+
+# Optional: pin the exact jobs that must have reported. Without it, a workflow
+# that stops running the tests still reads as green.
+required = [j.strip() for j in (os.environ.get("REQUIRED_JOBS") or "").split(",") if j.strip()]
+passed = {r.get("name") for r in runs if r.get("conclusion") in green}
+if any(job not in passed for job in required):
+    print("missing-required"); raise SystemExit
+
+print("success")
 ' 2>/dev/null || echo "unknown"
 }
 
 if [ "${DEPLOY_REQUIRE_CI}" = "1" ] && [ "${FORCE}" = "0" ]; then
   CI=$(ci_conclusion "${TARGET}")
   case "${CI}" in
-    success) log "CI: green" ;;
-    none)    log "CI: no checks reported for this commit -- proceeding" ;;
-    pending) log "CI: still running -- deferring to next tick"; exit 0 ;;
-    failure) log "CI: FAILED -- refusing to deploy ${TARGET:0:8}"
-             alert "MOSS.AO deploy skipped: CI failed on ${TARGET:0:8} (${SUBJECT})"
-             exit 0 ;;
-    *)       log "CI: status unavailable (network/API) -- deferring to next tick"; exit 0 ;;
+    success)    log "CI: green" ;;
+    pending)    log "CI: still running -- deferring to next tick"; exit 0 ;;
+    none)       log "CI: no checks reported yet for ${TARGET:0:8} -- deferring to next tick"
+                exit 0 ;;
+    incomplete) log "CI: checks reported but none verified the commit \
+(skipped/stale) -- deferring to next tick"
+                exit 0 ;;
+    missing-required)
+                log "CI: required jobs (${DEPLOY_REQUIRE_CI_JOBS}) did not pass -- refusing"
+                alert "MOSS.AO deploy skipped: required CI jobs missing on ${TARGET:0:8}"
+                exit 0 ;;
+    failure)    log "CI: FAILED -- refusing to deploy ${TARGET:0:8}"
+                alert "MOSS.AO deploy skipped: CI failed on ${TARGET:0:8} (${SUBJECT})"
+                exit 0 ;;
+    *)          log "CI: status unavailable (network/API) -- deferring to next tick"; exit 0 ;;
   esac
 fi
 
@@ -280,15 +310,28 @@ fi
 # untracked DB, so a snapshot protects nothing -- and each one rotates the
 # 7-slot backup window, so a burst of docs merges would churn days of restore
 # points into minutes.
+#
+# Fail closed. The snapshot is the restore point for the change about to be
+# applied, so "snapshot failed, deploying anyway" is the 2026-07 outage waiting
+# to happen. Exit 2 from backup-db means there was nothing worth snapshotting
+# (no/empty/dataless database) -- benign, not a failure.
 if [ "${PY_CHANGED}" = "1" ] || [ "${WEB_CHANGED}" = "1" ]; then
   if [ -x "${PYTHON_BIN}" ]; then
-    if PYTHONPATH=./src "${PYTHON_BIN}" -m agentic_orchestrator.scheduler backup-db >/dev/null 2>&1; then
-      log "pre-deploy DB snapshot written to data/backup/"
-    else
-      log "WARN pre-deploy DB snapshot failed (continuing)"
-    fi
+    SNAP_RC=0
+    PYTHONPATH=./src "${PYTHON_BIN}" -m agentic_orchestrator.scheduler backup-db \
+      >/dev/null 2>&1 || SNAP_RC=$?
+    case "${SNAP_RC}" in
+      0) log "pre-deploy DB snapshot written to data/backup/" ;;
+      2) log "pre-deploy DB snapshot: nothing to snapshot yet -- continuing" ;;
+      *) log "ERROR pre-deploy DB snapshot failed (rc=${SNAP_RC}) -- refusing to \
+deploy without a restore point"
+         alert "MOSS.AO deploy skipped: pre-deploy DB snapshot failed on ${TARGET:0:8}"
+         exit 1 ;;
+    esac
   else
-    log "WARN ${PYTHON_BIN} not found -- skipping DB snapshot"
+    log "ERROR ${PYTHON_BIN} not found -- refusing to deploy without a DB snapshot"
+    alert "MOSS.AO deploy skipped: ${PYTHON_BIN} missing, no DB snapshot possible"
+    exit 1
   fi
 else
   log "docs-only sync -- skipping DB snapshot (nothing restarts)"
@@ -362,8 +405,12 @@ health_ok() {
   local i=0
   while [ "${i}" -lt "${DEPLOY_HEALTH_RETRIES}" ]; do
     local api_ok=1 web_ok=1
+    # /ready, not /health: liveness stayed 200 through the 2026-07 incident
+    # while every DB-backed endpoint returned 500, so a deploy that broke the
+    # database would still have been recorded as DEPLOYED. /ready reads a real
+    # table and answers 503 when it cannot.
     if [ "${PY_CHANGED}" = "1" ] || [ "${ROLLING_BACK:-0}" = "1" ]; then
-      curl -fsS -m 5 "${DEPLOY_API_URL}/health" >/dev/null 2>&1 || api_ok=0
+      curl -fsS -m 5 "${DEPLOY_API_URL}/ready" >/dev/null 2>&1 || api_ok=0
     fi
     if [ "${WEB_CHANGED}" = "1" ] || [ "${ROLLING_BACK:-0}" = "1" ]; then
       curl -fsS -m 8 -o /dev/null "${DEPLOY_WEB_URL}/" 2>/dev/null || web_ok=0

@@ -53,7 +53,9 @@ REGRESSION_MIN_BASELINE = 20
 REGRESSION_RATIO = 0.5
 
 # Incremental-copy tuning: copy N pages per step, sleeping between steps so
-# concurrent writers can grab the lock (production journal mode is not WAL).
+# concurrent writers can grab the lock. Production runs in WAL mode, where a
+# reader no longer blocks the writer at all, but the copy still restarts if the
+# source is written mid-backup -- yielding keeps that from starving a writer.
 _COPY_PAGES_PER_STEP = 1024
 _COPY_SLEEP_SECONDS = 0.1
 _BUSY_TIMEOUT_MS = 30_000

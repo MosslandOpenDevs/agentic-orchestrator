@@ -158,7 +158,8 @@ agentic-orchestrator/
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
 | GET | `/` | API 인덱스 (버전, 엔드포인트 목록) |
-| GET | `/health` | API 헬스체크 (DB 미사용) |
+| GET | `/health` | 라이브니스 — 프로세스 생존만 확인 (DB 미사용) |
+| GET | `/ready` | 레디니스 — 실제 테이블을 읽어 확인, 실패 시 503 (배포 게이트가 사용) |
 | GET | `/status` | 시스템 상태 및 통계 |
 | GET | `/signals` | 수집된 신호 목록 |
 | GET | `/signals/timeline` | 신호 수집 타임라인 (`period=24h\|7d`) |
@@ -235,9 +236,25 @@ agentic-orchestrator/
    빈 DB를 다시 채워도 안전. DB가 없거나/비었거나/데이터가 없거나/무결성 실패면
    건너뜀. 수동 실행: `python -m agentic_orchestrator.scheduler backup-db`
 
-**복원 절차**: 쓰기 프로세스 중지 → 최신 `data/backup/orchestrator-*.db`를
-`data/orchestrator.db`로 복사 → 재시작. 배포 시 `git clean -fdx`는 반드시
-`-e data -e .env`와 함께 사용할 것.
+**복원 절차**: 쓰기 프로세스 중지 → **`data/orchestrator.db-wal`·`-shm` 삭제** →
+최신 `data/backup/orchestrator-*.db`를 `data/orchestrator.db`로 복사 → 재시작.
+배포 시 `git clean -fdx`는 반드시 `-e data -e .env`와 함께 사용할 것.
+
+> `-wal` 삭제를 빠뜨리지 말 것. DB는 WAL 모드(아래 참조)라, 새로 복사한 파일 옆에
+> 예전 DB의 WAL이 남아 있으면 SQLite가 그것을 새 파일 위에 재생해 복원본을 망친다.
+
+### 커넥션 풀과 저널 모드
+
+파일 SQLite는 **커넥션을 세션마다 따로** 잡는다 (`db/connection.py`). 예전에는
+파일 DB에도 `StaticPool`을 써서 프로세스 안의 모든 `Session`이 커넥션 하나 =
+트랜잭션 하나를 공유했고, 그래서 한 요청의 rollback이 다른 요청의 미커밋 쓰기를
+지우고 긴 프로젝트 생성이 API 전체를 자기 트랜잭션에 묶어 둘 수 있었다.
+인메모리 DB(`:memory:`)만 `StaticPool`을 유지한다 — 커넥션이 곧 데이터베이스라
+공유하지 않으면 매번 빈 DB가 되기 때문이다.
+
+커넥션이 갈라진 만큼 동시성이 실제로 발생하므로 파일 DB에는
+`journal_mode=WAL`(읽기와 쓰기 동시 진행)과 `busy_timeout=30s`(잠금 대기 시
+"database is locked" 대신 대기)를 함께 건다. `PRAGMA foreign_keys=ON`은 그대로다.
 
 ## 환경 변수
 
@@ -369,8 +386,10 @@ pm2 save
 - **활성화**: 서버 `.env`에 `MOSS_AO_AUTO_DEPLOY=1` → `pm2 start ecosystem.config.js
   --only moss-ao-deploy && pm2 save`. 이 플래그가 없으면 PM2 앱 목록에 등록조차 되지 않아
   다른 체크아웃이 자기 자신을 배포하는 사고가 나지 않는다.
-- **가드**: CI 초록불일 때만 / 서버에 로컬 수정이 있으면 중단 / 토론 실행 중이면 백엔드
-  배포는 다음 틱으로 연기 / 배포 전 강제 DB 스냅샷 / 헬스체크 실패 시 자동 롤백(재빌드 포함).
+- **가드**: CI 초록불일 때만 (체크 0건·`skipped`·`stale`은 초록이 아니라 **연기**) /
+  서버에 로컬 수정이 있으면 중단 / 토론 실행 중이면 백엔드 배포는 다음 틱으로 연기 /
+  배포 전 강제 DB 스냅샷, **실패 시 배포 중단**(복원 지점 없이 배포하지 않음) /
+  배포 후 `/ready`(DB를 실제로 읽음) 실패 시 자동 롤백(재빌드 포함).
 - **`git clean` 금지**: `git reset --hard`만 사용한다. DB(`data/`)·`.env`는 untracked라
   reset은 건드리지 않지만 clean은 지운다 (2026-07 사고). `tests/test_deploy.py`가 이
   불변식을 실제 실행으로 검증하므로 스크립트에 clean을 추가하면 테스트가 깨진다.
@@ -577,7 +596,8 @@ curl -s "$OLLAMA_HOST/api/ps"
 
 **해결 (v0.6.10+):**
 - API·스케줄러가 기동 시 스키마를 자동 생성하므로 재시작만으로 500은 해소됨 (`pm2 restart moss-ao-api`)
-- 데이터 복원: 최신 `data/backup/orchestrator-*.db`를 `data/orchestrator.db`로 복사 후 재시작
+- 데이터 복원: `data/orchestrator.db-wal`·`-shm` 삭제 후 최신
+  `data/backup/orchestrator-*.db`를 `data/orchestrator.db`로 복사, 그다음 재시작
 - `/status`가 `"degraded"`를 반환하면 DB가 실제로 죽어 있다는 뜻 — `pm2 logs moss-ao-api`에서 traceback 확인
 
 ## 콘텐츠 품질 요구사항

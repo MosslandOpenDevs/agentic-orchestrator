@@ -139,6 +139,13 @@ class HealthResponse(BaseModel):
     version: str
 
 
+class ReadinessResponse(BaseModel):
+    status: str
+    timestamp: str
+    version: str
+    checks: dict
+
+
 class StatusResponse(BaseModel):
     status: str
     timestamp: str
@@ -173,11 +180,50 @@ class AgentResponse(BaseModel):
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Check API health status."""
+    """Liveness: the process is up. Deliberately does not touch the database.
+
+    Use ``/ready`` to decide whether this build can actually serve traffic.
+    """
     return HealthResponse(
         status="healthy",
         timestamp=utcnow().isoformat(),
         version=__version__,
+    )
+
+
+@app.get("/ready", response_model=ReadinessResponse)
+async def readiness_check():
+    """Readiness: 200 only when the API can serve database-backed traffic.
+
+    In the 2026-07 incident every DB endpoint returned 500 while ``/health``
+    kept answering 200, so anything gated on liveness alone -- the auto-deploy
+    health check included -- called a dead site a success. This probe runs a
+    real table read, which a missing schema fails and a bare ``SELECT 1`` does
+    not, and returns 503 when it cannot.
+    """
+    from sqlalchemy import func
+
+    from ..db.models import Signal
+
+    try:
+        with get_db().session() as session:
+            session.query(func.count(Signal.id)).scalar()
+    except Exception as exc:
+        logger.exception("/ready database probe failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "status": "not_ready",
+                "version": __version__,
+                "checks": {"database": f"unavailable ({type(exc).__name__})"},
+            },
+        ) from exc
+
+    return ReadinessResponse(
+        status="ready",
+        timestamp=utcnow().isoformat(),
+        version=__version__,
+        checks={"database": "ok"},
     )
 
 
@@ -1359,6 +1405,7 @@ async def root():
         "description": "Mossland Agentic Orchestrator API",
         "endpoints": {
             "health": "/health",
+            "ready": "/ready",
             "status": "/status",
             "signals": "/signals",
             "trends": "/trends",

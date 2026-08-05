@@ -41,9 +41,16 @@ GIT_ENV = {
     "GIT_COMMITTER_EMAIL": "test@example.com",
 }
 
-CI_SUCCESS = json.dumps({"check_runs": [{"status": "completed", "conclusion": "success"}]})
+CI_SUCCESS = json.dumps(
+    {"check_runs": [{"name": "test (3.12)", "status": "completed", "conclusion": "success"}]}
+)
 CI_PENDING = json.dumps({"check_runs": [{"status": "in_progress"}]})
 CI_FAILURE = json.dumps({"check_runs": [{"status": "completed", "conclusion": "failure"}]})
+# A commit GitHub has not registered any checks for -- the usual state seconds
+# after a push, which the poller sees before CI has started.
+CI_NONE = json.dumps({"check_runs": []})
+CI_SKIPPED = json.dumps({"check_runs": [{"status": "completed", "conclusion": "skipped"}]})
+CI_STALE = json.dumps({"check_runs": [{"status": "completed", "conclusion": "stale"}]})
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -169,11 +176,17 @@ esac
 """,
             executable=True,
         )
-        # Stands in for .venv/bin/python (backup-db, pip install -e .).
+        # Stands in for .venv/bin/python (backup-db, pip install -e .). The two
+        # callers get separate exit codes: the deploy refuses to run at all
+        # when the pre-deploy snapshot fails, so a test about a failing
+        # `pip install` must still be able to take a snapshot first.
         _write(
             self.bin / "venv-python",
             f"""#!/usr/bin/env bash
 echo "python $*" >> "{self.stub_log}"
+case "$*" in
+  *backup-db*) exit ${{BACKUP_STUB_EXIT:-0}} ;;
+esac
 exit ${{PYTHON_STUB_EXIT:-0}}
 """,
             executable=True,
@@ -274,6 +287,10 @@ class TestDeploy:
         assert "pm2 restart moss-ao-api" in calls
         assert "pm2 restart moss-ao-web" in calls
         assert "DEPLOYED" in result.stdout
+        # Readiness, not liveness: /health answered 200 all through the 2026-07
+        # incident while every DB-backed endpoint was returning 500.
+        assert "/ready" in calls
+        assert "/health" not in calls
 
     def test_untracked_server_state_survives_a_deploy(self, server: Server):
         """The 2026-07 outage, pinned: the DB and .env are untracked."""
@@ -283,6 +300,41 @@ class TestDeploy:
         assert (server.checkout / "data" / "orchestrator.db").read_text() == "SQLITE-DATA"
         assert (server.checkout / ".env").exists()
         assert (server.checkout / "website" / ".env.local").exists()
+
+    def test_failed_snapshot_refuses_to_deploy(self, server: Server):
+        """The snapshot IS the restore point for the change being applied.
+        Deploying after it failed is the 2026-07 outage with no way back."""
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 22\n"})
+
+        result = server.run(BACKUP_STUB_EXIT="1")
+
+        assert result.returncode == 1
+        assert server.head() == before
+        assert "refusing to deploy without a restore point" in result.stdout
+        # Nothing was built or restarted.
+        assert "pm2 restart" not in server.calls()
+
+    def test_nothing_to_snapshot_is_not_a_failure(self, server: Server):
+        """backup-db exits 2 when the database is missing/empty/dataless --
+        benign (a fresh server), so the deploy proceeds."""
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 23\n"})
+
+        result = server.run(BACKUP_STUB_EXIT="2")
+
+        assert server.head() == target
+        assert "nothing to snapshot yet" in result.stdout
+        assert "DEPLOYED" in result.stdout
+
+    def test_missing_python_refuses_to_deploy(self, server: Server):
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 24\n"})
+
+        result = server.run(PYTHON_BIN=str(server.bin / "no-such-python"))
+
+        assert result.returncode == 1
+        assert server.head() == before
+        assert "refusing to deploy without a DB snapshot" in result.stdout
 
     def test_pre_deploy_database_snapshot_is_taken(self, server: Server):
         server.push({"src/agentic_orchestrator/api.py": "VERSION = 4\n"})
@@ -436,6 +488,58 @@ class TestGuards:
 
         assert server.head() == before
         assert "status unavailable" in result.stdout
+
+    def test_no_checks_reported_defers_instead_of_deploying_unverified(self, server: Server):
+        """Zero checks is not a green build. It is usually just CI not having
+        registered yet -- the poller runs every 5 minutes and can easily fire
+        seconds after the push. Deploying on it shipped unverified commits."""
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 18\n"})
+
+        result = server.run(DEPLOY_REQUIRE_CI="1", CI_JSON=CI_NONE)
+
+        assert result.returncode == 0
+        assert server.head() == before
+        assert "no checks reported" in result.stdout
+        assert "deferring" in result.stdout
+
+    @pytest.mark.parametrize("ci_json", [CI_SKIPPED, CI_STALE], ids=["skipped", "stale"])
+    def test_checks_that_verified_nothing_defer(self, server: Server, ci_json: str):
+        """skipped/stale conclusions used to fall through to "success" because
+        they were merely absent from the failure list."""
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 19\n"})
+
+        result = server.run(DEPLOY_REQUIRE_CI="1", CI_JSON=ci_json)
+
+        assert result.returncode == 0
+        assert server.head() == before
+        assert "none verified the commit" in result.stdout
+
+    def test_required_jobs_must_all_have_passed(self, server: Server):
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 20\n"})
+
+        result = server.run(
+            DEPLOY_REQUIRE_CI="1",
+            CI_JSON=CI_SUCCESS,  # only reports "test (3.12)"
+            DEPLOY_REQUIRE_CI_JOBS="test (3.12),lint",
+        )
+
+        assert server.head() == before
+        assert "required jobs" in result.stdout
+
+    def test_required_jobs_present_deploys(self, server: Server):
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 21\n"})
+
+        result = server.run(
+            DEPLOY_REQUIRE_CI="1",
+            CI_JSON=CI_SUCCESS,
+            DEPLOY_REQUIRE_CI_JOBS="test (3.12)",
+        )
+
+        assert server.head() == target
+        assert "CI: green" in result.stdout
 
     def test_backend_deploy_waits_for_a_running_debate(self, server: Server):
         before = server.head()

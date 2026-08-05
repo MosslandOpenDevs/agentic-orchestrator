@@ -61,17 +61,25 @@ def _calculate_time_decay(collected_at: datetime, now: datetime = None) -> float
 
 def _apply_time_decay_to_signals(signals: List, now: datetime = None) -> List:
     """
-    Apply time decay weighting to signal scores.
+    Weight signals by freshness, without writing anything to the database.
 
-    Modifies signals in-place by adding a 'decay_factor' attribute
-    and adjusting their effective score.
+    The weight rides along on two transient attributes -- ``time_decay`` and
+    ``effective_score`` -- that are not mapped columns, so a later
+    ``session.commit()`` cannot persist them.
+
+    This used to multiply ``Signal.score`` in place and commit it. Two things
+    were wrong with that: the multiplication compounded on every run
+    (1.0 -> 0.4 -> 0.16 -> ...), permanently rewriting the score the API sorts
+    and filters on; and the decayed value never reached the analyzer anyway,
+    because ``FeedItem`` carries no score. So it damaged stored data to
+    weight nothing.
 
     Args:
-        signals: List of signal objects with collected_at attribute
+        signals: Signal objects with a ``collected_at`` attribute
         now: Current time (defaults to UTC now)
 
     Returns:
-        Signals with decay factor applied
+        The same list, each element carrying its freshness weight.
     """
     if now is None:
         now = utcnow()
@@ -80,21 +88,15 @@ def _apply_time_decay_to_signals(signals: List, now: datetime = None) -> List:
         collected_at = signal.collected_at or now
         decay = _calculate_time_decay(collected_at, now)
 
-        # Store decay factor in metadata if possible
-        if hasattr(signal, "metadata") and isinstance(signal.metadata, dict):
-            signal.metadata["time_decay"] = decay
-        elif hasattr(signal, "extra_metadata") and isinstance(signal.extra_metadata, dict):
-            signal.extra_metadata["time_decay"] = decay
+        signal.time_decay = decay
+        base_score = getattr(signal, "score", None) or 0.0
+        signal.effective_score = base_score * decay
 
-        # Apply decay to score if it exists
-        if hasattr(signal, "score") and signal.score is not None:
-            original_score = signal.score
-            signal.score = original_score * decay
-
-            logger.debug(
-                f"Time decay applied: {signal.title[:50]}... "
-                f"(original: {original_score:.2f}, decay: {decay:.2f}, final: {signal.score:.2f})"
-            )
+        logger.debug(
+            f"Time decay: {(signal.title or '')[:50]}... "
+            f"(stored: {base_score:.2f}, decay: {decay:.2f}, "
+            f"effective: {signal.effective_score:.2f})"
+        )
 
     return signals
 
@@ -199,6 +201,12 @@ async def _analyze_trends_async():
         raw_signals = signal_repo.get_recent(hours=48, limit=600)
         logger.info(f"Fetched {len(raw_signals)} candidate signals; diversifying by source")
 
+        # Freshness weighting happens before selection so it actually decides
+        # something: within each source the fresher signals are picked first.
+        now = utcnow()
+        _apply_time_decay_to_signals(raw_signals, now)
+        raw_signals.sort(key=lambda s: getattr(s, "effective_score", 0.0), reverse=True)
+
         from collections import defaultdict, deque
 
         by_source: "defaultdict[str, deque]" = defaultdict(deque)
@@ -227,19 +235,12 @@ async def _analyze_trends_async():
             logger.warning("No signals found for trend analysis")
             return
 
-        # Apply time decay weighting to signals (v0.5.0)
-        now = utcnow()
-        signals = _apply_time_decay_to_signals(signals, now)
-        logger.info(f"Applied time decay to {len(signals)} signals")
-
-        # Log decay distribution
+        # Log decay distribution. This used to read `s.metadata`, which on a
+        # declarative model is SQLAlchemy's MetaData object, never a dict --
+        # so every signal scored 1.0 and the batch always looked 100% fresh.
         decay_buckets = {"fresh": 0, "recent": 0, "moderate": 0, "old": 0}
         for s in signals:
-            decay = (
-                s.metadata.get("time_decay", 1.0)
-                if hasattr(s, "metadata") and isinstance(s.metadata, dict)
-                else 1.0
-            )
+            decay = getattr(s, "time_decay", 1.0)
             if decay >= 0.9:
                 decay_buckets["fresh"] += 1
             elif decay >= 0.6:

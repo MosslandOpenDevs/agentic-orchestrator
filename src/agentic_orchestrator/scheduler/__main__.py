@@ -92,13 +92,19 @@ def main():
     elif args.command == "backup-db":
         from ..db.backup import backup_database
 
+        # Exit codes are a contract with scripts/deploy.sh, which refuses to
+        # deploy without a restore point:
+        #   0 - snapshot written
+        #   2 - nothing worth snapshotting (no/empty/dataless database)
+        #   1 - the snapshot itself failed (backup_database raises; an
+        #       uncaught exception also exits 1)
         dest = backup_database()
         if dest is None:
             print(
                 "No backup created (database missing, empty, dataless, "
                 "failed integrity check, or not SQLite)."
             )
-            sys.exit(1)
+            sys.exit(2)
         print(f"Backup written: {dest}")
     else:
         parser.print_help()
