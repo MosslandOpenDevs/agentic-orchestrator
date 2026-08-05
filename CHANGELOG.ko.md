@@ -7,6 +7,36 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 이 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)를 기반으로 하며,
 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
+## [Unreleased]
+
+### Security
+- **공개 대시보드의 plan 프록시가 익명 요청에 운영자 API 키의 권한을 빌려줬다.** v0.6.7은 브라우저가 `MOSS_API_KEY`를 보지 않도록 Next.js 서버 라우트 뒤에 뒀지만, 키를 감추는 것과 키의 *권한*을 감추는 것은 다르다. `/proxy/plans/{id}/approve`와 `/proxy/plans/{id}/generate-project`는 인증 없는 POST를 받아 키를 붙여 백엔드를 호출했고, ao.moss.land에는 사용자 계정 자체가 없다. 즉 누구나 플랜을 승인하고 LLM 프로젝트 생성을 원하는 만큼 돌릴 수 있었다(토론 파이프라인이 써야 할 GPU 시간, DB·디스크 쓰기 포함). approve 프록시는 UI 어디서도 호출하지 않는 순수 공격면이라 삭제했고, generate-project는 `MOSS_ENABLE_BROWSER_PROJECT_GENERATION=1` 없이는 동작하지 않으며 켜더라도 동일 출처 요청만 받고 백엔드가 허용하는 동시 생성 1건에 맞춰 rate limit을 건다.
+- **토론 메시지를 통한 stored XSS.** 아이디어·플랜·토론 내용은 RSS와 GitHub 이슈로 만든 프롬프트의 LLM 출력인데, `marked.parse()` 결과를 그대로 `dangerouslySetInnerHTML`에 넣고 있었다. `marked`는 정화하지 않으며(v5에서 `sanitize` 옵션 제거) sanitizer 의존성도 없어서, 모델 응답에 포함된 raw HTML이 우리 origin에서 실행됐다. 이제 토큰 단계에서 두 가지를 막는다: raw HTML은 보이는 텍스트로 이스케이프하고, 링크·이미지 URL은 안전한 스킴만 허용한다(marked의 `cleanUrl`은 `encodeURI`만 돌려서 `javascript:`가 그대로 통과한다). 회귀 테스트 12건.
+- **생성 프로젝트의 docker-compose가 PostgreSQL을 고정 슈퍼유저 자격증명으로 공개했다** (`postgres/postgres`, `5432:5432`). 포트 공개를 제거하고 자격증명은 환경변수에서만 받는다.
+- **Next.js 16.2.9 → 16.3.0, sharp 0.34.5 → 0.35.3.** `npm audit --omit=dev`가 둘 다 high로 판정했다(미들웨어/프록시 우회, Server Action DoS·SSRF, 캐시 혼동, sharp의 libvips CVE). lockfile 없이 해석해도 취약 버전으로 돌아가지 않도록 선언된 하한도 올렸다.
+
+### Fixed
+- **프로세스 안의 모든 DB Session이 커넥션 하나, 곧 트랜잭션 하나를 공유했다.** 파일 SQLite에도 `StaticPool`을 써서, 한 요청의 rollback이 다른 요청의 미커밋 쓰기를 지우고 긴 프로젝트 생성이 API 전체를 자기 트랜잭션에 묶어 둘 수 있었다. `StaticPool`은 `:memory:`(커넥션이 곧 데이터베이스)에만 남기고, 파일 DB는 일반 풀 + `journal_mode=WAL` + `busy_timeout=30s`를 쓴다. **복원 절차 변경**: 스냅샷을 덮어쓰기 전에 `data/orchestrator.db-wal`·`-shm`를 반드시 삭제할 것. 남아 있으면 SQLite가 옛 WAL을 새 파일 위에 재생한다.
+- **시간 감쇠가 아무것도 가중하지 않으면서 저장된 신호 점수만 훼손했다.** `_apply_time_decay_to_signals`가 `Signal.score`를 제자리에서 곱하고 트렌드 작업이 그대로 commit해, 48시간이 지난 신호는 2시간마다 다시 깎였다(1.0 → 0.2 → 0.04 → …). API가 정렬·필터에 쓰는 값이 비가역적으로 망가진 것인데, 정작 감쇠된 값은 `FeedItem`에 score 필드가 없어 분석기에 전달되지도 않았다. 이제 가중치는 transient이며 **배치 선택 이전**에 적용돼 LLM이 볼 신호를 실제로 결정한다. freshness 히스토그램은 `s.metadata`(선언형 모델에서는 SQLAlchemy의 `MetaData`)를 읽어 항상 100% fresh로 찍혔다. 이미 깎인 운영 DB의 점수는 코드 수정으로 되돌릴 수 없고, 신호가 교체되면서 대체된다.
+- **자동 배포에 fail-open 경로가 세 개 있었다.** 체크가 0건인 커밋은 "no checks reported -- proceeding"으로 검증 없이 배포됐는데, 이 상태는 대개 CI가 아직 등록되지 않은 것뿐이다. `skipped`/`stale` 결론은 실패 목록에 없다는 이유로 초록불 취급됐다. 배포 전 DB 스냅샷이 실패해도 경고만 남기고 진행해, 복원 지점 없이 변경이 적용될 수 있었다. 셋 다 이제 연기하거나 거부한다. `backup-db`는 "찍을 것 없음"에 종료 코드 2를 반환해 빈 DB는 정상으로 남고, `DEPLOY_REQUIRE_CI_JOBS`로 반드시 통과해야 할 job을 못박을 수 있다.
+- **배포 후 헬스체크가 readiness가 아니라 liveness를 봤다.** `/health`는 프로세스가 살아 있으면 200이다 — 2026-07 사고 때 모든 DB 엔드포인트가 500인 동안에도 그랬다 — 그래서 DB를 망가뜨린 배포도 `DEPLOYED`로 기록됐을 것이다. 실제 테이블을 읽고 안 되면 503을 반환하는 `/ready`를 추가하고 배포기가 그것을 본다.
+- **retention이 조용히 아무것도 정리하지 않았다.** 오래된 트렌드·토론 세션을 살아 있는 Idea/Plan이 참조하는데 `ON DELETE` 정책이 없어 스윕이 `FOREIGN KEY constraint failed`를 냈고, 두 스윕이 트랜잭션을 공유해 하나가 실패하면 둘 다 롤백됐다 — 4시간마다, 경고 한 줄 뒤에서. 참조된 부모는 계보(`/ideas/{id}/lineage`가 따라간다)이므로 보존하고 그 수를 로그에 남기며, 참조 없는 행만 정리한다. 스윕별로 트랜잭션을 분리했다.
+- **QA가 아무것도 검사하지 않은 프로젝트를 통과시켰다.** 구현 디렉터리 없음, 테스트 파일 없음, pytest 미설치, 리뷰어 도달 불가 — 전부 pass/7.0을 반환했고 기본 요구 점수가 7.0이라 코드가 하나도 없는 프로젝트가 7.0/10으로 DONE에 갔다. 이제 게이트는 긍정적 증거로만 통과한다. 또한 모델이 쓴 테스트를 오케스트레이터 자신의 환경에서 `python -m pytest`로 실행했는데(pytest는 단언 이전, 수집 단계에서 임의 코드를 실행한다), 실행은 `MOSS_RUN_GENERATED_TESTS` 옵트인으로 바뀌고 기본 꺼짐이다. 이 단계는 수동 `ao` CLI에서만 도달 가능해 사고로 이어지지 않았다.
+- **실패한 프로젝트 생성 재시도가 아무 일도 하지 않고 성공을 보고했다.** API는 `error` 프로젝트의 재시도를 허용하지만 scaffold는 기존 행이 있으면 상태와 무관하게 조기 반환했다(`success=True`, `project_path=None`). 백그라운드 작업은 그것을 "completed"로 기록했다.
+- **수동 플랜 승인의 감사 기록이 유실됐다.** `extra_metadata`는 `MutableDict`가 아닌 일반 JSON 컬럼이라 제자리 변경을 SQLAlchemy가 보지 못했고, 파이프라인이 만든 모든 플랜에서 `manually_approved`·`approved_at`이 사라졌다. 백그라운드 생성 작업도 성공 경로에서만 세션을 닫아, 실패할 때마다 커넥션과 열린 트랜잭션이 남았다.
+- **`?limit=-1`로 문서화된 페이지네이션 상한을 우회할 수 있었다.** 상한만 선언돼 있었고 SQLite는 `LIMIT -1`을 "제한 없음"으로 읽어, 요청 하나가 조건에 맞는 모든 행을 직렬화할 수 있었다. 이제 모든 limit에 `ge=1`을 요구한다.
+- **`/adapters`가 인증 없는 제3자 팬아웃이었다.** 요청마다 어댑터 11개를 만들고 외부 헬스 probe를 순차로 await했으며 각각 약 10초 타임아웃이었다. 이제 probe당 5초 예산으로 병렬 실행하고 60초 공유 캐시 뒤에 둔다.
+- **Ollama가 도달 불가일 때도 healthy를 보고했다.** `health_check`가 모든 네트워크·HTTP·JSON 오류를 빈 리스트로 삼키는 헬퍼를 부른 뒤 무조건 `"healthy"`를 반환했다. 이제 조회 실패는 `error`, 서버에 기본 모델이 없으면 `degraded`로 보고한다. 스케줄러 헬스 작업은 `health_check`가 반환한 적 없는 `models` 키를 읽어 항상 0개로 찍었다. 간격 스로틀은 대기 시간을 락 안에서 계산하고 슬롯은 sleep 뒤에 차지해, 동시 호출자가 함께 깨어나며 아무것도 조절하지 못했다 — 이제 같은 임계 구역에서 예약한다. config.yaml에 "1 = sequential only"로 적혀 있던 `max_concurrent_requests`는 읽는 코드가 없었고, 이제 실제 세마포어다.
+- **자매 서비스의 잘못된 응답 하나가 모든 페이지를 비웠다.** `NpcCityStrip`이 `npc.moss.land` 응답을 그대로 `Headline[]`로 캐스팅해, *성공*했지만 형태가 다른 응답(`{"headlines": {}}`)이 fetch의 try/catch 바깥에서 `.length`/`.slice`로 throw했다. 루트 레이아웃의 서버 컴포넌트이고 위에 경계가 없다. 이제 모든 필드를 검증해 사용할 수 없는 레코드는 버리고, `global-error.tsx`가 루트 레이아웃의 최후 방어선이 된다.
+- **`SignalStorage`의 읽기가 사용 불가능했다.** commit 후 닫히는 세션에서 살아 있는 ORM 행을 반환해 첫 속성 접근에서 `DetachedInstanceError`가 났다. `backup_signals(include_raw=True)`는 별개로 아무 효과가 없었다. 둘 다 수정.
+- **데이터 마이그레이션 재실행이 데모 신호를 중복 삽입했다.** 중복 방지 키가 없고 `source="rss"`를 달아 소스 구성 통계에서 수집 신호와 구분되지 않았다. 이제 옵트인(`--with-sample-signals`), `demo:` id 접두사로 표시, 멱등이다.
+
+### Changed
+- **대시보드가 더 이상 데이터를 지어내지 않는다.** `ScoreBreakdown`은 아이디어별 항목 점수를 `종합 + Math.random() * 1.5`로 그렸고 렌더마다 다시 뽑으면서 실제 가중치 옆에 소수 첫째 자리까지 찍었다. `TrendSparkline`은 같은 방식으로 7일 시그널 이력을 만들어 "모멘텀"과 "속도"를 유도했고, `IdeaDetail`은 `70 + 토론당 5, 최대 95`인 합의 퍼센트를 넘겼다. 어느 것도 DB에 없으며, 그것도 "transparency" 페이지에서 렌더됐다. 생성기를 제거하고 컴포넌트는 받은 것만 렌더하며, 없으면 "기록되지 않음"을 명시한다. 페처들도 API 실패뿐 아니라 정상적인 빈 목록에까지 데모 픽스처를 대입하면서 합성 데이터라는 표시가 없었다 — 이제 빈 것은 빈 것이다. 푸터의 "System Online" 배지와 대시보드의 "SYSTEM ONLINE" 배너는 상태와 무관한 리터럴 텍스트였고, 이제 `/status`가 실제로 말한 것(도달 불가 시 "unknown" 포함)을 반영한다.
+- **프론트엔드/백엔드 계약 불일치.** `fetchIdeas`/`fetchPlans`가 백엔드 UUID를 `index + 1`로 바꿔서 백로그 페이지의 상세 버튼이 항상 404였다. `IdeaCard`의 상태 맵이 데모 어휘를 써서 실제 `IdeaStatus` 8개 중 7개(`rejected`·`archived` 포함)가 회색 "Backlog" 칩으로 표시됐다. 토론 화면들은 백엔드가 낸 적 없는 `in-progress`(실제는 `active`)를 검사해 라이브 모드가 영구히 꺼져 있었고 transparency 페이지의 "진행 중" 필터는 항상 0건을 반환했다. `PlanDetail`의 `regenerate --force` 버튼은 `force_regenerate: false`를 보냈고, 폴링 실패는 스피너를 영원히 돌렸으며, `ready_with_warnings` 프로젝트는 빈 패널을 렌더했다.
+- **CI가 대시보드까지 검사하고 lockfile로 설치한다.** `uv.lock`을 커밋하고 CI는 운영과 같은 lock으로 `uv sync --frozen` 한다 — 예전에는 각자 하한 위주 핀에서 그래프를 따로 해석해, 같은 커밋의 CI·신규 배포·롤백이 서로 다른 패키지로 돌 수 있었다. 새 `website` job이 lint·typecheck·test·build와 운영 의존성 audit을 돌린다(현재 트리의 생성 패키지 3개는 `npm ci`부터 실패하는데도 CI는 초록이었다). 액션은 커밋 SHA로 고정하고 워크플로에 `contents: read`를 선언했다. 제거된 의존성을 참조해 문서의 `pnpm install`이 즉시 실패하던 `pnpm-lock.yaml`은 삭제하고 README는 배포 경로의 `npm ci`를 따른다.
+- OpenGraph 메타데이터가 `public/`에도 라우트에도 없는 `/og-image.png`를 가리켜 모든 소셜 공유가 404를 받았다. 이제 `app/opengraph-image.tsx`가 생성한다.
+
 ## [0.6.17] - 2026-08-05
 
 ### 변경
