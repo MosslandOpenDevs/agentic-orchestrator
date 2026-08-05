@@ -261,6 +261,22 @@ class TestProviderNumCtx:
 
         assert fake_ollama.captured["payload"]["options"]["num_predict"] == 4096
 
+    async def test_per_call_num_ctx_beats_the_throttle_default(self, fake_ollama):
+        # Small-prompt tasks (idea scoring) must be able to stay on the
+        # server's already-resident small instance: on 2026-08-05 every 16k
+        # KV-cache load hung ~30 min on the congested shared GPU while the
+        # 4k instance answered in <1s, starving backlog triage.
+        provider = OllamaProvider(OllamaConfig(throttle={"num_ctx": 16384}))
+        await provider.generate("hello", num_ctx=4096)
+
+        assert fake_ollama.captured["payload"]["options"]["num_ctx"] == 4096
+
+    async def test_num_ctx_none_keeps_the_throttle_default(self, fake_ollama):
+        provider = OllamaProvider(OllamaConfig(throttle={"num_ctx": 16384}))
+        await provider.generate("hello", num_ctx=None)
+
+        assert fake_ollama.captured["payload"]["options"]["num_ctx"] == 16384
+
 
 class TestStructuredOutputs:
     """Ollama's `format` field: grammar-constrained decoding (since v0.5.0).
@@ -318,6 +334,61 @@ class TestStructuredOutputs:
         await router.route(prompt="p", force_local=True, response_schema=schema)
 
         assert fake_ollama.captured["payload"]["format"] == schema
+
+    async def test_router_plumbs_num_ctx_to_ollama(self, fake_ollama):
+        """A num_ctx override dropped in the router silently reintroduces
+        the 16k-load hang the override exists to avoid — pin the plumb."""
+        from agentic_orchestrator.llm.hierarchy import LLMHierarchy
+        from agentic_orchestrator.llm.router import HybridLLMRouter
+
+        class FakeBudget:
+            def get_budget_status(self):
+                return {"can_use_api": False}
+
+            def should_use_local(self):
+                return True
+
+            def estimate_cost(self, *a):
+                return 0.0
+
+        router = HybridLLMRouter.__new__(HybridLLMRouter)
+        router.local_only = True
+        router.ollama = OllamaProvider(OllamaConfig(throttle={"num_ctx": 16384}))
+        router.claude = None
+        router.openai = None
+        router.hierarchy = LLMHierarchy()
+        router.budget = FakeBudget()
+
+        await router.route(prompt="p", force_local=True, num_ctx=4096)
+        assert fake_ollama.captured["payload"]["options"]["num_ctx"] == 4096
+
+        await router.route(prompt="p", force_local=True)
+        assert fake_ollama.captured["payload"]["options"]["num_ctx"] == 16384
+
+    async def test_idea_scorer_stays_on_the_small_context(self):
+        """Scoring must pass SCORING_NUM_CTX (4096): its prompt+output fit,
+        and the small instance answers even when 16k loads hang."""
+        from agentic_orchestrator.scoring import IdeaScorer
+
+        captured = {}
+
+        class FakeRouter:
+            async def route(self, **kwargs):
+                captured.update(kwargs)
+
+                class R:
+                    content = (
+                        '{"feasibility": 6, "relevance": 6, "novelty": 6,'
+                        ' "impact": 6, "reasoning": "ok"}'
+                    )
+                    model = "gemma3:4b"
+
+                return R()
+
+        scorer = IdeaScorer(router=FakeRouter())
+        await scorer.score_idea("idea content")
+
+        assert captured["num_ctx"] == IdeaScorer.SCORING_NUM_CTX == 4096
 
     async def test_analyzer_sends_its_trends_schema(self):
         from agentic_orchestrator.timeutil import utcnow

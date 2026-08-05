@@ -117,6 +117,7 @@ class HybridLLMRouter:
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         response_schema: Optional[dict] = None,
+        num_ctx: Optional[int] = None,
     ) -> LLMResponse:
         """
         Route a request to the appropriate LLM.
@@ -137,6 +138,14 @@ class HybridLLMRouter:
                 cannot emit smart-quote delimiters, prose preambles, or
                 markdown fences. Ignored on the Claude/OpenAI paths, which
                 are unused in local-only production.
+            num_ctx: Per-call Ollama context override. Each distinct value
+                is its own model instance server-side; tasks whose prompt
+                fits a small context should pass one so they use the
+                already-resident instance instead of forcing a large
+                KV-cache load (which can hang on a congested shared GPU).
+                None keeps the throttle-config default. Forwarded on every
+                Ollama path, including both fallbacks — a dropped override
+                would silently reintroduce the hang.
 
         Returns:
             LLMResponse with generated content
@@ -182,6 +191,7 @@ class HybridLLMRouter:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     format_schema=response_schema,
+                    num_ctx=num_ctx,
                 )
             elif provider_name == "claude" and self.claude:
                 response = await self._call_claude(
@@ -209,6 +219,7 @@ class HybridLLMRouter:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     format_schema=response_schema,
+                    num_ctx=num_ctx,
                 )
                 selected_model = fallback
                 provider_name = "ollama"
@@ -227,6 +238,7 @@ class HybridLLMRouter:
                         temperature=temperature,
                         max_tokens=max_tokens,
                         format_schema=response_schema,
+                        num_ctx=num_ctx,
                     )
                     selected_model = fallback
                     provider_name = "ollama"
@@ -313,6 +325,7 @@ class HybridLLMRouter:
         temperature: float,
         max_tokens: Optional[int],
         format_schema: Optional[dict] = None,
+        num_ctx: Optional[int] = None,
     ) -> OllamaResponse:
         """Call Ollama provider."""
         return await self.ollama.generate(
@@ -322,6 +335,7 @@ class HybridLLMRouter:
             temperature=temperature,
             max_tokens=max_tokens,
             format_schema=format_schema,
+            num_ctx=num_ctx,
         )
 
     async def _call_claude(
