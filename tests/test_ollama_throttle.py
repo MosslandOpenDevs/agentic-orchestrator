@@ -88,6 +88,92 @@ class TestConcurrencyCap:
         assert peak == 1
 
 
+class TestTheGuardsAreActuallyApplied:
+    """The tests above poke the throttle and the semaphore directly, which
+    proves they work but not that anything uses them. These go through the
+    public entry points, so removing the decorator fails them."""
+
+    def test_generate_and_chat_are_wrapped(self):
+        assert hasattr(OllamaProvider.generate, "__wrapped__")
+        assert hasattr(OllamaProvider.chat, "__wrapped__")
+
+    async def test_generate_calls_are_serialized_by_the_cap(self, monkeypatch):
+        provider = _provider(max_concurrent_requests=1, min_request_interval=0)
+
+        in_flight = 0
+        peak = 0
+
+        class _FakeResponse:
+            status_code = 200
+            text = ""
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"response": "ok", "model": "gemma3:4b", "done": True}
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def post(self, *args, **kwargs):
+                nonlocal in_flight, peak
+                in_flight += 1
+                peak = max(peak, in_flight)
+                await asyncio.sleep(0.03)
+                in_flight -= 1
+                return _FakeResponse()
+
+        monkeypatch.setattr("agentic_orchestrator.providers.ollama.httpx.AsyncClient", _FakeClient)
+
+        results = await asyncio.gather(*(provider.generate(f"prompt {i}") for i in range(4)))
+
+        assert peak == 1, f"expected serialized calls, saw {peak} in flight"
+        assert all(r.content == "ok" for r in results)
+
+    async def test_generate_waits_out_the_interval(self, monkeypatch):
+        provider = _provider(max_concurrent_requests=4, min_request_interval=0.1)
+
+        class _FakeResponse:
+            status_code = 200
+            text = ""
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"response": "ok", "model": "gemma3:4b", "done": True}
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def post(self, *args, **kwargs):
+                return _FakeResponse()
+
+        monkeypatch.setattr("agentic_orchestrator.providers.ollama.httpx.AsyncClient", _FakeClient)
+
+        started = time.monotonic()
+        await asyncio.gather(*(provider.generate(f"p{i}") for i in range(3)))
+        elapsed = time.monotonic() - started
+
+        # Three requests spaced 0.1s apart cannot finish instantly.
+        assert elapsed >= 0.15, elapsed
+
+
 class TestHealthReporting:
     async def test_unreachable_server_is_not_healthy(self, monkeypatch):
         provider = _provider()

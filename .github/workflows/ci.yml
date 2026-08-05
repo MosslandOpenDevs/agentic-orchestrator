@@ -35,10 +35,17 @@ jobs:
         with:
           enable-cache: true
 
-      # --frozen installs exactly what uv.lock records and fails if the lock is
-      # stale. Production installs from the same lock, so a green run here and
-      # a deploy of that commit now mean the same dependency graph; previously
-      # each resolved its own from mostly-lower-bound pins.
+      # A stale lock is its own failure. --frozen installs exactly what
+      # uv.lock records and says nothing about whether the lock still matches
+      # pyproject.toml -- it exits 0 on a stale one -- so the freshness check
+      # has to be explicit.
+      - name: Check the lockfile is up to date
+        run: uv lock --check
+
+      # --frozen, matching the deploy script exactly. Production installs from
+      # the same committed lock, so a green run here and a deploy of that
+      # commit mean the same dependency graph; previously each resolved its own
+      # from mostly-lower-bound pins.
       - name: Install dependencies
         run: uv sync --frozen --extra dev --python ${{ matrix.python-version }}
 

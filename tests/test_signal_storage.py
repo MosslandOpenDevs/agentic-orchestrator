@@ -58,14 +58,27 @@ class TestReadsSurviveTheSession:
         # The access that used to raise DetachedInstanceError.
         assert {s["title"] for s in signals} == {"Signal 0", "Signal 1", "Signal 2"}
 
+    # Each of these must dereference a field: asserting only on len() passes
+    # against the pre-fix code too, because a list of detached ORM rows has a
+    # length -- it only raises when something reads from a row.
+
     def test_get_by_source_is_readable(self, storage):
-        assert len(storage.get_by_source("rss", limit=10)) == 2
+        signals = storage.get_by_source("rss", limit=10)
+
+        assert len(signals) == 2
+        assert {s["source"] for s in signals} == {"rss"}
 
     def test_get_by_category_is_readable(self, storage):
-        assert len(storage.get_by_category("ai", limit=10)) == 3
+        signals = storage.get_by_category("ai", limit=10)
+
+        assert len(signals) == 3
+        assert all(s["category"] == "ai" for s in signals)
 
     def test_search_is_readable(self, storage):
-        assert len(storage.search("Signal", limit=10)) >= 1
+        signals = storage.search("Signal", limit=10)
+
+        assert len(signals) >= 1
+        assert all(s["title"].startswith("Signal") for s in signals)
 
 
 class TestBackupAndExport:

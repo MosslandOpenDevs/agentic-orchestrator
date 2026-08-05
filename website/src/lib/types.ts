@@ -8,8 +8,12 @@ export interface SystemStats {
   plansRejected: number;
   inDevelopment: number;
   trendsAnalyzed: number;
-  lastRun: string;
-  nextRun: string;
+  /** When the pipeline last actually produced something. Absent when the
+   *  API exposes nothing to derive it from -- it must never be the
+   *  viewer's own clock dressed up as a pipeline run. */
+  lastRun?: string;
+  /** Absent: the API does not report the scheduler's next tick. */
+  nextRun?: string;
 }
 
 export interface ActivityItem {

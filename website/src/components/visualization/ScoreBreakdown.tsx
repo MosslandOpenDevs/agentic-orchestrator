@@ -28,15 +28,19 @@ export function ScoreBreakdown({
   score,
   dimensions,
   consensus,
-  confidence = 'medium',
+  // No default. A default here does not mean "unspecified", it means the
+  // component prints `Confidence: MED (±0.8)` for every idea whose caller
+  // passes nothing -- a fabricated error bar, rendered directly under the
+  // sentence saying no breakdown was recorded.
+  confidence,
   showDetails = true,
 }: ScoreBreakdownProps) {
   const { t } = useI18n();
 
   const displayDimensions = dimensions;
 
-  // Calculate confidence range based on confidence level
-  const confidenceRange = confidence === 'high' ? 0.3 : confidence === 'medium' ? 0.8 : 1.5;
+  const confidenceRange =
+    confidence === 'high' ? 0.3 : confidence === 'medium' ? 0.8 : 1.5;
 
   const getBarColor = (value: number) => {
     if (value >= 8) return 'bg-[#39ff14]';
@@ -111,26 +115,31 @@ export function ScoreBreakdown({
         </div>
       )}
 
-      {/* Footer stats */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.5 }}
-        className="pt-3 border-t border-[#21262d] flex items-center justify-between text-xs"
-      >
-        {consensus !== undefined && (
-          <div className="flex items-center gap-2">
-            <span className="text-[#8b949e]">{t('scoreBreakdown.consensus')}:</span>
-            <span className="text-[#00ffff] font-bold">{consensus}%</span>
-          </div>
-        )}
-        <div className="flex items-center gap-2">
-          <span className="text-[#8b949e]">{t('scoreBreakdown.confidence')}:</span>
-          <span className={`font-bold ${getConfidenceColor()}`}>
-            {getConfidenceLabel()} <span className="text-[#3b3b3b]">(±{confidenceRange.toFixed(1)})</span>
-          </span>
-        </div>
-      </motion.div>
+      {/* Footer stats, only for figures the caller actually has */}
+      {(consensus !== undefined || confidence !== undefined) && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.5 }}
+          className="pt-3 border-t border-[#21262d] flex items-center justify-between text-xs"
+        >
+          {consensus !== undefined && (
+            <div className="flex items-center gap-2">
+              <span className="text-[#8b949e]">{t('scoreBreakdown.consensus')}:</span>
+              <span className="text-[#00ffff] font-bold">{consensus}%</span>
+            </div>
+          )}
+          {confidence !== undefined && (
+            <div className="flex items-center gap-2">
+              <span className="text-[#8b949e]">{t('scoreBreakdown.confidence')}:</span>
+              <span className={`font-bold ${getConfidenceColor()}`}>
+                {getConfidenceLabel()}{' '}
+                <span className="text-[#3b3b3b]">(±{confidenceRange.toFixed(1)})</span>
+              </span>
+            </div>
+          )}
+        </motion.div>
+      )}
     </div>
   );
 }

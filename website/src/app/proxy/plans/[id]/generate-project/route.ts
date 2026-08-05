@@ -21,22 +21,33 @@ const GENERATION_ENABLED = process.env.MOSS_ENABLE_BROWSER_PROJECT_GENERATION ==
 const MIN_INTERVAL_MS = 60_000;
 let lastAcceptedAt = 0;
 
-function isSameOrigin(request: NextRequest): boolean {
-  // Browsers send Sec-Fetch-Site on every fetch; same-origin is what our own
-  // UI produces. Absent that, fall back to comparing Origin with Host, which
-  // also rejects a cross-site form post. A client sending neither (curl) is
-  // not our UI and has no business using the server's key.
-  const fetchSite = request.headers.get('sec-fetch-site');
-  if (fetchSite) return fetchSite === 'same-origin';
+// The origin the dashboard is actually served from. Compared against, rather
+// than derived from, the request -- deriving it from the Host header would
+// mean validating one attacker-supplied header against another.
+const PUBLIC_ORIGIN = process.env.MOSS_PUBLIC_ORIGIN || 'https://ao.moss.land';
+
+/**
+ * CSRF protection for browser callers. That is all it is.
+ *
+ * Both headers it reads are set by the browser and cannot be set by page
+ * JavaScript, which is what makes them useful against a cross-site request --
+ * but any non-browser client sends whatever it likes, so this stops nobody
+ * running curl. An earlier version claimed otherwise and was weaker still: it
+ * fell back to comparing Origin against Host when Sec-Fetch-Site was absent,
+ * which is exactly the case a non-browser client produces, so a single
+ * `-H 'Origin: https://ao.moss.land'` satisfied it.
+ *
+ * What actually keeps an anonymous caller from spending the operator's key is
+ * GENERATION_ENABLED being off by default, plus the rate limit below. If this
+ * route is ever enabled and anonymous spend is unacceptable, it needs a real
+ * credential; no header check can substitute for one.
+ */
+function isSameOriginBrowserRequest(request: NextRequest): boolean {
+  if (request.headers.get('sec-fetch-site') !== 'same-origin') return false;
 
   const origin = request.headers.get('origin');
-  const host = request.headers.get('host');
-  if (!origin || !host) return false;
-  try {
-    return new URL(origin).host === host;
-  } catch {
-    return false;
-  }
+  // Same-origin fetches may omit Origin; when present it must be ours.
+  return !origin || origin === PUBLIC_ORIGIN;
 }
 
 export async function POST(
@@ -56,7 +67,7 @@ export async function POST(
     );
   }
 
-  if (!isSameOrigin(request)) {
+  if (!isSameOriginBrowserRequest(request)) {
     return NextResponse.json({ detail: 'Cross-origin request rejected.' }, { status: 403 });
   }
 

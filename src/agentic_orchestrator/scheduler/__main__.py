@@ -123,20 +123,23 @@ def main():
     elif args.command == "health-check":
         health_check()
     elif args.command == "backup-db":
-        from ..db.backup import backup_database
-
         # Exit codes are a contract with scripts/deploy.sh, which refuses to
         # deploy without a restore point:
         #   0 - snapshot written
         #   2 - nothing worth snapshotting (no/empty/dataless database)
-        #   1 - the snapshot itself failed (backup_database raises; an
-        #       uncaught exception also exits 1)
-        dest = backup_database()
+        #   1 - the snapshot failed, including a corrupt source (an uncaught
+        #       exception also exits 1)
+        from ..db.backup import BackupIntegrityError, backup_database
+
+        try:
+            dest = backup_database()
+        except BackupIntegrityError as exc:
+            # The one state where a restore point matters most. Exiting 2 here
+            # would have told deploy.sh "nothing to snapshot -- carry on".
+            print(f"Backup failed: {exc}", file=sys.stderr)
+            sys.exit(1)
         if dest is None:
-            print(
-                "No backup created (database missing, empty, dataless, "
-                "failed integrity check, or not SQLite)."
-            )
+            print("No backup created (database missing, empty, dataless, or not SQLite).")
             sys.exit(2)
         print(f"Backup written: {dest}")
     elif args.command == "restore-db":

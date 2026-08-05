@@ -623,10 +623,13 @@ export class ApiClient {
 
 export async function fetchSystemStats(): Promise<SystemStats | null> {
   // Use /status endpoint which has accurate counts
-  const [statusRes, trendsRes, rejectedPlansRes] = await Promise.all([
+  const [statusRes, trendsRes, rejectedPlansRes, signalsRes] = await Promise.all([
     ApiClient.getStatus(),
     ApiClient.getTrends({ limit: 1 }),
     ApiClient.getPlans({ limit: 1, status: 'rejected' }),
+    // The newest signal's collection time is the only evidence the API exposes
+    // of the pipeline actually having run.
+    ApiClient.getSignals({ limit: 1 }),
   ]);
 
   if (statusRes.error || !statusRes.data) {
@@ -645,8 +648,13 @@ export async function fetchSystemStats(): Promise<SystemStats | null> {
     plansRejected,
     inDevelopment: 0,
     trendsAnalyzed,
-    lastRun: new Date().toISOString(),
-    nextRun: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    // Both of these used to be made up from the browser clock: lastRun was
+    // "now", so the banner always read "less than a minute ago", and nextRun
+    // was now+24h while the signal cron actually runs every 30 minutes. The
+    // banner was rewritten to report only what the backend says; these two
+    // values were the part still being invented underneath it.
+    lastRun: signalsRes.data?.signals?.[0]?.collected_at ?? undefined,
+    nextRun: undefined,
   };
 }
 

@@ -55,6 +55,71 @@ test('scheme obfuscated with control characters is still rejected', () => {
   assert.equal(safeUrl('java\nscript:alert(1)'), null);
 });
 
+// The first version of this sanitizer closed raw HTML and literal
+// `javascript:` and stopped there. These are the two holes an adversarial
+// review found afterwards; both were live against the deployed renderer.
+
+test('quotes in image alt text cannot break out of the attribute', () => {
+  // marked escapes an image's title but not its alt, so a double quote used to
+  // close alt="" and everything after it became new attributes on the <img>.
+  // Zero-click: the attacker controls src, so it always fails and onerror runs.
+  const html = renderMarkdown('![" onerror="alert(1)](/logo.png)');
+
+  assert.ok(!/onerror=["']/.test(html), html);
+  assert.ok(html.includes('alt="&quot;'), html);
+});
+
+test('reference-style images cannot break out of alt either', () => {
+  const html = renderMarkdown('!["onerror="alert(1)][r]\n\n[r]: /x.png');
+
+  assert.ok(!/onerror=["']/.test(html), html);
+});
+
+test('an image nested inside a link cannot break out of alt', () => {
+  const html = renderMarkdown('[![" onerror="alert(1)](/x.png)](https://ok.dev)');
+
+  assert.ok(!/onerror=["']/.test(html), html);
+});
+
+test('image titles are escaped', () => {
+  const html = renderMarkdown('![a](/x.png "t\" onerror=\"alert(1)")');
+
+  assert.ok(!/onerror=["']/.test(html), html);
+});
+
+test('entity-encoded schemes do not survive attribute decoding', () => {
+  // The href goes into an attribute, where the HTML parser decodes character
+  // references before the URL is parsed -- so a scheme with no literal colon
+  // passed the raw-string check and came back to life in the browser.
+  for (const payload of [
+    '[c](javascript&#58;alert(1))',
+    '[c](&#106;avascript:alert(1))',
+    '[c](&#x6A;avascript:alert(1))',
+    '[c](javascript&colon;alert(1))',
+    '[c][r]\n\n[r]: javascript&#58;alert(1)',
+  ]) {
+    const html = renderMarkdown(payload);
+    // Any & that reaches the attribute must be escaped, so nothing can decode
+    // back into a scheme.
+    assert.ok(!/href="[^"]*&(?!amp;)/.test(html), `${payload} -> ${html}`);
+  }
+});
+
+test('query strings still round-trip through the escaping', () => {
+  const html = renderMarkdown('[ok](https://x.dev/?a=1&b=2)');
+
+  // &amp; is what the browser decodes back to a bare &.
+  assert.ok(html.includes('href="https://x.dev/?a=1&amp;b=2"'), html);
+});
+
+test('legitimate images still render', () => {
+  const html = renderMarkdown('![a diagram](/img/flow.png "Flow")');
+
+  assert.ok(html.includes('src="/img/flow.png"'), html);
+  assert.ok(html.includes('alt="a diagram"'), html);
+  assert.ok(html.includes('title="Flow"'), html);
+});
+
 test('ordinary links and relative URLs still work', () => {
   const html = renderMarkdown('[docs](https://ao.moss.land/docs) and [rel](/ideas)');
 

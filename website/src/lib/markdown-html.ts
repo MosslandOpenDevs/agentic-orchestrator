@@ -44,7 +44,16 @@ export function safeUrl(href: string | null | undefined): string | null {
   const probe = href.replace(CONTROL_OR_SPACE, '');
   if (!probe) return null;
   if (HAS_SCHEME.test(probe) && !SAFE_SCHEME.test(probe)) return null;
-  return href.trim();
+
+  // The value goes into an HTML attribute, where the parser decodes character
+  // references *before* the URL is parsed. Checking the raw string is not
+  // enough on its own: `javascript&#58;alert(1)` has no literal colon, so it
+  // reads as scheme-less here and becomes `javascript:alert(1)` in the
+  // browser. Escaping the ampersand makes the attribute decode back to
+  // exactly the string that was validated -- and closes the whole class,
+  // rather than one spelling of it. A real query string survives:
+  // `?a=1&b=2` becomes `?a=1&amp;b=2`, which decodes to `?a=1&b=2`.
+  return href.trim().replace(/&/g, '&amp;');
 }
 
 marked.use({
@@ -60,6 +69,20 @@ marked.use({
     // Block-level and inline raw HTML both arrive here.
     html(token: Tokens.HTML | Tokens.Tag) {
       return escapeHtml(token.raw);
+    },
+    // marked's default image renderer interpolates the alt text into
+    // `alt="${text}"` without escaping it -- it escapes `title` but not `alt`.
+    // A double quote in the alt therefore closes the attribute and everything
+    // after it is parsed as further attributes on the <img>, which is a
+    // zero-click XSS: the attacker also controls src, so it always fails to
+    // load and any injected onerror fires immediately. There is no CSP to
+    // fall back on.
+    image(token: Tokens.Image) {
+      const href = safeUrl(token.href);
+      const alt = escapeHtml(token.text ?? '');
+      if (!href) return alt;
+      const title = token.title ? ` title="${escapeHtml(token.title)}"` : '';
+      return `<img src="${escapeHtml(href)}" alt="${alt}"${title}>`;
     },
   },
 });

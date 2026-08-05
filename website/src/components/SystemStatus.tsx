@@ -85,13 +85,9 @@ export function SystemStatus({ lastRun, nextRun, status = 'unknown' }: SystemSta
           </span>
         </div>
 
-        <div className="h-4 w-px bg-[#21262d] hidden md:block" />
-
-        {/* Uptime */}
-        <div className="flex items-center gap-2">
-          <span className="text-[#8b949e] text-xs">uptime:</span>
-          <span className="text-[#f1fa8c] text-xs">99.9%</span>
-        </div>
+        {/* No uptime figure: this read a hard-coded "99.9%" that nothing
+            measured. The API reports no uptime, so the honest display is
+            none at all. */}
       </div>
 
       {/* Command line style */}

@@ -142,7 +142,7 @@ export default function Dashboard() {
           transition={{ delay: 0.3 }}
           className="mb-6"
         >
-          <Pipeline stages={pipeline} />
+          <Pipeline stages={pipeline} status={stats?.systemStatus ?? 'unknown'} />
         </motion.div>
 
         {/* Recent Projects */}

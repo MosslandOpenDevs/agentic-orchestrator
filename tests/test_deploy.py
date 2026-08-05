@@ -82,6 +82,9 @@ class Server:
         self.stub_log = tmp_path / "stub.log"
         self.jlist = tmp_path / "jlist.json"
         self.health_fail = tmp_path / "health_fail"
+        # "1" makes /ready 404 while /health still answers -- what a
+        # rollback to a commit predating the /ready route looks like.
+        self.ready_missing = tmp_path / "ready_missing"
 
         subprocess.run(
             ["git", "init", "--quiet", "--bare", "-b", "main", str(self.origin)],
@@ -115,6 +118,7 @@ class Server:
 
         self.jlist.write_text("[]")
         self.health_fail.write_text("0")
+        self.ready_missing.write_text("0")
         self._write_stubs()
 
     def _scripts_dir(self) -> Path:
@@ -165,6 +169,18 @@ echo "curl $url" >> "{self.stub_log}"
 case "$url" in
   *api.github.com*)
     printf '%s' "$CI_JSON"
+    exit 0
+    ;;
+  */ready)
+    if [ "$(cat "{self.ready_missing}" 2>/dev/null || echo 0)" = "1" ]; then
+      exit 22
+    fi
+    n=$(cat "{self.health_fail}" 2>/dev/null || echo 0)
+    if [ "$n" -gt 0 ]; then
+      echo $((n - 1)) > "{self.health_fail}"
+      exit 22
+    fi
+    printf '{{"status":"ready"}}'
     exit 0
     ;;
   *)
@@ -354,6 +370,32 @@ class TestDeploy:
         server.push({"pyproject.toml": 'version = "0.0.2"\n'})
         server.run()
         assert "pip install" in server.calls()
+
+    def test_a_lock_only_change_still_installs(self, server: Server):
+        """uv.lock is tracked now, so a dependency bump can arrive with no
+        pyproject change at all. Without a classifier entry that commit reads
+        as docs-only: HEAD advances, nothing installs, and because HEAD has
+        moved no later tick will either."""
+        server.make_uv_managed()
+        server.push({"uv.lock": "# bumped\n"})
+
+        result = server.run()
+
+        calls = server.calls()
+        assert "uv sync" in calls
+        assert "pm2 restart moss-ao-api" in calls
+        assert "docs only" not in result.stdout
+
+    def test_uv_sync_never_rewrites_the_tracked_lockfile(self, server: Server):
+        """A non-frozen sync re-resolves and can rewrite uv.lock -- a tracked
+        file. The dirty-tree guard would then abort every subsequent tick until
+        a human intervened, wedging the 5-minute loop."""
+        server.make_uv_managed()
+        server.push({"pyproject.toml": 'version = "0.0.20"\n'})
+
+        server.run()
+
+        assert "uv sync --frozen" in server.calls()
 
     def test_uv_managed_checkout_syncs_with_uv(self, server: Server):
         """The production .venv is built by uv and contains no pip at all."""
@@ -644,6 +686,21 @@ class TestRollback:
         assert server.head() == before
         assert "pip install failed" in result.stdout
 
+    def test_rollback_accepts_a_target_that_predates_ready(self, server: Server):
+        """/ready is new. A rollback target may not have it, and a 404 there
+        would report a healthy rollback as CRITICAL."""
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 31\n"})
+        # /ready always 404s; /health answers. The forward deploy therefore
+        # fails its health check and rolls back, and the rollback must pass.
+        server.ready_missing.write_text("1")
+
+        result = server.run()
+
+        assert server.head() == before
+        assert "rollback healthy" in result.stdout
+        assert "CRITICAL" not in result.stdout
+
     def test_unhealthy_rollback_is_reported_as_critical(self, server: Server):
         server.push({"src/agentic_orchestrator/api.py": "VERSION = 17\n"})
         server.health_fail.write_text("999")
@@ -673,6 +730,30 @@ class TestEcosystemChanges:
         second = server.run()
         assert "REMINDER" in second.stdout
         assert "pm2 restart ecosystem.config.js" in second.stdout
+
+    def test_an_unwritable_record_does_not_abort_the_deploy(self, server: Server):
+        """Recording the pending change happens after `git reset --hard` and
+        before the build. Aborting there would leave git on the new commit with
+        PM2 still running the old code, and no later tick would retry."""
+        logs = server.checkout / "logs"
+        logs.mkdir(exist_ok=True)
+        pending = logs / ".ecosystem-pending"
+        pending.write_text("")
+        pending.chmod(0o444)
+        try:
+            target = server.push(
+                {
+                    "ecosystem.config.js": "module.exports = { apps: [] }\n",
+                    "src/agentic_orchestrator/api.py": "VERSION = 30\n",
+                }
+            )
+            result = server.run()
+
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert server.head() == target
+            assert "pm2 restart moss-ao-api" in server.calls()
+        finally:
+            pending.chmod(0o644)
 
     def test_reminder_stops_once_the_operator_clears_it(self, server: Server):
         server.push({"ecosystem.config.js": "module.exports = { apps: [] }\n"})

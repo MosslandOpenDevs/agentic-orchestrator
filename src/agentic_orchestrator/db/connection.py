@@ -86,11 +86,30 @@ class Database:
                 cursor.execute("PRAGMA foreign_keys=ON")
                 if not in_memory:
                     # Sessions now hold separate connections, so concurrency is
-                    # real: WAL lets readers run while the writer commits, and
-                    # busy_timeout makes a blocked writer wait rather than
-                    # raise "database is locked".
-                    cursor.execute("PRAGMA journal_mode=WAL")
+                    # real: busy_timeout makes a blocked writer wait rather
+                    # than raise "database is locked", and WAL lets readers run
+                    # while the writer commits.
                     cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+
+                    # The one statement busy_timeout cannot protect. Changing
+                    # journal mode needs an exclusive lock and SQLite does not
+                    # invoke the busy handler for it -- it fails instantly if
+                    # any other connection holds a lock (verified). A database
+                    # still in `delete` mode migrates on the first connect
+                    # after this code ships, with eight PM2 processes running,
+                    # so that collision is likely rather than theoretical; and
+                    # raising here escapes pool.connect(), which would take
+                    # down ensure_schema() and every request needing a new
+                    # connection. Let it defer: whichever connection next finds
+                    # the file uncontended performs the switch, permanently.
+                    try:
+                        cursor.execute("PRAGMA journal_mode=WAL")
+                    except Exception:
+                        logger.debug(
+                            "Deferred the SQLite WAL migration (database busy); "
+                            "a later connection will retry",
+                            exc_info=True,
+                        )
                 cursor.close()
 
     def _is_in_memory(self) -> bool:

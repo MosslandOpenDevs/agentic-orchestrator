@@ -151,7 +151,7 @@ TARGET=$(git rev-parse "${DEPLOY_REMOTE}/${DEPLOY_BRANCH}")
 
 ecosystem_reminder() {
   [ -s "${ECOSYSTEM_PENDING}" ] || return 0
-  log "REMINDER ecosystem.config.js changed in $(wc -l <"${ECOSYSTEM_PENDING}" | tr -d ' ') \
+  log "REMINDER ecosystem.config.js changed in $(wc -l <"${ECOSYSTEM_PENDING}" 2>/dev/null | tr -d ' ' || echo '?') \
 deploy(s) and PM2 has not been re-registered. Process definitions (cron, env)"
   log "         are still the old ones. From a LOGIN SHELL (never from inside a"
   log "         PM2-managed process -- PM2 injects config keys like cron_restart"
@@ -269,13 +269,13 @@ ECOSYSTEM_CHANGED=0
 while IFS= read -r f; do
   [ -n "${f}" ] || continue
   case "${f}" in
-    src/*|config.yaml|pyproject.toml|prompts/*) PY_CHANGED=1 ;;
+    src/*|config.yaml|pyproject.toml|uv.lock|prompts/*) PY_CHANGED=1 ;;
   esac
   case "${f}" in
     website/*) WEB_CHANGED=1 ;;
   esac
   case "${f}" in
-    pyproject.toml) DEPS_CHANGED=1 ;;
+    pyproject.toml|uv.lock) DEPS_CHANGED=1 ;;
     website/package.json|website/package-lock.json) NODE_DEPS_CHANGED=1 ;;
     ecosystem.config.js) ECOSYSTEM_CHANGED=1 ;;
   esac
@@ -380,10 +380,15 @@ build_and_restart() {
     # pip/venv checkout is still the documented local setup. Use whichever
     # this checkout actually is.
     if uses_uv; then
-      log "uv sync (pyproject.toml changed)"
-      "${UV_BIN}" sync --quiet || { log "ERROR uv sync failed"; return 1; }
+      # --frozen installs strictly from the committed uv.lock and never
+      # rewrites it. Without it a re-resolution would modify a *tracked* file
+      # in the server checkout, and the dirty-tree guard above would then abort
+      # every subsequent 5-minute tick until someone SSHed in. It also means
+      # production installs exactly the graph CI verified.
+      log "uv sync --frozen (dependencies changed)"
+      "${UV_BIN}" sync --frozen --quiet || { log "ERROR uv sync failed"; return 1; }
     else
-      log "pip install -e . (pyproject.toml changed)"
+      log "pip install -e . (dependencies changed)"
       "${PYTHON_BIN}" -m pip install -e . --quiet || { log "ERROR pip install failed"; return 1; }
     fi
   fi
@@ -429,7 +434,13 @@ health_ok() {
     # while every DB-backed endpoint returned 500, so a deploy that broke the
     # database would still have been recorded as DEPLOYED. /ready reads a real
     # table and answers 503 when it cannot.
-    if [ "${PY_CHANGED}" = "1" ] || [ "${ROLLING_BACK:-0}" = "1" ]; then
+    if [ "${ROLLING_BACK:-0}" = "1" ]; then
+      # Rolling back: the target commit may predate /ready, and a 404 there
+      # would report a perfectly good rollback as CRITICAL. Accept either.
+      curl -fsS -m 5 "${DEPLOY_API_URL}/ready" >/dev/null 2>&1 \
+        || curl -fsS -m 5 "${DEPLOY_API_URL}/health" >/dev/null 2>&1 \
+        || api_ok=0
+    elif [ "${PY_CHANGED}" = "1" ]; then
       curl -fsS -m 5 "${DEPLOY_API_URL}/ready" >/dev/null 2>&1 || api_ok=0
     fi
     if [ "${WEB_CHANGED}" = "1" ] || [ "${ROLLING_BACK:-0}" = "1" ]; then
@@ -468,7 +479,13 @@ if [ "${ECOSYSTEM_CHANGED}" = "1" ]; then
   # commit either way, and the next tick is a no-op, so the single log line
   # used to be the whole notification -- a cron or env change could sit
   # unapplied indefinitely with nothing left pointing at it.
-  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${TARGET}" >>"${ECOSYSTEM_PENDING}"
+  # Guarded like log(): an unwritable path here would otherwise abort under
+  # `set -e` *after* the checkout moved to TARGET and *before* the build and
+  # restart, leaving git on the new commit and PM2 running the old code with
+  # no alert and no retry.
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${TARGET}" \
+    >>"${ECOSYSTEM_PENDING}" 2>/dev/null \
+    || log "WARN could not record the pending ecosystem change in ${ECOSYSTEM_PENDING}"
   alert "MOSS.AO: ecosystem.config.js changed in ${TARGET:0:8} -- PM2 process definitions need a manual re-register"
 fi
 

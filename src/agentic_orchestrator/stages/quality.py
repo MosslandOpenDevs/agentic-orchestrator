@@ -40,6 +40,10 @@ logger = get_logger(__name__)
 # .env and network.
 RUN_GENERATED_TESTS_ENV = "MOSS_RUN_GENERATED_TESTS"
 
+# Outcomes another DEV iteration cannot change: they are about the
+# environment, not the code.
+UNFIXABLE_BY_DEV = frozenset({"no_implementation", "tool_unavailable", "execution_disabled"})
+
 
 class QualityStage(BaseStage):
     """
@@ -165,25 +169,48 @@ class QualityStage(BaseStage):
                     message=f"QA passed with score {overall['score']}/10",
                     artifacts=artifacts,
                 )
-            else:
-                # Check if we should iterate
-                if self.state.iteration.dev < self.state.limits.dev_max:
-                    return StageResult(
-                        success=True,
-                        next_stage=Stage.DEV,
-                        message=f"QA score {overall['score']}/10 below threshold, needs revision",
-                        artifacts=artifacts,
-                        should_iterate=True,
-                    )
-                else:
-                    # Max iterations, complete anyway
-                    logger.warning("Max iterations reached, marking as done despite QA issues")
-                    return StageResult(
-                        success=True,
-                        next_stage=Stage.DONE,
-                        message=f"Max iterations reached, completing with score {overall['score']}/10",
-                        artifacts=artifacts,
-                    )
+            # Some failures are not about the code, so sending them back to
+            # DEV just burns regeneration cycles on something DEV cannot fix:
+            # no implementation to test, no test runner, execution switched
+            # off, or no reviewer reachable. Stop and say so.
+            if test_results.get("outcome") in UNFIXABLE_BY_DEV or not code_review.get(
+                "reviewed", True
+            ):
+                logger.warning(
+                    "QA could not verify this project (tests: %s, reviewed: %s); halting",
+                    test_results.get("outcome"),
+                    code_review.get("reviewed", True),
+                )
+                return StageResult(
+                    success=False,
+                    error="QA could not verify the project",
+                    message=(
+                        "QA did not run: "
+                        f"tests={test_results.get('outcome')}, "
+                        f"reviewed={code_review.get('reviewed', True)}"
+                    ),
+                    artifacts=artifacts,
+                )
+
+            if self.state.iteration.dev < self.state.limits.dev_max:
+                return StageResult(
+                    success=True,
+                    next_stage=Stage.DEV,
+                    message=f"QA score {overall['score']}/10 below threshold, needs revision",
+                    artifacts=artifacts,
+                    should_iterate=True,
+                )
+
+            # Out of revisions. This used to route to DONE "anyway", which is
+            # the fail-open the rest of this stage exists to close: a project
+            # that never passed QA was recorded as finished.
+            logger.warning("Max revisions reached and QA still failing; stopping for a human")
+            return StageResult(
+                success=False,
+                error="QA never passed within the revision limit",
+                message=f"Max revisions reached with score {overall['score']}/10",
+                artifacts=artifacts,
+            )
 
         except QuotaExhaustedError as e:
             self.state.pause_for_quota(f"QA quota exhausted: {e}")
