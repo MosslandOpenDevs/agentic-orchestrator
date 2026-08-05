@@ -1289,6 +1289,19 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         # A ``"key": value`` JSON property line.
         if re.match(r'^"[^"]+"\s*:', s):
             return True
+        # A bare JSON string value — an array element like
+        # ``"Decentralized Oracle Integration (Chainlink)",`` or a string left
+        # open by generation truncation. A line *starting* with a straight
+        # double quote inside these responses is JSON, not prose.
+        if s.startswith('"'):
+            return True
+        # gemma3 also emits curly quotes AS JSON delimiters (the same habit
+        # that broke trend parsing), so an ENTIRELY-quoted line is noise no
+        # matter the quote style. Real decorative-quote titles keep text after
+        # the closing quote (``“Genesis Protocol” – AI-Powered …``) and are
+        # unaffected.
+        if re.match(r'^[“"„][^“”"„]*[”"]$', s):
+            return True
         return False
 
     def _extract_idea_from_response(
@@ -1478,6 +1491,19 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
                 if len(line) >= 30 and len(line) < 200 and has_specific_content(line):
                     title = line
                     break
+
+        # Defensive cleanup: even when a scraped line passes the noise filter,
+        # never ship JSON punctuation (wrapping quotes, trailing commas) as
+        # part of an issue title.
+        if title:
+            title = title.strip().rstrip(",;").strip()
+            if (
+                len(title) >= 2
+                and title[0] in '"“„'
+                and title[-1] in '"”'
+                and not any(q in title[1:-1] for q in '"“”')
+            ):
+                title = title[1:-1].strip()
 
         # Fallback: Generate descriptive title from content analysis
         if not title or len(title) < 30:
