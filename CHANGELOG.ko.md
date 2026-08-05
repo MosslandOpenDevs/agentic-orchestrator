@@ -15,6 +15,9 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 - **생성 프로젝트의 docker-compose가 PostgreSQL을 고정 슈퍼유저 자격증명으로 공개했다** (`postgres/postgres`, `5432:5432`). 포트 공개를 제거하고 자격증명은 환경변수에서만 받는다.
 - **Next.js 16.2.9 → 16.3.0, sharp 0.34.5 → 0.35.3.** `npm audit --omit=dev`가 둘 다 high로 판정했다(미들웨어/프록시 우회, Server Action DoS·SSRF, 캐시 혼동, sharp의 libvips CVE). lockfile 없이 해석해도 취약 버전으로 돌아가지 않도록 선언된 하한도 올렸다.
 
+### Added
+- **DB 복원이 절차가 아니라 명령이 되었다.** `restore-db`가 스냅샷을 검증하고, 다른 프로세스가 쓰는 중이면 거부하고, 현재 DB를 따로 보관해 복원 자체를 되돌릴 수 있게 하고, WAL sidecar를 제거하고, 파일을 원자적으로 교체한 뒤 결과를 검증한다: `python -m agentic_orchestrator.scheduler restore-db [--list] [--from SNAPSHOT]`. 이 명령이 강제하려는 단계가 바로 `orchestrator.db-wal` 선삭제다. 쓰기 프로세스가 정상 종료가 아니라 크래시나 OOM kill로 죽은 상태 — 즉 백업을 꺼내야 하는 바로 그 상황 — 에서 스냅샷을 DB 파일 위에 복사하면 SQLite가 옛 WAL을 그 위에 재생한다. 복원은 조용히 무효가 되고 `PRAGMA integrity_check`는 여전히 "ok"를 반환한다. `tests/test_restore.py::TestTheHazard`가 이 현상(1행 스냅샷이 401행으로 복원, 무결성 ok)을 그대로 재현해 각 가드의 존재 이유를 남겨 둔다.
+
 ### Fixed
 - **프로세스 안의 모든 DB Session이 커넥션 하나, 곧 트랜잭션 하나를 공유했다.** 파일 SQLite에도 `StaticPool`을 써서, 한 요청의 rollback이 다른 요청의 미커밋 쓰기를 지우고 긴 프로젝트 생성이 API 전체를 자기 트랜잭션에 묶어 둘 수 있었다. `StaticPool`은 `:memory:`(커넥션이 곧 데이터베이스)에만 남기고, 파일 DB는 일반 풀 + `journal_mode=WAL` + `busy_timeout=30s`를 쓴다. **복원 절차 변경**: 스냅샷을 덮어쓰기 전에 `data/orchestrator.db-wal`·`-shm`를 반드시 삭제할 것. 남아 있으면 SQLite가 옛 WAL을 새 파일 위에 재생한다.
 - **시간 감쇠가 아무것도 가중하지 않으면서 저장된 신호 점수만 훼손했다.** `_apply_time_decay_to_signals`가 `Signal.score`를 제자리에서 곱하고 트렌드 작업이 그대로 commit해, 48시간이 지난 신호는 2시간마다 다시 깎였다(1.0 → 0.2 → 0.04 → …). API가 정렬·필터에 쓰는 값이 비가역적으로 망가진 것인데, 정작 감쇠된 값은 `FeedItem`에 score 필드가 없어 분석기에 전달되지도 않았다. 이제 가중치는 transient이며 **배치 선택 이전**에 적용돼 LLM이 볼 신호를 실제로 결정한다. freshness 히스토그램은 `s.metadata`(선언형 모델에서는 SQLAlchemy의 `MetaData`)를 읽어 항상 100% fresh로 찍혔다. 이미 깎인 운영 DB의 점수는 코드 수정으로 되돌릴 수 없고, 신호가 교체되면서 대체된다.

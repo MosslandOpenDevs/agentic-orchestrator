@@ -67,16 +67,49 @@ def main():
         help="Snapshot the SQLite database into data/backup/ (manual/on-demand)",
     )
 
+    # restore-db command
+    restore_parser = subparsers.add_parser(
+        "restore-db",
+        help="Restore the SQLite database from a snapshot in data/backup/",
+        description=(
+            "Restores safely: validates the snapshot, refuses while another process "
+            "is writing, copies the current database aside first, and removes the "
+            "WAL sidecars that would otherwise be replayed over the restored file."
+        ),
+    )
+    restore_parser.add_argument(
+        "--list",
+        action="store_true",
+        help="list available snapshots and exit, without restoring anything",
+    )
+    restore_parser.add_argument(
+        "--from",
+        dest="source",
+        metavar="SNAPSHOT",
+        help="snapshot to restore (default: the newest one)",
+    )
+    restore_parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="skip the confirmation prompt (required when not attached to a terminal)",
+    )
+    restore_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="restore even though another process appears to be writing",
+    )
+
     args = parser.parse_args()
 
     if args.command is None:
         parser.print_help()
         sys.exit(1)
 
-    # backup-db is deliberately read-only: it must never mutate the database
-    # it is about to snapshot. Every other command gets the schema guarantee
-    # (idempotent create_tables with a boot-race retry; never raises).
-    if args.command != "backup-db":
+    # backup-db and restore-db must not touch the schema of the database they
+    # are about to snapshot or replace. Every other command gets the schema
+    # guarantee (idempotent create_tables with a boot-race retry; never raises).
+    if args.command not in ("backup-db", "restore-db"):
         ensure_schema()
 
     if args.command == "signal-collect":
@@ -106,9 +139,62 @@ def main():
             )
             sys.exit(2)
         print(f"Backup written: {dest}")
+    elif args.command == "restore-db":
+        sys.exit(_restore_db(args))
     else:
         parser.print_help()
         sys.exit(1)
+
+
+def _restore_db(args) -> int:
+    """Exit codes mirror backup-db: 0 done, 2 nothing to do, 1 refused/failed."""
+    from ..db.restore import RestoreError, describe_snapshots, restore_database
+
+    if args.list:
+        snapshots = describe_snapshots()
+        if not snapshots:
+            print("No snapshots found.")
+            return 2
+        print(f"{'SNAPSHOT':<44} {'MODIFIED':<26} {'SIZE':>10}  CONTENTS")
+        for snap in snapshots:
+            counts = snap["row_counts"]
+            summary = ", ".join(f"{k}={v}" for k, v in counts.items()) or "unreadable"
+            health = "" if snap["healthy"] else "  [FAILS INTEGRITY CHECK]"
+            print(
+                f"{snap['path'].name:<44} {snap['modified']:<26} "
+                f"{snap['size_bytes'] / 1024:>9.0f}K  {summary}{health}"
+            )
+        return 0
+
+    if not args.yes:
+        if not sys.stdin.isatty():
+            print(
+                "restore-db replaces the live database. Re-run with --yes to confirm "
+                "(no terminal attached, so there is nobody to prompt).",
+                file=sys.stderr,
+            )
+            return 1
+        target = args.source or "the newest snapshot"
+        answer = input(f"Replace the live database with {target}? [y/N] ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("Aborted; nothing was changed.")
+            return 1
+
+    try:
+        result = restore_database(source=args.source, force=args.force)
+    except RestoreError as exc:
+        print(f"Restore refused: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Restored {result.target} from {result.restored_from}")
+    if result.removed_sidecars:
+        print(f"  removed stale WAL sidecars: {', '.join(p.name for p in result.removed_sidecars)}")
+    if result.pre_restore_copy:
+        print(f"  previous database kept at: {result.pre_restore_copy}")
+    counts = ", ".join(f"{k}={v}" for k, v in result.row_counts.items())
+    print(f"  contents: {counts or 'no tables read'}")
+    print("Restart the writers when ready:  pm2 restart all")
+    return 0
 
 
 if __name__ == "__main__":

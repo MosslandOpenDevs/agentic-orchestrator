@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { TrendCard } from '@/components/TrendCard';
-import { rssCategories, mockTrends } from '@/data/mock';
+import { rssCategories } from '@/data/mock';
 import { fetchTrends } from '@/lib/api';
 import type { Trend } from '@/lib/types';
 
@@ -50,7 +50,9 @@ function TrendSkeleton({ index }: { index: number }) {
 
 export default function TrendsPage() {
   const { t } = useI18n();
-  const [trends, setTrends] = useState<Trend[]>(mockTrends);
+  // Start empty: seeding with demo trends rendered a convincing fake
+  // analysis before the first fetch, and kept it if the fetch threw.
+  const [trends, setTrends] = useState<Trend[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isLoading, setIsLoading] = useState(true);
 

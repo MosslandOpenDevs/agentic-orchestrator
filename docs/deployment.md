@@ -189,8 +189,14 @@ pip install -e . && (cd website && npm run build)
 pm2 restart moss-ao-api moss-ao-web --update-env
 ```
 
-DB까지 되돌려야 하면 `CLAUDE.md`의 복원 절차(최신 `data/backup/orchestrator-*.db`를
-`data/orchestrator.db`로 복사)를 따릅니다.
+DB까지 되돌려야 하면 손으로 파일을 복사하지 말고 복원 명령을 쓰십시오 — WAL 모드라
+스냅샷을 `cp`로 덮어쓰면 남아 있던 WAL이 그 위에 재생돼 복원이 조용히 무효가 됩니다
+(`CLAUDE.md`의 복원 절차 참조):
+
+```bash
+python -m agentic_orchestrator.scheduler restore-db --list
+python -m agentic_orchestrator.scheduler restore-db
+```
 
 ### 로그
 
