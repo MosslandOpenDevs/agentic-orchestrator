@@ -135,10 +135,31 @@ backlog:
   # same idea is not posted dozens of times (root cause of the 2026 issue flood).
   dedup_enabled: true
   dedup_prefix_tokens: 6
-  # Stop posting NEW idea/plan issues to GitHub once this many ideas exist in the
-  # DB. Ideas are still scored and stored in SQLite (the source of truth); only
-  # the GitHub mirror is paused. Set to 0 to disable the cap.
+  # Stop posting NEW idea/plan issues to GitHub while this many ideas are OPEN
+  # (status scored/pending, i.e. awaiting a triage decision). Ideas are still
+  # scored and stored in SQLite (the source of truth); only the GitHub mirror
+  # is paused. With triage draining the backlog this is an emergency valve
+  # that should never trip. Set to 0 to disable the cap.
   max_open_ideas: 800
+
+  # Backlog triage — the consumer that matches idea production (~40/day from
+  # debates) with terminal decisions. Every backlog cycle (4h in production)
+  # re-scores the OLDEST 'scored' ideas against today's trends:
+  #   score >= 7 -> promoted + draft plan (human approves via
+  #                 POST /plans/{id}/approve); [Idea] issue closes `completed`
+  #   score < 4  -> archived; [Idea] issue closes `not_planned` with verdict
+  #   middle     -> one strike; archived anyway after max_strikes touches
+  # Every idea reaches promoted|archived within max_strikes touches, so the
+  # open backlog is bounded by production_rate x days_to_decision instead of
+  # growing forever. Sizing: per_run x 6 runs/day must exceed daily idea
+  # production (15 x 6 = 90 touches/day >= 45 decisions/day at max_strikes=2,
+  # vs ~40 ideas/day produced). Triage writes only to the DB; the issue
+  # lifecycle below closes the mirrored issues.
+  triage:
+    enabled: true
+    per_run: 15
+    min_age_hours: 24
+    max_strikes: 2
 
   # GitHub issue lifecycle (runs in the backlog cycle, every 4h in production).
   # The tracker mirrors the DB pipeline instead of accumulating forever:

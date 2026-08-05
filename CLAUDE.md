@@ -78,7 +78,9 @@ agentic-orchestrator/
 │   │   └── scaffold.py          # 프로젝트 생성 오케스트레이션
 │   ├── scheduler/               # PM2 스케줄 작업
 │   │   ├── __main__.py          # CLI 엔트리포인트
-│   │   └── tasks.py             # 작업 구현 (signal, debate, backlog, project)
+│   │   ├── tasks.py             # 작업 구현 (signal, debate, backlog, project)
+│   │   ├── backlog_triage.py    # 백로그 소비자: scored 아이디어 재평가→종결 (v0.6.16)
+│   │   └── issue_lifecycle.py   # GitHub 이슈 미러 닫기 (파이프라인 연동 + 에이징)
 │   ├── translation/             # 양방향 번역 모듈
 │   │   └── translator.py        # ContentTranslator (EN↔KO)
 │   ├── scripts/                 # 유틸리티 스크립트
@@ -631,8 +633,29 @@ Signals (30분) → Trends (2시간) → Debate (6시간) → Ideas → Auto-Sco
 토론 완료 후 아이디어 자동 점수화:
 - **score >= 8.0**: `promoted` → 플랜 자동 생성 + **프로젝트 자동 생성**
 - **score 7.0-8.0**: `promoted` → 플랜 자동 생성 (프로젝트는 수동 버튼)
-- **score 4.0-7.0**: `scored` → 백로그 대기
+- **score 4.0-7.0**: `scored` → 백로그 대기 → **트리아지가 재평가** (아래)
 - **score < 4.0**: `archived` → 아카이브 (**GitHub 이슈 생성 안 함**, v0.6.15)
+
+### 백로그 트리아지 — 생산·소비 균형 (v0.6.16)
+
+토론이 하루 ~40개 아이디어를 만드는데 소비자가 없어 `scored`(~85%)가 영원히
+쌓였다. `scheduler/backlog_triage.py`(moss-ao-backlog 4시간 주기)가 그 소비자다:
+**가장 오래된** `scored` 아이디어를 오늘의 트렌드 기준으로 재채점해 종결을 강제한다.
+
+- 재채점 ≥ 7.0 → `promoted` + **draft 플랜** (자동 승인 없음, `POST /plans/{id}/approve`로
+  사람이 승인; [Plan] 이슈도 새로 만들지 않음) → [Idea] 이슈는 lifecycle이 `completed`로 닫음
+- 재채점 < 4.0 → `archived` → 이슈는 `not_planned` + 판정 코멘트로 닫힘
+- 중간 점수 → 스트라이크 1개, `max_strikes`(기본 2) 도달 시 archived
+  ("N회 재평가에도 승격 못 함")
+
+모든 아이디어가 최대 `max_strikes`번 안에 종결되므로 열린 백로그(=열린 이슈)는
+"생산율 × 결정 소요일"로 유계다. **사이징 규칙: `per_run × 6회/일`이 일일 생산량을
+넘어야 한다** (기본 15×6=90터치/일 ≥ 45결정/일 > 생산 ~40/일). 트리아지는 DB만 쓰고
+(SQLite가 진실), 이슈 닫기는 같은 주기 바로 뒤의 issue lifecycle이 수행한다 (GitHub
+장애 시 다음 주기에 자기치유). LLM 폴백(중립 5.0)은 감지해 스트라이크 없이 건너뛴다.
+설정: `config.yaml`의 `backlog.triage`. 참고: `backlog.max_open_ideas` 캡은 이제
+**열린(scored/pending) 아이디어 수**를 센다 — 예전처럼 전체 누적을 세면 삭제되지 않는
+ideas 특성상 ~3주 만에 캡을 영구히 넘겨 미러가 조용히 죽는 원웨이 킬스위치였다.
 
 ### GitHub 이슈 라이프사이클 (v0.6.15)
 
@@ -643,9 +666,13 @@ GitHub 이슈는 DB의 가시성 미러일 뿐인데, 예전에는 생성만 있
 - **파이프라인 연동 닫기** (`completed`): 아이디어가 플랜으로 승격되면 [Idea]
   이슈에 [Plan] 링크 코멘트 후 닫기 (승격 시점 인라인 + 백로그 주기 보정 스윕);
   플랜에서 프로젝트가 생성되면 [Plan] 이슈 닫기
+- **아카이브 연동 닫기** (`not_planned`, v0.6.16): DB에서 `archived`가 된 아이디어
+  (주로 트리아지 재평가/스트라이크아웃)의 이슈를 판정 코멘트와 함께 닫기.
+  `curated:keep`/`source:trend` 라벨이나 사람 코멘트가 있으면 에이징과 동일하게 제외
 - **에이징 스위프** (`not_planned`): 생성 후 30일간 코멘트 0개인 봇 이슈 자동
   닫기. **`curated:keep`·`source:trend` 라벨은 절대 닫지 않음** — 계속 열어둘
-  이슈에는 `curated:keep`을 붙일 것. 사람 코멘트가 하나라도 있으면 제외
+  이슈에는 `curated:keep`을 붙일 것. 사람 코멘트가 하나라도 있으면 제외.
+  트리아지 도입 후에는 백스톱 역할 (정상 경로는 결정 기반 닫기)
 - 설정: `config.yaml`의 `backlog.issue_lifecycle` (enabled/max_age_days/
   max_closes_per_run). 닫기는 가시성 전용 — DB 행은 그대로, 재오픈 가능
 - 스윕은 search API가 아니라 **list API**를 사용한다 (search 인덱스가 일부

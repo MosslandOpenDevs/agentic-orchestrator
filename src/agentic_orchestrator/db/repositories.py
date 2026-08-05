@@ -5,7 +5,7 @@ Provides data access layer for all models with common CRUD operations
 and specialized queries.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import desc, func, or_
@@ -278,6 +278,37 @@ class IdeaRepository(BaseRepository):
             idea.updated_at = utcnow()
             self.session.flush()
         return idea
+
+    def update_fields(self, idea_id: str, fields: Dict[str, Any]) -> Optional[Idea]:
+        """Update arbitrary idea columns in one flush.
+
+        ``extra_metadata`` must be passed as a NEW dict — the JSON column does
+        not track in-place mutation.
+        """
+        idea = self.get_by_id(idea_id)
+        if idea:
+            for key, value in fields.items():
+                setattr(idea, key, value)
+            idea.updated_at = utcnow()
+            self.session.flush()
+        return idea
+
+    def get_oldest_by_status(
+        self,
+        statuses: List[str],
+        created_before: Optional[datetime] = None,
+        limit: int = 50,
+    ) -> List[Idea]:
+        """Oldest-first ideas in any of ``statuses`` — the triage feed.
+
+        ``get_by_status`` orders newest-first for display; triage must drain
+        the queue from the old end or fresh ideas would starve old ones
+        forever.
+        """
+        query = self.session.query(Idea).filter(Idea.status.in_(statuses))
+        if created_before is not None:
+            query = query.filter(Idea.created_at < created_before)
+        return query.order_by(Idea.created_at).limit(limit).all()
 
     def count_by_status(self) -> Dict[str, int]:
         """Get idea count by status."""
