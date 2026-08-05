@@ -378,7 +378,13 @@ pm2 save
   파이썬을 새로 띄우므로 다음 실행에서 새 코드를 자동으로 집는다. 재시작하면 진행 중인
   작업만 죽는다. 상시 실행되는 `moss-ao-api`·`moss-ao-web`만 재시작 대상이다.
 - **`ecosystem.config.js` 변경은 수동 반영**: cron·env 정의는 자동 재등록되지 않는다.
-  로그에 안내가 뜨면 `pm2 restart ecosystem.config.js --update-env && pm2 save` 실행.
+  로그에 안내가 뜨면 **로그인 셸에서** `pm2 restart ecosystem.config.js --update-env
+  && pm2 save` 실행.
+- **PM2 관리 프로세스 안에서 `pm2 ... --update-env` 금지**: PM2는 프로세스 자신의
+  설정 키(`cron_restart` 등)를 환경변수로 주입하므로, `--update-env`가 그것을 대상
+  앱 설정으로 병합해 api/web이 5분마다 재시작되는 사고가 났다 (2026-08-05).
+  deploy.sh는 시작 시 해당 키를 unset하고 `--update-env` 없이 재시작한다.
+  상세·정리법: `docs/deployment.md`의 "cron_restart 오염" 절.
 - 즉시 배포: `bash scripts/deploy.sh` / 가드 무시: `--force` / 미리보기: `--check`
 
 ## 개발 워크플로우

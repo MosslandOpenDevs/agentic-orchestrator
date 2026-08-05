@@ -42,6 +42,20 @@
 
 set -euo pipefail
 
+# ---------------------------------------------------------------------------
+# Env hygiene. When this script runs under PM2 (the moss-ao-deploy poller),
+# PM2 injects the poller's OWN process config into the environment as plain
+# variables -- cron_restart, autorestart, watch, ... -- and PM2 reads those
+# same names back as config keys. Any `pm2 ... --update-env` (or `pm2 start`)
+# executed with them present stamps the poller's config onto the target app:
+# that is exactly how moss-ao-api/web ended up with the deploy cron attached
+# and were force-restarted every 5 minutes (2026-08-05 incident; see
+# docs/deployment.md, "cron_restart 오염"). Scrub them so no pm2 invocation
+# anywhere in this script can inherit them.
+# ---------------------------------------------------------------------------
+unset -v cron_restart autorestart watch instances exec_mode \
+         max_memory_restart node_args name namespace || true
+
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "${SCRIPT_DIR}/.." && pwd)
 cd "${REPO_ROOT}"
@@ -323,14 +337,20 @@ build_and_restart() {
     (cd website && "${NPM_BIN}" run build) || { log "ERROR npm run build failed"; return 1; }
   fi
 
+  # No --update-env on these restarts. It would merge THIS process's
+  # environment into the target app's stored definition -- and under PM2 that
+  # environment carries the deploy poller's own config keys (cron_restart & co,
+  # scrubbed at the top but a future edit could reintroduce one) plus
+  # deploy-only values like GITHUB_TOKEN. The apps' env is registered once from
+  # ecosystem.config.js; a plain restart preserves it (2026-08-05 incident).
   if [ "${py}" = "1" ]; then
     log "pm2 restart moss-ao-api"
-    "${PM2_BIN}" restart moss-ao-api --update-env >/dev/null \
+    "${PM2_BIN}" restart moss-ao-api >/dev/null \
       || { log "ERROR pm2 restart moss-ao-api failed"; return 1; }
   fi
   if [ "${web}" = "1" ]; then
     log "pm2 restart moss-ao-web"
-    "${PM2_BIN}" restart moss-ao-web --update-env >/dev/null \
+    "${PM2_BIN}" restart moss-ao-web >/dev/null \
       || { log "ERROR pm2 restart moss-ao-web failed"; return 1; }
   fi
   # The scheduler processes (signals/trends/debate/backlog/health) are launched
@@ -380,6 +400,9 @@ if [ "${ECOSYSTEM_CHANGED}" = "1" ]; then
   log "NOTE ecosystem.config.js changed -- process definitions (cron, env) are"
   log "     NOT re-registered automatically. Run on the server when convenient:"
   log "     pm2 restart ecosystem.config.js --update-env && pm2 save"
+  log "     (from a login shell only -- never from inside a PM2-managed process:"
+  log "      PM2 injects config keys like cron_restart into the environment and"
+  log "      --update-env would copy them onto every app; see docs/deployment.md)"
 fi
 
 # Docs-only changes are synced (checkout updated above) but not deployed:
