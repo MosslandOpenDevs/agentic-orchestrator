@@ -165,6 +165,24 @@ exit ${{PYTHON_STUB_EXIT:-0}}
 """,
             executable=True,
         )
+        _write(
+            self.bin / "uv",
+            f"""#!/usr/bin/env bash
+echo "uv $*" >> "{self.stub_log}"
+exit ${{UV_STUB_EXIT:-0}}
+""",
+            executable=True,
+        )
+
+    def make_uv_managed(self, *, via: str = "lockfile") -> None:
+        """Mark the checkout as uv-managed the way the real server is."""
+        if via == "lockfile":
+            _write(self.checkout / "uv.lock", "# lock\n")
+        else:
+            _write(
+                self.checkout / ".venv" / "pyvenv.cfg",
+                "home = /home/atrn/.local/share/uv/python/cpython-3.12.13\nuv = 0.11.21\n",
+            )
 
     # -- helpers ---------------------------------------------------------
     def push(self, files: dict[str, str], message: str = "update") -> str:
@@ -184,6 +202,7 @@ exit ${{PYTHON_STUB_EXIT:-0}}
             **GIT_ENV,
             "PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}",
             "PYTHON_BIN": str(self.bin / "venv-python"),
+            "UV_BIN": str(self.bin / "uv"),
             "DEPLOY_GITHUB_REPO": "test/repo",
             "DEPLOY_REQUIRE_CI": "0",
             "CI_JSON": CI_SUCCESS,
@@ -266,6 +285,42 @@ class TestDeploy:
         server.push({"pyproject.toml": 'version = "0.0.2"\n'})
         server.run()
         assert "pip install" in server.calls()
+
+    def test_uv_managed_checkout_syncs_with_uv(self, server: Server):
+        """The production .venv is built by uv and contains no pip at all."""
+        server.make_uv_managed()
+        server.push({"pyproject.toml": 'version = "0.0.9"\n'})
+        server.run()
+
+        calls = server.calls()
+        assert "uv sync" in calls
+        assert "pip install" not in calls
+
+    def test_uv_detected_from_the_venv_when_no_lockfile_is_present(self, server: Server):
+        server.make_uv_managed(via="pyvenv")
+        server.push({"pyproject.toml": 'version = "0.0.10"\n'})
+        server.run()
+
+        assert "uv sync" in server.calls()
+
+    def test_plain_venv_checkout_still_uses_pip(self, server: Server):
+        server.push({"pyproject.toml": 'version = "0.0.11"\n'})
+        server.run()
+
+        calls = server.calls()
+        assert "pip install" in calls
+        assert "uv sync" not in calls
+
+    def test_failed_uv_sync_rolls_back(self, server: Server):
+        before = server.head()
+        server.make_uv_managed()
+        server.push({"pyproject.toml": 'version = "0.0.12"\n'})
+
+        result = server.run(UV_STUB_EXIT="1")
+
+        assert result.returncode == 1
+        assert server.head() == before
+        assert "uv sync failed" in result.stdout
 
     def test_docs_only_change_restarts_nothing(self, server: Server):
         target = server.push({"README.md": "docs only\n"})

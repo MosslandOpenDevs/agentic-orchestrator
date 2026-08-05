@@ -9,6 +9,9 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 
 ## [Unreleased]
 
+### 수정
+- `scripts/deploy.sh`가 의존성 설치 방식을 체크아웃 형태에 맞춰 고른다: `uv.lock`이 있거나 `.venv/pyvenv.cfg`에 uv가 만든 환경이라고 적혀 있으면 `uv sync`, 아니면 `pip install -e .`. 테스트가 아니라 운영 서버를 직접 확인하다가 발견했다 — 그 `.venv`는 uv가 만든 것이라 **내부에 pip이 아예 없고**, 따라서 원래의 `pip install -e .`는 이 스크립트가 존재하는 이유인 바로 그 머신에서 실패했을 것이다. 그것도 `pyproject.toml`을 건드리는 커밋에서만, 즉 롤백이 가장 반갑지 않은 시점에. 서버의 `uv.lock`은 저장소에 커밋돼 있지 않으므로 이 판별은 커밋이 아니라 머신의 속성이다. 두 분기와 `uv sync` 실패 시 롤백 경로를 모두 커버했고, 판별 로직은 양방향(강제로 uv 켜기/끄기)으로 뮤테이션 검증했다.
+
 ### 추가
 - **풀(pull) 방식 자동 배포** (`scripts/deploy.sh` + 옵트인 PM2 잡 `moss-ao-deploy`): 사람이 서버에 들어가 `git pull` + `npm run build` + `pm2 restart`를 치는 대신, 운영 서버가 5분마다 스스로 `main`을 따라간다. CI에서 밀어넣는(push) 방식을 쓰지 않은 이유는 기록해 둘 가치가 있다 — 앱 서버는 공개 인바운드 경로가 없고(테일넷 안에서만 접근 가능하며 공개 도메인 `ao.moss.land`는 별도 Lightsail의 Nginx가 프록시), 이 저장소는 public이라 self-hosted 러너를 붙이면 포크 PR이 사내 머신에서 코드를 실행할 수 있으며, 운영 계정 권한은 admin이 아닌 `MAINTAIN`이라 러너·시크릿 등록이 403이다. 당겨오는 방식은 이 중 아무것도 필요 없다: public repo는 익명 fetch가 되므로 서버는 포트를 열지 않고, 배포 키도 없고, GitHub 쪽 설정이 아예 없다. Tailscale은 원래대로 사람이 서버에 들어가는 관리 경로로 남고 배포 경로에는 관여하지 않는다.
 - 배포기는 diff가 요구하는 일만 한다: `pyproject.toml`이 바뀌면 `pip install -e .`, 락파일이 바뀌면 `npm ci`, `website/` 변경이면 `npm run build`(`NEXT_PUBLIC_*`가 빌드 시점에 박히므로 재시작만 하면 이전 번들이 계속 나간다), 재시작 대상은 `moss-ao-api`·`moss-ao-web`뿐. 스케줄러 잡은 **의도적으로 재시작하지 않는다** — signals/trends/debate/backlog/health는 cron 틱마다 `.venv/bin/python`을 새로 띄우므로 새 코드를 알아서 집어가고, 재시작하면 진행 중인 작업만 죽는다. 따라서 문서만 바뀐 커밋은 아무것도 재시작하지 않는다.
