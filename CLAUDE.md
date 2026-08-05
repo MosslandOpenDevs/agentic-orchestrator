@@ -107,7 +107,8 @@ agentic-orchestrator/
 │   └── src/lib/                 # 유틸리티
 │       ├── api.ts               # API 클라이언트
 │       ├── types.ts             # TypeScript 타입
-│       └── i18n.tsx             # 다국어 지원 (EN/KO)
+│       ├── i18n.tsx             # 다국어 지원 (EN/KO)
+│       └── metadata.ts          # 통합 title/공유(OG·Twitter) 규칙 단일 소스
 ├── data/                        # 데이터 디렉토리
 │   ├── orchestrator.db          # SQLite 데이터베이스
 │   └── trends/                  # 트렌드 분석 결과 (마크다운)

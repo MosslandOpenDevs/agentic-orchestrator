@@ -7,6 +7,15 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Detail-route share metadata now follows the unified family convention** (PR #2922 review, P2-1). The four `/{ideas,plans,projects,signals}/[id]` routes still returned their pre-#2922 metadata — `Plan - MOSS.AO`, `siteName: 'MOSS.AO'`, `twitter:card summary` — and, because Next.js merges metadata shallowly (a child `openGraph` replaces the root object wholesale), every deep link also dropped the shared og:image. The convention now lives in one place (`website/src/lib/metadata.ts`), the root title is a `default`/`template` pair so child routes stay unbranded (`Plan` renders as `Plan — MOSS.AO · Mossland`), and all four routes build their metadata via `detailMetadata()`. Verified against the built app: detail pages now serve the templated title, `og:site_name Mossland`, `summary_large_image`, and an absolute og:image URL. The `/og-image.png` asset itself landed separately in 0.6.17 (PR #2953), so every detail route now serves the same existing image.
+- **Ecosystem bar accessibility** (PR #2922 review, P3-1/P3-2). The site name and its role concatenated in the accessible name — the visual gap was CSS margin only, so screen readers, voice control, and text search saw "BRIDGEGovernance OS"; an explicit space text node makes it "BRIDGE Governance OS". The two external links (BRIDGE, Algora) now disclose their new-tab behavior with a visible `↗` marker plus localized screen-reader text (`ecosystem.newTab`: EN "opens in new tab" / KO "새 탭에서 열림", W3C technique H83).
+
+### Tests
+- `tests/test_website_share_metadata.py` (17 tests): source-level pins for the share-metadata convention and the ecosystem-bar accessibility fixes, in the same spirit as test_deploy.py pinning "`git clean` appears nowhere in deploy.sh" — the website has no JS test runner, so the guards fail on the commit that reintroduces inline share metadata or drops the separator/new-tab hint, not on the next visual QA pass. The og:image pin was hardened during the pre-merge adversarial review: it now asserts the `images: [OG_IMAGE]` usage inside `detailMetadata()` — the bare URL-constant check stayed green under a mutation that removed the usage.
+
 ## [0.6.17] - 2026-08-05
 
 ### Changed
@@ -30,7 +39,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **`backlog.max_open_ideas` was a delayed kill switch for the GitHub mirror.** The cap compared against `count_all()` — every idea ever created — but ideas are never deleted (the retention sweep prunes trends and debate sessions only), so at ~40 ideas/day the count would have crossed 800 within ~3 weeks of the 2026-08-05 DB restore and silently stopped all [Idea]/[Plan] issue creation, permanently. It now counts OPEN (scored/pending, i.e. awaiting a triage decision) ideas, matching its name and its documented intent; with triage draining the backlog it becomes the emergency valve it was meant to be.
 - Docs-only deploys no longer take a pre-deploy DB snapshot. Nothing restarts on a docs sync and `reset --hard` cannot touch the untracked DB, so the snapshot protected nothing — while each one rotated the 7-slot backup window, meaning a burst of docs merges could churn days of restore points into minutes. Code deploys still snapshot first. Gate mutation-verified.
-
 ## [0.6.15] - 2026-08-05
 
 ### Fixed

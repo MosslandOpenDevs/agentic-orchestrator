@@ -7,6 +7,15 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 이 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)를 기반으로 하며,
 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
+## [Unreleased]
+
+### 수정
+- **상세 라우트 공유 메타데이터를 통합 패밀리 규칙으로 통일** (PR #2922 리뷰 P2-1). 4개 `/{ideas,plans,projects,signals}/[id]` 라우트가 여전히 #2922 이전 메타데이터(`Plan - MOSS.AO`, `siteName: 'MOSS.AO'`, `twitter:card summary`)를 반환했고, Next.js가 메타데이터를 얕게 병합(자식 `openGraph`가 루트 객체를 통째로 교체)하는 탓에 모든 딥 링크에서 공유 og:image도 사라졌다. 규칙은 이제 한 곳(`website/src/lib/metadata.ts`)에만 있고, 루트 title은 `default`/`template` 쌍이라 자식 라우트는 브랜드 없는 제목만 반환한다(`Plan` → `Plan — MOSS.AO · Mossland`). 4개 라우트 모두 `detailMetadata()`로 메타데이터를 만든다. 빌드된 앱에서 검증: 상세 페이지가 템플릿 제목, `og:site_name Mossland`, `summary_large_image`, 절대경로 og:image URL을 서빙한다. `/og-image.png` 자산 자체는 0.6.17(PR #2953)에서 별도로 추가됐으므로, 이제 모든 상세 라우트가 같은 실존 이미지를 서빙한다.
+- **에코시스템 바 접근성** (PR #2922 리뷰 P3-1/P3-2). 사이트 이름과 역할 설명이 접근성 이름에서 붙어 읽혔다 — 시각적 간격이 CSS 마진뿐이라 스크린리더·음성 명령·텍스트 검색에는 "BRIDGEGovernance OS"로 보였고, 명시적 공백 텍스트 노드로 "BRIDGE Governance OS"가 된다. 외부 링크 2개(BRIDGE, Algora)는 이제 새 탭 동작을 눈에 보이는 `↗` 마커와 로컬라이즈된 스크린리더 텍스트(`ecosystem.newTab`: EN "opens in new tab" / KO "새 탭에서 열림", W3C H83 기법)로 고지한다.
+
+### 테스트
+- `tests/test_website_share_metadata.py` (17개): 공유 메타데이터 규칙과 에코시스템 바 접근성 수정에 대한 소스 레벨 고정 — test_deploy.py가 "`git clean`이 deploy.sh에 없다"를 고정하는 것과 같은 방식이다. 웹사이트에 JS 테스트 러너가 없으므로, 인라인 공유 메타데이터를 되살리거나 구분 공백·새 탭 고지를 없애는 커밋에서 (다음 육안 QA가 아니라) 즉시 실패한다. og:image 핀은 머지 전 적대적 리뷰에서 보강됐다: 이제 `detailMetadata()` 내부의 `images: [OG_IMAGE]` 사용을 단언한다 — URL 상수만 확인하던 검사는 사용부를 지우는 뮤테이션에도 초록불이었다.
+
 ## [0.6.17] - 2026-08-05
 
 ### 변경
@@ -30,7 +39,6 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 ### 수정
 - **`backlog.max_open_ideas`가 GitHub 미러의 시한부 킬스위치였다.** 캡이 `count_all()` — 지금까지 생성된 모든 아이디어 — 과 비교했는데 아이디어는 삭제되지 않으므로(리텐션 스위프는 트렌드·토론 세션만 정리), 하루 ~40개 속도면 2026-08-05 DB 복원 후 ~3주 만에 800을 넘겨 [Idea]/[Plan] 이슈 생성이 조용히, 영구히 멈출 운명이었다. 이제 열린(scored/pending, 즉 트리아지 결정 대기 중) 아이디어 수를 세어 이름·문서화된 의도와 일치하고, 트리아지가 백로그를 비우는 한 원래 의도대로 비상 밸브가 된다.
 - 문서만 바뀐 배포는 더 이상 배포 전 DB 스냅샷을 찍지 않는다. 문서 동기화는 아무것도 재시작하지 않고 `reset --hard`는 untracked DB를 건드릴 수 없어 스냅샷이 보호할 대상이 없는데, 스냅샷마다 7슬롯 백업 창이 돌아 문서 머지가 몰리면 며칠치 복원 지점이 몇 분짜리로 갈릴 수 있었다. 코드 배포는 여전히 스냅샷을 먼저 찍는다. 게이트는 뮤테이션 검증됨.
-
 ## [0.6.15] - 2026-08-05
 
 ### 수정
