@@ -51,6 +51,10 @@ CI_FAILURE = json.dumps({"check_runs": [{"status": "completed", "conclusion": "f
 CI_NONE = json.dumps({"check_runs": []})
 CI_SKIPPED = json.dumps({"check_runs": [{"status": "completed", "conclusion": "skipped"}]})
 CI_STALE = json.dumps({"check_runs": [{"status": "completed", "conclusion": "stale"}]})
+# Shapes the GitHub API should never produce. The gate parser raises on
+# these; what matters is that the script still refuses to deploy.
+CI_WRONG_SHAPE = json.dumps({"check_runs": {"unexpected": "object"}})
+CI_RUNS_NOT_OBJECTS = json.dumps({"check_runs": ["not-an-object"]})
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -531,6 +535,23 @@ class TestGuards:
         assert result.returncode == 0
         assert server.head() == before
         assert "none verified the commit" in result.stdout
+
+    @pytest.mark.parametrize(
+        "ci_json",
+        [CI_WRONG_SHAPE, CI_RUNS_NOT_OBJECTS],
+        ids=["check_runs-is-an-object", "runs-are-not-objects"],
+    )
+    def test_unexpected_api_shapes_never_deploy(self, server: Server, ci_json: str):
+        """The parser cannot make sense of these and raises. The wrapper has to
+        turn that into a deferral, not a green light."""
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 25\n"})
+
+        result = server.run(DEPLOY_REQUIRE_CI="1", CI_JSON=ci_json)
+
+        assert result.returncode == 0
+        assert server.head() == before
+        assert "pm2 restart" not in server.calls()
 
     def test_required_jobs_must_all_have_passed(self, server: Server):
         before = server.head()
