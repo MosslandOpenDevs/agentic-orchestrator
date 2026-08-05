@@ -9,6 +9,12 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 
 ## [Unreleased]
 
+### 수정
+- **scaffold가 운영 서버에서 origin/main으로 push하던 경로 차단.** `_git_commit_and_push`가 프로젝트 생성 때마다 무조건 실행됐다 — 스케줄러가 도는 체크아웃에서 `git add` + `commit` + `git push origin main`. /projects/가 gitignore된 뒤로는 실패(+경고 스팸)만 하고 있었지만, 그 전에는 서버 main에 쌓인 "feat: generate production-quality code…" 커밋들이 바로 이 경로였다. config.yaml에는 처음부터 `git.auto_push: false`가 있었는데 아무도 안 읽었다. 이제 scaffold가 이를 존중한다(기본 false, 설정 읽기 실패 시 fail-closed, 명시적 생성자 인자가 우선). 게이트 위치 자체를 테스트로 고정.
+- **아이디어 점수화에도 structured outputs 적용.** 점수 파서는 트렌드와 같은 펜스-JSON 취약성이 있었는데 파급이 더 나빴다: except 경로가 중립 점수 5.0을 *지어내서*, 파싱 실패가 아이디어의 실제 품질과 무관하게 전부 백로그 밴드로 조용히 들어갔다. 이제 라우트에 `SCORE_RESPONSE_SCHEMA`(문법 강제, 4개 차원 필수)와 1,024토큰 출력 예산을 부착. 중립 폴백은 전송 오류 경로로만 유지.
+- **SNS 공유 미리보기가 localhost를 가리키던 문제.** `metadataBase` 미설정으로 Next.js가 상대경로 `og-image.png`를 프로덕션 빌드에서 `http://localhost:3000` 기준으로 해석 — ao.moss.land의 모든 OG/트위터 카드 이미지 URL이 localhost였다 (서빙된 HTML에서 확인). `https://ao.moss.land`로 설정.
+- 임베딩 모델에 대한 문서의 거짓 두 가지를 CLAUDE.md와 코드 주석에서 정정: 임베딩 API를 호출하는 코드 경로가 없고(시그널 "semantic dedup"은 제목 토큰 Jaccard — `signals/aggregator.py::_is_semantic_duplicate`), 운영 Ollama 호스트에 `qwen3-embedding:0.6b`가 설치돼 있지도 않다. hierarchy 등록은 명시적 예약 슬롯으로 표기해 유지.
+
 ### 추가
 - **트렌드 분석에 structured outputs 적용.** Ollama는 v0.5.0(2024-12)부터 `format` 필드로 JSON 스키마를 디코딩 수준에서 강제한다 — 문법에 어긋나는 토큰은 샘플링 자체가 불가능하다. 운영 서버(0.32.5)는 처음부터 이 기능이 있었는데 코드가 안 썼을 뿐이다. provider에 `format_schema` 추가, router가 `response_schema`를 모든 Ollama 호출 지점(스키마 유실이 조용히 지나갈 두 폴백 경로 포함)에 배관, 트렌드 분석 호출에 `TrendAnalyzer.TRENDS_RESPONSE_SCHEMA` 부착. 운영 서버 E2E: 첫 응답 토큰이 `{`, 스마트 쿼트는 합법인 문자열 값 *안에만* 등장, 엄격 `json.loads`가 관용 수리 없이 통과, 같은 temperature에서 품질 유지(요약 700-950자). 관용 파서는 심층 방어로 유지 — 스키마 유효 ≠ 의미 유효이고, `max_tokens` 절단은 여전히 문서를 자를 수 있다. 파서가 읽는 모든 필드가 스키마에 존재하는지 검사하는 일관성 테스트를 두어, 문법이 파이프라인이 저장하는 필드를 금지하는 일이 없게 했다. 신규 테스트 7개; 3단 배관(provider 페이로드, router 전달, analyzer 부착)을 단계별로 뮤테이션 검증.
 

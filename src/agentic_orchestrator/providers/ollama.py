@@ -134,15 +134,16 @@ class OllamaProvider:
     """
 
     # Available models on the remote Ollama server (host configured via OLLAMA_HOST).
-    # Consolidated to a single chat model + a single embedding model so the shared
-    # ~8GB GPU never has to swap. Any other model name will 404 against the server.
+    # Consolidated to a single chat model so the shared ~8GB GPU never has to
+    # swap. qwen3-embedding:0.6b is a reserved slot with NO callers today and is
+    # not pulled on the production host — see CLAUDE.md "작업별 LLM 모델".
     AVAILABLE_MODELS = {
         "gemma3:4b": {"size": "6.6GB", "context": 32768, "tier": "chat"},
         "qwen3-embedding:0.6b": {"size": "0.6GB", "context": 8192, "tier": "embedding"},
     }
 
     # Recommended models for different tasks. All chat/generation tasks resolve
-    # to gemma3:4b — embedding is the only task that uses qwen3-embedding:0.6b.
+    # to gemma3:4b; the "embedding" entry is aspirational (no call sites).
     TASK_MODELS = {
         "moderation": "gemma3:4b",
         "evaluation": "gemma3:4b",

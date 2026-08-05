@@ -99,6 +99,24 @@ JSON으로만 응답해주세요:
 }}
 ```"""
 
+    # Enforced via Ollama structured outputs (grammar-constrained decoding).
+    # A parse failure here is worse than in trends: the except-path invents a
+    # neutral 5.0 score, which silently lands every idea in the backlog band
+    # regardless of its actual quality. With the schema attached the model
+    # cannot emit unparseable output, so the neutral fallback becomes what it
+    # should be — a rare transport-error path, not a content-quality path.
+    SCORE_RESPONSE_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "feasibility": {"type": "number"},
+            "relevance": {"type": "number"},
+            "novelty": {"type": "number"},
+            "impact": {"type": "number"},
+            "reasoning": {"type": "string"},
+        },
+        "required": ["feasibility", "relevance", "novelty", "impact"],
+    }
+
     def __init__(
         self,
         router: Optional[HybridLLMRouter] = None,
@@ -150,6 +168,11 @@ JSON으로만 응답해주세요:
                 task_type="evaluation",
                 force_local=True,
                 quality="normal",
+                # Four numbers plus a short reasoning string; 1024 is ample
+                # and keeps a runaway generation from reaching the context
+                # window (the failure mode trends hit in 2026-08).
+                max_tokens=1024,
+                response_schema=self.SCORE_RESPONSE_SCHEMA,
             )
 
             score = self._parse_score_response(response.content)
