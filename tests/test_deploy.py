@@ -113,10 +113,23 @@ class Server:
 
     def _write_stubs(self) -> None:
         self.bin.mkdir()
+        # The real PM2 injects the calling app's config keys (cron_restart,
+        # autorestart, ...) into child environments as plain variables. If
+        # deploy.sh lets them through, `--update-env` stamps them onto the
+        # restarted apps (the 2026-08-05 incident) -- so the stub reports every
+        # scrub-list key it can see and TestPm2EnvHygiene asserts it sees none.
+        # The name list must match deploy.sh's `unset -v` line: dropping a key
+        # there makes the stub report it here.
         _write(
             self.bin / "pm2",
             f"""#!/usr/bin/env bash
 echo "pm2 $*" >> "{self.stub_log}"
+for k in cron_restart autorestart watch instances exec_mode \\
+         max_memory_restart node_args name namespace; do
+  if [ -n "${{!k:-}}" ]; then
+    echo "pm2-saw-env $k=${{!k}}" >> "{self.stub_log}"
+  fi
+done
 if [ "$1" = "jlist" ]; then cat "{self.jlist}"; fi
 exit 0
 """,
@@ -500,12 +513,93 @@ class TestRollback:
         assert "CRITICAL" in result.stdout
 
 
+class TestPm2EnvHygiene:
+    """PM2 injects the deploy poller's own config keys (cron_restart,
+    autorestart, ...) into this script's environment as plain variables, and
+    PM2 reads those same names back as config. Combined with
+    `pm2 restart --update-env` that stamped the poller's 5-minute cron onto
+    moss-ao-api/web, force-restarting them every 5 minutes until the entries
+    were deleted and re-registered (2026-08-05 incident, docs/deployment.md).
+    These tests run the deploy with that injection simulated and pin both
+    halves of the fix: no --update-env, and the injected keys are scrubbed."""
+
+    # Every key deploy.sh's `unset -v` scrubs, with the value PM2 would inject.
+    PM2_INJECTED = {
+        "cron_restart": "4-59/5 * * * *",
+        "autorestart": "false",
+        "watch": "true",
+        "instances": "1",
+        "exec_mode": "fork_mode",
+        "max_memory_restart": "1073741824",
+        "node_args": "--max-old-space-size=512",
+        "name": "moss-ao-deploy",
+        "namespace": "default",
+    }
+
+    def test_restarts_never_pass_update_env(self, server: Server):
+        server.push(
+            {
+                "src/agentic_orchestrator/api.py": "VERSION = 18\n",
+                "website/page.tsx": "export default () => 4\n",
+            }
+        )
+        result = server.run(**self.PM2_INJECTED)
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        restarts = [c for c in server.calls().splitlines() if c.startswith("pm2 restart")]
+        assert restarts, "expected pm2 restarts to happen"
+        # Whole-log, not restart-lines-only: --update-env on ANY pm2 verb
+        # (start/reload/startOrRestart) re-creates the incident just as well.
+        assert "--update-env" not in server.calls()
+
+    def test_deploy_only_uses_safe_pm2_verbs(self, server: Server):
+        """A deploy may query (jlist) and plain-restart -- never register
+        (`pm2 start`), never `pm2 save`: registration from inside the poller
+        captures the poller's entire environment (GITHUB_TOKEN, DEPLOY_*, and
+        config-shaped keys beyond the scrub list) into every app's stored
+        definition, --update-env or not."""
+        server.push(
+            {
+                "src/agentic_orchestrator/api.py": "VERSION = 20\n",
+                "website/page.tsx": "export default () => 6\n",
+            }
+        )
+        result = server.run(**self.PM2_INJECTED)
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        verbs = {c.split()[1] for c in server.calls().splitlines() if c.startswith("pm2 ")}
+        assert verbs, "expected pm2 to be invoked"
+        assert verbs <= {"jlist", "restart"}, verbs
+
+    def test_pm2_never_sees_the_pollers_injected_config_keys(self, server: Server):
+        server.push(
+            {
+                "src/agentic_orchestrator/api.py": "VERSION = 19\n",
+                "website/page.tsx": "export default () => 5\n",
+            }
+        )
+        result = server.run(**self.PM2_INJECTED)
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        calls = server.calls()
+        assert "pm2 restart moss-ao-api" in calls
+        assert "pm2 restart moss-ao-web" in calls
+        assert "pm2-saw-env" not in calls
+
+
 class TestSourceInvariants:
     def test_deploy_script_never_runs_git_clean(self):
         """`git clean` on the server deletes the SQLite DB and .env."""
         source = DEPLOY_SH.read_text()
         code = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("#"))
         assert "git clean" not in code
+
+    def test_pm2_invocations_never_pass_update_env(self):
+        """--update-env may only appear in operator-facing log text, never on
+        an actual pm2 invocation (see TestPm2EnvHygiene for why)."""
+        for line in DEPLOY_SH.read_text().splitlines():
+            if "--update-env" in line:
+                assert line.lstrip().startswith(("log ", "#")), line
 
     def test_deploy_script_is_executable(self):
         assert os.access(DEPLOY_SH, os.X_OK)
@@ -552,6 +646,16 @@ class TestEcosystemRegistration:
         assert app["interpreter"] == "bash"
         assert app["autorestart"] is False
         assert app["cron_restart"]
+
+    def test_long_running_apps_have_no_cron_restart(self):
+        """api/web are always-on: a cron_restart here (or leaked onto the
+        live registration, as in the 2026-08-05 incident) bounces them every
+        few minutes."""
+        apps = self._apps("1")
+        for app_name in ("moss-ao-api", "moss-ao-web"):
+            app = next(a for a in apps if a["name"] == app_name)
+            assert "cron_restart" not in app, app_name
+            assert app["autorestart"] is True, app_name
 
     def test_deploy_cron_does_not_collide_with_the_health_cron(self):
         apps = self._apps("1")

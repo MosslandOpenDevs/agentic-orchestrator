@@ -187,9 +187,72 @@ DB까지 되돌려야 하면 `CLAUDE.md`의 복원 절차(최신 `data/backup/or
 | `CI: still running -- deferring` 반복 | CI가 아직 진행 중이거나 멈춤. Actions 탭 확인 |
 | `CI: status unavailable` 반복 | GitHub API 접근 실패(레이트 리밋 등). `GITHUB_TOKEN` 설정 검토 |
 | `scheduler busy` 로 계속 밀림 | 토론이 오래 걸리는 중. 급하면 `--force` |
-| `ecosystem.config.js changed` 안내 | PM2 프로세스 정의(cron·env)는 자동 재등록되지 않음. `pm2 restart ecosystem.config.js --update-env && pm2 save` 를 직접 실행 |
+| `ecosystem.config.js changed` 안내 | PM2 프로세스 정의(cron·env)는 자동 재등록되지 않음. **로그인 셸에서** `pm2 restart ecosystem.config.js --update-env && pm2 save` 를 직접 실행 (PM2 관리 프로세스 안에서 실행 금지 — 아래 [cron_restart 오염](#pm2-cron_restart-오염-2026-08-05-사고) 참조) |
 | `CRITICAL rollback ... unhealthy` | 배포도 롤백도 헬스체크 실패. `pm2 logs moss-ao-api` 확인 후 수동 개입 |
 | 배포는 됐는데 화면이 그대로 | 프론트엔드는 `NEXT_PUBLIC_*`가 빌드 시점에 박히므로 빌드 필요. `logs/deploy.log`에 `npm run build`가 있는지 확인 |
+| **api/web 업타임이 5분을 못 넘기고 ↺ 만 증가** | PM2 `cron_restart` 오염. 아래 절 참조 |
+
+### PM2 `cron_restart` 오염 (2026-08-05 사고)
+
+**증상**: 상시 실행이어야 할 `moss-ao-api`/`moss-ao-web`이 5분마다 강제 재시작된다.
+`pm2 ls`에서 업타임이 5분을 넘지 못하고 재시작 카운터(↺)만 계속 오르며,
+`pm2 describe moss-ao-api`에 있어서는 안 될 `cron restart │ 4-59/5 * * * *`
+(= **deploy의 cron**)가 보인다.
+
+**원인** (서버에서 스크래치 앱으로 재현·검증 완료):
+
+1. PM2는 관리 중인 프로세스의 환경에 **그 프로세스 자신의 설정 키를 일반
+   환경변수로 주입**한다. `moss-ao-deploy` 안에서 도는 deploy.sh의 환경에는
+   `cron_restart=4-59/5 * * * *`, `autorestart=false` 등이 실제로 들어 있다.
+2. 과거 deploy.sh는 `pm2 restart moss-ao-api --update-env`를 사용했다.
+   `--update-env`는 호출한 셸의 환경 전체를 대상 앱 정의에 병합하는데, PM2는
+   환경변수와 설정 키를 같은 이름공간(`pm2_env`)에 두므로 deploy의
+   `cron_restart` 환경변수가 api/web의 **설정**으로 저장된다. (같은 경로로
+   deploy 전용 `GITHUB_TOKEN` 등도 api/web 환경에 새어 들어갔다.)
+3. PM2는 재시작 시 `ecosystem.config.js`를 다시 읽지 않는다(업스트림
+   [#3742](https://github.com/Unitech/pm2/issues/3742),
+   [#4504](https://github.com/Unitech/pm2/issues/4504)). 한번 오염된 등록은
+   영구히 남고, **배포가 일어날 때마다 재적용**된다 — 깨끗하게 재등록해도
+   다음 배포에서 다시 오염됐던 이유.
+
+**수정** (이 저장소에 반영됨): deploy.sh가 ① 시작 시 PM2가 주입하는 주요 설정
+키 환경변수(`cron_restart`, `autorestart`, `watch` 등 9종 — 방어선)를 `unset`하고
+② 재시작에서 `--update-env`를 쓰지 않는다(근본 수정 — 이 플래그가 없으면 주입
+키가 남아 있어도 새지 않음을 검증했다). 앱의 env는 등록 시점의
+`ecosystem.config.js`가 단일 소스다.
+`tests/test_deploy.py::TestPm2EnvHygiene`가 두 가지 모두 회귀를 차단한다.
+
+**서버에 남은 오염 제거**: `pm2 restart X --cron-restart 0`은 PM2 7.0.3에서
+**동작하지 않는다** (cron이 그대로 남음). 확실한 방법은 삭제 후 재등록뿐:
+
+```bash
+pm2 delete moss-ao-api moss-ao-web
+pm2 start ecosystem.config.js --only "moss-ao-api,moss-ao-web"
+pm2 describe moss-ao-api   # "cron restart" 행이 아예 없어야 정상
+pm2 save
+```
+
+**오염 탐지** (전체 앱 스캔 — `autorestart=True`인 장수명 앱에 cron이 보이면 오염):
+
+```bash
+pm2 jlist | python3 -c "
+import json, sys
+for a in json.load(sys.stdin):
+    env = a[\"pm2_env\"]
+    if env.get(\"cron_restart\"):
+        print(a[\"name\"], env[\"cron_restart\"], \"autorestart=\" + str(env.get(\"autorestart\")))
+"
+```
+
+**예방 규칙**:
+
+- PM2 관리 프로세스 **안에서** `pm2 ... --update-env` 또는 `pm2 start`를 절대
+  실행하지 말 것. 운영 안내 명령(`pm2 restart ecosystem.config.js --update-env`)은
+  로그인 셸 전용이다.
+- 이 deploy.sh를 복사해 쓰는 다른 프로젝트(Algora, bridge-2026/oracle,
+  signalmap의 daily-ingest.sh 등)도 같은 수정이 필요하다 — 실제로 2026-08-05
+  스윕에서 `algora-web`(1-59/5)·`oracle-web`(3-59/5)이 같은 방식으로 오염돼
+  있었다.
 
 ## 업그레이드 경로: GitHub Actions + Tailscale
 

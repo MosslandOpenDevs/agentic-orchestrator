@@ -484,6 +484,8 @@ def _load_backlog_config() -> dict:
 
     import yaml
 
+    from .backlog_triage import TRIAGE_DEFAULTS
+
     defaults = {
         "dedup_enabled": True,
         "dedup_prefix_tokens": 6,
@@ -491,7 +493,7 @@ def _load_backlog_config() -> dict:
     }
     lifecycle_defaults = {
         "enabled": True,
-        "max_age_days": 30,
+        "max_age_days": 14,
         "max_closes_per_run": 50,
     }
     config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
@@ -505,10 +507,18 @@ def _load_backlog_config() -> dict:
         for key, value in lifecycle_defaults.items():
             lifecycle.setdefault(key, value)
         backlog_config["issue_lifecycle"] = lifecycle
+        triage = backlog_config.get("triage") or {}
+        for key, value in TRIAGE_DEFAULTS.items():
+            triage.setdefault(key, value)
+        backlog_config["triage"] = triage
         return backlog_config
     except Exception as e:
         logger.warning(f"Failed to load backlog config, using defaults: {e}")
-        return {**defaults, "issue_lifecycle": dict(lifecycle_defaults)}
+        return {
+            **defaults,
+            "issue_lifecycle": dict(lifecycle_defaults),
+            "triage": dict(TRIAGE_DEFAULTS),
+        }
 
 
 def _idea_title_fingerprint(title: str, prefix_tokens: int = 6) -> str:
@@ -693,7 +703,14 @@ async def _auto_score_and_save_ideas(
     seen_fingerprints: set[str] = set()
     open_idea_count = 0
     try:
-        open_idea_count = idea_repo.count_all()
+        # The cap counts OPEN (undecided) ideas only. Counting every idea
+        # ever created — as this did before backlog triage existed — turns
+        # the cap into a one-way kill switch: ideas are never deleted, so at
+        # ~40/day the mirror would have gone permanently silent within weeks.
+        # With triage draining the backlog, the open count stays low and the
+        # cap becomes what it reads as: an emergency valve.
+        status_counts = idea_repo.count_by_status()
+        open_idea_count = sum(status_counts.get(s, 0) for s in ("scored", "pending"))
         for existing in idea_repo.get_all(limit=5000):
             fp = _idea_title_fingerprint(getattr(existing, "title", "") or "", dedup_tokens)
             if fp:
@@ -1540,10 +1557,38 @@ def _process_backlog():
         finally:
             retention_session.close()
 
+        # Backlog triage — the consumer that matches idea production.
+        # Re-scores the oldest 'scored' ideas against today's trends and
+        # forces terminal decisions (promote → draft plan / archive), so the
+        # issue lifecycle right below closes their mirror issues in the same
+        # cycle. Best-effort: an LLM outage must not fail the backlog cycle.
+        backlog_config = _load_backlog_config()
+        triage_config = backlog_config.get("triage") or {}
+        if triage_config.get("enabled", True):
+            try:
+                from ..scoring import IdeaScorer
+                from .backlog_triage import run_backlog_triage
+
+                triage_session = db.get_session()
+                try:
+                    stats["backlog_triage"] = asyncio.run(
+                        run_backlog_triage(
+                            idea_repo=IdeaRepository(triage_session),
+                            plan_repo=PlanRepository(triage_session),
+                            trend_repo=TrendRepository(triage_session),
+                            scorer=IdeaScorer(),
+                            config=triage_config,
+                        )
+                    )
+                finally:
+                    triage_session.close()
+            except Exception as e:
+                logger.warning(f"Backlog triage skipped: {e}")
+
         # GitHub issue lifecycle — close idea/plan issues the pipeline has
         # outgrown and age out untouched backlog issues. Best-effort: GitHub
         # being down must not fail the backlog cycle.
-        lifecycle_config = _load_backlog_config().get("issue_lifecycle", {})
+        lifecycle_config = backlog_config.get("issue_lifecycle", {})
         if lifecycle_config.get("enabled", True):
             try:
                 from ..db import ProjectRepository

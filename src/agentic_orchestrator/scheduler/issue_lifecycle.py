@@ -9,6 +9,10 @@ so the mirror must FOLLOW the pipeline:
   plan exists (the [Plan] issue carries the work forward);
 - a [Plan] issue closes as ``completed`` once a project has been generated
   from it;
+- an [Idea] issue closes as ``not_planned`` once the DB row is ``archived``
+  (backlog triage rejects write only to the DB; this loop is where their
+  mirror issues actually close, self-healing if GitHub was down at decision
+  time) — unless a human engaged with the issue;
 - a bot-generated backlog issue that nobody engaged with for
   ``max_age_days`` closes as ``not_planned`` (the DB row is untouched and
   the issue can always be reopened).
@@ -105,20 +109,34 @@ def _close_issue(
     labels: Optional[list] = None,
     comment: Optional[str] = None,
 ) -> bool:
-    """Best-effort close with optional label replacement and comment."""
+    """Best-effort close with optional label replacement and comment.
+
+    The close PATCH goes FIRST. Commenting first would poison the retry: if
+    the comment lands and the close then fails (GitHub has no retry in
+    ``_request`` — one 5xx or rate-limit aborts), the still-open issue now
+    has a bot comment that the comment-gated paths (archived reconciliation,
+    aging sweep) read as human engagement, permanently blocking every future
+    auto-close. Commenting on a closed issue is fine, and a comment lost
+    after a successful close costs only context, never a stuck issue.
+    """
     try:
-        if comment:
-            client.add_comment(issue.number, comment)
         client.update_issue(
             issue.number,
             state="closed",
             state_reason=state_reason,
             labels=labels,
         )
-        return True
     except Exception as e:
         logger.warning(f"Could not close issue #{issue.number}: {e}")
         return False
+    if comment:
+        try:
+            client.add_comment(issue.number, comment)
+        except Exception as e:
+            logger.warning(
+                f"Closed issue #{issue.number} but could not add the closing comment: {e}"
+            )
+    return True
 
 
 def run_issue_lifecycle(
@@ -137,9 +155,15 @@ def run_issue_lifecycle(
     """
     config = config or {}
     now = now or utcnow()
-    max_age_days = int(config.get("max_age_days", 30))
+    max_age_days = int(config.get("max_age_days", 14))
     budget = int(config.get("max_closes_per_run", 50))
-    stats = {"reconciled_ideas": 0, "reconciled_plans": 0, "aged_out": 0, "errors": 0}
+    stats = {
+        "reconciled_ideas": 0,
+        "reconciled_plans": 0,
+        "reconciled_archived": 0,
+        "aged_out": 0,
+        "errors": 0,
+    }
 
     # The list endpoint, not search: the search index silently omits some
     # issues in this repo, and a sweep that cannot see an issue can neither
@@ -220,6 +244,43 @@ def run_issue_lifecycle(
         else:
             stats["errors"] += 1
 
+    # Archived ideas whose issue is still open: the pipeline rejected them
+    # (triage re-score or strike-out), so the mirror follows with the verdict.
+    # Human engagement overrides the bot: exempt labels and any comment keep
+    # the issue open exactly like the aging sweep would.
+    for idea in idea_repo.get_by_status("archived", limit=500):
+        if budget <= 0:
+            break
+        number = getattr(idea, "github_issue_id", None)
+        if not number or number not in open_issues:
+            continue
+        issue = open_issues[number]
+        if issue.has_any_label(list(AGING_EXEMPT_LABELS)) or issue.comments > 0:
+            continue
+        triage = (getattr(idea, "extra_metadata", None) or {}).get("triage") or {}
+        if triage.get("last_score") is not None:
+            when = str(triage.get("last_at", ""))[:10]
+            reason = triage.get("reason") or "below promotion threshold"
+            comment = (
+                f"Backlog triage re-scored this idea at {triage['last_score']}/10"
+                f"{f' on {when}' if when else ''} — archived ({reason}). "
+                f"{LIFECYCLE_SIGNATURE}"
+            )
+        else:
+            comment = f"Archived by the pipeline. {LIFECYCLE_SIGNATURE}"
+        labels = [
+            label
+            for label in issue.labels
+            if label not in (Labels.PROMOTE_TO_PLAN, Labels.STATUS_BACKLOG)
+        ]
+        labels = sorted(set(labels) | {Labels.STATUS_ARCHIVED})
+        if _close_issue(client, issue, "not_planned", labels, comment):
+            stats["reconciled_archived"] += 1
+            budget -= 1
+            open_issues.pop(number)
+        else:
+            stats["errors"] += 1
+
     # --- Aging sweep: close what nobody has touched, oldest first. ---
     for issue in sorted(open_issues.values(), key=lambda i: i.created_at):
         if budget <= 0:
@@ -238,6 +299,7 @@ def run_issue_lifecycle(
         "Issue lifecycle done: "
         f"{stats['reconciled_ideas']} idea(s) reconciled, "
         f"{stats['reconciled_plans']} plan(s) reconciled, "
+        f"{stats['reconciled_archived']} archived close(s), "
         f"{stats['aged_out']} aged out, {stats['errors']} error(s)"
     )
     return stats

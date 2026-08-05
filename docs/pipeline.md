@@ -136,14 +136,15 @@ RSS 피드 → 트렌드 분석 → Claude로 아이디어 생성 → GitHub Iss
 토론 결과 → 자동 점수화 → DB 저장 + GitHub Issue 생성
                 │
                 ├─ score >= 7.0 → promoted (플랜 자동 생성)
-                ├─ score < 4.0  → archived
-                └─ 중간 점수    → scored (백로그)
+                ├─ score < 4.0  → archived (이슈 생성 안 함)
+                └─ 중간 점수    → scored (백로그 → 4h마다 트리아지가 재평가)
 ```
 
 - **트리거**: 토론 완료 후 자동 실행
 - **LLM**: Ollama (로컬)
 - **출력**: DB 저장 + GitHub Issue
-- **특징**: 점수 기반 자동 승격/아카이브
+- **특징**: 점수 기반 자동 승격/아카이브. `scored`는 종착역이 아니다 —
+  아래 백로그 트리아지가 며칠 안에 promoted 또는 archived로 종결시킨다.
 
 ### 5. IdeationStage (레거시)
 
@@ -277,8 +278,37 @@ Auto-Scorer는 4가지 차원으로 아이디어를 평가합니다:
 | 총점 범위 | 상태 | 액션 |
 |----------|------|------|
 | 7.0 이상 | `promoted` | 플랜 자동 생성, GitHub Issue에 `promote:to-plan` 라벨 |
-| 4.0 - 7.0 | `scored` | 백로그 대기, `status:backlog` 라벨 |
-| 4.0 미만 | `archived` | 아카이브, `archived` 라벨 |
+| 4.0 - 7.0 | `scored` | 백로그 대기 (`status:backlog` 라벨) → 트리아지가 재평가 |
+| 4.0 미만 | `archived` | 아카이브 (GitHub 이슈 생성 안 함) |
+
+### 백로그 트리아지 — 아이디어 생산·소비 균형 (v0.6.16)
+
+**파일**: `src/agentic_orchestrator/scheduler/backlog_triage.py` (moss-ao-backlog, 4시간 주기)
+
+토론은 하루 ~40개 아이디어를 만들지만 트리아지 이전에는 소비자가 없었다:
+`scored`(약 85%)는 영원히 백로그에 남았고 GitHub 이슈는 30일 방치 타이머만
+기다렸다. 트리아지는 그 반대쪽 절반이다 — 매 백로그 주기마다 **가장 오래된**
+`scored` 아이디어를 오늘의 트렌드 기준으로 재채점해 종결 결정을 강제한다:
+
+```
+scored (6h 이상 경과, 오래된 순 per_run개)
+   │  IdeaScorer 재채점 (현재 트렌드 컨텍스트)
+   ├─ score >= 7.0 → promoted + draft 플랜 (사람이 /plans/{id}/approve로 승인)
+   │                 → [Idea] 이슈는 lifecycle이 completed로 닫음
+   ├─ score < 4.0  → archived → 이슈는 not_planned + 판정 코멘트로 닫힘
+   └─ 중간 점수    → 스트라이크 1개; max_strikes(기본 2) 도달 시 archived
+```
+
+- 모든 아이디어는 최대 `max_strikes`번의 재평가 안에 `promoted|archived`로
+  종결 → 열린 백로그 크기는 "생산율 × 결정 소요일"로 유계
+- **사이징 규칙**: `per_run × 6회/일`이 일일 아이디어 생산량을 넘어야 한다
+  (기본 25 × 6 = 150터치/일 ≥ 75결정/일 > 생산 ~40/일; v0.6.17에서 per_run 15→25,
+  min_age 24h→6h로 상향 — 24h 격리는 첫날 소비가 정확히 0이었다)
+- 트리아지는 **DB만** 쓴다. 이슈 닫기는 같은 주기에서 바로 뒤에 도는 issue
+  lifecycle의 몫 (GitHub 장애 시 다음 주기에 자기치유)
+- LLM 폴백(중립 5.0 + reasoning 없음) 감지 시 스트라이크를 주지 않고 건너뜀 —
+  Ollama 장애가 아이디어를 잘못 아카이브하면 안 됨
+- 설정: `config.yaml`의 `backlog.triage` (enabled/per_run/min_age_hours/max_strikes)
 
 ## 스케줄링
 
@@ -291,7 +321,7 @@ Auto-Scorer는 4가지 차원으로 아이디어를 평가합니다:
 | Signal Collection | 30분마다 | `*/30 * * * *` | RSS/API에서 신호 수집 |
 | Trend Analysis | 2시간마다 | `0 */2 * * *` | 신호 분석 → 트렌드 생성 |
 | **Debate** | **6시간마다** | `0 */6 * * *` | 트렌드 기반 토론 → 아이디어 생성 |
-| Backlog | 4시간마다 | `0 */4 * * *` | 상태 집계/리포트 |
+| Backlog | 4시간마다 | `0 */4 * * *` | 백로그 트리아지 + 이슈 라이프사이클 + 리텐션 |
 | Health Check | 5분마다 | `*/5 * * * *` | 시스템 상태 확인 |
 
 ### TEST 모드 (빠른 테스트용)

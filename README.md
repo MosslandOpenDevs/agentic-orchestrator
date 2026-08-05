@@ -4,7 +4,7 @@
 
 An autonomous multi-agent orchestration system for discovering, planning, and implementing micro Web3 services for the Mossland ecosystem.
 
-**Version**: v0.6.15
+**Version**: v0.6.17
 
 ## Key Features
 
