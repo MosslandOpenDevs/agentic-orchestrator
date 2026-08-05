@@ -107,7 +107,8 @@ agentic-orchestrator/
 │   └── src/lib/                 # 유틸리티
 │       ├── api.ts               # API 클라이언트
 │       ├── types.ts             # TypeScript 타입
-│       └── i18n.tsx             # 다국어 지원 (EN/KO)
+│       ├── i18n.tsx             # 다국어 지원 (EN/KO)
+│       └── metadata.ts          # 통합 title/공유(OG·Twitter) 규칙 단일 소스
 ├── data/                        # 데이터 디렉토리
 │   ├── orchestrator.db          # SQLite 데이터베이스
 │   └── trends/                  # 트렌드 분석 결과 (마크다운)
@@ -332,10 +333,15 @@ pm2 save
 
 | 작업 | 주기 | Cron |
 |------|------|------|
-| Signals | 30분마다 | `*/30 * * * *` |
-| Trends | 2시간마다 | `0 */2 * * *` |
-| Debate | 6시간마다 | `0 */6 * * *` |
-| Backlog | 4시간마다 | `0 */4 * * *` |
+| Signals | 30분마다 | `5,35 * * * *` |
+| Trends | 2시간마다 | `15 */2 * * *` |
+| Debate | 6시간마다 | `25 */6 * * *` |
+| Backlog | 4시간마다 | `45 */4 * * *` |
+
+> 분(minute)이 정각이 아니라 :05/:15/:25/:45로 **스태거**되어 있다 — 정각 동시
+> 기동이 단일 인스턴스 Ollama 큐를 폭주시켜 HTTP 503을 냈던 이력 때문
+> (`ecosystem.config.js`의 `SCHEDULES` 주석 참조). 문서/예측에 크론을 쓸 때
+> 정각 기준으로 계산하지 말 것 — 예: 백로그 틱은 16:00이 아니라 16:45다.
 
 토론 에이전트 설정 (`config.yaml`의 `debate.normal`, `debate.test_mode: false`):
 

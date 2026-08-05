@@ -1,4 +1,5 @@
 import { Metadata } from 'next';
+import { detailMetadata } from '@/lib/metadata';
 import { PlanDetailPage } from '@/components/pages/PlanDetailPage';
 
 interface Props {
@@ -7,23 +8,7 @@ interface Props {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
-
-  return {
-    title: `Plan - MOSS.AO`,
-    description: `View plan details on MOSS.AO`,
-    openGraph: {
-      title: `Plan - MOSS.AO`,
-      description: `View plan details on MOSS.AO`,
-      url: `https://ao.moss.land/plans/${id}`,
-      siteName: 'MOSS.AO',
-      type: 'website',
-    },
-    twitter: {
-      card: 'summary',
-      title: `Plan - MOSS.AO`,
-      description: `View plan details on MOSS.AO`,
-    },
-  };
+  return detailMetadata('Plan', `/plans/${id}`);
 }
 
 export default async function Page({ params }: Props) {
