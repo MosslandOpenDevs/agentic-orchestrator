@@ -76,6 +76,9 @@ DEPLOY_VERBOSE=${DEPLOY_VERBOSE:-0}
 DEPLOY_LOG=${DEPLOY_LOG:-${REPO_ROOT}/logs/deploy.log}
 DEPLOY_LOCK=${DEPLOY_LOCK:-${REPO_ROOT}/logs/.deploy.lock}
 DEPLOY_LOCK_STALE_MIN=${DEPLOY_LOCK_STALE_MIN:-90}
+# Outstanding ecosystem.config.js changes that still need a manual PM2
+# re-register. Cleared by the operator once done.
+ECOSYSTEM_PENDING=${ECOSYSTEM_PENDING:-${REPO_ROOT}/logs/.ecosystem-pending}
 
 PYTHON_BIN=${PYTHON_BIN:-${REPO_ROOT}/.venv/bin/python}
 PM2_BIN=${PM2_BIN:-pm2}
@@ -146,7 +149,19 @@ git fetch --quiet "${DEPLOY_REMOTE}" "${DEPLOY_BRANCH}" || {
 CURRENT=$(git rev-parse HEAD)
 TARGET=$(git rev-parse "${DEPLOY_REMOTE}/${DEPLOY_BRANCH}")
 
+ecosystem_reminder() {
+  [ -s "${ECOSYSTEM_PENDING}" ] || return 0
+  log "REMINDER ecosystem.config.js changed in $(wc -l <"${ECOSYSTEM_PENDING}" | tr -d ' ') \
+deploy(s) and PM2 has not been re-registered. Process definitions (cron, env)"
+  log "         are still the old ones. From a LOGIN SHELL (never from inside a"
+  log "         PM2-managed process -- PM2 injects config keys like cron_restart"
+  log "         and --update-env copies them onto every app; docs/deployment.md):"
+  log "           pm2 restart ecosystem.config.js --update-env && pm2 save"
+  log "           rm ${ECOSYSTEM_PENDING}"
+}
+
 if [ "${CURRENT}" = "${TARGET}" ]; then
+  ecosystem_reminder
   if [ "${DEPLOY_VERBOSE}" = "1" ] || [ "${CHECK_ONLY}" = "1" ]; then
     log "up to date at ${CURRENT:0:8}"
   fi
@@ -449,18 +464,19 @@ log "checking out ${TARGET:0:8}"
 git reset --hard --quiet "${TARGET}"
 
 if [ "${ECOSYSTEM_CHANGED}" = "1" ]; then
-  log "NOTE ecosystem.config.js changed -- process definitions (cron, env) are"
-  log "     NOT re-registered automatically. Run on the server when convenient:"
-  log "     pm2 restart ecosystem.config.js --update-env && pm2 save"
-  log "     (from a login shell only -- never from inside a PM2-managed process:"
-  log "      PM2 injects config keys like cron_restart into the environment and"
-  log "      --update-env would copy them onto every app; see docs/deployment.md)"
+  # Record the debt rather than only announcing it once. HEAD moves past this
+  # commit either way, and the next tick is a no-op, so the single log line
+  # used to be the whole notification -- a cron or env change could sit
+  # unapplied indefinitely with nothing left pointing at it.
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${TARGET}" >>"${ECOSYSTEM_PENDING}"
+  alert "MOSS.AO: ecosystem.config.js changed in ${TARGET:0:8} -- PM2 process definitions need a manual re-register"
 fi
 
 # Docs-only changes are synced (checkout updated above) but not deployed:
 # nothing to build or restart, and the log says SYNCED rather than DEPLOYED.
 if [ "${PY_CHANGED}" = "0" ] && [ "${WEB_CHANGED}" = "0" ]; then
   log "SYNCED ${CURRENT:0:8} -> ${TARGET:0:8} (docs only -- no deploy)"
+  ecosystem_reminder
   exit 0
 fi
 
@@ -477,5 +493,6 @@ if ! health_ok; then
 fi
 
 log "DEPLOYED ${CURRENT:0:8} -> ${TARGET:0:8}"
+ecosystem_reminder
 git log --oneline "${CURRENT}..${TARGET}" | head -10 | while read -r l; do log "       ${l}"; done
 exit 0

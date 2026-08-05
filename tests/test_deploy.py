@@ -633,6 +633,39 @@ class TestRollback:
         assert "CRITICAL" in result.stdout
 
 
+class TestEcosystemChanges:
+    """PM2 process definitions (cron, env) are not re-registered automatically
+    -- doing that from inside a PM2-managed process is the 2026-08-05 incident.
+    But HEAD moves past the commit either way and the next tick is a no-op, so
+    a single log line was the entire notification: a cron or env change could
+    sit unapplied indefinitely with nothing left pointing at it."""
+
+    def test_change_is_recorded_and_keeps_reminding(self, server: Server):
+        server.push({"ecosystem.config.js": "module.exports = { apps: [] }\n"})
+        first = server.run()
+
+        assert "ecosystem" in first.stdout.lower()
+        pending = server.checkout / "logs" / ".ecosystem-pending"
+        assert pending.exists()
+
+        # Nothing new to deploy: the reminder still has to appear.
+        second = server.run()
+        assert "REMINDER" in second.stdout
+        assert "pm2 restart ecosystem.config.js" in second.stdout
+
+    def test_reminder_stops_once_the_operator_clears_it(self, server: Server):
+        server.push({"ecosystem.config.js": "module.exports = { apps: [] }\n"})
+        server.run()
+        (server.checkout / "logs" / ".ecosystem-pending").unlink()
+
+        assert "REMINDER" not in server.run().stdout
+
+    def test_no_reminder_when_nothing_is_pending(self, server: Server):
+        server.push({"README.md": "docs\n"})
+
+        assert "REMINDER" not in server.run().stdout
+
+
 class TestPm2EnvHygiene:
     """PM2 injects the deploy poller's own config keys (cron_restart,
     autorestart, ...) into this script's environment as plain variables, and

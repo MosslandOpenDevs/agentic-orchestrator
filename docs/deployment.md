@@ -208,7 +208,7 @@ DB까지 되돌려야 하면 `CLAUDE.md`의 복원 절차(최신 `data/backup/or
 | `CI: still running -- deferring` 반복 | CI가 아직 진행 중이거나 멈춤. Actions 탭 확인 |
 | `CI: status unavailable` 반복 | GitHub API 접근 실패(레이트 리밋 등). `GITHUB_TOKEN` 설정 검토 |
 | `scheduler busy` 로 계속 밀림 | 토론이 오래 걸리는 중. 급하면 `--force` |
-| `ecosystem.config.js changed` 안내 | PM2 프로세스 정의(cron·env)는 자동 재등록되지 않음. **로그인 셸에서** `pm2 restart ecosystem.config.js --update-env && pm2 save` 를 직접 실행 (PM2 관리 프로세스 안에서 실행 금지 — 아래 [cron_restart 오염](#pm2-cron_restart-오염-2026-08-05-사고) 참조) |
+| `REMINDER ecosystem.config.js changed ...` 반복 | PM2 프로세스 정의(cron·env)는 자동 재등록되지 않음. **로그인 셸에서** `pm2 restart ecosystem.config.js --update-env && pm2 save` 실행 후 `rm logs/.ecosystem-pending` (PM2 관리 프로세스 안에서 실행 금지 — 아래 [cron_restart 오염](#pm2-cron_restart-오염-2026-08-05-사고) 참조). 이 알림은 파일을 지울 때까지 매 틱 반복됩니다 — 예전에는 배포 한 번만 안내하고 사라져서 변경이 무기한 미적용으로 남을 수 있었습니다 |
 | `CRITICAL rollback ... unhealthy` | 배포도 롤백도 헬스체크 실패. `pm2 logs moss-ao-api` 확인 후 수동 개입 |
 | 배포는 됐는데 화면이 그대로 | 프론트엔드는 `NEXT_PUBLIC_*`가 빌드 시점에 박히므로 빌드 필요. `logs/deploy.log`에 `npm run build`가 있는지 확인 |
 | **api/web 업타임이 5분을 못 넘기고 ↺ 만 증가** | PM2 `cron_restart` 오염. 아래 절 참조 |
