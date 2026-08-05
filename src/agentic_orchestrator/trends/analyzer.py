@@ -122,6 +122,12 @@ Prioritize trends with:
                 task_type="trend_analysis",
                 force_local=True,
                 quality="normal",
+                # 10 trends of full JSON run ~1,400-2,000 tokens; 4,096 leaves
+                # headroom without approaching the provider's num_ctx window.
+                # Left unset, Ollama imposes no explicit output budget and the
+                # only stop is the context window itself — which is exactly
+                # how the 2026-08 truncation presented.
+                max_tokens=4096,
             )
             response = llm_response.content
 
@@ -288,62 +294,175 @@ Focus on actionable insights and Web3 opportunities. Be specific and detailed. W
         else:
             logger.debug(f"Response preview (first 500 chars): {response[:500]}...")
 
-        try:
-            # Extract JSON from response
-            json_match = re.search(r"```json\s*(.*?)\s*```", response, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(1)
-                logger.debug(f"Found JSON in code block, length: {len(json_str)} chars")
-            else:
-                # Try to find raw JSON
-                logger.debug("No JSON code block found, trying to parse raw response")
-                json_str = response
+        # Layered extraction. gemma3:4b wraps JSON in prose ("Okay, here's
+        # the JSON…"), regularly uses curly “smart quotes” as string
+        # delimiters, and — before num_ctx was fixed — got truncated before
+        # the closing fence. Each layer handles one of those defects; the
+        # first one that yields a dict wins.
+        data = None
+        for tag, candidate in self._json_candidates(response):
+            data = self._loads_lenient(candidate)
+            if data is not None:
+                logger.info(f"Parsed trends JSON via '{tag}' extraction")
+                break
 
-            # Debug: Log JSON string preview before parsing
-            if len(json_str) < 200:
-                logger.debug(f"JSON to parse: {json_str}")
-            else:
-                logger.debug(f"JSON preview (first 200 chars): {json_str[:200]}...")
+        if data is None:
+            # Truncated tail: pull whatever complete objects exist inside the
+            # "trends" array. A cut-off after trend 7 of 10 still yields 7.
+            salvaged = self._salvage_trend_objects(response)
+            if salvaged:
+                logger.warning(
+                    f"Trends JSON malformed or truncated; salvaged "
+                    f"{len(salvaged)} complete trend objects from the array"
+                )
+                data = {"trends": salvaged}
 
-            data = json.loads(json_str)
-
-            if "trends" not in data:
-                logger.warning("Response missing 'trends' key")
-                return trends
-
-            for trend_data in data["trends"]:
-                try:
-                    trend = Trend(
-                        topic=trend_data.get("topic", "Unknown"),
-                        keywords=trend_data.get("keywords", []),
-                        score=float(trend_data.get("score", 5.0)),
-                        time_period=period,
-                        sources=trend_data.get("sources", []),
-                        article_count=int(trend_data.get("article_count", 0)),
-                        sample_headlines=trend_data.get("sample_headlines", []),
-                        category=trend_data.get("category", "general"),
-                        summary=trend_data.get("summary", ""),
-                        web3_relevance=trend_data.get("web3_relevance", ""),
-                        idea_seeds=trend_data.get("idea_seeds", []),
-                    )
-                    trends.append(trend)
-                except (KeyError, ValueError, TypeError) as e:
-                    logger.warning(f"Failed to parse trend: {e}")
-                    continue
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse trends JSON: {e}")
-            logger.error(f"JSON parse error at position {e.pos}: {e.msg}")
-            # Show context around the error position
-            if hasattr(e, "doc") and e.doc:
-                start = max(0, e.pos - 50)
-                end = min(len(e.doc), e.pos + 50)
-                logger.error(f"Context around error: ...{e.doc[start:end]}...")
-            # Try to extract trends from plain text as fallback
+        if data is None:
+            preview = response[:150].replace("\n", " ")
+            logger.error(f"Could not parse any JSON from response; preview: {preview!r}")
             logger.info("Attempting fallback text parsing...")
             trends = self._parse_trends_fallback(response, period)
+            return sorted(trends, key=lambda t: t.score, reverse=True)
+
+        if "trends" not in data:
+            logger.warning("Response missing 'trends' key")
+            return trends
+
+        for trend_data in data["trends"]:
+            try:
+                trend = Trend(
+                    topic=trend_data.get("topic", "Unknown"),
+                    keywords=trend_data.get("keywords", []),
+                    score=float(trend_data.get("score", 5.0)),
+                    time_period=period,
+                    sources=trend_data.get("sources", []),
+                    article_count=int(trend_data.get("article_count", 0)),
+                    sample_headlines=trend_data.get("sample_headlines", []),
+                    category=trend_data.get("category", "general"),
+                    summary=trend_data.get("summary", ""),
+                    web3_relevance=trend_data.get("web3_relevance", ""),
+                    idea_seeds=trend_data.get("idea_seeds", []),
+                )
+                trends.append(trend)
+            except (KeyError, ValueError, TypeError, AttributeError) as e:
+                logger.warning(f"Failed to parse trend: {e}")
+                continue
 
         return sorted(trends, key=lambda t: t.score, reverse=True)
+
+    # -- lenient JSON extraction ------------------------------------------
+    #
+    # These exist because the production model (gemma3:4b) does not reliably
+    # emit machine-clean JSON. Observed on 2026-08-05, from live responses:
+    # prose before the fence, curly quotes as string delimiters (json.loads
+    # dies mid-document), and truncation that eats the closing fence.
+
+    # Double-quote lookalikes the model substitutes for '"'. Single curly
+    # quotes are left alone: inside a string they are legal content, and as
+    # delimiters they would not be valid JSON either way.
+    _SMART_QUOTES = ("“", "”", "„", "‟")
+
+    @classmethod
+    def _normalize_json_quotes(cls, text: str) -> str:
+        for q in cls._SMART_QUOTES:
+            text = text.replace(q, '"')
+        return text
+
+    @staticmethod
+    def _strip_trailing_commas(text: str) -> str:
+        """Remove ",}" / ",]" — the other habitual small-model JSON error."""
+        return re.sub(r",(\s*[}\]])", r"\1", text)
+
+    @classmethod
+    def _loads_lenient(cls, text: str) -> Optional[dict]:
+        """json.loads with progressively more repair; None if nothing parses.
+
+        Repairs are only attempted after a strict parse fails, so well-formed
+        content is never altered.
+        """
+        candidates = (
+            text,
+            cls._normalize_json_quotes(text),
+            cls._strip_trailing_commas(cls._normalize_json_quotes(text)),
+        )
+        for candidate in candidates:
+            try:
+                data = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, dict):
+                return data
+        return None
+
+    @classmethod
+    def _json_candidates(cls, response: str):
+        """Yield (tag, substring) candidates, most precise first."""
+        fenced = re.search(r"```(?:json)?\s*(.*?)\s*```", response, re.DOTALL)
+        if fenced:
+            yield "fenced", fenced.group(1)
+        # No "after-```json-to-end" candidate: for a fence whose closing ```
+        # was truncated away, _salvage_trend_objects recovers everything such
+        # a layer would (verified by mutation — adding it changes no test).
+        balanced = cls._extract_balanced_object(response)
+        if balanced:
+            yield "balanced-braces", balanced
+        yield "raw", response
+
+    @staticmethod
+    def _extract_balanced_object(text: str) -> Optional[str]:
+        """Slice from the first '{' to its matching '}', tracking strings."""
+        start = text.find("{")
+        if start == -1:
+            return None
+        depth = 0
+        in_string = False
+        escaped = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_string = False
+            elif ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : i + 1]
+        return None  # never balanced (truncated) — salvage handles that case
+
+    @classmethod
+    def _salvage_trend_objects(cls, response: str) -> list[dict]:
+        """Recover complete objects from a truncated "trends" array.
+
+        Normalizes quotes first (the salvage path is only reached after strict
+        parsing failed), finds the array opening, then raw_decode()s one
+        object at a time until the truncated tail stops parsing.
+        """
+        text = cls._strip_trailing_commas(cls._normalize_json_quotes(response))
+        array_start = re.search(r'"trends"\s*:\s*\[', text)
+        if not array_start:
+            return []
+        decoder = json.JSONDecoder()
+        objects: list[dict] = []
+        pos = array_start.end()
+        while pos < len(text):
+            while pos < len(text) and text[pos] in " \t\r\n,":
+                pos += 1
+            if pos >= len(text) or text[pos] != "{":
+                break
+            try:
+                obj, pos = decoder.raw_decode(text, pos)
+            except json.JSONDecodeError:
+                break  # truncated mid-object: keep what we have
+            if isinstance(obj, dict):
+                objects.append(obj)
+        return objects
 
     def _parse_trends_fallback(
         self,
