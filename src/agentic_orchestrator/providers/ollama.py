@@ -237,6 +237,7 @@ class OllamaProvider:
         max_tokens: Optional[int] = None,
         stream: bool = False,
         format_schema: Optional[Dict[str, Any]] = None,
+        num_ctx: Optional[int] = None,
         **kwargs,
     ) -> OllamaResponse:
         """
@@ -273,7 +274,13 @@ class OllamaProvider:
                 # Always sent: without it Ollama loads the model at its own
                 # default (4096), and long prompts silently truncate the
                 # output at prompt+output == num_ctx. See DEFAULT_NUM_CTX.
-                "num_ctx": self.config.throttle.get("num_ctx", DEFAULT_NUM_CTX),
+                # A per-call num_ctx wins over the throttle-config default:
+                # each distinct num_ctx is its own model instance on the
+                # server, and a task whose prompt fits a small context must
+                # be able to say so — a 16k KV-cache load can hang for
+                # minutes on a congested shared GPU while the already-
+                # resident small instance answers instantly (2026-08-05).
+                "num_ctx": num_ctx or self.config.throttle.get("num_ctx", DEFAULT_NUM_CTX),
             },
         }
 

@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Tests
 - `tests/test_website_share_metadata.py` (17 tests): source-level pins for the share-metadata convention and the ecosystem-bar accessibility fixes, in the same spirit as test_deploy.py pinning "`git clean` appears nowhere in deploy.sh" — the website has no JS test runner, so the guards fail on the commit that reintroduces inline share metadata or drops the separator/new-tab hint, not on the next visual QA pass. The og:image pin was hardened during the pre-merge adversarial review: it now asserts the `images: [OG_IMAGE]` usage inside `detailMetadata()` — the bare URL-constant check stayed green under a mutation that removed the usage.
 
+## [0.6.18] - 2026-08-05
+
+### Fixed
+- **Idea scoring pinned to the 4k Ollama context — backlog triage no longer starves when the shared GPU can't load 16k.** The v0.6.15 fix made every request send `num_ctx` (default 16384) because trend prompts overflow 4k. But each distinct `num_ctx` is its own model instance server-side, and on 2026-08-05 afternoon the congested shared GPU hung **every** 16k/8k KV-cache load for ~30 min (per-call 1800s timeouts) while the already-resident 4k instance kept answering in <1s — the 12:25 debate failed after 90 min, the 16:15 trend run saved 0 trends, and the first aggressive-consumption triage tick (16:45, 25 ideas selected) got 1 idea skipped per 30 min. The triage fallback detector did exactly its job (timeouts → `scorer_unavailable`, zero strikes handed out — live-verified at 17:15/17:45), but consumption was effectively zero. Scoring's prompt (~2.5k tokens) + 1,024-token output fit 4,096 with headroom, so `IdeaScorer` now passes `SCORING_NUM_CTX = 4096`: triage keeps consuming even when big-context loads hang. Plumbing follows the v0.6.15 schema lesson — `num_ctx` is forwarded per-call through `route()` → all three `_call_ollama` sites (both fallbacks included) → the provider payload, where a per-call value beats the throttle default; 4 new tests pin the payload override, the None-keeps-default path, the router plumb, and the scorer's constant. Big-context tasks (trends/debates) still need the 16k instance and still require the GPU box itself to recover — that part is infra, not code.
+
 ## [0.6.17] - 2026-08-05
 
 ### Changed
