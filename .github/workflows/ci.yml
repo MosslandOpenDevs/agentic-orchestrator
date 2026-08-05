@@ -101,6 +101,10 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # `npm test` passes --experimental-strip-types explicitly: Node runs the
+      # *.test.ts files directly, and stripping is only on by default from
+      # 22.18 / 23.6. The flag is still accepted on newer versions, so this
+      # works across every Node the project might be built with.
       - name: Test
         run: npm test
 
