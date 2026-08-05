@@ -7,7 +7,7 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 이 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)를 기반으로 하며,
 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
-## [Unreleased]
+## [0.6.15] - 2026-08-05
 
 ### 수정
 - **scaffold가 운영 서버에서 origin/main으로 push하던 경로 차단.** `_git_commit_and_push`가 프로젝트 생성 때마다 무조건 실행됐다 — 스케줄러가 도는 체크아웃에서 `git add` + `commit` + `git push origin main`. /projects/가 gitignore된 뒤로는 실패(+경고 스팸)만 하고 있었지만, 그 전에는 서버 main에 쌓인 "feat: generate production-quality code…" 커밋들이 바로 이 경로였다. config.yaml에는 처음부터 `git.auto_push: false`가 있었는데 아무도 안 읽었다. 이제 scaffold가 이를 존중한다(기본 false, 설정 읽기 실패 시 fail-closed, 명시적 생성자 인자가 우선). 게이트 위치 자체를 테스트로 고정.

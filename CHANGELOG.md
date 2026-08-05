@@ -7,7 +7,7 @@ All notable changes to the Mossland Agentic Orchestrator will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.15] - 2026-08-05
 
 ### Fixed
 - **Scaffold no longer pushes to origin/main from the production server.** `_git_commit_and_push` ran unconditionally after every generated project — `git add` + `commit` + `git push origin main` on whatever checkout the scheduler runs in. It has only been failing (with warning spam) since /projects/ became gitignored; before that this path is exactly where the server's local "feat: generate production-quality code…" commits on main came from. config.yaml has carried `git.auto_push: false` all along — nothing read it. The scaffold now honors it (default false, fail-closed when config is unreadable, explicit constructor argument wins), and the gate placement itself is pinned by a test.
