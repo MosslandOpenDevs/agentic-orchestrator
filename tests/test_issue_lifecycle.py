@@ -49,11 +49,17 @@ def make_issue(
 
 
 class FakeClient:
-    """Duck-typed GitHubClient recording every mutation."""
+    """Duck-typed GitHubClient recording every mutation.
 
-    def __init__(self, open_issues=None, fail_numbers=()):
+    ``fail_numbers`` fails every call for an issue; ``fail_close_numbers``
+    fails only ``update_issue`` — the partial-failure window where a comment
+    could land on an issue that then stays open.
+    """
+
+    def __init__(self, open_issues=None, fail_numbers=(), fail_close_numbers=()):
         self.open_issues = {i.number: i for i in (open_issues or [])}
         self.fail_numbers = set(fail_numbers)
+        self.fail_close_numbers = set(fail_close_numbers)
         self.closed = {}  # number -> state_reason
         self.comments = {}  # number -> [bodies]
         self.label_updates = {}  # number -> labels
@@ -69,7 +75,7 @@ class FakeClient:
         return {}
 
     def update_issue(self, number, state=None, state_reason=None, labels=None, **kw):
-        if number in self.fail_numbers:
+        if number in self.fail_numbers or number in self.fail_close_numbers:
             raise RuntimeError("boom")
         if state == "closed":
             self.closed[number] = state_reason
@@ -289,6 +295,135 @@ class TestRunIssueLifecycle:
 
         assert stats["errors"] == 1
         assert stats["aged_out"] == 0
+
+
+class TestArchivedReconciliation:
+    """DB-archived ideas (backlog triage rejects) close their mirror issue.
+
+    Issues here are FRESH — well under max_age_days — so any close observed
+    comes from the archived reconciliation, never from the aging sweep.
+    """
+
+    def _archived_idea(self, idea_repo, issue_number, triage=None):
+        extra = {"triage": triage} if triage else None
+        idea_repo.create(
+            {
+                "id": f"i{issue_number}",
+                "title": "t",
+                "summary": "s",
+                "source_type": "debate",
+                "status": "archived",
+                "github_issue_id": issue_number,
+                "extra_metadata": extra,
+            }
+        )
+
+    def test_archived_idea_closes_not_planned_with_verdict(self, repos):
+        idea_repo, plan_repo, project_repo, session = repos
+        self._archived_idea(
+            idea_repo,
+            10,
+            triage={
+                "last_score": 3.1,
+                "last_at": "2026-08-05T08:00:00",
+                "reason": "re-scored below archive threshold",
+            },
+        )
+        issue = make_issue(
+            10,
+            labels=[Labels.GENERATED_BY_ORCHESTRATOR, Labels.STATUS_BACKLOG],
+            created_at="2026-08-05T00:00:00Z",
+        )
+        client = FakeClient([issue])
+
+        stats = run_issue_lifecycle(client, idea_repo, plan_repo, project_repo, now=NOW)
+
+        assert stats["reconciled_archived"] == 1
+        assert client.closed[10] == "not_planned"
+        assert "3.1/10" in client.comments[10][0]
+        assert "re-scored below archive threshold" in client.comments[10][0]
+        assert Labels.STATUS_ARCHIVED in client.label_updates[10]
+        assert Labels.STATUS_BACKLOG not in client.label_updates[10]
+
+    def test_archived_idea_without_triage_record_still_closes(self, repos):
+        idea_repo, plan_repo, project_repo, session = repos
+        self._archived_idea(idea_repo, 10)
+        issue = make_issue(10, created_at="2026-08-05T00:00:00Z")
+        client = FakeClient([issue])
+
+        stats = run_issue_lifecycle(client, idea_repo, plan_repo, project_repo, now=NOW)
+
+        assert stats["reconciled_archived"] == 1
+        assert client.closed[10] == "not_planned"
+
+    def test_human_engagement_overrides_the_archive_close(self, repos):
+        idea_repo, plan_repo, project_repo, session = repos
+        self._archived_idea(idea_repo, 10)
+        self._archived_idea(idea_repo, 11)
+        curated = make_issue(
+            10,
+            labels=[Labels.GENERATED_BY_ORCHESTRATOR, Labels.CURATED_KEEP],
+            created_at="2026-08-05T00:00:00Z",
+        )
+        discussed = make_issue(11, created_at="2026-08-05T00:00:00Z", comments=2)
+        client = FakeClient([curated, discussed])
+
+        stats = run_issue_lifecycle(client, idea_repo, plan_repo, project_repo, now=NOW)
+
+        assert stats["reconciled_archived"] == 0
+        assert client.closed == {}
+
+    def test_archived_idea_with_closed_or_missing_issue_is_skipped(self, repos):
+        idea_repo, plan_repo, project_repo, session = repos
+        self._archived_idea(idea_repo, 99)  # issue not in the open list
+        client = FakeClient([])
+
+        stats = run_issue_lifecycle(client, idea_repo, plan_repo, project_repo, now=NOW)
+
+        assert stats["reconciled_archived"] == 0
+        assert client.closed == {}
+
+    def test_failed_close_posts_no_comment_and_stays_retryable(self, repos):
+        # The poison scenario: if the verdict comment landed while the close
+        # failed, the bot's own comment would read as human engagement and
+        # block every future auto-close. Close-first ordering prevents it.
+        idea_repo, plan_repo, project_repo, session = repos
+        self._archived_idea(idea_repo, 10, triage={"last_score": 3.0})
+        issue = make_issue(10, created_at="2026-08-05T00:00:00Z")
+        client = FakeClient([issue], fail_close_numbers={10})
+
+        stats = run_issue_lifecycle(client, idea_repo, plan_repo, project_repo, now=NOW)
+
+        assert stats["errors"] == 1
+        assert client.comments == {}  # nothing posted — the issue is clean
+        assert client.closed == {}
+
+        # Next cycle, GitHub recovered: the same issue closes normally.
+        client.fail_close_numbers.clear()
+        stats = run_issue_lifecycle(client, idea_repo, plan_repo, project_repo, now=NOW)
+
+        assert stats["reconciled_archived"] == 1
+        assert client.closed[10] == "not_planned"
+        assert "3.0/10" in client.comments[10][0]
+
+    def test_archived_loop_respects_the_close_budget(self, repos):
+        idea_repo, plan_repo, project_repo, session = repos
+        for number in (10, 11, 12):
+            self._archived_idea(idea_repo, number)
+        issues = [make_issue(n, created_at="2026-08-05T00:00:00Z") for n in (10, 11, 12)]
+        client = FakeClient(issues)
+
+        stats = run_issue_lifecycle(
+            client,
+            idea_repo,
+            plan_repo,
+            project_repo,
+            config={"max_closes_per_run": 2},
+            now=NOW,
+        )
+
+        assert stats["reconciled_archived"] == 2
+        assert len(client.closed) == 2
 
 
 class TestGitHubIssueParsing:
