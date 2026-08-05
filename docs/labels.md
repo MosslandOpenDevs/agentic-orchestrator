@@ -92,13 +92,47 @@ Written by `_auto_score_and_save_ideas` in
 |-----------|---------------|-------------|
 | `promoted` | `type:idea`, `promote:to-plan` | High-quality idea, queued for planning |
 | `scored` | `type:idea`, `status:backlog` | Medium-quality, needs review |
-| `archived` | `type:idea`, `status:archived` | Low-quality, not pursued |
+| `archived` | *(no issue created)* | Low-quality, DB-only since v0.6.15 |
 | `planned` | `type:plan`, `status:backlog` | Plan document exists |
 
 Note that the `promoted` row carries **no** `status:` label. That is deliberate:
 `find_ideas_to_promote()` queries `[type:idea, promote:to-plan]`, and adding `status:backlog`
 would double-count the issue across two queues that are meant to be exclusive. The six open
 issues in that state are correct, not untagged.
+
+Archived ideas (score < 4.0) stopped getting GitHub issues in v0.6.15 — an issue
+that is dead on arrival is tracker noise; the DB row remains the record. Issues
+created before v0.6.15 with `status:archived` still exist in the closed set.
+
+### Issue Lifecycle (v0.6.15)
+
+The tracker is a mirror of the DB pipeline, and since v0.6.15 it **follows** the
+pipeline instead of only accumulating. Two mechanisms, both implemented in
+[`scheduler/issue_lifecycle.py`](../src/agentic_orchestrator/scheduler/issue_lifecycle.py)
+and run from the backlog cycle (every 4h in production), plus an inline close in
+the debate task:
+
+1. **Pipeline-linked closes** (`state_reason=completed`)
+   - When an idea is promoted and its plan is created, the `[Idea]` issue gets a
+     comment linking the `[Plan]` issue, its labels move to
+     `status:planned` + `processed:to-plan`, and it closes. This happens inline
+     at promotion time; a reconciliation sweep retries any close GitHub dropped.
+   - When a project is generated from a plan (auto at score ≥ 8.0 or via
+     `POST /plans/{id}/approve`), the `[Plan]` issue gets a comment naming the
+     project, labels move to `status:done` + `processed:to-dev`, and it closes.
+2. **Aging sweep** (`state_reason=not_planned`)
+   - A `generated:by-orchestrator` issue that is older than
+     `backlog.issue_lifecycle.max_age_days` (default 30) with **zero comments**
+     is closed. The orchestrator never comments on open issues, so any comment
+     means a human showed interest and the issue is exempt.
+   - **`curated:keep` and `source:trend` issues are never aged out.** Add
+     `curated:keep` to any issue you want to pin open indefinitely.
+
+Closes are capped at `backlog.issue_lifecycle.max_closes_per_run` (default 50)
+per cycle, use the list API rather than the search API (the search index
+silently omits some issues), and are visibility-only: DB rows are untouched and
+any closed issue can be reopened. Disable the whole mechanism with
+`backlog.issue_lifecycle.enabled: false` in `config.yaml`.
 
 ## Label Categories
 

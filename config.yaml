@@ -140,6 +140,19 @@ backlog:
   # the GitHub mirror is paused. Set to 0 to disable the cap.
   max_open_ideas: 800
 
+  # GitHub issue lifecycle (runs in the backlog cycle, every 4h in production).
+  # The tracker mirrors the DB pipeline instead of accumulating forever:
+  # - [Idea] issues close as `completed` once promoted and their plan exists
+  # - [Plan] issues close as `completed` once a project was generated
+  # - bot backlog issues with ZERO comments close as `not_planned` after
+  #   max_age_days (issues labeled curated:keep or source:trend are never
+  #   aged out; any human comment also exempts an issue)
+  # Closing is visibility-only: DB rows are untouched, issues can be reopened.
+  issue_lifecycle:
+    enabled: true
+    max_age_days: 30
+    max_closes_per_run: 50
+
 # Debate Configuration
 debate:
   # Test mode: Reduced agents for faster testing
