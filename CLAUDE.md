@@ -306,6 +306,7 @@ moss-ao-trends   # 트렌드 분석 (TEST: 30분, PROD: 2시간)
 moss-ao-debate   # 토론 스케줄러 (TEST: 1시간, PROD: 6시간)
 moss-ao-backlog  # 백로그 처리 (TEST: 30분, PROD: 4시간)
 moss-ao-health   # 헬스체크 (5분마다)
+moss-ao-deploy   # 자동 배포 폴러 (5분마다, .env의 MOSS_AO_AUTO_DEPLOY=1일 때만 등록)
 
 # 재시작 (환경변수 갱신 포함)
 pm2 restart moss-ao-web --update-env
@@ -354,7 +355,34 @@ pm2 save
 > 한 단계 전체로는 정원 수까지 서로 다른 페르소나가 등장할 수 있다.
 > 두 숫자 중 하나만 보고 문서가 틀렸다고 판단하지 말 것.
 
+### 자동 배포
+
+프로덕션 서버는 `main`을 스스로 따라갑니다. `moss-ao-deploy`(5분 주기)가
+`scripts/deploy.sh`를 실행해 `origin/main`이 움직였을 때만 배포하고, 그 외에는
+`git fetch` 한 번으로 종료합니다. 전체 절차·설정·문제 해결은 **`docs/deployment.md`** 참조.
+
+- **풀(pull) 방식인 이유**: 앱 서버는 테일넷 안에만 있어 외부에서 SSH가 불가능하고,
+  저장소는 public이라 self-hosted 러너가 위험하며, 저장소 admin 권한도 없다.
+  풀 방식은 포트·배포키·GitHub 설정이 하나도 필요 없다 (public repo는 익명 fetch 가능).
+- **활성화**: 서버 `.env`에 `MOSS_AO_AUTO_DEPLOY=1` → `pm2 start ecosystem.config.js
+  --only moss-ao-deploy && pm2 save`. 이 플래그가 없으면 PM2 앱 목록에 등록조차 되지 않아
+  다른 체크아웃이 자기 자신을 배포하는 사고가 나지 않는다.
+- **가드**: CI 초록불일 때만 / 서버에 로컬 수정이 있으면 중단 / 토론 실행 중이면 백엔드
+  배포는 다음 틱으로 연기 / 배포 전 강제 DB 스냅샷 / 헬스체크 실패 시 자동 롤백(재빌드 포함).
+- **`git clean` 금지**: `git reset --hard`만 사용한다. DB(`data/`)·`.env`는 untracked라
+  reset은 건드리지 않지만 clean은 지운다 (2026-07 사고). `tests/test_deploy.py`가 이
+  불변식을 실제 실행으로 검증하므로 스크립트에 clean을 추가하면 테스트가 깨진다.
+- **스케줄러는 재시작하지 않는다**: signals/trends/debate/backlog/health는 cron 틱마다
+  파이썬을 새로 띄우므로 다음 실행에서 새 코드를 자동으로 집는다. 재시작하면 진행 중인
+  작업만 죽는다. 상시 실행되는 `moss-ao-api`·`moss-ao-web`만 재시작 대상이다.
+- **`ecosystem.config.js` 변경은 수동 반영**: cron·env 정의는 자동 재등록되지 않는다.
+  로그에 안내가 뜨면 `pm2 restart ecosystem.config.js --update-env && pm2 save` 실행.
+- 즉시 배포: `bash scripts/deploy.sh` / 가드 무시: `--force` / 미리보기: `--check`
+
 ## 개발 워크플로우
+
+> 아래는 서버에 직접 들어가 손으로 반영할 때의 절차다. 자동 배포가 켜진 뒤로는
+> `main` 머지만으로 같은 일이 5분 내에 수행된다.
 
 ### 백엔드 변경 시
 
