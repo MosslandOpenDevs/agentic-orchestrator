@@ -72,6 +72,7 @@ class ProjectScaffold:
         router=None,
         projects_dir: str = "projects",
         db_session=None,
+        auto_push: Optional[bool] = None,
     ):
         """
         Initialize the scaffold.
@@ -80,10 +81,25 @@ class ProjectScaffold:
             router: HybridLLMRouter for LLM-based generation
             projects_dir: Base directory for generated projects
             db_session: SQLAlchemy session (optional)
+            auto_push: Commit + push generated projects to the repo's origin.
+                None (default) reads `git.auto_push` from config.yaml, which
+                ships as false: /projects/ is gitignored by design, so the
+                push can only fail — and when it *could* commit (pre-0.6.x),
+                this path pushed generated scaffolds straight to origin/main
+                from the production server. Leave it off unless you know
+                exactly why you need it.
         """
         self.router = router
         self.projects_dir = Path(projects_dir)
         self.db_session = db_session
+        if auto_push is None:
+            try:
+                from ..utils.config import load_config
+
+                auto_push = load_config().git_auto_push
+            except Exception:  # config unreadable — fail closed, never push
+                auto_push = False
+        self.auto_push = auto_push
 
         self.parser = PlanParser(router=router)
         self.templates = TemplateManager(projects_dir=projects_dir)
@@ -237,13 +253,20 @@ class ProjectScaffold:
                 verification=verification,
             )
 
-            # Auto-commit and push to GitHub
-            git_success = await self._git_commit_and_push(str(project_path), project_name)
-            if git_success:
-                logger.info(f"Project auto-pushed to GitHub: {project_name}")
+            # Auto-commit and push to GitHub — opt-in via git.auto_push.
+            if self.auto_push:
+                git_success = await self._git_commit_and_push(str(project_path), project_name)
+                if git_success:
+                    logger.info(f"Project auto-pushed to GitHub: {project_name}")
+                else:
+                    logger.warning(
+                        f"Git push failed for project: {project_name} "
+                        f"(project still created locally)"
+                    )
             else:
-                logger.warning(
-                    f"Git push failed for project: {project_name} (project still created locally)"
+                logger.debug(
+                    f"git.auto_push disabled; keeping {project_name} local (by design: "
+                    f"/projects/ is gitignored)"
                 )
 
             duration = (utcnow() - start_time).total_seconds()

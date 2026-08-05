@@ -555,8 +555,8 @@ npm run build 2>&1 | head -50  # 오류 확인
 
 **해결:**
 ```bash
-# 현재 운영 모델은 gemma3:4b(채팅) + qwen3-embedding:0.6b(임베딩) 두 개뿐이며
-# 둘 다 ~8GB GPU에 상주하도록 설계되어 있어 일반적으로 언로드할 필요가 없다.
+# 현재 운영에서 실제로 호출되는 모델은 gemma3:4b(채팅) 하나다. qwen3-embedding:0.6b는
+# 코드에 예약만 돼 있고 호출처가 없다 (서버에도 미설치 — 위 '작업별 LLM 모델' 절 참조).
 # VRAM 점유 확인:
 curl -s "$OLLAMA_HOST/api/ps"
 ```
@@ -765,9 +765,19 @@ GPU(~8 GB)에 상주하는 모델은 두 개뿐이며 스왑이 발생하지 않
 | 작업 | 모델 | 용도 |
 |------|------|------|
 | 모든 채팅 / 생성 / 평가 / 모더레이션 / 번역 / 요약 | `gemma3:4b` | Divergence, Convergence, Planning, 트렌드 분석, 분류, 필터링 등 |
-| 임베딩 / 의미 검색 | `qwen3-embedding:0.6b` | RAG 인덱싱, 유사도 비교 |
+| 임베딩 / 의미 검색 | `qwen3-embedding:0.6b` (예약만 됨 — 아래 참조) | (현재 미사용) |
 
 > 실제 모델 정의는 `src/agentic_orchestrator/llm/hierarchy.py`의 `LOCAL_MODELS`, 프로젝트 생성 모델은 `config.yaml`의 `project.llm`을 단일 소스로 참조합니다.
+
+> **임베딩은 현재 어떤 코드도 호출하지 않는다 (2026-08-05 확인).** `hierarchy.py`에
+> `qwen3-embedding:0.6b`가 등록돼 있고 이 문서도 오랫동안 "RAG 인덱싱, 유사도 비교"에
+> 쓴다고 적어 왔지만, 임베딩 API를 호출하는 코드 경로가 소스 어디에도 없다 — 시그널의
+> "Semantic dedup"은 임베딩이 아니라 **제목 토큰 Jaccard 유사도**다
+> (`signals/aggregator.py::_is_semantic_duplicate`). 실제 Ollama 서버에도 이 모델은
+> 설치돼 있지 않다(`nomic-embed-text`만 있음). 임베딩 기반 기능을 만들려면 먼저 호출
+> 코드를 구현하고 서버에 모델을 받아야 하며, 그 전까지 이 등록은 예약 슬롯일 뿐이다.
+> 구조화 출력(JSON 스키마 강제)은 트렌드 분석·아이디어 점수화 경로에 적용돼 있다
+> (`response_schema` → Ollama `format`).
 
 ### 생성되는 프로젝트 구조
 

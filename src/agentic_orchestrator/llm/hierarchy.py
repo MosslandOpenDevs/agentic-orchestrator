@@ -46,9 +46,11 @@ class LLMHierarchy:
     """
 
     # Local models (Tier 1 - Free) on remote Ollama server (host configured via OLLAMA_HOST).
-    # Consolidated to a single chat model (gemma3:4b) plus a single embedding model
-    # (qwen3-embedding:0.6b). The shared ~8GB GPU only has to keep these two resident,
-    # so there is never a VRAM swap during normal operation.
+    # Consolidated to a single chat model (gemma3:4b). qwen3-embedding:0.6b is a
+    # RESERVED slot only: no code path calls an embedding API today (signal
+    # "semantic dedup" is title-token Jaccard), and the production Ollama host
+    # does not have the model pulled. Implement a caller and pull the model
+    # before relying on it.
     LOCAL_MODELS: Dict[str, ModelConfig] = {
         "gemma3:4b": ModelConfig(
             name="gemma3:4b",

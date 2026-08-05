@@ -15,6 +15,10 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  // Without metadataBase, Next.js resolves the relative og-image/twitter-image
+  // URLs against http://localhost:3000 in the production build, so social
+  // shares of ao.moss.land pointed their preview image at localhost.
+  metadataBase: new URL("https://ao.moss.land"),
   title: "MOSS.AO // Agentic Orchestrator",
   description: "Multi-agent AI orchestration system for Mossland ecosystem",
   keywords: ["AI", "agents", "orchestrator", "mossland", "crypto", "debate"],
