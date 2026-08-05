@@ -23,6 +23,11 @@ class IdeaScore:
     relevance: float  # Mossland 관련성 (0-10): Mossland/Web3 생태계 적합성
     novelty: float  # 참신성 (0-10): 기존 솔루션 대비 차별화
     impact: float  # 영향력 (0-10): 사용자 가치 및 비즈니스 임팩트
+    # The model's own justification. Deliberately "" on every fallback path:
+    # backlog triage uses "flat 5.0 AND empty reasoning" to tell a transport
+    # error apart from a genuine mediocre verdict, so a real verdict must
+    # carry the reasoning through.
+    reasoning: str = ""
 
     @property
     def total(self) -> float:
@@ -211,6 +216,7 @@ JSON으로만 응답해주세요:
                 relevance=float(data.get("relevance", 5.0)),
                 novelty=float(data.get("novelty", 5.0)),
                 impact=float(data.get("impact", 5.0)),
+                reasoning=str(data.get("reasoning") or ""),
             )
 
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
