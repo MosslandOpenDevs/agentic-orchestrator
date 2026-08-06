@@ -192,6 +192,92 @@ class TestGateIsActuallyWired:
         assert IdeaRepository(session).get_by_status("duplicate", limit=500) == []
 
 
+class TestSecondPassGatesPromotion:
+    """The strong model's work must not be graded only by the weak one."""
+
+    def _reviewing(self, monkeypatch, verdict, provider="openai"):
+        """Force every second-pass call to return one verdict."""
+        from agentic_orchestrator.scoring import second_pass as sp
+
+        class Fixed(sp.SecondPassReviewer):
+            async def review(self, title, content, local_score, context=""):
+                if verdict == sp.UNAVAILABLE:
+                    return sp.ReviewVerdict(sp.UNAVAILABLE, reason="stub outage")
+                self.reviews_used += 1
+                return sp.ReviewVerdict(verdict, reason="stub", score=8.0, model="gpt-5.4-mini")
+
+        monkeypatch.setattr(sp, "SecondPassReviewer", Fixed)
+
+    def test_confirm_lets_a_promotion_through(self, session, monkeypatch, no_external):
+        from agentic_orchestrator.scoring import second_pass as sp
+
+        self._reviewing(monkeypatch, sp.CONFIRM)
+
+        run_scoring(session, golden_ideas(), ScriptedScorer({}, default=8.5), monkeypatch)
+
+        promoted = IdeaRepository(session).get_by_status("promoted", limit=100)
+        assert promoted
+        assert promoted[0].extra_metadata["second_pass"]["verdict"] == sp.CONFIRM
+
+    def test_an_unavailable_reviewer_holds_instead_of_promoting(
+        self, session, monkeypatch, no_external
+    ):
+        # THE safety property. A silent reviewer outage must not become a
+        # promotion, because promotion leads to a plan and a scaffolded
+        # project with nothing having vetted the idea.
+        from agentic_orchestrator.scoring import second_pass as sp
+
+        self._reviewing(monkeypatch, sp.UNAVAILABLE)
+
+        run_scoring(session, golden_ideas(), ScriptedScorer({}, default=8.5), monkeypatch)
+
+        repo = IdeaRepository(session)
+        assert repo.get_by_status("promoted", limit=100) == []
+        assert repo.get_by_status("scored", limit=100), "held in the backlog, not lost"
+        assert PlanRepository(session).get_all(limit=50) == []
+
+    def test_demote_holds_in_the_backlog(self, session, monkeypatch, no_external):
+        from agentic_orchestrator.scoring import second_pass as sp
+
+        self._reviewing(monkeypatch, sp.DEMOTE)
+
+        run_scoring(session, golden_ideas(), ScriptedScorer({}, default=8.5), monkeypatch)
+
+        repo = IdeaRepository(session)
+        assert repo.get_by_status("promoted", limit=100) == []
+        assert repo.get_by_status("scored", limit=100)
+
+    def test_reject_archives_rather_than_holding(self, session, monkeypatch, no_external):
+        from agentic_orchestrator.scoring import second_pass as sp
+
+        self._reviewing(monkeypatch, sp.REJECT)
+
+        run_scoring(session, golden_ideas(), ScriptedScorer({}, default=8.5), monkeypatch)
+
+        repo = IdeaRepository(session)
+        assert repo.get_by_status("promoted", limit=100) == []
+        assert repo.get_by_status("archived", limit=100)
+
+    def test_low_scoring_ideas_never_reach_the_paid_reviewer(
+        self, session, monkeypatch, no_external
+    ):
+        from agentic_orchestrator.scoring import second_pass as sp
+
+        seen = []
+
+        class Counting(sp.SecondPassReviewer):
+            async def review(self, title, content, local_score, context=""):
+                seen.append(title)
+                return sp.ReviewVerdict(sp.CONFIRM, reason="stub")
+
+        monkeypatch.setattr(sp, "SecondPassReviewer", Counting)
+
+        # Everything scores 5.5 -> nothing is a promotion candidate.
+        run_scoring(session, golden_ideas(), ScriptedScorer({}, default=5.5), monkeypatch)
+
+        assert seen == []
+
+
 class TestOnePlanPerDebate:
     def test_the_debate_plan_document_is_not_copied_into_every_promotion(
         self, session, monkeypatch, no_external
