@@ -4,6 +4,7 @@ Hybrid LLM router for intelligent model selection.
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -129,8 +130,6 @@ class HybridLLMRouter:
 
     def _init_api_providers(self):
         """Initialize API providers if not provided. No-op in local-only mode."""
-        import os
-
         if self.local_only:
             return
 
