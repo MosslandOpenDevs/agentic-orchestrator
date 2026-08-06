@@ -51,7 +51,78 @@ TRIAGE_DEFAULTS = {
     # different context than the debate that produced it.
     "min_age_hours": 6,
     "max_strikes": 2,
+    # Circuit breaker. A wedged Ollama fails every scoring call identically,
+    # so grinding through the whole quota only multiplies one dead GPU by
+    # `per_run` — 25 ideas x the scoring timeout, consuming nothing and
+    # holding the PM2 process "online" for deploy.sh to trip over. After this
+    # many consecutive scorer-unavailable results the run *probes the backend*
+    # and gives up only if the backend really is down (see
+    # `_backend_looks_down`). Consecutive, not cumulative: an isolated hiccup
+    # mid-run resets it, so only a sustained outage trips the breaker.
+    "max_consecutive_scorer_failures": 3,
 }
+
+# Budget for the breaker's confirmation probe. Deliberately tiny: it only has
+# to answer "does this backend respond at all", and it runs at most once per
+# run, so it must not itself become a stall.
+BACKEND_PROBE_TIMEOUT = 30
+
+
+async def _backend_looks_down(scorer) -> bool:
+    """Confirm a suspected outage with one direct, cheap generate.
+
+    The breaker must never fire on a *poison idea*. ``score_idea`` catches
+    every exception — including a parse failure of one idea's response — and
+    returns the same flat 5.0 with no reasoning that a dead transport
+    produces, so `_is_scorer_fallback` alone cannot tell "the GPU is wedged"
+    from "this one idea breaks scoring". Aborting on the latter would be a
+    real regression: triage takes the oldest ideas first and the fallback
+    branch writes nothing, so three unscoreable ideas at the head of the
+    queue would abort every future run at the same three ideas and the
+    backlog would never drain again — the failure mode that produced the
+    2,866-issue flood.
+
+    So ask the backend directly. A trivial prompt that comes back means the
+    backend is fine and those ideas are the problem: keep going and let the
+    rest of the quota through. Only a probe that also fails confirms the
+    outage. A scorer with no router (test doubles) cannot be probed, so the
+    consecutive failures are taken at face value.
+    """
+    router = getattr(scorer, "router", None)
+    if router is None:
+        return True
+    try:
+        # No num_ctx: the shared host serves ONE model instance at a time and
+        # each distinct context size is a distinct instance, so a pinned probe
+        # would evict whatever is resident and pay a reload each way. The
+        # probe must observe the pipeline's instance, not create another.
+        await router.route(
+            prompt="ok",
+            task_type="evaluation",
+            force_local=True,
+            max_tokens=1,
+            timeout=BACKEND_PROBE_TIMEOUT,
+        )
+        return False
+    except Exception as e:
+        logger.warning(f"Triage backend probe failed, treating the outage as real: {e}")
+        return True
+
+
+def _int_config(config: Dict, key: str, default: int) -> int:
+    """Read an int from config, falling back on null/garbage.
+
+    ``run_backlog_triage`` promises never to raise, and the defaults merge
+    only fills keys that are *absent* — a key present with a null or a typo'd
+    value would otherwise raise out of the whole run.
+    """
+    try:
+        return int(config.get(key, default))
+    except (TypeError, ValueError):
+        logger.warning(
+            f"Triage config {key}={config.get(key)!r} is not an integer; using {default}"
+        )
+        return default
 
 
 def _is_scorer_fallback(score) -> bool:
@@ -128,13 +199,20 @@ async def run_backlog_triage(
         "strike_outs": 0,
         "scorer_unavailable": 0,
         "errors": 0,
+        "aborted": 0,
+        "probe_cleared": 0,
     }
     if not config.get("enabled", True):
         return stats
 
-    per_run = int(config.get("per_run", 25))
-    min_age = timedelta(hours=float(config.get("min_age_hours", 6)))
-    max_strikes = int(config.get("max_strikes", 2))
+    per_run = _int_config(config, "per_run", 25)
+    try:
+        min_age = timedelta(hours=float(config.get("min_age_hours", 6)))
+    except (TypeError, ValueError):
+        logger.warning("Triage config min_age_hours is not a number; using 6h")
+        min_age = timedelta(hours=6)
+    max_strikes = _int_config(config, "max_strikes", 2)
+    max_consecutive_failures = _int_config(config, "max_consecutive_scorer_failures", 3)
 
     try:
         candidates = idea_repo.get_oldest_by_status(
@@ -157,6 +235,8 @@ async def run_backlog_triage(
         f"(quota {per_run}, min age {min_age})"
     )
 
+    consecutive_scorer_failures = 0
+
     for idea in candidates:
         stats["examined"] += 1
         try:
@@ -173,9 +253,32 @@ async def run_backlog_triage(
             if _is_scorer_fallback(score):
                 # LLM unavailable — no verdict, no strike; retry next cycle.
                 stats["scorer_unavailable"] += 1
+                consecutive_scorer_failures += 1
                 logger.warning(f"Triage skipped idea {idea.id}: scorer unavailable")
+                if consecutive_scorer_failures >= max_consecutive_failures:
+                    if await _backend_looks_down(scorer):
+                        stats["aborted"] = 1
+                        logger.error(
+                            f"Backlog triage aborting run: scorer unavailable for "
+                            f"{consecutive_scorer_failures} consecutive ideas and a "
+                            f"direct backend probe also failed. Skipping the remaining "
+                            f"{len(candidates) - stats['examined']} candidate(s); the "
+                            f"next cycle retries."
+                        )
+                        break
+                    # Backend answers, so these ideas are the problem, not the
+                    # GPU. Reset and keep going: the rest of the quota must not
+                    # be held hostage by a few unscoreable rows.
+                    stats["probe_cleared"] += 1
+                    logger.warning(
+                        f"Triage: {consecutive_scorer_failures} consecutive scoring "
+                        f"failures but the backend responds — continuing; these ideas "
+                        f"look individually unscoreable."
+                    )
+                    consecutive_scorer_failures = 0
                 continue
 
+            consecutive_scorer_failures = 0
             prior_strikes = int(((idea.extra_metadata or {}).get("triage") or {}).get("strikes", 0))
             record = {
                 "last_score": round(score.total, 2),
@@ -224,6 +327,7 @@ async def run_backlog_triage(
         f"{stats['promoted']} promoted, {stats['archived']} archived, "
         f"{stats['strike_outs']} struck out, {stats['strikes']} strike(s) recorded, "
         f"{stats['scorer_unavailable']} scorer-unavailable, {stats['errors']} error(s)"
+        + (" [ABORTED: LLM backend down]" if stats["aborted"] else "")
     )
     return stats
 

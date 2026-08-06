@@ -295,6 +295,7 @@ class OllamaProvider:
         stream: bool = False,
         format_schema: Optional[Dict[str, Any]] = None,
         num_ctx: Optional[int] = None,
+        timeout: Optional[int] = None,
         **kwargs,
     ) -> OllamaResponse:
         """
@@ -313,6 +314,14 @@ class OllamaProvider:
                 delimiters, prose preambles, markdown fences) cannot be
                 sampled at all. Supported since Ollama v0.5.0; only works on
                 the native API, not the /v1 OpenAI-compatible endpoint.
+            timeout: Per-call HTTP timeout in seconds, overriding
+                `throttling.ollama.request_timeout`. That global value is
+                sized for the longest task (a debate turn, 1800s), and a
+                short task inheriting it turns "the GPU is wedged" into a
+                30-minute hang per call. Covers only the HTTP request —
+                throttle/cooling waits and the concurrency slot are acquired
+                before the clock starts, so a short value here does not
+                penalise a caller merely queued behind a debate.
 
         Returns:
             OllamaResponse with generated text
@@ -350,7 +359,7 @@ class OllamaProvider:
         if format_schema:
             payload["format"] = format_schema
 
-        timeout = self.config.throttle.get("request_timeout", self.config.timeout)
+        timeout = timeout or self.config.throttle.get("request_timeout", self.config.timeout)
 
         # Server-side 503 ("server busy, maximum pending requests exceeded")
         # is transient — Ollama returns it when its internal queue is full

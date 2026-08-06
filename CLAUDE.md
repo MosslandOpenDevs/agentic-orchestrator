@@ -419,7 +419,13 @@ pm2 save
   다른 체크아웃이 자기 자신을 배포하는 사고가 나지 않는다.
 - **가드**: CI 초록불일 때만 (체크 0건·`skipped`·`stale`은 초록이 아니라 **연기**;
   `DEPLOY_REQUIRE_CI_JOBS`로 필수 job까지 지정 가능) / 서버에 로컬 수정·로컬 커밋이
-  있으면 중단 / 토론 실행 중이면 백엔드 배포는 다음 틱으로 연기 / 배포 전 강제 DB 스냅샷,
+  있으면 중단 / 토론 실행 중이면 백엔드 배포는 다음 틱으로 연기 — **단 무한정은 아니다**:
+  스케줄러 작업이 작업별 한도(signals/trends/backlog/debate = 30/60/90/120분)를 넘겨
+  실행 중이면 busy가 아니라 **wedged**로 보고 배포를 진행한다. 이 작업들은 Ollama가
+  멈춰도 죽지 않고 HTTP 대기에 앉아 `online`으로 남기 때문에, 무조건 연기하면 멈춘
+  작업 하나가 배포를 영구히 막는다 (2026-08-06). 시작 시각 불명·pm2 출력 파싱 실패는
+  busy로 계산(연기하는 쪽으로 실패). 덮어쓰기: `DEPLOY_SCHEDULER_STALE_MIN` /
+  배포 전 강제 DB 스냅샷,
   **실패 시 배포 중단**(복원 지점 없이 배포하지 않음) / API가 떠 있는데 레디니스만
   실패하면(=DB 문제) 배포를 연기 / 배포 후 `/ready`(DB를 실제로 읽음) 실패 시 자동
   롤백(재빌드 포함).
@@ -613,7 +619,29 @@ npm run build 2>&1 | head -50  # 오류 확인
   - `requests_before_cooling: 10` (쿨링 전 더 많은 요청 허용)
   - `cooling_period_seconds: 60` (쿨링 시간 단축)
 - `config.yaml`의 `debate.test_mode: true`로 에이전트 수 감소
-- 사용 중인 Ollama 모델 확인: `curl http://localhost:11434/api/ps`
+- 사용 중인 Ollama 모델 확인: `curl "$OLLAMA_HOST/api/ps"`
+
+> **먼저 "혼잡"과 "멈춤(wedged)"을 구분할 것.** 둘은 증상이 같지만 처방이 정반대다
+> (혼잡 = 기다린다, 멈춤 = 기다려도 영원히 안 온다). 진단 3단계:
+>
+> ```bash
+> curl -s "$OLLAMA_HOST/api/ps"        # 컨트롤 플레인: 즉답이어야 정상
+> timeout 45 curl -sN "$OLLAMA_HOST/api/generate" \
+>   -d '{"model":"gemma3:1b","prompt":"hi","stream":true}'   # 스트리밍: 첫 토큰
+> ```
+>
+> `/api/ps`는 0.1초에 답하는데 **스트리밍이 45초 동안 0바이트**면 혼잡이 아니라
+> 러너가 걸린 것이다 (혼잡이면 느리게라도 토큰이 나온다). 모델을 바꿔도, num_ctx를
+> 낮춰도 똑같이 걸린다면 확정. **복구는 모델 언로드**:
+>
+> ```bash
+> curl -s "$OLLAMA_HOST/api/generate" -d '{"model":"gemma3:4b","keep_alive":0}'
+> ```
+>
+> 즉시 `done_reason:"unload"`가 돌아오고 다음 요청에서 새 인스턴스가 뜬다 (2026-08-06
+> 이 방법으로 해소 — GPU·드라이버는 정상이었고 상주 인스턴스만 걸려 있었다). 박스에
+> SSH가 열려 있지 않아도 HTTP만으로 가능하다. 언로드 후에도 1b 모델조차 못 뜨면
+> 그때는 GPU/드라이버 문제이므로 박스에 직접 접근해야 한다.
 
 ### 7. Ollama 모델 VRAM 메모리 부족
 

@@ -138,6 +138,32 @@ JSON으로만 응답해주세요:
     #
     # One context size everywhere is the whole strategy. Leave this alone.
 
+    # Scoring must never inherit `throttling.ollama.request_timeout` (1800s).
+    # That budget is sized for a debate turn; scoring is a ~2.5k-token prompt
+    # capped at 1,024 output tokens on a 4B model, which answers in seconds
+    # when the GPU is healthy. On 2026-08-06 the Ollama box's model runner
+    # wedged — metadata endpoints answered in 0.1s while *every* generate
+    # hung, on any model, at any context size — and each triage scoring call
+    # therefore burned the full 30 minutes before failing. With
+    # max_concurrent_requests=1 that serialised into 30 min/idea: a 14-idea
+    # run needed ~7h, outliving its own 4-hourly cron, consuming zero ideas,
+    # and holding `moss-ao-backlog` "online" the whole time, which made
+    # deploy.sh defer every back-end deploy. A short budget converts a wedged
+    # GPU from "triage dies and blocks deploys" into "triage skips this cycle
+    # in a couple of minutes".
+    #
+    # The clock covers only the HTTP request: `_wait_for_throttle()` and the
+    # in-process concurrency slot are both acquired before the client is
+    # constructed, so this budget does not start while a call waits its turn
+    # locally. It DOES include Ollama's own server-side queue, which is
+    # cross-process — a scoring call landing behind a 16k trends generate can
+    # legitimately exceed 120s. That is accepted: the cron stagger keeps
+    # trends (:15, every 2h) and backlog (:45, every 4h) apart, a timed-out
+    # idea takes no strike and is retried next cycle, and the breaker probes
+    # the backend before abandoning a run. Losing an occasional cycle is far
+    # cheaper than the 30-minute-per-idea stall this replaces.
+    SCORING_TIMEOUT = 120
+
     def __init__(
         self,
         router: Optional[HybridLLMRouter] = None,
@@ -194,6 +220,7 @@ JSON으로만 응답해주세요:
                 # window (the failure mode trends hit in 2026-08).
                 max_tokens=1024,
                 response_schema=self.SCORE_RESPONSE_SCHEMA,
+                timeout=self.SCORING_TIMEOUT,
             )
 
             score = self._parse_score_response(response.content)

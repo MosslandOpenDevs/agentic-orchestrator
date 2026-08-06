@@ -299,6 +299,11 @@ backlog:
     per_run: 25
     min_age_hours: 6
     max_strikes: 2
+    # Circuit breaker: consecutive scorer-unavailable results before the run
+    # gives up. A wedged Ollama fails every call identically, and grinding
+    # through the quota multiplies one dead backend by per_run while holding
+    # moss-ao-backlog "online" for deploy.sh to trip over (2026-08-06).
+    max_consecutive_scorer_failures: 3
 
   # GitHub issue lifecycle (runs in the backlog cycle, every 4h in production).
   # The tracker mirrors the DB pipeline instead of accumulating forever:

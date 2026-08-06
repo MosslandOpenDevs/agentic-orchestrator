@@ -203,6 +203,150 @@ class TestDecisions:
         assert idea.status == "scored"
         assert not (idea.extra_metadata or {}).get("triage")
 
+    def test_sustained_scorer_outage_aborts_the_run(self, repos):
+        """2026-08-06: a wedged Ollama failed every scoring call, and triage
+        ground through its whole quota one dead call at a time — consuming
+        nothing while holding moss-ao-backlog "online" long enough to block
+        every back-end deploy. A sustained outage must end the run early."""
+        idea_repo, plan_repo, trend_repo, session = repos
+        for n in range(10):
+            make_idea(idea_repo, session, f"i{n}", f"idea {n}", age_days=10 - n)
+        scorer = FakeScorer()  # every call returns the flat-5.0 fallback
+        scorer.script = {"idea": (FALLBACK_SCORE, "pending")}
+
+        stats = triage(
+            idea_repo, plan_repo, trend_repo, scorer, {"max_consecutive_scorer_failures": 3}
+        )
+
+        assert stats["aborted"] == 1
+        assert stats["scorer_unavailable"] == 3
+        assert len(scorer.calls) == 3, "must stop calling a backend that is down"
+        assert stats["examined"] == 3
+
+    def test_an_isolated_hiccup_does_not_abort_the_run(self, repos):
+        """The breaker counts consecutive failures, not cumulative ones.
+
+        Two failures SEPARATED by a success, against a threshold of 2: a
+        cumulative counter trips here and a consecutive one does not, so this
+        fails if the reset is ever dropped. (An earlier version of this test
+        used a single failure, which a cumulative counter also survives — it
+        pinned nothing.)
+        """
+        idea_repo, plan_repo, trend_repo, session = repos
+        make_idea(idea_repo, session, "i1", "flaky alpha", age_days=9)
+        make_idea(idea_repo, session, "i2", "solid beta", age_days=8)
+        make_idea(idea_repo, session, "i3", "flaky gamma", age_days=7)
+        make_idea(idea_repo, session, "i4", "solid delta", age_days=6)
+        scorer = FakeScorer(
+            {
+                "flaky alpha": (FALLBACK_SCORE, "pending"),
+                "flaky gamma": (FALLBACK_SCORE, "pending"),
+                "solid beta": (FakeScore(total=2.0), "archive"),
+                "solid delta": (FakeScore(total=2.0), "archive"),
+            }
+        )
+
+        stats = triage(
+            idea_repo, plan_repo, trend_repo, scorer, {"max_consecutive_scorer_failures": 2}
+        )
+
+        assert stats["aborted"] == 0
+        assert stats["examined"] == 4, "the run must reach every candidate"
+        assert stats["scorer_unavailable"] == 2
+        assert stats["archived"] == 2
+
+    def test_a_responding_backend_means_the_ideas_are_poison_not_the_gpu(self, repos):
+        """The breaker must not fire on unscoreable ideas.
+
+        `score_idea` catches a per-idea parse failure and returns the SAME
+        flat 5.0 with no reasoning that a dead transport does, and the
+        fallback branch writes nothing to the row. Triage takes the oldest
+        first, so aborting on three unscoreable head-of-queue ideas would
+        abort every future run at the same three and the backlog would never
+        drain again. When the probe says the backend is alive, the run
+        continues and the rest of the quota is consumed.
+        """
+        idea_repo, plan_repo, trend_repo, session = repos
+        for n in range(3):
+            make_idea(idea_repo, session, f"p{n}", f"poison {n}", age_days=10 - n)
+        make_idea(idea_repo, session, "good", "healthy idea", age_days=5)
+
+        class LiveRouter:
+            def __init__(self):
+                self.probes = 0
+
+            async def route(self, **kwargs):
+                self.probes += 1
+                return object()
+
+        scorer = FakeScorer(
+            {
+                "poison": (FALLBACK_SCORE, "pending"),
+                "healthy idea": (FakeScore(total=2.0), "archive"),
+            }
+        )
+        scorer.router = LiveRouter()
+
+        stats = triage(
+            idea_repo, plan_repo, trend_repo, scorer, {"max_consecutive_scorer_failures": 3}
+        )
+
+        assert stats["aborted"] == 0, "a responding backend must not abort the run"
+        assert stats["probe_cleared"] == 1
+        assert scorer.router.probes == 1, "probe once, not per idea"
+        assert stats["examined"] == 4
+        assert stats["archived"] == 1, "the reachable idea must still be decided"
+        session.expire_all()
+        assert idea_repo.get_by_id("good").status == "archived"
+
+    def test_a_dead_backend_still_aborts_when_the_probe_also_fails(self, repos):
+        idea_repo, plan_repo, trend_repo, session = repos
+        for n in range(8):
+            make_idea(idea_repo, session, f"i{n}", f"idea {n}", age_days=10 - n)
+
+        class DeadRouter:
+            def __init__(self):
+                self.probes = 0
+
+            async def route(self, **kwargs):
+                self.probes += 1
+                raise RuntimeError("Ollama timeout")
+
+        scorer = FakeScorer({"idea": (FALLBACK_SCORE, "pending")})
+        scorer.router = DeadRouter()
+
+        stats = triage(
+            idea_repo, plan_repo, trend_repo, scorer, {"max_consecutive_scorer_failures": 3}
+        )
+
+        assert stats["aborted"] == 1
+        assert scorer.router.probes == 1
+        assert stats["examined"] == 3
+        assert len(scorer.calls) == 3
+
+    def test_garbage_triage_config_falls_back_instead_of_raising(self, repos):
+        """run_backlog_triage promises never to raise; the defaults merge only
+        fills ABSENT keys, so a null/typo'd value must not take the run down."""
+        idea_repo, plan_repo, trend_repo, session = repos
+        make_idea(idea_repo, session, "i1", "weak idea")
+        scorer = FakeScorer({"weak idea": (FakeScore(total=2.0), "archive")})
+
+        stats = triage(
+            idea_repo,
+            plan_repo,
+            trend_repo,
+            scorer,
+            {
+                "per_run": None,
+                "max_strikes": "two",
+                "max_consecutive_scorer_failures": None,
+                "min_age_hours": "soon",
+            },
+        )
+
+        assert stats["archived"] == 1
+        assert stats["errors"] == 0
+
     def test_error_on_one_idea_does_not_stop_or_undo_the_rest(self, repos):
         # The succeeding idea is OLDER, so it is processed and committed
         # BEFORE the failure — the later rollback must not undo it. This is

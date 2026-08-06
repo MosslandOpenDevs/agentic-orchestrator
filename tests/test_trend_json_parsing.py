@@ -210,9 +210,12 @@ class FakeAsyncClient:
 
     captured: dict = {}
     reply: dict = {}
+    # The request timeout is a constructor kwarg, not part of the payload —
+    # capture it too, or a dropped per-call timeout is invisible to tests.
+    init_kwargs: dict = {}
 
     def __init__(self, *args, **kwargs):
-        pass
+        FakeAsyncClient.init_kwargs = kwargs
 
     async def __aenter__(self):
         return self
@@ -230,6 +233,7 @@ class FakeAsyncClient:
 def fake_ollama(monkeypatch):
     monkeypatch.setattr("agentic_orchestrator.providers.ollama.httpx.AsyncClient", FakeAsyncClient)
     FakeAsyncClient.captured = {}
+    FakeAsyncClient.init_kwargs = {}
     FakeAsyncClient.reply = {"response": "ok", "done": True, "done_reason": "stop"}
     return FakeAsyncClient
 
@@ -275,6 +279,101 @@ class TestProviderNumCtx:
         provider = OllamaProvider(OllamaConfig(throttle={"num_ctx": 16384}))
         await provider.generate("hello", num_ctx=None)
 
+        assert fake_ollama.captured["payload"]["options"]["num_ctx"] == 16384
+
+
+class TestProviderTimeout:
+    """`throttling.ollama.request_timeout` is sized for the longest task (a
+    debate turn, 1800s). A short task that inherits it waits 30 minutes to
+    learn the backend is wedged — which on 2026-08-06 turned one hung GPU
+    into a 3.5-hour backlog run that consumed nothing and blocked deploys.
+    """
+
+    async def test_default_timeout_comes_from_the_throttle_config(self, fake_ollama):
+        provider = OllamaProvider(OllamaConfig(throttle={"request_timeout": 1800}))
+        await provider.generate("hello")
+
+        assert fake_ollama.init_kwargs["timeout"] == 1800
+
+    async def test_per_call_timeout_beats_the_throttle_default(self, fake_ollama):
+        provider = OllamaProvider(OllamaConfig(throttle={"request_timeout": 1800}))
+        await provider.generate("hello", timeout=120)
+
+        assert fake_ollama.init_kwargs["timeout"] == 120
+
+    async def test_timeout_none_keeps_the_throttle_default(self, fake_ollama):
+        provider = OllamaProvider(OllamaConfig(throttle={"request_timeout": 1800}))
+        await provider.generate("hello", timeout=None)
+
+        assert fake_ollama.init_kwargs["timeout"] == 1800
+
+    async def test_router_plumbs_timeout_to_ollama(self, fake_ollama):
+        """A timeout override dropped anywhere in the router silently
+        restores the 30-minute hang — pin the plumb, both directions."""
+        from agentic_orchestrator.llm.hierarchy import LLMHierarchy
+        from agentic_orchestrator.llm.router import HybridLLMRouter
+
+        class FakeBudget:
+            def get_budget_status(self):
+                return {"can_use_api": False}
+
+            def should_use_local(self):
+                return True
+
+            def estimate_cost(self, *a):
+                return 0.0
+
+        router = HybridLLMRouter.__new__(HybridLLMRouter)
+        router.local_only = True
+        router.ollama = OllamaProvider(OllamaConfig(throttle={"request_timeout": 1800}))
+        router.claude = None
+        router.openai = None
+        router.hierarchy = LLMHierarchy()
+        router.budget = FakeBudget()
+
+        await router.route(prompt="p", force_local=True, timeout=120)
+        assert fake_ollama.init_kwargs["timeout"] == 120
+
+        await router.route(prompt="p", force_local=True)
+        assert fake_ollama.init_kwargs["timeout"] == 1800
+
+    async def test_scorer_sends_a_short_timeout_end_to_end(self, fake_ollama):
+        """The whole point: an IdeaScorer call must reach the wire with its
+        own short budget, not the 1800s debate one."""
+        from agentic_orchestrator.llm.hierarchy import LLMHierarchy
+        from agentic_orchestrator.llm.router import HybridLLMRouter
+        from agentic_orchestrator.scoring import IdeaScorer
+
+        class FakeBudget:
+            def get_budget_status(self):
+                return {"can_use_api": False}
+
+            def should_use_local(self):
+                return True
+
+            def estimate_cost(self, *a):
+                return 0.0
+
+        router = HybridLLMRouter.__new__(HybridLLMRouter)
+        router.local_only = True
+        router.ollama = OllamaProvider(OllamaConfig(throttle={"request_timeout": 1800}))
+        router.claude = None
+        router.openai = None
+        router.hierarchy = LLMHierarchy()
+        router.budget = FakeBudget()
+
+        fake_ollama.reply = {
+            "response": '{"feasibility": 7, "relevance": 7, "novelty": 7, "impact": 7}',
+            "done": True,
+            "done_reason": "stop",
+        }
+        await IdeaScorer(router=router).score_idea("an idea")
+
+        assert fake_ollama.init_kwargs["timeout"] == IdeaScorer.SCORING_TIMEOUT
+        assert IdeaScorer.SCORING_TIMEOUT < 1800
+        # The short timeout must NOT drag a per-call context pin along with
+        # it: one context size for the whole pipeline is a separate, deliberate
+        # rule (see TestOneContextSizeEverywhere), and the two must not fight.
         assert fake_ollama.captured["payload"]["options"]["num_ctx"] == 16384
 
 

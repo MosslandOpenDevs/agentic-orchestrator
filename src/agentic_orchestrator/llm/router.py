@@ -158,6 +158,7 @@ class HybridLLMRouter:
         max_tokens: Optional[int] = None,
         response_schema: Optional[dict] = None,
         num_ctx: Optional[int] = None,
+        timeout: Optional[int] = None,
         paid_tier: Optional[str] = None,
     ) -> LLMResponse:
         """
@@ -187,6 +188,13 @@ class HybridLLMRouter:
                 None keeps the throttle-config default. Forwarded on every
                 Ollama path, including both fallbacks — a dropped override
                 would silently reintroduce the hang.
+            timeout: Per-call Ollama HTTP timeout in seconds, overriding
+                `throttling.ollama.request_timeout`. That global 1800s is
+                sized for a debate turn; a short task that inherits it waits
+                30 minutes to learn the GPU is wedged. Short tasks should
+                pass their own budget so they fail fast and let the caller
+                skip. None keeps the config default. Forwarded on every
+                Ollama path, including both fallbacks.
             paid_tier: Name of a paid-API tier from config.yaml
                 `llm.paid_tiers` (e.g. "debate"). Honored only when the tier
                 is enabled, its provider is initialized (needs
@@ -270,6 +278,7 @@ class HybridLLMRouter:
                     max_tokens=max_tokens,
                     format_schema=response_schema,
                     num_ctx=num_ctx,
+                    timeout=timeout,
                 )
             elif provider_name == "claude" and self.claude:
                 response = await self._call_claude(
@@ -298,6 +307,7 @@ class HybridLLMRouter:
                     max_tokens=max_tokens,
                     format_schema=response_schema,
                     num_ctx=num_ctx,
+                    timeout=timeout,
                 )
                 selected_model = fallback
                 provider_name = "ollama"
@@ -352,6 +362,7 @@ class HybridLLMRouter:
                             max_tokens=max_tokens,
                             format_schema=response_schema,
                             num_ctx=num_ctx,
+                            timeout=timeout,
                         )
                         selected_model = fallback
                         provider_name = "ollama"
@@ -439,6 +450,7 @@ class HybridLLMRouter:
         max_tokens: Optional[int],
         format_schema: Optional[dict] = None,
         num_ctx: Optional[int] = None,
+        timeout: Optional[int] = None,
     ) -> OllamaResponse:
         """Call Ollama provider."""
         return await self.ollama.generate(
@@ -449,6 +461,7 @@ class HybridLLMRouter:
             max_tokens=max_tokens,
             format_schema=format_schema,
             num_ctx=num_ctx,
+            timeout=timeout,
         )
 
     async def _call_claude(
