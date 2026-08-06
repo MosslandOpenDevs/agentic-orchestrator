@@ -191,7 +191,19 @@ for a in "$@"; do url="$a"; done
 echo "curl $url" >> "{self.stub_log}"
 case "$url" in
   *api.github.com*)
+    # Record the auth header so a test can prove which token was used.
+    for a in "$@"; do
+      case "$a" in Authorization:*) echo "curl-auth $a" >> "{self.stub_log}" ;; esac
+    done
+    # ci_conclusion asks for the body plus a trailing status line via
+    # -w. CI_HTTP lets a test inject 403 (rate-limited / bad token) or a
+    # 5xx without changing the body.
+    code="${{CI_HTTP:-200}}"
+    if [ "${{CI_CURL_FAIL:-0}}" = "1" ]; then exit 7; fi
     printf '%s' "$CI_JSON"
+    for a in "$@"; do
+      case "$a" in *%{{http_code}}*) printf '\n%s' "$code" ;; esac
+    done
     exit 0
     ;;
   */ready)
@@ -562,6 +574,66 @@ class TestGuards:
         assert server.head() == before
         assert "status unavailable" in result.stdout
 
+    def test_rejected_ci_query_says_so_loudly_instead_of_deferring_quietly(self, server: Server):
+        # A 401/403 never heals by itself: the token is missing or expired, or
+        # the anonymous rate limit was hit. Until v0.6.21 this looked exactly
+        # like a network blip ("status unavailable") and deploys stopped
+        # forever with nothing in the log naming the cause.
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 14\n"})
+
+        result = server.run(DEPLOY_REQUIRE_CI="1", CI_HTTP="403", CI_JSON="{}")
+
+        assert server.head() == before  # still refuses to deploy blind
+        assert "DEPLOYS ARE BLOCKED" in result.stdout
+        assert "GITHUB_TOKEN" in result.stdout
+        assert "status unavailable" not in result.stdout
+
+    def test_repeated_undeterminable_ci_escalates_after_a_streak(self, server: Server):
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 15\n"})
+        env = {
+            "DEPLOY_REQUIRE_CI": "1",
+            "CI_CURL_FAIL": "1",
+            "DEPLOY_CI_UNKNOWN_ALERT": "3",
+        }
+
+        first = server.run(**env)
+        second = server.run(**env)
+        third = server.run(**env)
+
+        assert "(1 in a row)" in first.stdout
+        assert "ERROR" not in first.stdout
+        assert "(2 in a row)" in second.stdout
+        assert "ERROR" not in second.stdout
+        # Third consecutive failure: stop calling it a blip.
+        assert "(3 in a row)" in third.stdout
+        assert "deploys are stalled" in third.stdout
+
+    def test_a_good_tick_clears_the_undeterminable_streak(self, server: Server):
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 16\n"})
+
+        server.run(DEPLOY_REQUIRE_CI="1", CI_CURL_FAIL="1")
+        recovered = server.run(DEPLOY_REQUIRE_CI="1", CI_JSON=CI_SUCCESS)
+
+        assert server.head() == target
+        assert "CI: green" in recovered.stdout
+
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 17\n"})
+        after = server.run(DEPLOY_REQUIRE_CI="1", CI_CURL_FAIL="1")
+        assert "(1 in a row)" in after.stdout  # counter restarted, not 2
+
+    def test_github_token_is_read_from_dotenv_when_absent_from_the_env(self, server: Server):
+        # The PM2 poller gets the token from ecosystem.config.js's .env load;
+        # a manual SSH run does not, and the anonymous request is 403-rate-
+        # limited on the server's shared IP.
+        (server.checkout / ".env").write_text('GITHUB_TOKEN="ghp_from_dotenv"\n')
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 18\n"})
+
+        server.run(DEPLOY_REQUIRE_CI="1", CI_JSON=CI_SUCCESS, GITHUB_TOKEN="")
+
+        assert server.head() == target
+        assert "Bearer ghp_from_dotenv" in server.stub_log.read_text()
+
     def test_no_checks_reported_defers_instead_of_deploying_unverified(self, server: Server):
         """Zero checks is not a green build. It is usually just CI not having
         registered yet -- the poller runs every 5 minutes and can easily fire
@@ -629,28 +701,33 @@ class TestGuards:
         assert "CI: green" in result.stdout
 
     def test_a_stuck_deferral_eventually_says_so(self, server: Server):
-        """Deferring is normal; deferring forever means auto-deploy has
-        silently stopped, which is the state nobody notices."""
+        """The streak escalation has to cover every verdict that defers, not
+        only the undeterminable one: "no checks reported" repeating forever
+        stops deploys just as completely, and just as quietly."""
         server.push({"src/agentic_orchestrator/api.py": "VERSION = 50\n"})
+        env = {"DEPLOY_REQUIRE_CI": "1", "CI_JSON": CI_NONE, "DEPLOY_CI_UNKNOWN_ALERT": "3"}
 
-        for _ in range(2):
-            result = server.run(
-                DEPLOY_REQUIRE_CI="1", CI_JSON=CI_NONE, DEPLOY_DEFER_ALERT_TICKS="3"
-            )
-            assert "deferring" in result.stdout
+        first = server.run(**env)
+        second = server.run(**env)
+        third = server.run(**env)
 
-        state = server.checkout / "logs" / ".ci-deferred"
-        assert state.exists()
-        assert state.read_text().split()[1] == "2"
+        assert "no checks reported" in first.stdout
+        assert "ERROR" not in first.stdout
+        assert "ERROR" not in second.stdout
+        assert "deploys are stalled" in third.stdout
 
-    def test_a_green_run_clears_the_deferral_counter(self, server: Server):
+    def test_a_green_run_clears_the_deferral_streak(self, server: Server):
         server.push({"src/agentic_orchestrator/api.py": "VERSION = 51\n"})
-        server.run(DEPLOY_REQUIRE_CI="1", CI_JSON=CI_NONE)
-        assert (server.checkout / "logs" / ".ci-deferred").exists()
+        env = {"DEPLOY_REQUIRE_CI": "1", "DEPLOY_CI_UNKNOWN_ALERT": "2"}
 
-        server.run(DEPLOY_REQUIRE_CI="1", CI_JSON=CI_SUCCESS)
+        server.run(CI_JSON=CI_NONE, **env)
+        server.run(CI_JSON=CI_SUCCESS, **env)
 
-        assert not (server.checkout / "logs" / ".ci-deferred").exists()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 52\n"})
+        after = server.run(CI_JSON=CI_NONE, **env)
+
+        # Counter restarted: one deferral is not an escalation.
+        assert "deploys are stalled" not in after.stdout
 
     def test_deploy_defers_while_the_database_is_unhealthy(self, server: Server):
         """The post-deploy gate reads the database. With the database down no

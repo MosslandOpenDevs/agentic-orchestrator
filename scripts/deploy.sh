@@ -54,6 +54,9 @@
 #                                      (default: .git/moss-ao-deploy-attempt)
 #   DEPLOY_RETRY_BASE_MIN  backoff after the 1st failure, minutes  (default: 5)
 #   DEPLOY_RETRY_MAX_MIN   backoff cap, minutes                (default: 60)
+#   DEPLOY_CI_UNKNOWN_ALERT consecutive undeterminable-CI ticks before
+#                           escalating from "defer quietly" to ERROR+alert
+#                                                            (default: 3)
 #   PYTHON_BIN / PM2_BIN / NPM_BIN / UV_BIN / GITHUB_TOKEN
 #
 # Dependency install adapts to the checkout: `uv sync` when the venv is
@@ -87,6 +90,16 @@ log() {
   echo "${line}"
   mkdir -p "$(dirname "${DEPLOY_LOG}")" 2>/dev/null || true
   echo "${line}" >>"${DEPLOY_LOG}" 2>/dev/null || true
+}
+
+# Read one KEY=value out of a dotenv file: last occurrence wins, surrounding
+# quotes and a trailing CR are stripped. Deliberately does NOT source the
+# file -- deploy.sh must not inherit whatever else lives in .env.
+env_value_from_file() {
+  local file="$1" key="$2"
+  sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "${file}" 2>/dev/null \
+    | tail -1 \
+    | sed -e 's/\r$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
 }
 
 # Only reaches the operator when a webhook is configured; never fatal itself.
@@ -145,16 +158,36 @@ acquire_lock() {
 }
 
 # CI gate: deploy only commits GitHub Actions has gone green on.
+# Returns one of: success | failure | pending | none | unauthorized | unknown
+#
+# `unauthorized` exists because the two ways this call can fail need opposite
+# responses. A transient network blip should be retried silently on the next
+# tick. A missing or rejected token cannot heal on its own: the request goes
+# out anonymous, GitHub rate-limits the server's shared IP with a 403, and the
+# deploy defers -- forever, while the log says only "network/API". That is how
+# a token dropping out of the poller's environment would silently stop every
+# deploy with no other symptom.
 ci_conclusion() {
-  local sha="$1" url auth
+  local sha="$1" url body http
   url="https://api.github.com/repos/${DEPLOY_GITHUB_REPO}/commits/${sha}/check-runs"
-  if [ -n "${GITHUB_TOKEN:-}" ]; then
-    auth="Authorization: Bearer ${GITHUB_TOKEN}"
-  else
-    auth="X-No-Auth: 1"
-  fi
-  curl -fsS -m 20 -H 'Accept: application/vnd.github+json' -H "${auth}" "${url}" 2>/dev/null \
-    | REQUIRED_JOBS="${DEPLOY_REQUIRE_CI_JOBS}" python3 -c '
+
+  # -sS (not -fsS): we need the body and status of an error response to tell
+  # 403-rate-limited apart from a connection failure.
+  body=$(curl -sS -m 20 -w $'\n%{http_code}' \
+    -H 'Accept: application/vnd.github+json' \
+    ${GITHUB_TOKEN:+-H "Authorization: Bearer ${GITHUB_TOKEN}"} \
+    "${url}" 2>/dev/null) || { echo "unknown"; return 0; }
+
+  http=${body##*$'\n'}
+  body=${body%$'\n'*}
+
+  case "${http}" in
+    401|403) echo "unauthorized"; return 0 ;;
+    2*) ;;
+    *) echo "unknown"; return 0 ;;
+  esac
+
+  printf '%s' "${body}" | REQUIRED_JOBS="${DEPLOY_REQUIRE_CI_JOBS}" python3 -c '
 import json, os, sys
 try:
     runs = json.load(sys.stdin).get("check_runs", [])
@@ -187,6 +220,21 @@ if any(job not in passed for job in required):
 
 print("success")
 ' 2>/dev/null || echo "unknown"
+}
+
+# Consecutive ticks where CI status could not be determined, per target SHA.
+# One blip is noise; a run of them means the gate is stuck and no deploy will
+# ever happen until someone looks.
+ci_unknown_streak() {
+  local sha="$1" prev_sha prev_n
+  read -r prev_sha prev_n < <(cat "${DEPLOY_CI_UNKNOWN_FILE}" 2>/dev/null || echo "")
+  if [ "${prev_sha:-}" = "${sha}" ]; then
+    prev_n=$(( ${prev_n:-0} + 1 ))
+  else
+    prev_n=1
+  fi
+  printf '%s %s\n' "${sha}" "${prev_n}" >"${DEPLOY_CI_UNKNOWN_FILE}" 2>/dev/null || true
+  echo "${prev_n}"
 }
 
 # A debate takes ~30 min and runs as its own PM2 cron process. Reinstalling
@@ -381,6 +429,25 @@ record_success() {
   rm -f "${DEPLOY_ATTEMPT_FILE}" 2>/dev/null || true
 }
 
+# Any CI verdict that defers is transient by design; one that never clears
+# means auto-deploy has silently stopped. Upstream counted only the
+# undeterminable case; this counts every deferring verdict through the same
+# per-target streak file so there is one mechanism and one knob.
+note_stalled_ci() {
+  local message="$1" reason="$2" streak
+  streak=$(ci_unknown_streak "${TARGET}")
+  log "${message} (${streak} in a row)"
+  if [ "${streak}" -ge "${DEPLOY_CI_UNKNOWN_ALERT}" ] \
+     && [ $(( streak % DEPLOY_CI_UNKNOWN_ALERT )) -eq 0 ]; then
+    log "ERROR CI has been undeployable for ${streak} consecutive ticks (${reason}) -- deploys are stalled"
+    alert "MOSS.AO deploys stalled: ${reason} for ${streak} consecutive ticks on ${TARGET:0:8}"
+  fi
+}
+
+clear_ci_streak() {
+  rm -f "${DEPLOY_CI_UNKNOWN_FILE}" 2>/dev/null || true
+}
+
 ecosystem_reminder() {
   [ -s "${ECOSYSTEM_PENDING}" ] || return 0
   local n
@@ -392,26 +459,6 @@ ecosystem_reminder() {
   log "         copy onto every app (see docs/deployment.md):"
   log "           pm2 restart ecosystem.config.js --update-env && pm2 save"
   log "           rm ${ECOSYSTEM_PENDING}"
-}
-
-# Deferrals are transient by design; a deferral that never clears is not.
-# Count consecutive ones for the same commit and say something once.
-note_ci_deferral() {
-  local reason="$1" prev_target prev_count count
-  read -r prev_target prev_count <<<"$(cat "${DEPLOY_DEFER_STATE}" 2>/dev/null || echo)"
-  if [ "${prev_target:-}" = "${TARGET}" ]; then
-    count=$(( ${prev_count:-0} + 1 ))
-  else
-    count=1
-  fi
-  printf '%s %s\n' "${TARGET}" "${count}" >"${DEPLOY_DEFER_STATE}" 2>/dev/null || true
-  if [ "${count}" = "${DEPLOY_DEFER_ALERT_TICKS}" ]; then
-    alert "MOSS.AO auto-deploy has been stuck on ${TARGET:0:8} for ${count} ticks (${reason}); nothing is deploying"
-  fi
-}
-
-clear_ci_deferral() {
-  rm -f "${DEPLOY_DEFER_STATE}" 2>/dev/null || true
 }
 
 main() {
@@ -428,11 +475,6 @@ DEPLOY_REQUIRE_CI_JOBS=${DEPLOY_REQUIRE_CI_JOBS:-}
 # Outstanding ecosystem.config.js changes that still need a manual PM2
 # re-register. Cleared by the operator once done.
 ECOSYSTEM_PENDING=${ECOSYSTEM_PENDING:-${REPO_ROOT}/logs/.ecosystem-pending}
-# How many consecutive CI-related deferrals of the SAME commit before we
-# say so out loud. Deferrals are normal and frequent; one that never
-# resolves silently stops auto-deploy. 12 ticks is about an hour.
-DEPLOY_DEFER_ALERT_TICKS=${DEPLOY_DEFER_ALERT_TICKS:-12}
-DEPLOY_DEFER_STATE=${DEPLOY_DEFER_STATE:-${REPO_ROOT}/logs/.ci-deferred}
   DEPLOY_GITHUB_REPO=${DEPLOY_GITHUB_REPO:-MosslandOpenDevs/agentic-orchestrator}
   DEPLOY_API_URL=${DEPLOY_API_URL:-http://127.0.0.1:3001}
   DEPLOY_WEB_URL=${DEPLOY_WEB_URL:-http://127.0.0.1:3000}
@@ -451,6 +493,26 @@ DEPLOY_DEFER_STATE=${DEPLOY_DEFER_STATE:-${REPO_ROOT}/logs/.ci-deferred}
   DEPLOY_ATTEMPT_FILE=${DEPLOY_ATTEMPT_FILE:-${GIT_DIR_ABS}/moss-ao-deploy-attempt}
   DEPLOY_RETRY_BASE_MIN=${DEPLOY_RETRY_BASE_MIN:-5}
   DEPLOY_RETRY_MAX_MIN=${DEPLOY_RETRY_MAX_MIN:-60}
+  DEPLOY_CI_UNKNOWN_FILE=${DEPLOY_CI_UNKNOWN_FILE:-${GIT_DIR_ABS}/moss-ao-deploy-ci-unknown}
+  # Consecutive undeterminable-CI ticks before this stops being treated as
+  # noise. 3 ticks x 5 min = ~15 minutes of total deploy paralysis, which is
+  # long enough to rule out a blip and short enough to matter.
+  DEPLOY_CI_UNKNOWN_ALERT=${DEPLOY_CI_UNKNOWN_ALERT:-3}
+
+  # The PM2 poller inherits GITHUB_TOKEN because ecosystem.config.js loads
+  # .env; a manual `bash scripts/deploy.sh` over SSH does not. Without it the
+  # CI query goes out anonymous and the server's shared IP is rate-limited
+  # (403) -- which used to surface only as "status unavailable", so a manual
+  # deploy simply never happened and never said why. Fill it in from .env
+  # rather than requiring every operator to remember `set -a; . ./.env`.
+  if [ -z "${GITHUB_TOKEN:-}" ] && [ -r "${REPO_ROOT}/.env" ]; then
+    GITHUB_TOKEN=$(env_value_from_file "${REPO_ROOT}/.env" GITHUB_TOKEN)
+    if [ -n "${GITHUB_TOKEN}" ]; then
+      export GITHUB_TOKEN
+    else
+      unset GITHUB_TOKEN
+    fi
+  fi
 
   PYTHON_BIN=${PYTHON_BIN:-${REPO_ROOT}/.venv/bin/python}
   PM2_BIN=${PM2_BIN:-pm2}
@@ -594,23 +656,34 @@ DEPLOY_DEFER_STATE=${DEPLOY_DEFER_STATE:-${REPO_ROOT}/logs/.ci-deferred}
   if [ "${DEPLOY_REQUIRE_CI}" = "1" ] && [ "${FORCE}" = "0" ]; then
     CI=$(ci_conclusion "${TARGET}")
     case "${CI}" in
-      success)    log "CI: green"; clear_ci_deferral ;;
-      pending)    log "CI: still running -- deferring to next tick"
-                  note_ci_deferral "CI still running"; exit 0 ;;
-      none)       log "CI: no checks reported yet for ${TARGET:0:8} -- deferring to next tick"
-                  note_ci_deferral "no checks reported"; exit 0 ;;
-      incomplete) log "CI: checks reported but none verified the commit \
-(skipped/stale) -- deferring to next tick"
-                  note_ci_deferral "checks verified nothing"; exit 0 ;;
+      success)    log "CI: green"; clear_ci_streak ;;
+      pending)    note_stalled_ci "CI: still running -- deferring to next tick" \
+                    "CI still running"; exit 0 ;;
+      none)       note_stalled_ci \
+                    "CI: no checks reported yet for ${TARGET:0:8} -- deferring to next tick" \
+                    "no checks reported"; exit 0 ;;
+      incomplete) note_stalled_ci \
+                    "CI: checks reported but none verified the commit (skipped/stale) \
+-- deferring to next tick" "checks verified nothing"; exit 0 ;;
       missing-required)
                   log "CI: required jobs (${DEPLOY_REQUIRE_CI_JOBS}) did not pass -- refusing"
+                  clear_ci_streak
                   alert "MOSS.AO deploy skipped: required CI jobs missing on ${TARGET:0:8}"
                   exit 0 ;;
       failure)    log "CI: FAILED -- refusing to deploy ${TARGET:0:8}"
+                  clear_ci_streak
                   alert "MOSS.AO deploy skipped: CI failed on ${TARGET:0:8} (${SUBJECT})"
                   exit 0 ;;
-      *)          log "CI: status unavailable (network/API) -- deferring to next tick"
-                  note_ci_deferral "CI status unavailable"; exit 0 ;;
+      unauthorized)
+                  log "ERROR CI: GitHub rejected the status query (401/403). DEPLOYS ARE BLOCKED."
+                  log "       GITHUB_TOKEN is missing, expired, or the anonymous rate limit was hit."
+                  log "       This does not clear by itself -- fix the token in .env and restart"
+                  log "       moss-ao-deploy, or set DEPLOY_REQUIRE_CI=0 to deploy without the gate."
+                  alert "MOSS.AO deploys BLOCKED: GitHub CI status query unauthorized (401/403) on ${TARGET:0:8} -- GITHUB_TOKEN missing/expired or rate-limited"
+                  exit 0 ;;
+      *)          note_stalled_ci \
+                    "CI: status unavailable (network/API) -- deferring to next tick" \
+                    "CI status unavailable"; exit 0 ;;
     esac
   fi
 
