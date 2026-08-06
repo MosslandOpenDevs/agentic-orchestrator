@@ -97,11 +97,36 @@ def describe_paid_tier(
     }
 
 
+_PAID_TIERS_CACHE: Optional[dict] = None
+
+
+def _cached_paid_tiers() -> dict:
+    """Parsed `llm.paid_tiers`, read from config.yaml once per process.
+
+    Same contract as RSSAdapter's feed list: editing config.yaml takes effect
+    on restart. `/status` is public, unauthenticated and uncached, and its
+    handler is `async def` on a single-instance app — re-parsing 22 KB of YAML
+    there costs ~8 ms of blocking CPU on the event loop per request, several
+    times the endpoint's entire remaining cost. The verdict is NOT cached,
+    only the file parse: `local_only`, the API-key env and the budget are all
+    still evaluated per call, so a kill switch flip shows up immediately.
+
+    Deliberately not `@lru_cache` on `_load_paid_tiers` itself — the malformed
+    config tests monkeypatch `yaml.safe_load` and call that method directly,
+    and would poison or read a stale cache.
+    """
+    global _PAID_TIERS_CACHE
+    if _PAID_TIERS_CACHE is None:
+        _PAID_TIERS_CACHE = HybridLLMRouter._load_paid_tiers()
+    return _PAID_TIERS_CACHE
+
+
 def paid_tier_report(budget_ok: Optional[bool] = None) -> Dict[str, Any]:
     """Config-level view of every paid tier, for /status and /usage.
 
     Derived from the same preconditions route() uses, but without building a
-    provider or making a network call, so it is safe on hot public endpoints.
+    provider, making a network call, or re-reading config.yaml, so it is safe
+    on hot public endpoints.
 
     Caveat worth knowing when reading the output: this reflects *this*
     process's environment. The API and the debate scheduler are separate PM2
@@ -113,7 +138,7 @@ def paid_tier_report(budget_ok: Optional[bool] = None) -> Dict[str, Any]:
     local_only = local_llm_only()
     tiers = {
         name: describe_paid_tier(name, tier, local_only=local_only, budget_ok=budget_ok)
-        for name, tier in HybridLLMRouter._load_paid_tiers().items()
+        for name, tier in _cached_paid_tiers().items()
     }
     degraded = sorted(n for n, t in tiers.items() if t["enabled"] and not t["active"])
     return {
@@ -485,9 +510,10 @@ class HybridLLMRouter:
         except Exception as e:
             logger.error(f"Error with {selected_model}: {e}")
 
-            # A pinned paid tier must NOT silently become a local call. The
-            # debate is the only tier today, and degrading one of its turns
-            # to gemma3:4b mid-round is worse than losing the turn: the
+            # A pinned paid tier must NOT silently become a local call.
+            # Degrading a debate turn to gemma3:4b mid-round is worse than
+            # losing the turn (and the same holds for the second-pass
+            # promotion reviewer, the other tier): the
             # round would mix two models' output quality invisibly, and it
             # would push load onto the very Ollama path whose congestion the
             # tier exists to escape (2026-08-05: three debates died there).

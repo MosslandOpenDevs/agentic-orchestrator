@@ -439,9 +439,18 @@ pm2 save
   **삭제 후 재등록**이 유일하게 확실한 방법이다 (로그인 셸에서):
 
   ```bash
-  pm2 delete moss-ao-signals moss-ao-health moss-ao-trends moss-ao-backlog moss-ao-deploy moss-ao-debate moss-ao-web moss-ao-api
+  for app in moss-ao-signals moss-ao-health moss-ao-trends moss-ao-backlog \
+             moss-ao-deploy moss-ao-debate moss-ao-web moss-ao-api; do
+    pm2 delete "$app" || true
+  done
   pm2 start ecosystem.config.js && pm2 save
   ```
+
+  루프인 이유: `moss-ao-deploy`는 `.env`에 `MOSS_AO_AUTO_DEPLOY=1`이 있어야만 등록되는데,
+  `pm2 delete a b c`는 **없는 이름을 만나면 거기서 중단**한다 (PM2 7.0.3 실측). 한 줄로
+  쓰면 그 뒤의 `moss-ao-debate`·`web`·`api` — 하필 유료 티어 소비자와 그것을 보고하는
+  프로세스 — 가 삭제되지 않고, 이어지는 `pm2 start`는 그것들을 재시작만 해서 낡은 env가
+  그대로 남는다. env 갱신하려던 작업이 조용히 절반만 되는 것이다.
 
 - **`pm2 restart ecosystem.config.js --update-env`는 `.env` 값을 갱신하지 못한다**
   (PM2 7.0.3에서 실측, 2026-08-06). 설정 파일을 인자로 주면 PM2는 파일의 `env:` 블록만

@@ -471,10 +471,19 @@ ecosystem_reminder() {
   n=$(wc -l <"${ECOSYSTEM_PENDING}" 2>/dev/null | tr -d ' ' || echo '?')
   log "REMINDER ecosystem.config.js changed in ${n} deploy(s) and PM2 has not been"
   log "         re-registered; process definitions (cron, env) are still the old ones."
+  log "         NOTE 'pm2 restart ecosystem.config.js --update-env' does NOT refresh"
+  log "         .env-only keys such as MOSS_LOCAL_LLM_ONLY: given a config file PM2"
+  log "         applies only that file's env: blocks and ignores the calling shell"
+  log "         (measured on 7.0.3). Delete and re-register instead, and loop the"
+  log "         delete: 'pm2 delete a b c' stops at the first name that does not"
+  log "         exist, and moss-ao-deploy is absent without MOSS_AO_AUTO_DEPLOY=1."
   log "         From a LOGIN SHELL only -- never from inside a PM2-managed process,"
-  log "         which injects config keys like cron_restart that --update-env would"
-  log "         copy onto every app (see docs/deployment.md):"
-  log "           pm2 restart ecosystem.config.js --update-env && pm2 save"
+  log "         which injects config keys like cron_restart that leak onto every app"
+  log "         (see docs/deployment.md):"
+  log "           for a in moss-ao-signals moss-ao-health moss-ao-trends moss-ao-backlog \\"
+  log "                    moss-ao-deploy moss-ao-debate moss-ao-web moss-ao-api; do"
+  log "             pm2 delete \"\$a\" || true; done"
+  log "           pm2 start ecosystem.config.js && pm2 save"
   log "           rm ${ECOSYSTEM_PENDING}"
 }
 

@@ -1121,7 +1121,21 @@ class TestEcosystemChanges:
 
         second = server.run()
         assert "REMINDER" in second.stdout
-        assert "pm2 restart ecosystem.config.js" in second.stdout
+        # The reminder must prescribe delete-then-re-register. It used to
+        # prescribe `pm2 restart ecosystem.config.js --update-env`, which
+        # cannot refresh .env-only keys at all -- given a config file PM2
+        # applies only that file's env: blocks and ignores the calling shell.
+        # So the one channel that tells an operator what to run was telling
+        # them to run the thing that leaves the stale env in place, which is
+        # how MOSS_LOCAL_LLM_ONLY=true outlived a .env that said false.
+        assert "pm2 delete" in second.stdout
+        assert "pm2 start ecosystem.config.js" in second.stdout
+        # The --update-env form may only appear as a warning, never as the
+        # prescription. Every line that mentions it must also say it does not
+        # work; a bare command line naming it would be the old bug returning.
+        update_env_lines = [ln for ln in second.stdout.splitlines() if "--update-env" in ln]
+        assert update_env_lines, "the reminder should still warn about the form that fails"
+        assert all("does NOT refresh" in ln for ln in update_env_lines), update_env_lines
 
     def test_reminder_stops_once_the_operator_clears_it(self, server: Server):
         server.push({"ecosystem.config.js": "module.exports = { apps: [] }\n"})

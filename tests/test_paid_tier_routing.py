@@ -536,9 +536,18 @@ class TestPaidTierReport:
     def test_reason_precedence_reports_the_first_switch_to_flip(self):
         tier = {"enabled": True, "provider": "openai", "model": "gpt-5.4-mini"}
 
+        # Every case below breaks EVERY remaining precondition at once, so the
+        # branches are genuinely in contention and the assertion pins the
+        # ordering rather than just "some reason came back". Reordering any two
+        # arms of describe_paid_tier must fail this test.
+
         # Kill switch outranks everything else: it is the operator's first fix.
         killed = describe_paid_tier(
-            "debate", tier, local_only=True, provider_ready=False, budget_ok=False
+            "debate",
+            {**tier, "enabled": False},
+            local_only=True,
+            provider_ready=False,
+            budget_ok=False,
         )
         assert killed["active"] is False
         assert "MOSS_LOCAL_LLM_ONLY" in killed["reason"]
@@ -546,11 +555,19 @@ class TestPaidTierReport:
         # With the switch off, the next unmet precondition surfaces in turn.
         assert (
             "disabled"
-            in describe_paid_tier("debate", {**tier, "enabled": False}, local_only=False)["reason"]
+            in describe_paid_tier(
+                "debate",
+                {**tier, "enabled": False},
+                local_only=False,
+                provider_ready=False,
+                budget_ok=False,
+            )["reason"]
         )
         assert (
             "unavailable"
-            in describe_paid_tier("debate", tier, local_only=False, provider_ready=False)["reason"]
+            in describe_paid_tier(
+                "debate", tier, local_only=False, provider_ready=False, budget_ok=False
+            )["reason"]
         )
         assert (
             "budget"
@@ -594,6 +611,56 @@ class TestPaidTierReport:
         assert report["status"] == "healthy"
         assert report["degraded_tiers"] == []
         assert report["paid_tiers"]["debate"]["model"] == "gpt-5.4-mini"
+
+    def test_config_is_parsed_once_per_process_not_per_request(self, monkeypatch):
+        # /status is public, unauthenticated, uncached and `async def` on a
+        # single-instance app. Re-reading and YAML-parsing the 22 KB
+        # config.yaml per request put ~8 ms of blocking CPU on the event loop
+        # -- several times the rest of the handler. Same contract as the RSS
+        # feed list: a config edit takes effect on restart.
+        import agentic_orchestrator.llm.router as router_mod
+
+        monkeypatch.setattr(router_mod, "_PAID_TIERS_CACHE", None)
+        loads = []
+        real = HybridLLMRouter._load_paid_tiers
+
+        def counting_load():
+            loads.append(1)
+            return real()
+
+        monkeypatch.setattr(HybridLLMRouter, "_load_paid_tiers", staticmethod(counting_load))
+        monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "true")
+
+        for _ in range(10):
+            paid_tier_report()
+
+        assert len(loads) == 1, f"config.yaml parsed {len(loads)}x for 10 requests"
+
+    def test_caching_the_parse_does_not_freeze_the_verdict(self, monkeypatch):
+        # Only the file parse is cached. If the verdict were cached too, the
+        # endpoint would keep reporting healthy after the kill switch was
+        # engaged -- i.e. the monitoring added to catch a silently dead tier
+        # would itself go silently stale.
+        monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "false")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        assert paid_tier_report(budget_ok=True)["status"] == "healthy"
+
+        monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "true")
+        assert paid_tier_report(budget_ok=True)["status"] == "degraded"
+
+        monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "false")
+        assert paid_tier_report(budget_ok=False)["status"] == "degraded"
+        assert paid_tier_report(budget_ok=True)["status"] == "healthy"
+
+    def test_every_configured_tier_is_reported_not_just_debate(self):
+        # The report iterates config, so a tier added later (v0.6.22 added
+        # `review` for second-pass promotion) is covered with no code change.
+        # A hardcoded "debate" would leave the new tier unobservable.
+        from agentic_orchestrator.llm.router import _cached_paid_tiers
+
+        configured = set(_cached_paid_tiers())
+        assert "debate" in configured
+        assert configured == set(paid_tier_report()["paid_tiers"])
 
     def test_missing_api_key_is_reported_without_touching_the_network(self, monkeypatch):
         monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "false")

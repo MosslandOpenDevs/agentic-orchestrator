@@ -259,7 +259,7 @@ python -m agentic_orchestrator.scheduler restore-db
 | `CI: still running -- deferring` 반복 | CI가 아직 진행 중이거나 멈춤. Actions 탭 확인 |
 | `CI: status unavailable` 반복 | GitHub API 접근 실패(레이트 리밋 등). `GITHUB_TOKEN` 설정 검토 |
 | `scheduler busy` 로 계속 밀림 | 토론이 오래 걸리는 중. 급하면 `--force` |
-| `REMINDER ecosystem.config.js changed ...` 반복 | PM2 프로세스 정의(cron·env)는 자동 재등록되지 않음. **로그인 셸에서** `pm2 restart ecosystem.config.js --update-env && pm2 save` 실행 후 `rm logs/.ecosystem-pending` (PM2 관리 프로세스 안에서 실행 금지 — 아래 [cron_restart 오염](#pm2-cron_restart-오염-2026-08-05-사고) 참조). 이 알림은 파일을 지울 때까지 매 틱 반복됩니다 — 예전에는 배포 한 번만 안내하고 사라져서 변경이 무기한 미적용으로 남을 수 있었습니다 |
+| `REMINDER ecosystem.config.js changed ...` 반복 | PM2 프로세스 정의(cron·env)는 자동 재등록되지 않음. **로그인 셸에서 삭제 후 재등록** 후 `rm logs/.ecosystem-pending` — 명령과 주의사항은 아래 [`.env`를 고쳤는데 프로세스가 옛 값을 들고 있다](#env를-고쳤는데-프로세스가-옛-값을-들고-있다-2026-08-06-사고) 참조. **`pm2 restart ecosystem.config.js --update-env`로는 안 된다** (설정 파일 형태는 `.env` 키를 갱신하지 못함). PM2 관리 프로세스 안에서 실행 금지 ([cron_restart 오염](#pm2-cron_restart-오염-2026-08-05-사고)). 이 알림은 파일을 지울 때까지 매 틱 반복됩니다 — 예전에는 배포 한 번만 안내하고 사라져서 변경이 무기한 미적용으로 남을 수 있었습니다 |
 | `CRITICAL rollback ... unhealthy` | 배포도 롤백도 헬스체크 실패. `pm2 logs moss-ao-api` 확인 후 수동 개입 |
 | 배포는 됐는데 화면이 그대로 | 프론트엔드는 `NEXT_PUBLIC_*`가 빌드 시점에 박히므로 빌드 필요. `logs/deploy.log`에 `npm run build`가 있는지 확인 |
 | **`ERROR npm run build failed` 직후 `CRITICAL rollback ... unhealthy` 반복** | devDependencies 누락 또는 이전 실패가 남긴 `website/.next.new`. 아래 절 참조 |
@@ -391,10 +391,19 @@ for a in json.load(sys.stdin):
 **수정**: 삭제 후 재등록 — 이 문서가 cron 오염 제거에 쓰는 방법과 같다.
 
 ```bash
-pm2 delete moss-ao-signals moss-ao-health moss-ao-trends moss-ao-backlog \
-           moss-ao-deploy moss-ao-debate moss-ao-web moss-ao-api
+for app in moss-ao-signals moss-ao-health moss-ao-trends moss-ao-backlog \
+           moss-ao-deploy moss-ao-debate moss-ao-web moss-ao-api; do
+  pm2 delete "$app" || true
+done
 pm2 start ecosystem.config.js && pm2 save
 ```
+
+> **한 줄 `pm2 delete a b c`로 쓰지 말 것.** PM2 7.0.3은 이름 목록을 순서대로 처리하다
+> **없는 이름을 만나면 거기서 중단**한다(실측). `moss-ao-deploy`는 `MOSS_AO_AUTO_DEPLOY=1`
+> 일 때만 등록되고, [일시 중지](#일시-중지--재개) 절차도 이 앱을 지우라고 안내하므로
+> 없는 경우가 흔하다. 그러면 뒤따르는 `moss-ao-debate`·`moss-ao-web`·`moss-ao-api`가
+> 삭제되지 않고, 이어지는 `pm2 start`는 그것들을 재시작만 해서 낡은 env가 그대로 남는다 —
+> env를 갱신하려던 명령이 조용히 절반만 수행된다.
 
 **검증** (`.env`와 실제 프로세스 환경이 일치하는지):
 
