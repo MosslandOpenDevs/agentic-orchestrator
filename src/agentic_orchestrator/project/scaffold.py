@@ -16,6 +16,7 @@ import json
 import logging
 import subprocess
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -28,6 +29,12 @@ from .templates import TemplateFile, TemplateManager, slugify_project_name
 from .verifier import UNKNOWN, CodeVerifier, VerificationStatus, detect_language
 
 logger = logging.getLogger(__name__)
+
+# How long a project may sit in `generating` before we assume the run that
+# claimed it died. Nothing clears that status on a crash or a restart, so
+# without an expiry a killed generation blocks every future attempt for
+# that plan forever. Generation itself is minutes, not hours.
+STALE_GENERATING_AFTER_HOURS = 2
 
 
 @dataclass
@@ -157,11 +164,24 @@ class ProjectScaffold:
                         error="Project already exists. Use force_regenerate=True to regenerate.",
                     )
                 if existing_status == "generating":
-                    return ProjectGenerationResult(
-                        success=False,
-                        project_id=existing_project.get("id"),
-                        plan_id=plan_id,
-                        error="Project generation is already in progress for this plan.",
+                    started = existing_project.get("created_at")
+                    stale = bool(
+                        started
+                        and (utcnow() - started) > timedelta(hours=STALE_GENERATING_AFTER_HOURS)
+                    )
+                    if not stale:
+                        return ProjectGenerationResult(
+                            success=False,
+                            project_id=existing_project.get("id"),
+                            plan_id=plan_id,
+                            error="Project generation is already in progress for this plan.",
+                        )
+                    logger.warning(
+                        "Project %s for plan %s has been 'generating' for over %dh; "
+                        "treating it as abandoned and regenerating",
+                        existing_project.get("id"),
+                        plan_id,
+                        STALE_GENERATING_AFTER_HOURS,
                     )
                 logger.info(
                     f"Existing project for plan {plan_id} is in state "
@@ -369,6 +389,7 @@ class ProjectScaffold:
             if project:
                 return {
                     "id": project.id,
+                    "created_at": project.created_at,
                     "directory_path": project.directory_path,
                     "tech_stack": project.tech_stack,
                     "status": project.status,

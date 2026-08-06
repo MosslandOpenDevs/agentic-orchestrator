@@ -277,7 +277,10 @@ export default function Dashboard() {
                     <div className="border-t border-[#21262d] pt-3 mt-3">
                       <div className="flex justify-between items-center">
                         <span className="text-[#8b949e] text-xs">total_adapters:</span>
-                        <span className="text-[#39ff14] font-bold">9</span>
+                        {/* Was a literal 9 while the backend registers 11. */}
+                        <span className="text-[#39ff14] font-bold">
+                          {adapters.length || '—'}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -303,17 +306,15 @@ export default function Dashboard() {
                     <div className="text-[#00ffff] text-xs mb-2">
                       <span className="text-[#bd93f9]">@</span> Local Models (Ollama)
                     </div>
-                    {['gemma3:4b', 'qwen3-embedding:0.6b'].map((model, idx) => (
+                    {/* Configuration, not health. These rows used to carry a
+                        pulsing green "online" dot that nothing measured -- and
+                        the list included qwen3-embedding:0.6b, which is not
+                        installed on the production host and which no code path
+                        calls (see CLAUDE.md). */}
+                    {['gemma3:4b'].map((model) => (
                       <div key={model} className="flex items-center justify-between py-1 ml-4">
                         <span className="text-[#c0c0c0] text-xs">{model}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="tag tag-green">FREE</span>
-                          <motion.div
-                            className="status-dot online"
-                            animate={{ opacity: [1, 0.5, 1] }}
-                            transition={{ duration: 2, repeat: Infinity, delay: idx * 0.2 }}
-                          />
-                        </div>
+                        <span className="tag tag-green">FREE</span>
                       </div>
                     ))}
                   </div>
@@ -323,17 +324,14 @@ export default function Dashboard() {
                     <div className="text-[#ff6b35] text-xs mb-2">
                       <span className="text-[#bd93f9]">@</span> API Models (Budget Controlled)
                     </div>
-                    {aiProviders.map((provider, idx) => (
+                    {/* Also configuration. Nothing here checks whether these
+                        are reachable -- and MOSS_LOCAL_LLM_ONLY defaults to
+                        true, which stops the router instantiating them at
+                        all -- so no status indicator is shown. */}
+                    {aiProviders.map((provider) => (
                       <div key={provider} className="flex items-center justify-between py-1 ml-4">
                         <span className="text-[#c0c0c0] text-xs">{provider}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="tag tag-orange">PAID</span>
-                          <motion.div
-                            className="status-dot online"
-                            animate={{ opacity: [1, 0.5, 1] }}
-                            transition={{ duration: 2, repeat: Infinity, delay: idx * 0.3 }}
-                          />
-                        </div>
+                        <span className="tag tag-orange">PAID</span>
                       </div>
                     ))}
                   </div>

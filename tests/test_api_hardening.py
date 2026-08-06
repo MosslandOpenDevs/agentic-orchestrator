@@ -243,6 +243,39 @@ class TestFailedGenerationRetry:
         assert "already exists" in (result.error or "")
 
     @pytest.mark.asyncio
+    async def test_an_abandoned_generating_row_does_not_block_forever(
+        self, tmp_path, scaffold_session
+    ):
+        """Nothing clears `generating` when the run that claimed it is killed,
+        so without an expiry a crashed generation blocks that plan forever."""
+        scaffold_session.add(
+            Idea(id="idea-5", title="Stalled", summary="seed", source_type="debate")
+        )
+        scaffold_session.add(
+            Plan(id="plan-5", idea_id="idea-5", title="Stalled", final_plan="# Plan\n")
+        )
+        scaffold_session.add(
+            Project(
+                id="proj-stuck",
+                plan_id="plan-5",
+                name="x",
+                status="generating",
+                created_at=utcnow() - timedelta(hours=6),
+            )
+        )
+        scaffold_session.commit()
+
+        scaffold = ProjectScaffold(
+            router=None,
+            projects_dir=str(tmp_path / "projects"),
+            db_session=scaffold_session,
+        )
+        result = await scaffold.generate_project(plan_id="plan-5")
+
+        assert result.success, result.error
+        assert result.project_path
+
+    @pytest.mark.asyncio
     async def test_completed_project_still_short_circuits(self, tmp_path, scaffold_session):
         scaffold_session.add(Idea(id="idea-3", title="Done", summary="seed", source_type="debate"))
         scaffold_session.add(

@@ -176,21 +176,26 @@ def create_sample_signals(session) -> int:
 
     Opt-in (``--with-sample-signals``) and idempotent. It used to run as part
     of every migration with no dedupe key, so each re-run added another copy of
-    every synthetic row -- and they claim ``source="rss"``, which makes them
-    indistinguishable from collected signals in source-mix statistics
-    afterwards. The ``demo:`` id prefix is both the dedupe key and the marker.
+    every synthetic row -- and it claimed ``source="rss"``, which left them
+    indistinguishable from collected signals in the source-mix statistics the
+    trend task logs. They now say ``source="demo"``, which is both honest and
+    what makes them visible in those statistics, and carry a derived id so a
+    re-run finds and skips them.
     """
     trends = session.query(Trend).limit(20).all()
 
     count = 0
     for trend in trends:
-        signal_id = f"demo:{trend.id}"
+        # Signal.id is String(36) and trend ids are full uuid4s, so the
+        # prefixed form has to be trimmed to fit. Deterministic either way,
+        # which is what makes the re-run check below work.
+        signal_id = f"demo-{trend.id}"[:36]
         if session.query(Signal).filter(Signal.id == signal_id).first():
             continue
 
         signal = Signal(
             id=signal_id,
-            source="rss",
+            source="demo",
             category=trend.category or "other",
             title=trend.name,
             summary=trend.description,

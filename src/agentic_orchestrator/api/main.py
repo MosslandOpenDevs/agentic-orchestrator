@@ -291,10 +291,16 @@ async def system_status(session: Session = Depends(get_session)):
         status="operational" if db_healthy else "degraded",
         timestamp=utcnow().isoformat(),
         components={
+            # "api" is honest by construction: this handler answered.
             "api": {"status": "healthy"},
             "database": {"status": "healthy" if db_healthy else "unhealthy"},
-            "cache": {"status": "healthy"},
-            "llm_router": {"status": "healthy"},
+            # These two were reported as healthy unconditionally -- nothing
+            # here probes a cache or the LLM router, and this endpoint is
+            # public and hot, so it must not start making network calls to
+            # find out. "unknown" is what we actually know; the scheduler's
+            # 5-minute health check is what measures the router.
+            "cache": {"status": "unknown"},
+            "llm_router": {"status": "unknown"},
         },
         stats=stats,
     )

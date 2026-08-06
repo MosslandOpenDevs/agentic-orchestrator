@@ -79,6 +79,13 @@ DEPLOY_LOCK_STALE_MIN=${DEPLOY_LOCK_STALE_MIN:-90}
 # Outstanding ecosystem.config.js changes that still need a manual PM2
 # re-register. Cleared by the operator once done.
 ECOSYSTEM_PENDING=${ECOSYSTEM_PENDING:-${REPO_ROOT}/logs/.ecosystem-pending}
+# How many consecutive CI-related deferrals of the SAME commit before we
+# say so out loud. Deferrals are normal and frequent (CI takes minutes at
+# 5-minute polling), so alerting on each one is noise -- but a deferral
+# that never resolves silently stops auto-deploy, which is exactly the
+# kind of thing nobody notices. 12 ticks is about an hour.
+DEPLOY_DEFER_ALERT_TICKS=${DEPLOY_DEFER_ALERT_TICKS:-12}
+DEPLOY_DEFER_STATE=${DEPLOY_DEFER_STATE:-${REPO_ROOT}/logs/.ci-deferred}
 
 PYTHON_BIN=${PYTHON_BIN:-${REPO_ROOT}/.venv/bin/python}
 PM2_BIN=${PM2_BIN:-pm2}
@@ -239,16 +246,37 @@ print("success")
 ' 2>/dev/null || echo "unknown"
 }
 
+# Deferrals are transient by design; a deferral that never clears is not.
+# Count consecutive ones for the same commit and say something once.
+note_ci_deferral() {
+  local reason="$1" prev_target prev_count count
+  read -r prev_target prev_count <<<"$(cat "${DEPLOY_DEFER_STATE}" 2>/dev/null || echo)"
+  if [ "${prev_target:-}" = "${TARGET}" ]; then
+    count=$(( ${prev_count:-0} + 1 ))
+  else
+    count=1
+  fi
+  printf '%s %s\n' "${TARGET}" "${count}" >"${DEPLOY_DEFER_STATE}" 2>/dev/null || true
+  if [ "${count}" = "${DEPLOY_DEFER_ALERT_TICKS}" ]; then
+    alert "MOSS.AO auto-deploy has been stuck on ${TARGET:0:8} for ${count} ticks (${reason}); nothing is deploying"
+  fi
+}
+
+clear_ci_deferral() {
+  rm -f "${DEPLOY_DEFER_STATE}" 2>/dev/null || true
+}
+
 if [ "${DEPLOY_REQUIRE_CI}" = "1" ] && [ "${FORCE}" = "0" ]; then
   CI=$(ci_conclusion "${TARGET}")
   case "${CI}" in
-    success)    log "CI: green" ;;
-    pending)    log "CI: still running -- deferring to next tick"; exit 0 ;;
+    success)    log "CI: green"; clear_ci_deferral ;;
+    pending)    log "CI: still running -- deferring to next tick"
+                note_ci_deferral "CI still running"; exit 0 ;;
     none)       log "CI: no checks reported yet for ${TARGET:0:8} -- deferring to next tick"
-                exit 0 ;;
+                note_ci_deferral "no checks reported"; exit 0 ;;
     incomplete) log "CI: checks reported but none verified the commit \
 (skipped/stale) -- deferring to next tick"
-                exit 0 ;;
+                note_ci_deferral "checks verified nothing"; exit 0 ;;
     missing-required)
                 log "CI: required jobs (${DEPLOY_REQUIRE_CI_JOBS}) did not pass -- refusing"
                 alert "MOSS.AO deploy skipped: required CI jobs missing on ${TARGET:0:8}"
@@ -256,7 +284,8 @@ if [ "${DEPLOY_REQUIRE_CI}" = "1" ] && [ "${FORCE}" = "0" ]; then
     failure)    log "CI: FAILED -- refusing to deploy ${TARGET:0:8}"
                 alert "MOSS.AO deploy skipped: CI failed on ${TARGET:0:8} (${SUBJECT})"
                 exit 0 ;;
-    *)          log "CI: status unavailable (network/API) -- deferring to next tick"; exit 0 ;;
+    *)          log "CI: status unavailable (network/API) -- deferring to next tick"
+                note_ci_deferral "CI status unavailable"; exit 0 ;;
   esac
 fi
 

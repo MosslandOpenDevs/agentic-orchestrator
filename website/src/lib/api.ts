@@ -623,13 +623,16 @@ export class ApiClient {
 
 export async function fetchSystemStats(): Promise<SystemStats | null> {
   // Use /status endpoint which has accurate counts
-  const [statusRes, trendsRes, rejectedPlansRes, signalsRes] = await Promise.all([
+  const [statusRes, trendsRes, rejectedPlansRes, signalsRes, projectsRes] = await Promise.all([
     ApiClient.getStatus(),
     ApiClient.getTrends({ limit: 1 }),
     ApiClient.getPlans({ limit: 1, status: 'rejected' }),
     // The newest signal's collection time is the only evidence the API exposes
     // of the pipeline actually having run.
     ApiClient.getSignals({ limit: 1 }),
+    // Generated projects are the only "in development" the system has;
+    // this tile used to be a hard-coded 0.
+    ApiClient.getProjects({ limit: 1 }),
   ]);
 
   if (statusRes.error || !statusRes.data) {
@@ -646,7 +649,7 @@ export async function fetchSystemStats(): Promise<SystemStats | null> {
     totalIdeas: stats.ideas_generated,
     totalPlans: stats.plans_created,
     plansRejected,
-    inDevelopment: 0,
+    inDevelopment: projectsRes.data?.total ?? 0,
     trendsAnalyzed,
     // Both of these used to be made up from the browser clock: lastRun was
     // "now", so the banner always read "less than a minute ago", and nextRun

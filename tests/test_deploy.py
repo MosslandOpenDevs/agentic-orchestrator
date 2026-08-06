@@ -597,6 +597,34 @@ class TestGuards:
         assert server.head() == before
         assert "pm2 restart" not in server.calls()
 
+    def test_a_stuck_deferral_eventually_says_so(self, server: Server):
+        """Deferring is normal; deferring forever means auto-deploy has
+        silently stopped, which is the state nobody notices."""
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 50\n"})
+
+        for _ in range(2):
+            result = server.run(
+                DEPLOY_REQUIRE_CI="1", CI_JSON=CI_NONE, DEPLOY_DEFER_ALERT_TICKS="3"
+            )
+            assert "deferring" in result.stdout
+
+        state = server.checkout / "logs" / ".ci-deferred"
+        assert state.exists()
+        assert state.read_text().split()[1] == "2"
+
+        # The third consecutive deferral is the one that alerts.
+        server.run(DEPLOY_REQUIRE_CI="1", CI_JSON=CI_NONE, DEPLOY_DEFER_ALERT_TICKS="3")
+        assert state.read_text().split()[1] == "3"
+
+    def test_a_green_run_clears_the_deferral_counter(self, server: Server):
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 51\n"})
+        server.run(DEPLOY_REQUIRE_CI="1", CI_JSON=CI_NONE)
+        assert (server.checkout / "logs" / ".ci-deferred").exists()
+
+        server.run(DEPLOY_REQUIRE_CI="1", CI_JSON=CI_SUCCESS)
+
+        assert not (server.checkout / "logs" / ".ci-deferred").exists()
+
     def test_required_jobs_must_all_have_passed(self, server: Server):
         before = server.head()
         server.push({"src/agentic_orchestrator/api.py": "VERSION = 20\n"})

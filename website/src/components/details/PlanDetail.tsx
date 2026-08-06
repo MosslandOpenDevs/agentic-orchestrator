@@ -73,10 +73,12 @@ export function PlanDetail({ data }: PlanDetailProps) {
           project: response.data!.project,
           generating: response.data!.project?.status === 'generating',
         }));
+        return response.data.project.status;
       }
     } catch (err) {
       console.warn('Failed to fetch project status:', err);
     }
+    return undefined;
   }, []);
 
   // Poll job status
@@ -122,6 +124,36 @@ export function PlanDetail({ data }: PlanDetailProps) {
     }
   }, [fetchProjectStatus, plan?.id]);
 
+  // Watch the project row for a run this tab does not own a job id for.
+  const pollProjectUntilSettled = useCallback(
+    async (attemptsLeft = 40) => {
+      if (!plan?.id) return;
+      const response = await ApiClient.getPlanProject(plan.id);
+      const status = response.data?.project?.status;
+
+      if (status && status !== 'generating') {
+        setProjectState(prev => ({
+          ...prev,
+          project: response.data!.project,
+          generating: false,
+        }));
+        return;
+      }
+      if (attemptsLeft <= 0) {
+        setProjectState(prev => ({
+          ...prev,
+          generating: false,
+          error:
+            'This project has been generating for a while. It may have been ' +
+            'interrupted; try again.',
+        }));
+        return;
+      }
+      setTimeout(() => pollProjectUntilSettled(attemptsLeft - 1), 5000);
+    },
+    [plan?.id]
+  );
+
   // Handle generate project button click
   const handleGenerateProject = async (force = false) => {
     if (!plan?.id) return;
@@ -147,7 +179,12 @@ export function PlanDetail({ data }: PlanDetailProps) {
           await fetchProjectStatus(plan.id);
           setProjectState(prev => ({ ...prev, generating: false }));
         } else if (response.data.status === 'in_progress') {
+          // No job id to poll -- another caller owns this run -- so watch the
+          // project row instead. Bounded: this branch used to set the spinner
+          // and start nothing, so a generation that died left it turning
+          // forever with no way out.
           setProjectState(prev => ({ ...prev, generating: true }));
+          pollProjectUntilSettled();
         }
       } else {
         setProjectState(prev => ({
@@ -180,7 +217,8 @@ export function PlanDetail({ data }: PlanDetailProps) {
             setActiveTab(firstTabWithContent.key);
           }
           // Also fetch project status
-          await fetchProjectStatus(data.id);
+          const existing = await fetchProjectStatus(data.id);
+          if (existing === 'generating') pollProjectUntilSettled();
         } else {
           setError(response.error || t('detail.fetchError'));
         }
@@ -192,7 +230,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
     }
 
     fetchPlan();
-  }, [data.id, t, fetchProjectStatus]);
+  }, [data.id, t, fetchProjectStatus, pollProjectUntilSettled]);
 
   if (loading) {
     return (
@@ -214,10 +252,12 @@ export function PlanDetail({ data }: PlanDetailProps) {
   }
 
   const statusColors: Record<string, 'green' | 'cyan' | 'orange' | 'purple'> = {
+    // PlanStatus in db/models.py: draft / review / approved / rejected.
+    // The key here used to be 'in-review', which the backend never emits.
     approved: 'green',
     draft: 'cyan',
+    review: 'purple',
     rejected: 'orange',
-    'in-review': 'purple',
   };
 
   // Get active content with Korean fallback for final_plan

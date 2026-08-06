@@ -9,16 +9,13 @@ import type { Idea, Plan } from '@/lib/types';
 
 type SortOption = 'newest' | 'oldest' | 'score-high' | 'score-low';
 
-// These are IdeaStatus values from the backend (db/models.py). The tabs
-// used to filter on 'in-dev' and 'planned', a vocabulary that only ever
-// existed in the demo fixtures -- so the In Development tab was always
-// empty no matter what the pipeline was doing.
-const IN_DEVELOPMENT_STATUSES = ['promoted', 'selected'];
-const PLANNED_STATUSES = ['planned'];
 
 export default function BacklogPage() {
   const { t } = useI18n();
-  const [activeTab, setActiveTab] = useState<'ideas' | 'plans' | 'in-dev'>('ideas');
+  // No 'in-dev' tab: it had a count but no render branch, so selecting it
+  // showed an empty page whatever the count claimed. Generated projects
+  // live on /projects, which is where that view already exists.
+  const [activeTab, setActiveTab] = useState<'ideas' | 'plans'>('ideas');
   // Start empty: seeding with demo rows meant the page rendered a
   // convincing fake backlog before the first fetch, and kept it forever
   // if the fetch threw.
@@ -64,18 +61,12 @@ export default function BacklogPage() {
   const tabs = [
     { id: 'ideas' as const, label: t('backlog.ideas'), count: ideas.length },
     { id: 'plans' as const, label: t('backlog.plans'), count: plans.length },
-    { id: 'in-dev' as const, label: t('backlog.inDevelopment'), count: ideas.filter(i => IN_DEVELOPMENT_STATUSES.includes(i.status)).length },
   ];
 
   const filteredIdeas = useMemo(() => {
     let result = ideas;
 
-    // Tab filter
-    if (activeTab === 'in-dev') {
-      result = result.filter(i => IN_DEVELOPMENT_STATUSES.includes(i.status));
-    } else if (activeTab === 'plans') {
-      result = result.filter(i => PLANNED_STATUSES.includes(i.status));
-    }
+    // No tab filter: the Plans tab renders the plans list, not ideas.
 
     // Status filter
     if (statusFilter !== 'all') {
@@ -113,7 +104,7 @@ export default function BacklogPage() {
     });
 
     return result;
-  }, [ideas, activeTab, statusFilter, sourceFilter, sortBy, searchQuery]);
+  }, [ideas, statusFilter, sourceFilter, sortBy, searchQuery]);
 
   return (
     <div className="min-h-screen bg-zinc-950 pt-14">
