@@ -40,7 +40,13 @@ jobs:
       # pyproject.toml -- it exits 0 on a stale one -- so the freshness check
       # has to be explicit.
       - name: Check the lockfile is up to date
-        run: uv lock --check
+        run: |
+          uv lock --check || {
+            echo "::error::uv.lock is out of date. Run 'uv lock' and commit it."
+            echo "Note: bumping the version in pyproject.toml is enough to do this," \
+                 "because the lock records the project's own version."
+            exit 1
+          }
 
       # --frozen, matching the deploy script exactly. Production installs from
       # the same committed lock, so a green run here and a deploy of that

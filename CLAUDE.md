@@ -789,6 +789,19 @@ git add *.md docs/*.md
 git commit -m "docs: update documentation for recent changes"
 ```
 
+### 버전 올릴 때
+
+버전은 두 곳에 있습니다: `pyproject.toml`과 `website/src/lib/version.ts`.
+
+**`pyproject.toml`의 버전을 바꾸면 `uv lock`도 함께 돌려서 `uv.lock`을 커밋해야
+합니다.** lock이 프로젝트 자기 버전을 기록하므로 버전만 올려도 lock이 stale이 되고,
+CI의 `uv lock --check`가 빨간불이 됩니다 — 그리고 배포 게이트는 CI가 초록일 때만
+배포하므로, 그 상태로 두면 **모든 배포가 멈춥니다.**
+
+```bash
+uv lock && git add uv.lock
+```
+
 ### 커밋 컨벤션
 
 - `feat:` - 새로운 기능
