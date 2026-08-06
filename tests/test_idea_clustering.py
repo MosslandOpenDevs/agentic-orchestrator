@@ -126,9 +126,7 @@ class TestPrecisionGuards:
         mixed = list(golden) + diverse_docs(prefix="x")
         clusters = cluster_ideas(mixed)
         contaminated = [
-            c
-            for c in clusters
-            if c.size > 1 and any(m.key.startswith("x") for m in c.members)
+            c for c in clusters if c.size > 1 and any(m.key.startswith("x") for m in c.members)
         ]
         assert contaminated == []
 
@@ -156,9 +154,7 @@ class TestDeterminism:
     def test_same_input_same_output(self, golden):
         first = cluster_ideas(golden)
         second = cluster_ideas(golden)
-        assert [c.representative.key for c in first] == [
-            c.representative.key for c in second
-        ]
+        assert [c.representative.key for c in first] == [c.representative.key for c in second]
         assert [sorted(m.key for m in c.members) for c in first] == [
             sorted(m.key for m in c.members) for c in second
         ]
