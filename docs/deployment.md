@@ -262,7 +262,7 @@ python -m agentic_orchestrator.scheduler restore-db
 | `REMINDER ecosystem.config.js changed ...` 반복 | PM2 프로세스 정의(cron·env)는 자동 재등록되지 않음. **로그인 셸에서** `pm2 restart ecosystem.config.js --update-env && pm2 save` 실행 후 `rm logs/.ecosystem-pending` (PM2 관리 프로세스 안에서 실행 금지 — 아래 [cron_restart 오염](#pm2-cron_restart-오염-2026-08-05-사고) 참조). 이 알림은 파일을 지울 때까지 매 틱 반복됩니다 — 예전에는 배포 한 번만 안내하고 사라져서 변경이 무기한 미적용으로 남을 수 있었습니다 |
 | `CRITICAL rollback ... unhealthy` | 배포도 롤백도 헬스체크 실패. `pm2 logs moss-ao-api` 확인 후 수동 개입 |
 | 배포는 됐는데 화면이 그대로 | 프론트엔드는 `NEXT_PUBLIC_*`가 빌드 시점에 박히므로 빌드 필요. `logs/deploy.log`에 `npm run build`가 있는지 확인 |
-| **`ERROR npm run build failed` 직후 `CRITICAL rollback ... unhealthy` 반복** | `npm ci`가 devDependencies를 빠뜨림. 아래 절 참조 |
+| **`ERROR npm run build failed` 직후 `CRITICAL rollback ... unhealthy` 반복** | devDependencies 누락 또는 이전 실패가 남긴 `website/.next.new`. 아래 절 참조 |
 | **api/web 업타임이 5분을 못 넘기고 ↺ 만 증가** | PM2 `cron_restart` 오염. 아래 절 참조 |
 
 ### `npm ci`가 devDependencies를 빠뜨림 (2026-08-06 사고)
@@ -275,6 +275,17 @@ python -m agentic_orchestrator.scheduler restore-db
 **원인**: 폴러는 `ecosystem.config.js`에서 `NODE_ENV=production`을 물려받는다. npm은
 이를 `--omit=dev`로 해석하므로 `npm ci`가 382개 중 45개만 설치하고, `next build`는
 devDependency(`@vercel/turbopack/postcss` 등)를 찾지 못해 죽는다.
+
+**두 번째 원인 — 한 번의 실패가 영구화된 이유**: 빌드는 `website/.next.new`에
+스테이징하는데, 그 디렉터리를 **없을 때만** 만들었다. 그래서 실패한 빌드가 남긴
+잔여물(빌드 캐시 포함)을 이후 모든 빌드가 물려받았고, 웜 캐시 시드는 반대로 매번
+건너뛰었다. 서버에서 확인한 사실: 완전히 동일한 379개 설치가 잔여물이 있을 때는
+실패하고, 디렉터리를 지우자마자 같은 커밋이 빌드·배포에 성공했다. 즉 의존성 문제를
+고쳐도 배포는 계속 실패했다. 지금은 매 빌드 전에 `rm -rf website/.next.new`를 수행한다.
+
+> 옛 버전 스크립트가 도는 서버에서 이 상태에 빠졌다면 손으로 한 번 치워야 한다:
+> `rm -rf ~/agentic-orchestrator/website/.next.new` (스테이징 디렉터리라 라이브
+> `.next`와 무관하며, 서비스 중단 없이 지울 수 있다).
 
 **조치**: 이미 고쳐져 있다 — `scripts/deploy.sh`의 `npm ci --include=dev`와
 `website/.npmrc`의 `include=dev`. 두 벌로 둔 이유가 핵심이다:
