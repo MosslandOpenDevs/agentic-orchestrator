@@ -226,6 +226,21 @@ class ClaudeProvider(BaseProvider):
             self._mode = self._determine_mode()
         return self._mode
 
+    def bills_to_api_ledger(self) -> bool:
+        """CLI mode bills the Claude Code subscription, not the API budget.
+
+        Keeps the budget *check* aligned with the ledger *write*: CLI
+        responses carry no token usage, so they can never move api_usage,
+        and refusing them once the API cap is spent would break a working
+        manual workflow without protecting a cent. Mode resolution can
+        raise (no CLI and no key); treat that as billed and let the real
+        request surface the error.
+        """
+        try:
+            return self.mode != "cli"
+        except ProviderError:
+            return True
+
     def _determine_mode(self) -> str:
         """Determine which mode to use."""
         if self.prefer_cli:

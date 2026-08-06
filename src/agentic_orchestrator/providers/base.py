@@ -15,15 +15,23 @@ The legacy path is the state-machine pipeline (``ao step`` / ``ao loop``) and
 the GitHub backlog orchestrator (``ao backlog run`` / ``process``). It builds
 Claude/OpenAI/Gemini providers straight from the ``create_*_provider``
 factories, so it consulted neither ``MOSS_LOCAL_LLM_ONLY`` nor the budget:
-no kill switch, no ``record_usage``, invisible to ``/usage``. No PM2 job
-reaches it, but both API keys live in the server's ``.env``, so a manual
-``ao`` invocation on the box could spend without limit or trace — on
+no kill switch, no ``record_usage``, invisible to ``/usage``. No scheduled
+job *calls* it — ``Orchestrator`` and ``BacklogOrchestrator`` are constructed
+only in ``cli.py`` — but both API keys live in the server's ``.env``, so a
+manual ``ao`` invocation on the box could spend without limit or trace, on
 ``gpt-5.2-chat-latest`` ($2.50/$10.00 per M), 3.3x the debate tier's model.
 
 Governing it at the factory (kill switch) and at ``_complete_with_retry``
 (budget check + ledger write) covers all three paid providers, including
 Gemini's overridden ``complete()``, and cannot double-count the router,
 which never calls into this path.
+
+Which guard actually binds depends on the machine. Production must run
+``MOSS_LOCAL_LLM_ONLY=false`` for the v0.6.19 paid debate tier, so there the
+factory gate is a no-op and **the ledger is the only control** — which also
+means legacy spend now shares the debate tier's daily cap (see the
+``budget:`` block in config.yaml). Everywhere else — laptops, CI, any box
+that never set the flag — the kill switch is what stops the call.
 """
 
 import os
@@ -397,6 +405,27 @@ class BaseProvider(ABC):
             logger.warning(f"Budget ledger unavailable: {e}")
             return None
 
+    def _ledger(self):
+        """Memoized ledger for this provider instance.
+
+        ``BudgetController()`` re-reads and re-parses config.yaml and
+        mkdirs its storage path; building one for the budget check and
+        another for the ledger write would do that twice per completion.
+        """
+        if not hasattr(self, "_budget_ctl"):
+            self._budget_ctl = self._budget_controller()
+        return self._budget_ctl
+
+    def bills_to_api_ledger(self) -> bool:
+        """Whether this provider's requests cost money from the API budget.
+
+        Subclasses override when a mode of theirs is billed elsewhere. The
+        budget check and the ledger write must agree on this: refusing a
+        call that can never move the ledger protects nothing and only
+        breaks a workflow.
+        """
+        return True
+
     def _check_budget(self, model: str) -> None:
         """Refuse the call when the daily or monthly cap is already spent.
 
@@ -407,7 +436,13 @@ class BaseProvider(ABC):
         Raises:
             BudgetExhaustedError: If the budget has no headroom.
         """
-        controller = self._budget_controller()
+        # Calls that never reach the api_usage ledger cannot be capped by
+        # it — Claude Code CLI bills a subscription, so a spent API budget
+        # is no reason to refuse it. Mirrors the same skip in _record_usage.
+        if not self.bills_to_api_ledger():
+            return
+
+        controller = self._ledger()
         if controller is None:
             return
 
@@ -452,7 +487,7 @@ class BaseProvider(ABC):
         if not input_tokens and not output_tokens:
             return
 
-        controller = self._budget_controller()
+        controller = self._ledger()
         if controller is None:
             return
 

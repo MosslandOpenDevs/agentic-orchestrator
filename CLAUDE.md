@@ -843,10 +843,14 @@ GPU(~8 GB)에 상주하는 모델은 두 개뿐이며 스왑이 발생하지 않
 | **라우터** (파이프라인 전체) | `HybridLLMRouter.route()` → `provider.generate()` → `_make_request()` | 라우터 자신: 로컬 온리 플래그, `paid_tiers` 허용목록, 예산 확인, `record_usage` |
 | **레거시** (`ao` CLI 전용) | 스테이지·백로그의 `@property` → `provider.complete()` / `.chat()` → `_complete_with_retry()` → `_make_request()` | 팩토리의 `enforce_local_only()` + `BaseProvider._complete_with_retry`의 예산 확인·원장 기록 |
 
-- **레거시 경로는 스케줄된 곳 어디에서도 도달하지 않는다.** `ecosystem.config.js`는
-  `scheduler/*`와 uvicorn만 띄우고, 그들도 `api/main.py`도 `backlog.py`·`stages/*`를
-  import하지 않는다. 실행 주체는 서버에서 사람이 치는 `ao step` / `ao loop` /
-  `ao backlog run` / `process`뿐이다 (`docs/labels.md` 참조).
+- **레거시 경로는 스케줄된 곳 어디에서도 _호출되지_ 않는다.** 단, **import는 된다** —
+  `agentic_orchestrator/__init__.py`가 `orchestrator.py`를 무조건 import하고 그것이
+  다시 `stages/*`를 끌어오므로, 패키지의 어떤 서브모듈을 import하든(uvicorn의
+  `api.main`, 모든 scheduler 태스크) `stages/*`가 로드된다. import는 과금과 무관하다:
+  게이트는 import 시점이 아니라 팩토리 **호출** 시점에 작동한다. 실제 진입점은
+  `Orchestrator`·`BacklogOrchestrator`의 생성 지점이며 이는 `cli.py`에만 있다 —
+  즉 서버에서 사람이 치는 `ao step` / `ao loop` / `ao backlog run` / `process`뿐이다
+  (`docs/labels.md` 참조). **"import 안 된다"고 쓰지 말 것 — 틀린 문장이다.**
 - **`create_claude_provider` / `create_openai_provider` / `create_gemini_provider`는
   `MOSS_LOCAL_LLM_ONLY`가 켜져 있으면 생성 자체를 거부한다** (`PaidProviderBlockedError`).
   `dry_run=True`만 면제 — 리허설은 네트워크에 나가지 않기 때문. 플래그가 미설정이거나
@@ -866,8 +870,17 @@ GPU(~8 GB)에 상주하는 모델은 두 개뿐이며 스왑이 발생하지 않
 - 플래그 파싱은 `providers/base.py`의 `local_llm_only()` 한 곳뿐 — 라우터와 팩토리가
   공유하므로 두 입구가 서로 다른 판단을 내릴 수 없다.
 
+- **예산은 이제 하나의 통을 둘이 나눠 쓴다.** 레거시 실행이 `api_usage`에 기록되고
+  라우터도 같은 원장에서 `can_use_api`를 읽으므로, 수동 `ao` 실행의 지출이 토론 티어의
+  잔여 예산을 깎는다. 한도를 넘기면 레거시는 시끄럽게 실패(`BudgetExhaustedError`)하지만
+  **토론 티어는 조용히 로컬 gemma로 강등된다.** 일 $2.00 = 토론 4회(~$1.78) 기준이라
+  여유는 ~$0.21뿐 — 레거시 기본 모델(`gpt-5.2-chat-latest`, 토론 모델의 3.3배 단가)로는
+  완성 2건이면 넘긴다. 토론이 도는 날 수동 작업을 하려면 `config.yaml`의
+  `budget.daily_limit_usd`를 먼저 올릴 것.
+
 > **서버는 `MOSS_LOCAL_LLM_ONLY=false`로 운영된다** (토론 유료 티어에 필요). 즉 거기서
-> 수동 `ao` 실행을 묶는 것은 킬 스위치가 아니라 **원장과 예산 상한**이다.
+> 수동 `ao` 실행을 묶는 것은 킬 스위치가 아니라 **원장과 예산 상한**이다 — 프로덕션에서는
+> 두 병목 중 하나만 실제로 작동한다.
 
 > **임베딩은 현재 어떤 코드도 호출하지 않는다 (2026-08-05 확인).** `hierarchy.py`에
 > `qwen3-embedding:0.6b`가 등록돼 있고 이 문서도 오랫동안 "RAG 인덱싱, 유사도 비교"에

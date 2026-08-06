@@ -23,6 +23,7 @@ when the ledger itself is down.
 
 import asyncio
 import re
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -71,6 +72,13 @@ class FakeLedger:
             raise RuntimeError("no such table: api_usage")
         self.recorded.append((provider, model, input_tokens, output_tokens))
         return {}
+
+    # Also used when this ledger is handed to the real HybridLLMRouter.
+    def should_use_local(self):
+        return not self.can_use_api
+
+    def estimate_cost(self, model, input_tokens, output_tokens):
+        return 0.0
 
 
 class SpyProvider(BaseProvider):
@@ -313,7 +321,10 @@ class TestGeminiOverriddenComplete:
         # Governing BaseProvider.complete() alone would have left Gemini
         # ungated and unmetered. _complete_with_retry is the shared floor.
         source = Path("src/agentic_orchestrator/providers/gemini.py").read_text()
+        # Bound to the method body: splitting to EOF would let
+        # `_complete_with_retry(` in any *later* function satisfy the assert.
         override = source.split("    def complete(")[1]
+        override = re.split(r"\n(?=\S|    def )", override)[0]
 
         assert "super().complete(" not in override
         assert "_complete_with_retry(" in override
@@ -351,6 +362,51 @@ class TestGeminiOverriddenComplete:
         # Only the model that actually answered is billed.
         assert calls == ["gemini-3-pro", "gemini-3-flash"]
         assert ledger.recorded == [("gemini", "gemini-3-flash", 7, 3)]
+
+    def test_gemini_primary_success_is_metered(self, ledger):
+        # The fallback test exercises only the error branch. The normal case
+        # — primary model answers — must be metered too, or the override
+        # leaks spend on every successful Gemini call.
+        provider = self._gemini(usage={"prompt_tokens": 11, "completion_tokens": 4})
+
+        provider.complete([Message(role="user", content="hi")])
+
+        assert ledger.recorded == [("gemini", "gemini-3-pro", 11, 4)]
+
+    def test_gemini_is_budget_checked(self, monkeypatch):
+        # Nothing else asserts that Gemini's overridden complete() consults
+        # the cap at all — it could meter perfectly and still spend past it.
+        spent = FakeLedger(can_use_api=False)
+        monkeypatch.setattr(BaseProvider, "_budget_controller", staticmethod(lambda: spent))
+        provider = self._gemini()
+
+        with pytest.raises(BudgetExhaustedError):
+            provider.complete([Message(role="user", content="hi")])
+
+        assert provider.requests == []
+
+    @staticmethod
+    def _gemini(usage=None):
+        """A GeminiProvider with its network call replaced, nothing else."""
+        from agentic_orchestrator.providers.gemini import GeminiProvider
+
+        provider = GeminiProvider.__new__(GeminiProvider)
+        BaseProvider.__init__(
+            provider,
+            model="gemini-3-pro",
+            fallback_model="gemini-3-flash",
+            retry_config=RetryConfig(max_retries=0, initial_backoff=0),
+        )
+        provider.secondary_fallback = None
+        provider.requests = []
+        usage = usage or {"prompt_tokens": 11, "completion_tokens": 4}
+
+        def fake_request(messages, model, **kwargs):
+            provider.requests.append(model)
+            return CompletionResponse(content="ok", model=model, provider="gemini", usage=usage)
+
+        provider._make_request = fake_request
+        return provider
 
 
 class TestSourceInvariants:
@@ -395,3 +451,276 @@ class TestSourceInvariants:
             source = Path(path).read_text()
             assert re.search(r"create_(claude|openai|gemini)_provider\(", source)
             assert not re.search(r"\b(Claude|OpenAI|Gemini)Provider\(", source)
+
+
+class TestRealLedgerWiring:
+    """No stubs. Pre-merge review found every other test replaces
+    ``_budget_controller``, so the one seam where the guards meet the real
+    ``BudgetController`` was never executed — the feature could have been
+    inert end to end and all tests would still pass. These use a real
+    controller against a real (temporary) SQLite ledger."""
+
+    @pytest.fixture
+    def real_ledger(self, tmp_path, monkeypatch):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from sqlalchemy.pool import StaticPool
+
+        import agentic_orchestrator.llm.budget as budget_mod
+        from agentic_orchestrator.db.models import Base
+
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)  # noqa: N806
+
+        class TempDB:
+            @contextmanager
+            def session(self):
+                session = Session()
+                try:
+                    yield session
+                    session.commit()
+                finally:
+                    session.close()
+
+        monkeypatch.setattr(budget_mod, "db", TempDB())
+        # Keep BudgetController's mkdir out of the repo tree.
+        monkeypatch.chdir(tmp_path)
+        return engine
+
+    def rows(self, engine):
+        from sqlalchemy import text
+
+        with engine.connect() as conn:
+            return conn.execute(
+                text("SELECT provider, model, input_tokens, output_tokens, cost_usd FROM api_usage")
+            ).fetchall()
+
+    def test_a_billed_completion_reaches_the_real_api_usage_table(self, real_ledger):
+        # The end-to-end claim: legacy spend becomes visible in /usage.
+        SpyProvider().complete([Message(role="user", content="hi")])
+
+        rows = self.rows(real_ledger)
+        assert len(rows) == 1
+        provider, model, input_tokens, output_tokens, cost = rows[0]
+        assert (provider, model, input_tokens, output_tokens) == (
+            "spy",
+            "gpt-5.2-chat-latest",
+            1000,
+            500,
+        )
+        # 1000 in / 500 out on gpt-5.2-chat-latest at $2.50/$10.00 per M.
+        assert cost == pytest.approx(0.0025 + 0.005)
+
+    def test_a_real_spent_budget_refuses_the_call(self, real_ledger, monkeypatch):
+        from agentic_orchestrator.llm.budget import BudgetController
+
+        # Blow past the daily cap through the real recording path.
+        monkeypatch.setenv("DAILY_BUDGET_USD", "0.001")
+        BudgetController().record_usage(
+            provider="openai", model="gpt-5.2-chat-latest", input_tokens=500_000, output_tokens=0
+        )
+        provider = SpyProvider()
+
+        with pytest.raises(BudgetExhaustedError):
+            provider.complete([Message(role="user", content="hi")])
+
+        assert provider.requests == 0
+
+    def test_the_lazy_import_seam_actually_resolves(self, real_ledger):
+        # _budget_controller lazily imports llm.budget to dodge a circular
+        # import (llm/__init__ -> router -> providers.base). If that ever
+        # breaks it returns None and both guards silently no-op.
+        from agentic_orchestrator.llm.budget import BudgetController
+
+        assert isinstance(SpyProvider()._budget_controller(), BudgetController)
+
+    def test_the_ledger_is_built_once_per_provider(self, real_ledger, monkeypatch):
+        # Two constructions per completion re-read and re-parse config.yaml.
+        builds = []
+        original = BaseProvider._budget_controller
+
+        def counting():
+            builds.append(1)
+            return original()
+
+        monkeypatch.setattr(BaseProvider, "_budget_controller", staticmethod(counting))
+        provider = SpyProvider()
+        provider.complete([Message(role="user", content="hi")])
+        provider.complete([Message(role="user", content="hi")])
+
+        assert len(builds) == 1
+
+
+class TestClaudeCliIsNotBudgetGated:
+    """Claude Code CLI bills a subscription, not the API budget.
+
+    ``_record_usage`` already skips it (no token usage), so gating it on a
+    spent API cap would refuse a call that can never move the ledger —
+    breaking a documented manual workflow to protect nothing.
+    """
+
+    @staticmethod
+    def claude(mode):
+        from agentic_orchestrator.providers.claude import ClaudeProvider
+
+        provider = ClaudeProvider.__new__(ClaudeProvider)
+        BaseProvider.__init__(
+            provider, model="opus", retry_config=RetryConfig(max_retries=0, initial_backoff=0)
+        )
+        provider._mode = mode
+        provider.calls = []
+
+        def fake_request(messages, model, **kwargs):
+            provider.calls.append(model)
+            usage = None if mode == "cli" else {"prompt_tokens": 9, "completion_tokens": 2}
+            return CompletionResponse(content="answer", model=model, provider="claude", usage=usage)
+
+        provider._make_request = fake_request
+        return provider
+
+    def test_cli_mode_still_answers_on_a_spent_budget(self, monkeypatch):
+        spent = FakeLedger(can_use_api=False)
+        monkeypatch.setattr(BaseProvider, "_budget_controller", staticmethod(lambda: spent))
+        provider = self.claude("cli")
+
+        result = provider.complete([Message(role="user", content="hi")])
+
+        assert result.content == "answer"
+        assert provider.calls == ["opus"]
+        assert spent.recorded == []  # and still writes nothing
+
+    def test_api_mode_is_refused_on_a_spent_budget(self, monkeypatch):
+        spent = FakeLedger(can_use_api=False)
+        monkeypatch.setattr(BaseProvider, "_budget_controller", staticmethod(lambda: spent))
+        provider = self.claude("api")
+
+        with pytest.raises(BudgetExhaustedError):
+            provider.complete([Message(role="user", content="hi")])
+
+        assert provider.calls == []
+
+    def test_check_and_record_agree_on_what_is_billed(self):
+        # The invariant behind both tests above: anything _record_usage
+        # would skip, _check_budget must not block.
+        assert SpyProvider().bills_to_api_ledger() is True
+        assert self.claude("cli").bills_to_api_ledger() is False
+        assert self.claude("api").bills_to_api_ledger() is True
+
+    def test_unresolvable_mode_is_treated_as_billed(self):
+        # No CLI and no key: mode resolution raises. Fail safe (assume
+        # billed) and let the real request surface the error.
+        from agentic_orchestrator.providers.claude import ClaudeProvider
+
+        provider = ClaudeProvider.__new__(ClaudeProvider)
+        BaseProvider.__init__(provider, model="opus")
+        provider._mode = None
+        provider.prefer_cli = False
+        provider.api_key = None
+
+        assert provider.bills_to_api_ledger() is True
+
+
+class TestRouterDoesNotDoubleCount:
+    """Drives the real HybridLLMRouter, not just a provider's generate().
+
+    The original test built an OpenAIProvider by hand and awaited
+    ``generate()`` directly, so it pinned only "OpenAIProvider.generate does
+    not reach _record_usage" — never that the router records exactly once,
+    and never Claude, the router's other paid provider.
+    """
+
+    @staticmethod
+    def router(provider_attr, provider, budget):
+        from agentic_orchestrator.llm.hierarchy import LLMHierarchy
+        from agentic_orchestrator.llm.router import HybridLLMRouter
+
+        router = HybridLLMRouter.__new__(HybridLLMRouter)
+        router.local_only = False
+        router.ollama = SimpleNamespace(
+            generate=lambda **kw: _async(
+                SimpleNamespace(content="local", input_tokens=0, output_tokens=0)
+            )
+        )
+        router.claude = None
+        router.openai = None
+        setattr(router, provider_attr, provider)
+        router.hierarchy = LLMHierarchy()
+        router.budget = budget
+        router.paid_tiers = {
+            "debate": {
+                "enabled": True,
+                "provider": provider_attr,
+                "model": "gpt-5.4-mini" if provider_attr == "openai" else "claude-sonnet-4",
+            }
+        }
+        return router
+
+    @pytest.mark.parametrize(
+        "attr,model", [("openai", "gpt-5.4-mini"), ("claude", "claude-sonnet-4")]
+    )
+    def test_router_records_exactly_once_and_never_via_the_legacy_hook(
+        self, attr, model, monkeypatch
+    ):
+        legacy_writes = []
+        monkeypatch.setattr(
+            BaseProvider,
+            "_record_usage",
+            lambda self, m, r: legacy_writes.append((self.provider_name, m)),
+        )
+        budget = FakeLedger()
+        provider = RealishProvider(attr, model)
+        router = self.router(attr, provider, budget)
+
+        response = asyncio.run(router.route(prompt="p", paid_tier="debate"))
+
+        assert response.provider == attr
+        assert response.model == model
+        # Recorded once, by the router — not by the legacy hook.
+        assert budget.recorded == [(attr, model, 120, 60)]
+        assert legacy_writes == []
+        # And the call really went through generate(), the router's entry.
+        assert provider.generate_calls == 1
+
+
+def _async(value):
+    async def coro():
+        return value
+
+    return coro()
+
+
+class RealishProvider(BaseProvider):
+    """A paid provider with the real generate() -> _make_request shape."""
+
+    def __init__(self, name, model):
+        self.provider_name = name
+        super().__init__(model=model, retry_config=RetryConfig(max_retries=0, initial_backoff=0))
+        self.generate_calls = 0
+
+    def _make_request(self, messages, model, **kwargs):
+        return CompletionResponse(
+            content="api reply",
+            model=model,
+            provider=self.provider_name,
+            usage={"prompt_tokens": 120, "completion_tokens": 60},
+        )
+
+    async def generate(self, prompt, model=None, system=None, temperature=0.7, max_tokens=4096):
+        # Mirrors ClaudeProvider/OpenAIProvider.generate: straight to
+        # _make_request, bypassing complete()/_complete_with_retry.
+        self.generate_calls += 1
+        response = self._make_request([Message(role="user", content=prompt)], model or self.model)
+        usage = response.usage or {}
+        return {
+            "content": response.content,
+            "input_tokens": usage.get("prompt_tokens", 0),
+            "output_tokens": usage.get("completion_tokens", 0),
+        }
+
+    def is_available(self):
+        return True
