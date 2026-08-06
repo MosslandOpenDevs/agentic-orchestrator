@@ -162,6 +162,28 @@ project:
     architecture: "gemma3:4b"
     fallback: "gemma3:4b"
 
+  # Build gate (v0.6.23). `ready` used to mean "no file FAILED verification"
+  # — but CodeVerifier returns SKIPPED, not FAILED, when a language's
+  # toolchain is missing, and this host has node without tsc, esbuild or
+  # solc. Every TypeScript and Solidity file came back SKIPPED, so every
+  # generated project was marked `ready` having had nothing checked.
+  #
+  # Now `ready` requires npm install + build + typecheck + test to have
+  # actually run and passed. Anything else — a failure, a missing toolchain,
+  # this gate switched off — is `ready_with_warnings`. Files are still
+  # delivered and the [Plan] issue still closes either way; the difference is
+  # whether we claim it compiles.
+  #
+  # install runs with --ignore-scripts on purpose: a generated package.json
+  # can name any dependency, and install hooks would execute arbitrary
+  # registry code on a box that hosts 37 other projects.
+  build_gate:
+    enabled: true
+    install: true
+    install_timeout: 300
+    step_timeout: 300
+    max_output_chars: 4000
+
   # Output directory
   output_dir: "projects"
 

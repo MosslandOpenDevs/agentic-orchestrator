@@ -122,15 +122,21 @@ JSON으로만 응답해주세요:
         "required": ["feasibility", "relevance", "novelty", "impact"],
     }
 
-    # Scoring never needs the global 16k context: prompt (~2.5k tokens with a
-    # 2,000-char idea + trend context) + 1,024-token output budget fit in the
-    # server's default 4,096 instance with headroom. Passing this explicitly
-    # keeps scoring on the already-resident small instance — on 2026-08-05 a
-    # congested shared GPU hung every 16k KV-cache load for 30 min while the
-    # 4k instance kept answering in under a second, which starved backlog
-    # triage (and only triage needed rescuing; big-context tasks like trends
-    # genuinely need 16k and must wait for the box instead).
-    SCORING_NUM_CTX = 4096
+    # NO per-call num_ctx. Scoring would fit 4,096, but "fits" is the wrong
+    # question on this host: the shared Ollama serves ONE model instance at a
+    # time, and each distinct num_ctx is a distinct instance — so a scoring
+    # call at 4k EVICTS whatever else is resident and pays a ~4.5s reload,
+    # then the next 16k caller evicts it back.
+    #
+    # v0.6.18 pinned 4,096 here believing the opposite: that 16k loads hung
+    # indefinitely while a resident 4k answered instantly. Re-measured
+    # 2026-08-06 with the Algora team (we share the host): a non-resident
+    # context loads in 4.46s and completes normally — the "hang" did not
+    # reproduce. The pin was solving a misdiagnosed problem and had become
+    # the thing breaking the single-instance convergence both services had
+    # just agreed on.
+    #
+    # One context size everywhere is the whole strategy. Leave this alone.
 
     def __init__(
         self,
@@ -188,7 +194,6 @@ JSON으로만 응답해주세요:
                 # window (the failure mode trends hit in 2026-08).
                 max_tokens=1024,
                 response_schema=self.SCORE_RESPONSE_SCHEMA,
-                num_ctx=self.SCORING_NUM_CTX,
             )
 
             score = self._parse_score_response(response.content)

@@ -1007,6 +1007,22 @@ class TestFailureBackoff:
         assert server.state() == target
 
 
+class TestWebsiteInstall:
+    """The poller runs with NODE_ENV=production, which npm reads as
+    --omit=dev. The Next build needs postcss, @tailwindcss/postcss and
+    typescript, all devDependencies, so an install that honours NODE_ENV
+    exits 0 with a tree the build cannot use (45 packages instead of 382;
+    observed in production on 2026-08-06)."""
+
+    def test_npm_ci_installs_dev_dependencies(self, server: Server):
+        server.push({"website/package.json": '{"name": "web", "version": "2"}\n'})
+
+        server.run(NODE_ENV="production")
+
+        calls = server.calls()
+        assert "npm ci --include=dev" in calls, calls
+
+
 class TestAtomicWebBuild:
     """website/ builds go to a staging dir (.next.new) and are swapped in
     whole right before the web restart, so a failed build can never leave the
@@ -1023,6 +1039,25 @@ class TestAtomicWebBuild:
         assert (live / "BUILD_ID").read_text().strip() == "stub-build"
         assert not (server.checkout / "website" / ".next.new").exists()
         assert not (server.checkout / "website" / ".next.old").exists()
+
+    def test_a_failed_builds_leftovers_never_reach_the_next_build(self, server: Server):
+        """Staging protects the live dir, but the staging dir itself was only
+        created when absent -- so the remains of a failed build, cache and all,
+        were reused by every build after it. On 2026-08-06 that turned one
+        dependency failure into a permanently wedged deployer: the identical
+        379-package install failed with the leftover in place and succeeded the
+        moment it was removed, so every 5-minute tick deployed, failed, rolled
+        back and failed again until the directory was deleted by hand."""
+        _write(server.checkout / "website" / ".next" / "cache" / "keep", "warm")
+        _write(server.checkout / "website" / ".next.new" / "POISON", "from a failed build")
+        server.push({"website/page.tsx": "export default () => 9\n"})
+
+        result = server.run()
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        live = server.checkout / "website" / ".next"
+        assert not (live / "POISON").exists(), "a failed build's remains were promoted"
+        assert (live / "cache" / "keep").exists(), "clearing must not cost the warm cache"
 
     def test_failed_web_build_never_touches_the_live_next(self, server: Server):
         _write(server.checkout / "website" / ".next" / "BUILD_ID", "old")
@@ -1220,6 +1255,22 @@ class TestSourceInvariants:
         ]
         assert "main() {" in lines
         assert lines[-2:] == ['main "$@"', "exit $?"]
+
+    def test_website_install_keeps_dev_dependencies(self):
+        """`next build` needs devDependencies, and npm reads NODE_ENV=production
+        as --omit=dev. The poller inherits NODE_ENV=production from PM2, so on
+        2026-08-06 `npm ci` installed 45 of 382 packages, the build failed, the
+        rollback rebuilt with the same 45 and failed too -- every 5 minutes.
+
+        Two guards, because the flag on its own cannot unstick a server: by
+        test_script_body_is_wrapped_in_main, a deploy runs the deploy.sh it was
+        started with, so the first attempt at the fix still uses the OLD script.
+        website/.npmrc ships in the checkout, which lands before npm ci runs.
+        """
+        assert "ci --include=dev" in DEPLOY_SH.read_text()
+        npmrc = REPO_ROOT / "website" / ".npmrc"
+        assert npmrc.exists(), "website/.npmrc is the guard that applies without a deploy"
+        assert "include=dev" in {line.strip() for line in npmrc.read_text().splitlines()}
 
     def test_deploy_script_is_executable(self):
         assert os.access(DEPLOY_SH, os.X_OK)
