@@ -1237,6 +1237,22 @@ class TestSourceInvariants:
         assert "main() {" in lines
         assert lines[-2:] == ['main "$@"', "exit $?"]
 
+    def test_website_install_keeps_dev_dependencies(self):
+        """`next build` needs devDependencies, and npm reads NODE_ENV=production
+        as --omit=dev. The poller inherits NODE_ENV=production from PM2, so on
+        2026-08-06 `npm ci` installed 45 of 382 packages, the build failed, the
+        rollback rebuilt with the same 45 and failed too -- every 5 minutes.
+
+        Two guards, because the flag on its own cannot unstick a server: by
+        test_script_body_is_wrapped_in_main, a deploy runs the deploy.sh it was
+        started with, so the first attempt at the fix still uses the OLD script.
+        website/.npmrc ships in the checkout, which lands before npm ci runs.
+        """
+        assert "ci --include=dev" in DEPLOY_SH.read_text()
+        npmrc = REPO_ROOT / "website" / ".npmrc"
+        assert npmrc.exists(), "website/.npmrc is the guard that applies without a deploy"
+        assert "include=dev" in {line.strip() for line in npmrc.read_text().splitlines()}
+
     def test_deploy_script_is_executable(self):
         assert os.access(DEPLOY_SH, os.X_OK)
 
