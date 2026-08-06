@@ -371,8 +371,10 @@ class TestProviderTimeout:
 
         assert fake_ollama.init_kwargs["timeout"] == IdeaScorer.SCORING_TIMEOUT
         assert IdeaScorer.SCORING_TIMEOUT < 1800
-        # The 4k pin must survive alongside the new timeout.
-        assert fake_ollama.captured["payload"]["options"]["num_ctx"] == 4096
+        # The short timeout must NOT drag a per-call context pin along with
+        # it: one context size for the whole pipeline is a separate, deliberate
+        # rule (see TestOneContextSizeEverywhere), and the two must not fight.
+        assert fake_ollama.captured["payload"]["options"]["num_ctx"] == 16384
 
 
 class TestStructuredOutputs:

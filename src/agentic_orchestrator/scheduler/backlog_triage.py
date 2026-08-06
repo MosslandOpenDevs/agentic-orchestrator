@@ -92,12 +92,15 @@ async def _backend_looks_down(scorer) -> bool:
     if router is None:
         return True
     try:
+        # No num_ctx: the shared host serves ONE model instance at a time and
+        # each distinct context size is a distinct instance, so a pinned probe
+        # would evict whatever is resident and pay a reload each way. The
+        # probe must observe the pipeline's instance, not create another.
         await router.route(
             prompt="ok",
             task_type="evaluation",
             force_local=True,
             max_tokens=1,
-            num_ctx=4096,
             timeout=BACKEND_PROBE_TIMEOUT,
         )
         return False
