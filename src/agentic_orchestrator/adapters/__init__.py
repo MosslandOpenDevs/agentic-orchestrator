@@ -8,6 +8,7 @@ Provides adapters for collecting signals from various sources:
 - Social media (Twitter/X, Reddit, Discord)
 - Web3 social (Lens Protocol, Farcaster)
 - News APIs
+- SignalMap export feed (canonical entity/topic/event store)
 """
 
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
@@ -19,6 +20,7 @@ from .lens import LensAdapter
 from .news import NewsAPIAdapter
 from .onchain import OnChainAdapter
 from .rss import RSSAdapter
+from .signalmap import SignalMapAdapter
 from .social import SocialMediaAdapter
 from .threads import ThreadsAdapter
 from .twitter import TwitterAdapter
@@ -43,4 +45,6 @@ __all__ = [
     "CoingeckoAdapter",
     # New Adapters (v0.6.6)
     "ThreadsAdapter",
+    # Cross-service feed (v0.6.24)
+    "SignalMapAdapter",
 ]

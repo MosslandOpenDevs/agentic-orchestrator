@@ -285,6 +285,13 @@ class SignalScorer:
             "onchain": 0.10,
             "social": 0.03,
             "news": 0.05,
+            # Deliberately the same as rss/news rather than a bet either way.
+            # A source missing from this map scores 0.0, so leaving it out is
+            # not neutrality — it is a standing penalty that would quietly sink
+            # every SignalMap record below every RSS headline in trend
+            # selection. This value is unmeasured; tune it against real trend
+            # output, not intuition.
+            "signalmap": 0.05,
         }
 
         base_boost = source_scores.get(signal.source, 0.0)

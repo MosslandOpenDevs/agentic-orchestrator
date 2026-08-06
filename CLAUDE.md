@@ -11,17 +11,22 @@
 
 ## 핵심 철학
 
-### 1. 다양한 시그널 소스 (11개 어댑터)
+### 1. 다양한 시그널 소스 (12개 어댑터)
 
 **목적:** 최신 트렌드를 빠르게 파악 → 신선한 아이디어의 기반 마련
 
 ```
-RSS, GitHub, OnChain, Social, News, Twitter, Discord, Lens, Farcaster, Coingecko, Threads
+RSS, GitHub, OnChain, Social, News, Twitter, Discord, Lens, Farcaster, Coingecko, Threads,
+SignalMap
                                     ↓
                         최신 트렌드 실시간 수집
                                     ↓
                         신선한 아이디어 기반 확보
 ```
+
+앞의 11개는 서드파티 API를 직접 읽는다. **SignalMap만 다른 모스랜드 서비스의 발행
+계층을 읽으며**, canonical entity·topic·event ID를 함께 가져온다 — AO는 그 ID를
+소비할 뿐 새로 만들지 않는다 (`docs/signalmap.md`).
 
 ### 2. 멀티에이전트 1차 (발산 단계)
 
@@ -45,7 +50,7 @@ RSS, GitHub, OnChain, Social, News, Twitter, Discord, Lens, Farcaster, Coingecko
 ```
 agentic-orchestrator/
 ├── src/agentic_orchestrator/    # Python 백엔드
-│   ├── adapters/                # 시그널 어댑터 (11개)
+│   ├── adapters/                # 시그널 어댑터 (12개)
 │   │   ├── base.py              # BaseAdapter / AdapterConfig / SignalData
 │   │   ├── rss.py               # RSS 피드 (config.yaml `feeds`에서 로드)
 │   │   ├── github_events.py     # GitHub Trending/Releases
@@ -57,7 +62,8 @@ agentic-orchestrator/
 │   │   ├── lens.py              # Lens Protocol (GraphQL)
 │   │   ├── farcaster.py         # Farcaster (Neynar API)
 │   │   ├── coingecko.py         # Coingecko (시장 데이터, 트렌딩)
-│   │   └── threads.py           # Meta Threads (공개 프로필 스크래핑)
+│   │   ├── threads.py           # Meta Threads (공개 프로필 스크래핑)
+│   │   └── signalmap.py         # SignalMap 발행 피드 (커서·epoch·canonical ID)
 │   ├── api/                     # FastAPI 서버 (포트 3001)
 │   │   └── main.py              # API 엔드포인트 정의
 │   ├── db/                      # SQLAlchemy 모델 & 리포지토리
@@ -86,7 +92,7 @@ agentic-orchestrator/
 │   ├── scripts/                 # 유틸리티 스크립트
 │   │   └── migrate_bilingual.py # 기존 데이터 번역 마이그레이션
 │   ├── signals/                 # 신호 수집기 (어댑터는 위 adapters/ 참조)
-│   │   ├── aggregator.py        # 신호 수집 조율 (11개 어댑터 구성)
+│   │   ├── aggregator.py        # 신호 수집 조율 (12개 어댑터 구성)
 │   │   ├── scorer.py            # 신호 점수화
 │   │   └── storage.py           # 신호 DB 저장
 │   └── trends/                  # 트렌드 분석
@@ -117,7 +123,10 @@ agentic-orchestrator/
 ├── docs/                        # 설계 문서
 │   ├── pipeline.md              # 아이디어 생성 파이프라인
 │   ├── labels.md                # GitHub 라벨 가이드
-│   └── projects.md              # 프로젝트 관리 가이드
+│   ├── projects.md              # 프로젝트 관리 가이드
+│   ├── deployment.md            # 자동 배포 절차·가드·문제 해결
+│   ├── signalmap.md             # SignalMap 피드 소비자 계약
+│   └── direction.md             # 장기 방향 (Decision Intelligence)
 └── ecosystem.config.js          # PM2 설정
 ```
 
@@ -336,6 +345,46 @@ feeds:
 > 하드코딩 쪽 4개(Chainlink, Polygon, Paradigm, a16z Crypto)는 죽은 URL이었다.
 > 0.6.11에서 중복(같은 호스트·다른 URL 8건)을 정리한 합집합으로 병합해 config.yaml을
 > 단일 소스로 만들고, 죽은 4개는 `enabled: false`로 남겨 이력을 보존했다.
+
+## SignalMap 신호 피드 (v0.6.24)
+
+12번째 어댑터이자 **다른 모스랜드 서비스를 읽는 유일한 어댑터**다. SignalMap이
+canonical entity·topic·event ID를 소유하고 AO·Media·Alpha가 소비한다 — AO는
+canonical ID를 만들지 않는다. 전체 계약은 **`docs/signalmap.md`** 참조.
+
+```
+GET https://signalmap.moss.land/api/signal/v1/manifest
+GET https://signalmap.moss.land/api/signal/v1/signals?since=<cursor>&limit=<n>
+```
+
+운영에서 반드시 알아야 할 네 가지:
+
+| 항목 | 내용 |
+|------|------|
+| **커서** | `"<updatedAt>\|<id>"`. **재구성하지 말고 응답의 `cursor.next`를 그대로 되돌려줄 것** — 첫 발행의 11,859건이 전부 같은 `updatedAt`이라 타임스탬프만으로는 무한루프이거나 유실이다 (2026-08-06 실측). `cursor.next`는 배타적이고 `limit`은 2000에서 조용히 클램프된다 |
+| **epoch** | 리비전 원장의 세대. 바뀌면 모든 레코드가 `revision: 1`로 돌아오므로 저장된 커서를 버리고 **전체 재동기화**한다. 이 방어가 없으면 이후의 모든 업데이트를 영구히 무시하면서 폴링은 계속 200을 반환한다 |
+| **`sourceWatermark`** | 알림 대상. `generatedAt`은 수집이 죽어도 움직이고 레코드 수는 **줄지 않고 늘기를 멈출 뿐**이라 조용한 날과 구별되지 않는다. watermark만이 구별한다 → `GET /status`의 `components.signal_feed` + WARNING 로그 |
+| **`verified: false`** | 발행 중간에 읽어 두 릴리스가 섞였다는 뜻. 커서를 전진시키지 않고 중단, 다음 틱에 재시도 |
+
+지켜야 할 규칙 셋 (어댑터가 코드로 강제한다):
+
+1. **외래키는 canonical ID만.** `clusters.json`의 cluster id는 재클러스터링 시
+   바뀌고 원본 라벨은 회차마다 다르다 → `raw_data.unstable_labels.*`에 이름으로
+   표시해 둔다
+2. **정치 안전 모드(`policy.politicalSafety`) 레코드는 기본적으로 적재하지 않는다.**
+   `evidence.claims`가 설계상 비어 있고 재구성이 금지돼 있는데, AO 하류는 전부
+   "텍스트를 모델에 주고 뜻을 묻는" 일이라 프롬프트 어디서든 규칙이 깨질 수 있다.
+   적재하지 않으면 깨질 수 없다 (`include_political_safety: false`)
+3. **`stance`는 묶음의 갈림 축에 대한 상대 위치다.** `axis.comparable: false`면
+   합산·발산 점수·"입장을 바꿨다" 판정 모두 금지. 현재 AO에 stance 집계 코드는 없다
+
+`Signal` 저장 시: `collected_at`은 **폴링 시각이 아니라 상류 사건 시각**(`occurredAt`),
+`Signal.topics`/`entities`는 canonical ID만, 정체성은 `SignalData.external_id`(발행자
+id)를 따르므로 상류에서 제목이 수정돼도 행이 갈라지지 않고 `revision`이 오르면
+기존 행이 갱신된다.
+
+설정은 `config.yaml`의 최상위 `signalmap:` 섹션, 상태는 `data/signalmap_state.json`
+(커서·epoch·watermark). 전체 재동기화는 그 파일을 지우면 되고 멱등하다.
 
 ## PM2 프로세스 관리
 
@@ -1052,7 +1101,15 @@ projects/{project-name}/
 ```yaml
 project:
   auto_generate:
-    enabled: true
+    # 2026-08-06부터 false (토론 다양성 게이트 검증 중). 이 값을 true로 적어 둔
+    # 문서를 믿고 "자동 생성이 돌고 있다"고 판단하지 말 것.
+    #
+    # 주의: 이 스위치가 막는 것은 스케줄러의 인라인 호출 한 곳뿐이다
+    # (tasks.py의 _auto_generate_project). API/버튼 경로
+    # (POST /plans/{id}/generate-project)는 이 값을 읽지 않으므로 "일시정지"
+    # 상태에서도 프로젝트는 생성된다. 게다가 config.yaml을 못 읽으면 기본값
+    # enabled: True로 열린 쪽으로 실패한다.
+    enabled: false
     min_score: 8.0        # 자동 생성 최소 점수
     max_concurrent: 1     # 동시 생성 제한
   llm:
