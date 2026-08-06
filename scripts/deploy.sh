@@ -346,7 +346,17 @@ build_and_restart() {
     # only, never served -- drop them. The previous build cache is seeded
     # into the staging dir to keep builds incremental.
     rm -rf website/.next/types
-    if [ -d website/.next/cache ] && [ ! -d website/.next.new ]; then
+    #
+    # Start the staging dir from a known-good state. A failed build leaves
+    # .next.new behind -- build cache included -- and the seed below only ran
+    # when the dir was absent, so one broken build's remains were inherited by
+    # every build after it. That is how a single dependency failure wedged the
+    # deployer on 2026-08-06: the identical 379-package install failed with the
+    # leftover in place and succeeded the moment the directory was removed, so
+    # the deploy failed, rolled back, and did it again every 5 minutes until
+    # someone deleted it by hand.
+    rm -rf website/.next.new
+    if [ -d website/.next/cache ]; then
       mkdir -p website/.next.new
       cp -R website/.next/cache website/.next.new/cache 2>/dev/null || true
     fi

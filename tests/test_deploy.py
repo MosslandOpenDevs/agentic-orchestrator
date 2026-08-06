@@ -1040,6 +1040,25 @@ class TestAtomicWebBuild:
         assert not (server.checkout / "website" / ".next.new").exists()
         assert not (server.checkout / "website" / ".next.old").exists()
 
+    def test_a_failed_builds_leftovers_never_reach_the_next_build(self, server: Server):
+        """Staging protects the live dir, but the staging dir itself was only
+        created when absent -- so the remains of a failed build, cache and all,
+        were reused by every build after it. On 2026-08-06 that turned one
+        dependency failure into a permanently wedged deployer: the identical
+        379-package install failed with the leftover in place and succeeded the
+        moment it was removed, so every 5-minute tick deployed, failed, rolled
+        back and failed again until the directory was deleted by hand."""
+        _write(server.checkout / "website" / ".next" / "cache" / "keep", "warm")
+        _write(server.checkout / "website" / ".next.new" / "POISON", "from a failed build")
+        server.push({"website/page.tsx": "export default () => 9\n"})
+
+        result = server.run()
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        live = server.checkout / "website" / ".next"
+        assert not (live / "POISON").exists(), "a failed build's remains were promoted"
+        assert (live / "cache" / "keep").exists(), "clearing must not cost the warm cache"
+
     def test_failed_web_build_never_touches_the_live_next(self, server: Server):
         _write(server.checkout / "website" / ".next" / "BUILD_ID", "old")
         server.push({"website/page.tsx": "export default () => 8\n"})
