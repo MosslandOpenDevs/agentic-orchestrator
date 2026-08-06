@@ -51,6 +51,14 @@ TRIAGE_DEFAULTS = {
     # different context than the debate that produced it.
     "min_age_hours": 6,
     "max_strikes": 2,
+    # Circuit breaker. A wedged Ollama fails every scoring call identically,
+    # so grinding through the whole quota only multiplies one dead GPU by
+    # `per_run` — 25 ideas x the scoring timeout, consuming nothing and
+    # holding the PM2 process "online" for deploy.sh to trip over. After this
+    # many consecutive scorer-unavailable results the run gives up and waits
+    # for the next tick. Consecutive, not cumulative: an isolated hiccup
+    # mid-run resets it, so only a sustained outage trips the breaker.
+    "max_consecutive_scorer_failures": 3,
 }
 
 
@@ -128,6 +136,7 @@ async def run_backlog_triage(
         "strike_outs": 0,
         "scorer_unavailable": 0,
         "errors": 0,
+        "aborted": 0,
     }
     if not config.get("enabled", True):
         return stats
@@ -135,6 +144,7 @@ async def run_backlog_triage(
     per_run = int(config.get("per_run", 25))
     min_age = timedelta(hours=float(config.get("min_age_hours", 6)))
     max_strikes = int(config.get("max_strikes", 2))
+    max_consecutive_failures = int(config.get("max_consecutive_scorer_failures", 3))
 
     try:
         candidates = idea_repo.get_oldest_by_status(
@@ -157,6 +167,8 @@ async def run_backlog_triage(
         f"(quota {per_run}, min age {min_age})"
     )
 
+    consecutive_scorer_failures = 0
+
     for idea in candidates:
         stats["examined"] += 1
         try:
@@ -173,9 +185,21 @@ async def run_backlog_triage(
             if _is_scorer_fallback(score):
                 # LLM unavailable — no verdict, no strike; retry next cycle.
                 stats["scorer_unavailable"] += 1
+                consecutive_scorer_failures += 1
                 logger.warning(f"Triage skipped idea {idea.id}: scorer unavailable")
+                if consecutive_scorer_failures >= max_consecutive_failures:
+                    stats["aborted"] = 1
+                    logger.error(
+                        f"Backlog triage aborting run: scorer unavailable for "
+                        f"{consecutive_scorer_failures} consecutive ideas — the LLM "
+                        f"backend looks down. Skipping the remaining "
+                        f"{len(candidates) - stats['examined']} candidate(s); the next "
+                        f"cycle retries."
+                    )
+                    break
                 continue
 
+            consecutive_scorer_failures = 0
             prior_strikes = int(((idea.extra_metadata or {}).get("triage") or {}).get("strikes", 0))
             record = {
                 "last_score": round(score.total, 2),
@@ -224,6 +248,7 @@ async def run_backlog_triage(
         f"{stats['promoted']} promoted, {stats['archived']} archived, "
         f"{stats['strike_outs']} struck out, {stats['strikes']} strike(s) recorded, "
         f"{stats['scorer_unavailable']} scorer-unavailable, {stats['errors']} error(s)"
+        + (" [ABORTED: LLM backend down]" if stats["aborted"] else "")
     )
     return stats
 

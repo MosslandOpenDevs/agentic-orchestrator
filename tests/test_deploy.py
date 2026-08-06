@@ -776,6 +776,91 @@ class TestGuards:
 
         assert server.head() == target
 
+    @staticmethod
+    def _running_for(name: str, minutes: float) -> str:
+        """A pm2 jlist for one online job started `minutes` ago."""
+        started_ms = (time.time() - minutes * 60) * 1000
+        return json.dumps(
+            [{"name": name, "pm2_env": {"status": "online", "pm_uptime": started_ms}}]
+        )
+
+    def test_a_wedged_scheduler_stops_blocking_the_deploy(self, server: Server):
+        """The 2026-08-06 incident: moss-ao-backlog sat "online" for 3.5h on a
+        hung Ollama, and because deferring was unconditional every back-end
+        deploy behind it deferred too. Past its limit the job must stop
+        counting as a reason to wait."""
+        server.jlist.write_text(self._running_for("moss-ao-backlog", 210))
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 20\n"})
+
+        result = server.run()
+
+        assert server.head() == target
+        assert "DEPLOYED" in result.stdout
+        assert "treating as wedged" in result.stdout
+
+    def test_a_recently_started_scheduler_still_defers(self, server: Server):
+        """The guard itself must survive: a job inside its normal runtime is
+        busy, not wedged, and still blocks a back-end deploy."""
+        before = server.head()
+        server.jlist.write_text(self._running_for("moss-ao-debate", 5))
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 21\n"})
+
+        result = server.run()
+
+        assert server.head() == before
+        assert "scheduler busy" in result.stdout
+
+    def test_one_wedged_job_does_not_excuse_a_healthy_one(self, server: Server):
+        """Staleness is per job. A wedged backlog must not drag a genuinely
+        running debate into being ignored -- that would deploy underneath it."""
+        before = server.head()
+        started = (time.time() - 210 * 60) * 1000
+        fresh = (time.time() - 5 * 60) * 1000
+        server.jlist.write_text(
+            json.dumps(
+                [
+                    {
+                        "name": "moss-ao-backlog",
+                        "pm2_env": {"status": "online", "pm_uptime": started},
+                    },
+                    {"name": "moss-ao-debate", "pm2_env": {"status": "online", "pm_uptime": fresh}},
+                ]
+            )
+        )
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 22\n"})
+
+        result = server.run()
+
+        assert server.head() == before
+        assert "scheduler busy" in result.stdout
+        assert "moss-ao-debate" in result.stdout
+
+    def test_a_job_with_no_start_time_is_treated_as_busy(self, server: Server):
+        """Unknown age must fail toward deferring, never toward deploying
+        underneath a live job."""
+        before = server.head()
+        server.jlist.write_text(
+            json.dumps([{"name": "moss-ao-debate", "pm2_env": {"status": "online"}}])
+        )
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 23\n"})
+
+        result = server.run()
+
+        assert server.head() == before
+        assert "scheduler busy" in result.stdout
+
+    def test_unreadable_pm2_output_defers_rather_than_deploying(self, server: Server):
+        """If pm2 cannot be parsed we do not know what is running; guessing
+        "nothing" would deploy into a live debate."""
+        before = server.head()
+        server.jlist.write_text("not json at all")
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 24\n"})
+
+        result = server.run()
+
+        assert server.head() == before
+        assert "scheduler busy" in result.stdout
+
     def test_concurrent_run_is_skipped(self, server: Server):
         (server.checkout / "logs").mkdir(exist_ok=True)
         (server.checkout / "logs" / ".deploy.lock").mkdir()

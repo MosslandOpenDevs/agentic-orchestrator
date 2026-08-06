@@ -240,19 +240,70 @@ ci_unknown_streak() {
 # A debate takes ~30 min and runs as its own PM2 cron process. Reinstalling
 # Python packages underneath it can break a live import, so back-end changes
 # wait for the next tick; a website-only change cannot affect it and proceeds.
-scheduler_busy() {
-  "${PM2_BIN}" jlist 2>/dev/null | python3 -c '
-import json, sys
-watch = {"moss-ao-debate", "moss-ao-trends", "moss-ao-backlog", "moss-ao-signals"}
+#
+# "Running" is not the same as "working". Every one of these jobs talks to a
+# single shared Ollama box, and when that box's model runner wedges the job
+# does not crash — it sits in an HTTP wait until its timeout, staying "online"
+# the whole time. On 2026-08-06 a wedged GPU plus a 1800s per-call timeout left
+# moss-ao-backlog online for 3.5+ hours, and because deferring is unconditional
+# every back-end deploy behind it deferred too: merged commits sat undeployed
+# for hours, waiting on a process that would never finish its own cron interval.
+#
+# So bound the wait. A job still running well past the point any healthy run
+# would have finished is not busy, it is wedged, and waiting for it is waiting
+# forever. Past its limit it stops counting as a reason to defer. The limits
+# are per job and generously above real runtimes (debate, the longest, is
+# ~30 min against a 120 min limit), so an ordinary slow cycle still defers
+# normally — only a genuine hang trips this.
+scheduler_state() {
+  "${PM2_BIN}" jlist 2>/dev/null | MOSS_STALE_MIN="${DEPLOY_SCHEDULER_STALE_MIN}" python3 -c '
+import json, os, sys, time
+
+# name -> minutes after which a still-running job is considered wedged.
+limits = {
+    "moss-ao-signals": 30,
+    "moss-ao-trends": 60,
+    "moss-ao-backlog": 90,
+    "moss-ao-debate": 120,
+}
+override = os.environ.get("MOSS_STALE_MIN") or ""
+if override.strip():
+    try:
+        forced = float(override)
+        if forced > 0:
+            limits = {k: forced for k in limits}
+    except ValueError:
+        pass
+
 try:
     procs = json.load(sys.stdin)
 except Exception:
-    print(""); raise SystemExit
-busy = [p["name"] for p in procs
-        if p.get("name") in watch
-        and (p.get("pm2_env") or {}).get("status") == "online"]
-print(",".join(busy))
-' 2>/dev/null || echo ""
+    # Unreadable pm2 output must not silently mean "nothing is running" --
+    # that would deploy underneath a live debate. Report every watched job as
+    # busy so the caller defers, which is the safe direction.
+    print("BUSY:" + ",".join(sorted(limits)) + "|STALE:")
+    raise SystemExit
+
+now_ms = time.time() * 1000
+busy, stale = [], []
+for p in procs:
+    name = p.get("name")
+    if name not in limits:
+        continue
+    env = p.get("pm2_env") or {}
+    if env.get("status") != "online":
+        continue
+    started = env.get("pm_uptime")
+    if not isinstance(started, (int, float)):
+        # No start timestamp -> cannot age it; treat as busy (safe direction).
+        busy.append(name)
+        continue
+    running_min = (now_ms - started) / 60000.0
+    (stale if running_min > limits[name] else busy).append(
+        f"{name}({running_min:.0f}m)" if running_min > limits[name] else name
+    )
+print("BUSY:" + ",".join(busy) + "|STALE:" + ",".join(stale))
+' 2>/dev/null || echo "BUSY:|STALE:"
 }
 
 # uv-managed checkout? The venv records how it was built, and that is the
@@ -502,6 +553,11 @@ ECOSYSTEM_PENDING=${ECOSYSTEM_PENDING:-${REPO_ROOT}/logs/.ecosystem-pending}
   DEPLOY_LOG=${DEPLOY_LOG:-${REPO_ROOT}/logs/deploy.log}
   DEPLOY_LOCK=${DEPLOY_LOCK:-${REPO_ROOT}/logs/.deploy.lock}
   DEPLOY_LOCK_STALE_MIN=${DEPLOY_LOCK_STALE_MIN:-90}
+  # Minutes a scheduler job may run before it stops counting as "busy" and
+  # starts counting as wedged. Empty = per-job defaults in scheduler_state
+  # (30/60/90/120 for signals/trends/backlog/debate); a positive number
+  # overrides all four, mainly for tests.
+  DEPLOY_SCHEDULER_STALE_MIN=${DEPLOY_SCHEDULER_STALE_MIN:-}
 
   # Deploy state lives inside the git dir -- the one place in the checkout
   # that `git reset --hard` can never touch and no build ever writes to.
@@ -728,7 +784,18 @@ ${CHANGED}
 EOF
 
   if [ "${PY_CHANGED}" = "1" ] && [ "${FORCE}" = "0" ]; then
-    BUSY=$(scheduler_busy)
+    SCHED_STATE=$(scheduler_state)
+    BUSY=${SCHED_STATE%%|*}; BUSY=${BUSY#BUSY:}
+    STALE=${SCHED_STATE#*|}; STALE=${STALE#STALE:}
+    if [ -n "${STALE}" ]; then
+      # Deliberately not a reason to defer: this job has outlived any healthy
+      # run and is almost certainly stuck on the shared LLM box, so waiting
+      # for it blocks deploys indefinitely rather than briefly.
+      log "scheduler overrunning (${STALE}) -- treating as wedged, not busy; \
+proceeding with back-end deploy"
+      alert "MOSS.AO scheduler wedged: ${STALE} -- deploy proceeded anyway; \
+check the Ollama backend"
+    fi
     if [ -n "${BUSY}" ]; then
       log "scheduler busy (${BUSY}) -- deferring back-end deploy to next tick"
       exit 0

@@ -203,6 +203,50 @@ class TestDecisions:
         assert idea.status == "scored"
         assert not (idea.extra_metadata or {}).get("triage")
 
+    def test_sustained_scorer_outage_aborts_the_run(self, repos):
+        """2026-08-06: a wedged Ollama failed every scoring call, and triage
+        ground through its whole quota one dead call at a time — consuming
+        nothing while holding moss-ao-backlog "online" long enough to block
+        every back-end deploy. A sustained outage must end the run early."""
+        idea_repo, plan_repo, trend_repo, session = repos
+        for n in range(10):
+            make_idea(idea_repo, session, f"i{n}", f"idea {n}", age_days=10 - n)
+        scorer = FakeScorer()  # every call returns the flat-5.0 fallback
+        scorer.script = {"idea": (FALLBACK_SCORE, "pending")}
+
+        stats = triage(
+            idea_repo, plan_repo, trend_repo, scorer, {"max_consecutive_scorer_failures": 3}
+        )
+
+        assert stats["aborted"] == 1
+        assert stats["scorer_unavailable"] == 3
+        assert len(scorer.calls) == 3, "must stop calling a backend that is down"
+        assert stats["examined"] == 3
+
+    def test_an_isolated_hiccup_does_not_abort_the_run(self, repos):
+        """The breaker counts consecutive failures, not cumulative ones: one
+        bad call between good ones is a blip, and aborting on it would make
+        triage give up for a whole 4-hour cycle over nothing."""
+        idea_repo, plan_repo, trend_repo, session = repos
+        make_idea(idea_repo, session, "i1", "good one", age_days=9)
+        make_idea(idea_repo, session, "i2", "flaky one", age_days=8)
+        make_idea(idea_repo, session, "i3", "another good one", age_days=7)
+        scorer = FakeScorer(
+            {
+                "flaky one": (FALLBACK_SCORE, "pending"),
+                "good one": (FakeScore(total=2.0), "archive"),
+            }
+        )
+
+        stats = triage(
+            idea_repo, plan_repo, trend_repo, scorer, {"max_consecutive_scorer_failures": 2}
+        )
+
+        assert stats["aborted"] == 0
+        assert stats["examined"] == 3
+        assert stats["scorer_unavailable"] == 1
+        assert stats["archived"] == 2
+
     def test_error_on_one_idea_does_not_stop_or_undo_the_rest(self, repos):
         # The succeeding idea is OLDER, so it is processed and committed
         # BEFORE the failure — the later rollback must not undo it. This is
