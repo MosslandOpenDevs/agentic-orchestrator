@@ -79,7 +79,9 @@ def describe_paid_tier(
     elif not provider:
         reason = f"tier '{name}' has no provider configured"
     elif provider_ready is False:
-        reason = f"provider '{provider}' unavailable (no {_PROVIDER_KEY_ENV.get(provider, 'API key')})"
+        reason = (
+            f"provider '{provider}' unavailable (no {_PROVIDER_KEY_ENV.get(provider, 'API key')})"
+        )
     elif budget_ok is False:
         reason = "API budget exhausted (see config.yaml budget.*)"
     else:

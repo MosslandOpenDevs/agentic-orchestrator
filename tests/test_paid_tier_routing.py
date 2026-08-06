@@ -544,15 +544,20 @@ class TestPaidTierReport:
         assert "MOSS_LOCAL_LLM_ONLY" in killed["reason"]
 
         # With the switch off, the next unmet precondition surfaces in turn.
-        assert "disabled" in describe_paid_tier(
-            "debate", {**tier, "enabled": False}, local_only=False
-        )["reason"]
-        assert "unavailable" in describe_paid_tier(
-            "debate", tier, local_only=False, provider_ready=False
-        )["reason"]
-        assert "budget" in describe_paid_tier(
-            "debate", tier, local_only=False, provider_ready=True, budget_ok=False
-        )["reason"].lower()
+        assert (
+            "disabled"
+            in describe_paid_tier("debate", {**tier, "enabled": False}, local_only=False)["reason"]
+        )
+        assert (
+            "unavailable"
+            in describe_paid_tier("debate", tier, local_only=False, provider_ready=False)["reason"]
+        )
+        assert (
+            "budget"
+            in describe_paid_tier(
+                "debate", tier, local_only=False, provider_ready=True, budget_ok=False
+            )["reason"].lower()
+        )
 
         healthy = describe_paid_tier(
             "debate", tier, local_only=False, provider_ready=True, budget_ok=True

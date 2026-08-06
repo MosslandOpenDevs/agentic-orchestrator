@@ -740,9 +740,7 @@ class TestPaidTierVisibility:
     quiet day looks like. These endpoints now distinguish the two.
     """
 
-    def test_status_reports_the_tier_as_degraded_under_the_kill_switch(
-        self, client, monkeypatch
-    ):
+    def test_status_reports_the_tier_as_degraded_under_the_kill_switch(self, client, monkeypatch):
         monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "true")
         router = client.get("/status").json()["components"]["llm_router"]
         assert router["status"] == "degraded"
