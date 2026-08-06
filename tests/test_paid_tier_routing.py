@@ -5,11 +5,17 @@ The debate is the one task allowed to spend money (config
 Ollama. These tests pin the safety contract: flipping
 ``MOSS_LOCAL_LLM_ONLY=false`` alone spends nothing, every missing
 precondition (tier disabled, provider absent, budget exhausted,
-force_local, explicit model) degrades to local silently, and the four
-debate call sites actually carry the tier tag.
+force_local, explicit model) degrades to local rather than failing, and
+the four debate call sites actually carry the tier tag.
+
+The degradation is deliberate but no longer silent: see
+``TestDegradationIsVisible`` for the WARNING contract added after the
+2026-08-06 incident, where a stale PM2 env ran a full day of debates on
+local gemma with nothing anywhere reporting it.
 """
 
 import asyncio
+import logging
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,7 +24,11 @@ import pytest
 
 from agentic_orchestrator.llm.budget import BudgetController
 from agentic_orchestrator.llm.hierarchy import LLMHierarchy
-from agentic_orchestrator.llm.router import HybridLLMRouter
+from agentic_orchestrator.llm.router import (
+    HybridLLMRouter,
+    describe_paid_tier,
+    paid_tier_report,
+)
 
 DEBATE_TIER = {"debate": {"enabled": True, "provider": "openai", "model": "gpt-5.4-mini"}}
 
@@ -410,3 +420,251 @@ class TestDebateCallSitesCarryTheTier:
         tier_tags = source.count('paid_tier="debate"')
         assert route_calls == 4
         assert tier_tags == 4
+
+
+class TestDegradationIsVisible:
+    """The degradation must stay, but it must never be silent (2026-08-06).
+
+    For a full day every debate ran on local gemma3:4b because PM2 handed the
+    scheduler a stale ``MOSS_LOCAL_LLM_ONLY=true``. Nothing surfaced it: the
+    fallback is by design, so there was no error, no alert, and ``/status``
+    reported healthy. The only evidence was a $0.00 ledger. These tests pin
+    the fix — every non-caller reason is announced at WARNING, exactly once,
+    and names the switch an operator has to flip.
+    """
+
+    @staticmethod
+    def _warnings(caplog):
+        return [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+
+    def test_local_only_degradation_warns_and_names_the_flag(self, caplog):
+        router = make_router(paid_tiers=DEBATE_TIER, openai=FakeOpenAI(), local_only=True)
+
+        with caplog.at_level(logging.WARNING, logger="agentic_orchestrator.llm.router"):
+            assert route(router, paid_tier="debate").provider == "ollama"
+
+        warnings = self._warnings(caplog)
+        assert len(warnings) == 1
+        assert "MOSS_LOCAL_LLM_ONLY" in warnings[0]
+        assert "debate" in warnings[0]
+
+    def test_exhausted_budget_degradation_warns(self, caplog):
+        router = make_router(
+            paid_tiers=DEBATE_TIER, openai=FakeOpenAI(), budget=FakeBudget(can_use_api=False)
+        )
+
+        with caplog.at_level(logging.WARNING, logger="agentic_orchestrator.llm.router"):
+            route(router, paid_tier="debate")
+
+        assert "budget" in self._warnings(caplog)[0].lower()
+
+    def test_disabled_tier_degradation_warns(self, caplog):
+        disabled = {"debate": {**DEBATE_TIER["debate"], "enabled": False}}
+        router = make_router(paid_tiers=disabled, openai=FakeOpenAI())
+
+        with caplog.at_level(logging.WARNING, logger="agentic_orchestrator.llm.router"):
+            route(router, paid_tier="debate")
+
+        assert "disabled" in self._warnings(caplog)[0]
+
+    def test_missing_provider_degradation_warns(self, caplog):
+        router = make_router(paid_tiers=DEBATE_TIER, openai=None)
+
+        with caplog.at_level(logging.WARNING, logger="agentic_orchestrator.llm.router"):
+            route(router, paid_tier="debate")
+
+        assert "unavailable" in self._warnings(caplog)[0]
+
+    def test_active_tier_says_nothing(self, caplog):
+        router = make_router(paid_tiers=DEBATE_TIER, openai=FakeOpenAI())
+
+        with caplog.at_level(logging.WARNING, logger="agentic_orchestrator.llm.router"):
+            assert route(router, paid_tier="debate").provider == "openai"
+
+        assert self._warnings(caplog) == []
+
+    def test_caller_override_is_not_a_warning(self, caplog):
+        # Passing an explicit model / force_local is the documented per-call
+        # opt-out. Warning on it would train operators to ignore the channel.
+        router = make_router(paid_tiers=DEBATE_TIER, openai=FakeOpenAI())
+
+        with caplog.at_level(logging.WARNING, logger="agentic_orchestrator.llm.router"):
+            route(router, paid_tier="debate", model="gemma3:4b")
+            route(router, paid_tier="debate", force_local=True)
+
+        assert self._warnings(caplog) == []
+
+    def test_warning_is_emitted_once_not_per_call(self, caplog):
+        # One debate routes ~38 calls. The operator needs the fact once.
+        router = make_router(paid_tiers=DEBATE_TIER, openai=FakeOpenAI(), local_only=True)
+
+        with caplog.at_level(logging.WARNING, logger="agentic_orchestrator.llm.router"):
+            for _ in range(5):
+                route(router, paid_tier="debate")
+
+        assert len(self._warnings(caplog)) == 1
+
+    def test_broken_ledger_does_not_break_the_diagnostics(self, caplog):
+        # The reason lookup reads the budget. If the ledger is down it must
+        # degrade to "reason unknown" and keep going -- diagnostics may not
+        # raise into a debate that is otherwise fine.
+        class ExplodingBudget(FakeBudget):
+            def get_budget_status(self):
+                raise RuntimeError("ledger down")
+
+        router = make_router(paid_tiers=DEBATE_TIER, openai=None, budget=ExplodingBudget())
+
+        with caplog.at_level(logging.WARNING, logger="agentic_orchestrator.llm.router"):
+            router._warn_tier_degraded("debate", caller_model=None, caller_forced_local=False)
+
+        # Still reports the precondition it could see (no provider), not the
+        # ledger it could not.
+        assert "unavailable" in self._warnings(caplog)[0]
+
+    def test_router_built_without_init_still_routes(self):
+        # make_router() bypasses __init__, as may any caller poking at the
+        # public paid_tiers attribute. A missing diagnostics attribute must
+        # not become an AttributeError on the hot path.
+        router = make_router(paid_tiers=DEBATE_TIER, openai=None)
+        assert not hasattr(router, "_degraded_tiers_warned")
+        assert route(router, paid_tier="debate").provider == "ollama"
+
+
+class TestPaidTierReport:
+    """The endpoint-facing view, shared with route() so they cannot drift."""
+
+    def test_reason_precedence_reports_the_first_switch_to_flip(self):
+        tier = {"enabled": True, "provider": "openai", "model": "gpt-5.4-mini"}
+
+        # Every case below breaks EVERY remaining precondition at once, so the
+        # branches are genuinely in contention and the assertion pins the
+        # ordering rather than just "some reason came back". Reordering any two
+        # arms of describe_paid_tier must fail this test.
+
+        # Kill switch outranks everything else: it is the operator's first fix.
+        killed = describe_paid_tier(
+            "debate",
+            {**tier, "enabled": False},
+            local_only=True,
+            provider_ready=False,
+            budget_ok=False,
+        )
+        assert killed["active"] is False
+        assert "MOSS_LOCAL_LLM_ONLY" in killed["reason"]
+
+        # With the switch off, the next unmet precondition surfaces in turn.
+        assert (
+            "disabled"
+            in describe_paid_tier(
+                "debate",
+                {**tier, "enabled": False},
+                local_only=False,
+                provider_ready=False,
+                budget_ok=False,
+            )["reason"]
+        )
+        assert (
+            "unavailable"
+            in describe_paid_tier(
+                "debate", tier, local_only=False, provider_ready=False, budget_ok=False
+            )["reason"]
+        )
+        assert (
+            "budget"
+            in describe_paid_tier(
+                "debate", tier, local_only=False, provider_ready=True, budget_ok=False
+            )["reason"].lower()
+        )
+
+        healthy = describe_paid_tier(
+            "debate", tier, local_only=False, provider_ready=True, budget_ok=True
+        )
+        assert healthy["active"] is True and healthy["reason"] is None
+
+    def test_unchecked_preconditions_do_not_fabricate_a_failure(self):
+        # /status cannot afford a ledger read; "not checked" must not read as
+        # "exhausted", or the endpoint would cry wolf on every request.
+        state = describe_paid_tier(
+            "debate",
+            {"enabled": True, "provider": "openai", "model": "gpt-5.4-mini"},
+            local_only=False,
+            provider_ready=True,
+            budget_ok=None,
+        )
+        assert state["active"] is True
+
+    def test_report_flags_the_real_config_as_degraded_under_the_kill_switch(self, monkeypatch):
+        # End to end against the shipped config.yaml: the debate tier is
+        # enabled there, so engaging the kill switch must show up as degraded
+        # rather than as a healthy all-local system.
+        monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "true")
+        report = paid_tier_report()
+        assert report["status"] == "degraded"
+        assert report["local_only"] is True
+        assert "debate" in report["degraded_tiers"]
+        assert "MOSS_LOCAL_LLM_ONLY" in report["paid_tiers"]["debate"]["reason"]
+
+    def test_report_is_healthy_when_the_tier_can_actually_spend(self, monkeypatch):
+        monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "false")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        report = paid_tier_report(budget_ok=True)
+        assert report["status"] == "healthy"
+        assert report["degraded_tiers"] == []
+        assert report["paid_tiers"]["debate"]["model"] == "gpt-5.4-mini"
+
+    def test_config_is_parsed_once_per_process_not_per_request(self, monkeypatch):
+        # /status is public, unauthenticated, uncached and `async def` on a
+        # single-instance app. Re-reading and YAML-parsing the 22 KB
+        # config.yaml per request put ~8 ms of blocking CPU on the event loop
+        # -- several times the rest of the handler. Same contract as the RSS
+        # feed list: a config edit takes effect on restart.
+        import agentic_orchestrator.llm.router as router_mod
+
+        monkeypatch.setattr(router_mod, "_PAID_TIERS_CACHE", None)
+        loads = []
+        real = HybridLLMRouter._load_paid_tiers
+
+        def counting_load():
+            loads.append(1)
+            return real()
+
+        monkeypatch.setattr(HybridLLMRouter, "_load_paid_tiers", staticmethod(counting_load))
+        monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "true")
+
+        for _ in range(10):
+            paid_tier_report()
+
+        assert len(loads) == 1, f"config.yaml parsed {len(loads)}x for 10 requests"
+
+    def test_caching_the_parse_does_not_freeze_the_verdict(self, monkeypatch):
+        # Only the file parse is cached. If the verdict were cached too, the
+        # endpoint would keep reporting healthy after the kill switch was
+        # engaged -- i.e. the monitoring added to catch a silently dead tier
+        # would itself go silently stale.
+        monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "false")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        assert paid_tier_report(budget_ok=True)["status"] == "healthy"
+
+        monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "true")
+        assert paid_tier_report(budget_ok=True)["status"] == "degraded"
+
+        monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "false")
+        assert paid_tier_report(budget_ok=False)["status"] == "degraded"
+        assert paid_tier_report(budget_ok=True)["status"] == "healthy"
+
+    def test_every_configured_tier_is_reported_not_just_debate(self):
+        # The report iterates config, so a tier added later (v0.6.22 added
+        # `review` for second-pass promotion) is covered with no code change.
+        # A hardcoded "debate" would leave the new tier unobservable.
+        from agentic_orchestrator.llm.router import _cached_paid_tiers
+
+        configured = set(_cached_paid_tiers())
+        assert "debate" in configured
+        assert configured == set(paid_tier_report()["paid_tiers"])
+
+    def test_missing_api_key_is_reported_without_touching_the_network(self, monkeypatch):
+        monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "false")
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        report = paid_tier_report()
+        assert report["status"] == "degraded"
+        assert "OPENAI_API_KEY" in report["paid_tiers"]["debate"]["reason"]

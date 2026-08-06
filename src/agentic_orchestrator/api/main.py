@@ -42,6 +42,8 @@ from ..db.repositories import (
     SignalRepository,
     TrendRepository,
 )
+from ..llm.budget import BudgetController
+from ..llm.router import paid_tier_report
 
 
 @asynccontextmanager
@@ -287,6 +289,16 @@ async def system_status(session: Session = Depends(get_session)):
         logger.exception("/status statistics queries failed; reporting degraded status")
         db_healthy = False
 
+    try:
+        # budget_ok is left unchecked (None) on purpose: reading the ledger is
+        # a DB round trip, and budget exhaustion is already visible on /usage.
+        # What this catches is the permanent kind of degradation — kill switch
+        # engaged, tier disabled, API key missing.
+        llm_router_status = paid_tier_report()
+    except Exception:
+        logger.exception("/status could not read paid-tier configuration")
+        llm_router_status = {"status": "unknown"}
+
     return StatusResponse(
         status="operational" if db_healthy else "degraded",
         timestamp=utcnow().isoformat(),
@@ -300,7 +312,15 @@ async def system_status(session: Session = Depends(get_session)):
             # find out. "unknown" is what we actually know; the scheduler's
             # 5-minute health check is what measures the router.
             "cache": {"status": "unknown"},
-            "llm_router": {"status": "unknown"},
+            # Config-level, not a live probe: this endpoint is public and hot,
+            # so it still must not make network calls. What it *can* answer for
+            # free is whether a paid tier could bill anything at all — the
+            # question nothing answered when a stale PM2 env pinned
+            # MOSS_LOCAL_LLM_ONLY=true and every debate ran on local gemma
+            # while /status kept reporting "operational" (2026-08-06).
+            # "degraded" here = config says a tier should be spending, and it
+            # cannot. Whether a call actually succeeded is /usage's job.
+            "llm_router": llm_router_status,
         },
         stats=stats,
     )
@@ -876,12 +896,30 @@ async def get_usage(
     month_total = repo.get_month_total()
     history = repo.get_usage_history(days=days)
 
+    # An empty ledger has two very different meanings — "nothing needed to
+    # spend" and "the paid tier has been quietly dead for a day" — and until
+    # 2026-08-06 this endpoint could not tell them apart. Reporting the tier's
+    # effective state next to the numbers makes $0.00 self-explanatory.
+    # Unlike /status this does consult the budget, since /usage is a cold
+    # endpoint and budget exhaustion is precisely a spending question.
+    try:
+        budget_ok = bool(BudgetController().get_budget_status().get("can_use_api"))
+    except Exception:
+        logger.exception("/usage could not read budget status")
+        budget_ok = None
+    try:
+        llm_routing = paid_tier_report(budget_ok=budget_ok)
+    except Exception:
+        logger.exception("/usage could not read paid-tier configuration")
+        llm_routing = {"status": "unknown"}
+
     return {
         "today": today_usage,
         "today_by_provider": today_by_provider,
         "month_total": month_total,
         "history": history,
         "days": days,
+        "llm_routing": llm_routing,
     }
 
 
