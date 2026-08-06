@@ -251,59 +251,91 @@ ci_unknown_streak() {
 #
 # So bound the wait. A job still running well past the point any healthy run
 # would have finished is not busy, it is wedged, and waiting for it is waiting
-# forever. Past its limit it stops counting as a reason to defer. The limits
-# are per job and generously above real runtimes (debate, the longest, is
-# ~30 min against a 120 min limit), so an ordinary slow cycle still defers
-# normally — only a genuine hang trips this.
+# forever. Past its limit it stops counting as a reason to defer.
+#
+# EVERY LIMIT MUST STAY STRICTLY BELOW THAT JOB'S CRON PERIOD. PM2's
+# cron_restart restarts the app on schedule whether or not the previous run
+# finished, and a restart resets pm_uptime -- so a job can never be observed
+# older than its own period, and a limit >= the period is unreachable dead
+# code. moss-ao-signals runs at :05/:35 (every 30 min) and was first written
+# here with a 30 min limit, which meant a wedged signals job would have gone
+# on blocking deploys forever, i.e. exactly the bug this function fixes.
+# Production periods: signals 30m, trends 2h, debate 6h, backlog 4h; the
+# TEST_MODE schedule tightens trends/debate/backlog to 1h, so the two low
+# limits below are chosen to work under that schedule too.
 scheduler_state() {
-  "${PM2_BIN}" jlist 2>/dev/null | MOSS_STALE_MIN="${DEPLOY_SCHEDULER_STALE_MIN}" python3 -c '
+  local watched="moss-ao-backlog,moss-ao-debate,moss-ao-signals,moss-ao-trends"
+  local out
+  out=$("${PM2_BIN}" jlist 2>/dev/null | MOSS_STALE_MIN="${DEPLOY_SCHEDULER_STALE_MIN}" python3 -c '
 import json, os, sys, time
 
 # name -> minutes after which a still-running job is considered wedged.
-limits = {
-    "moss-ao-signals": 30,
-    "moss-ao-trends": 60,
-    "moss-ao-backlog": 90,
-    "moss-ao-debate": 120,
+LIMITS = {
+    "moss-ao-signals": 20,    # cron every 30m
+    "moss-ao-trends": 45,     # cron every 2h (1h in TEST_MODE)
+    "moss-ao-backlog": 90,    # cron every 4h
+    "moss-ao-debate": 120,    # cron every 6h; healthy run is ~30-40 min
 }
-override = os.environ.get("MOSS_STALE_MIN") or ""
-if override.strip():
-    try:
-        forced = float(override)
-        if forced > 0:
-            limits = {k: forced for k in limits}
-    except ValueError:
-        pass
 
-try:
-    procs = json.load(sys.stdin)
-except Exception:
-    # Unreadable pm2 output must not silently mean "nothing is running" --
+
+def fail_closed():
+    # Not knowing what is running must never read as "nothing is running":
     # that would deploy underneath a live debate. Report every watched job as
     # busy so the caller defers, which is the safe direction.
-    print("BUSY:" + ",".join(sorted(limits)) + "|STALE:")
-    raise SystemExit
+    print("BUSY:" + ",".join(sorted(LIMITS)) + "|STALE:")
 
-now_ms = time.time() * 1000
-busy, stale = [], []
-for p in procs:
-    name = p.get("name")
-    if name not in limits:
-        continue
-    env = p.get("pm2_env") or {}
-    if env.get("status") != "online":
-        continue
-    started = env.get("pm_uptime")
-    if not isinstance(started, (int, float)):
-        # No start timestamp -> cannot age it; treat as busy (safe direction).
-        busy.append(name)
-        continue
-    running_min = (now_ms - started) / 60000.0
-    (stale if running_min > limits[name] else busy).append(
-        f"{name}({running_min:.0f}m)" if running_min > limits[name] else name
-    )
-print("BUSY:" + ",".join(busy) + "|STALE:" + ",".join(stale))
-' 2>/dev/null || echo "BUSY:|STALE:"
+
+try:
+    limits = dict(LIMITS)
+    override = os.environ.get("MOSS_STALE_MIN") or ""
+    if override.strip():
+        try:
+            forced = float(override)
+            if forced > 0:
+                limits = {k: forced for k in limits}
+        except ValueError:
+            pass
+
+    procs = json.load(sys.stdin)
+    if not isinstance(procs, list):
+        raise ValueError("pm2 jlist did not return a list")
+
+    now_ms = time.time() * 1000
+    busy, stale = [], []
+    for p in procs:
+        if not isinstance(p, dict):
+            raise ValueError("pm2 jlist entry is not an object")
+        name = p.get("name")
+        if name not in limits:
+            continue
+        env = p.get("pm2_env")
+        env = env if isinstance(env, dict) else {}
+        if env.get("status") != "online":
+            continue
+        started = env.get("pm_uptime")
+        if not isinstance(started, (int, float)) or isinstance(started, bool):
+            # No usable start timestamp -> cannot age it; treat as busy.
+            busy.append(name)
+            continue
+        running_min = (now_ms - started) / 60000.0
+        if running_min > limits[name]:
+            stale.append("%s(%.0fm)" % (name, running_min))
+        else:
+            busy.append(name)
+    print("BUSY:" + ",".join(busy) + "|STALE:" + ",".join(stale))
+except Exception:
+    # Any failure at all -- malformed shapes, a broken pipe, a python that
+    # cannot even parse this -- defers rather than deploys.
+    fail_closed()
+' 2>/dev/null | head -1) || out=""
+
+  # The `||` above must REPLACE the output, never append to it: a pipeline that
+  # prints and then exits non-zero would otherwise emit two lines, and the
+  # caller's `${x#*|}` split would read the second one as a bogus STALE list.
+  case "${out}" in
+    "BUSY:"*"|STALE:"*) printf '%s\n' "${out}" ;;
+    *) printf 'BUSY:%s|STALE:\n' "${watched}" ;;
+  esac
 }
 
 # uv-managed checkout? The venv records how it was built, and that is the
@@ -783,23 +815,28 @@ ECOSYSTEM_PENDING=${ECOSYSTEM_PENDING:-${REPO_ROOT}/logs/.ecosystem-pending}
 ${CHANGED}
 EOF
 
+  WEDGED=""
   if [ "${PY_CHANGED}" = "1" ] && [ "${FORCE}" = "0" ]; then
     SCHED_STATE=$(scheduler_state)
     BUSY=${SCHED_STATE%%|*}; BUSY=${BUSY#BUSY:}
-    STALE=${SCHED_STATE#*|}; STALE=${STALE#STALE:}
-    if [ -n "${STALE}" ]; then
-      # Deliberately not a reason to defer: this job has outlived any healthy
-      # run and is almost certainly stuck on the shared LLM box, so waiting
-      # for it blocks deploys indefinitely rather than briefly.
-      log "scheduler overrunning (${STALE}) -- treating as wedged, not busy; \
-proceeding with back-end deploy"
-      alert "MOSS.AO scheduler wedged: ${STALE} -- deploy proceeded anyway; \
-check the Ollama backend"
-    fi
+    WEDGED=${SCHED_STATE#*|}; WEDGED=${WEDGED#STALE:}
     if [ -n "${BUSY}" ]; then
-      log "scheduler busy (${BUSY}) -- deferring back-end deploy to next tick"
+      # A wedged job is deliberately NOT a reason to defer -- it has outlived
+      # any healthy run and waiting for it blocks deploys indefinitely rather
+      # than briefly. But a genuinely running one still is, so a wedged job
+      # never excuses a live one; report both and wait.
+      if [ -n "${WEDGED}" ]; then
+        log "scheduler busy (${BUSY}); also wedged (${WEDGED}) -- deferring \
+back-end deploy to next tick"
+      else
+        log "scheduler busy (${BUSY}) -- deferring back-end deploy to next tick"
+      fi
       exit 0
     fi
+    # WEDGED is announced only once the deploy really is going ahead -- see
+    # where it is consumed below. Logging it here would claim "proceeding"
+    # on the paths that then defer (busy peer, unready database, --check),
+    # and re-fire the webhook every five minutes while nothing happened.
   fi
 
   # Don't deploy into an environment that is already failing readiness.
@@ -830,6 +867,16 @@ pydeps=${DEPS_CHANGED} nodedeps=${NODE_DEPS_CHANGED} ecosystem=${ECOSYSTEM_CHANG
   # -------------------------------------------------------------------------
   # 3. Deploy
   # -------------------------------------------------------------------------
+
+  # Now that the deploy really is going ahead, say so about any wedged job we
+  # decided to step over. Announced here, not at the check: every path between
+  # the two exits instead of deploying, and claiming otherwise would put a
+  # false "deploy proceeded anyway" in the log and the webhook on every tick.
+  if [ -n "${WEDGED}" ]; then
+    log "scheduler wedged (${WEDGED}) -- outlived any healthy run; treating as \
+wedged rather than busy and deploying anyway"
+    alert "MOSS.AO scheduler wedged: ${WEDGED} -- deployed anyway; check the Ollama backend"
+  fi
 
   # Journal this attempt BEFORE any work starts: a poller SIGKILLed mid-build
   # never reaches a failure handler, and the next tick must still know this

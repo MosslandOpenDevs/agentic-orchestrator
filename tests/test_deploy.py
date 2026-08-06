@@ -810,6 +810,83 @@ class TestGuards:
         assert server.head() == before
         assert "scheduler busy" in result.stdout
 
+    def test_signals_stale_limit_is_below_its_own_cron_period(self, server: Server):
+        """Every limit must stay strictly under that job's cron period.
+
+        PM2's cron_restart restarts the app on schedule whether or not the run
+        finished, and a restart resets pm_uptime — so a job is never observed
+        older than its own period and a limit >= the period is unreachable.
+        moss-ao-signals runs every 30 min and was first written here with a
+        30 min limit, i.e. a wedged signals job would have blocked back-end
+        deploys forever: the exact bug the staleness check exists to remove.
+        25 min is past the limit but inside the period, so it must read stale.
+        """
+        server.jlist.write_text(self._running_for("moss-ao-signals", 25))
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 30\n"})
+
+        result = server.run()
+
+        assert server.head() == target
+        assert "DEPLOYED" in result.stdout
+
+    def test_stale_limits_are_all_under_their_cron_periods(self):
+        """Source invariant, so a schedule change cannot silently make a limit
+        unreachable again.
+
+        Checked against the schedule that is actually ACTIVE (TEST_MODE picks
+        one of the two SCHEDULES blocks). TEST_MODE compresses trends/debate/
+        backlog to hourly, where the current limits would be unreachable — so
+        if someone flips it, this fails and forces the limits to be revisited
+        rather than letting the guard quietly stop working.
+        """
+        import re
+
+        script = DEPLOY_SH.read_text()
+        eco = ECOSYSTEM.read_text()
+
+        limits = {
+            m.group(1): int(m.group(2))
+            for m in re.finditer(r'"(moss-ao-[a-z]+)":\s*(\d+),\s*#\s*cron', script)
+        }
+        assert len(limits) == 4, f"expected 4 per-job limits, parsed {limits}"
+
+        test_mode = re.search(r"TEST_MODE\s*=\s*(true|false)", eco).group(1) == "true"
+        block = re.search(
+            r"%s:\s*\{(.*?)\}" % ("test" if test_mode else "production"),
+            eco,
+            re.S,
+        ).group(1)
+
+        def period_minutes(pattern: str) -> int:
+            minute, hour = pattern.split()[0], pattern.split()[1]
+            if hour.startswith("*/"):
+                period = int(hour[2:]) * 60
+            elif hour == "*":
+                period = 60
+            else:
+                period = 24 * 60
+            if "," in minute:  # e.g. '5,35 * * * *' -> twice an hour
+                period = min(period, 60 // len(minute.split(",")))
+            return period
+
+        periods = {
+            f"moss-ao-{job}": period_minutes(pat)
+            for job, pat in re.findall(r"(\w+):\s*'([^']+)'", block)
+            if job in {"signals", "trends", "debate", "backlog"}
+        }
+        assert len(periods) == 4, f"expected 4 schedules, parsed {periods}"
+
+        for name, limit in limits.items():
+            period = periods[name]
+            assert limit < period, (
+                f"{name} stale limit {limit}m >= its {period}m cron period "
+                f"({'TEST_MODE' if test_mode else 'production'} schedule). "
+                "cron_restart restarts the app on schedule and resets pm_uptime, "
+                "so a job is never observed older than its own period and this "
+                "limit can never be reached -- the wedged job would block "
+                "back-end deploys forever."
+            )
+
     def test_one_wedged_job_does_not_excuse_a_healthy_one(self, server: Server):
         """Staleness is per job. A wedged backlog must not drag a genuinely
         running debate into being ignored -- that would deploy underneath it."""
@@ -834,6 +911,102 @@ class TestGuards:
         assert server.head() == before
         assert "scheduler busy" in result.stdout
         assert "moss-ao-debate" in result.stdout
+        # And it must not claim it deployed: the "proceeded anyway" line and
+        # its webhook belong only on the path that really deploys, or the
+        # operator gets a false alert every five minutes while nothing moved.
+        assert "deploying anyway" not in result.stdout
+        assert "deployed anyway" not in result.stdout
+
+    def test_check_mode_does_not_claim_it_stepped_over_a_wedged_job(self, server: Server):
+        before = server.head()
+        server.jlist.write_text(self._running_for("moss-ao-backlog", 210))
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 25\n"})
+
+        result = server.run("--check")
+
+        assert server.head() == before
+        assert "--check" in result.stdout
+        assert "deploying anyway" not in result.stdout
+        assert "deployed anyway" not in result.stdout
+
+    def test_pm2_output_that_parses_but_is_the_wrong_shape_defers(self, server: Server):
+        """json.load succeeding is not the same as the data being usable. Any
+        failure past the parse must still fail toward deferring."""
+        before = server.head()
+        server.jlist.write_text(json.dumps({"not": "a list"}))
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 26\n"})
+
+        result = server.run()
+
+        assert server.head() == before
+        assert "scheduler busy" in result.stdout
+
+    def test_pm2_entries_that_are_not_objects_defer(self, server: Server):
+        before = server.head()
+        server.jlist.write_text(json.dumps(["not-an-object"]))
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 27\n"})
+
+        result = server.run()
+
+        assert server.head() == before
+        assert "scheduler busy" in result.stdout
+
+    def test_a_broken_python3_still_defers_for_a_live_debate(self, server: Server):
+        """The staleness check is implemented in embedded python. If python
+        itself cannot run, the guard must fall back to "everything is busy" —
+        not to "nothing is running", which would deploy into a live debate."""
+        before = server.head()
+        shim = server.bin / "python3"
+        shim.write_text("#!/usr/bin/env bash\nexit 127\n")
+        shim.chmod(0o755)
+        server.jlist.write_text(self._running_for("moss-ao-debate", 5))
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 31\n"})
+
+        result = server.run()
+
+        assert server.head() == before, "deployed underneath a live debate"
+        assert "scheduler busy" in result.stdout
+
+    def test_a_malformed_entry_beside_a_live_debate_defers(self, server: Server):
+        """One bad entry must not blind the guard to the good one beside it."""
+        before = server.head()
+        server.jlist.write_text(
+            json.dumps(
+                [
+                    {
+                        "name": "moss-ao-debate",
+                        "pm2_env": {"status": "online", "pm_uptime": (time.time() - 300) * 1000},
+                    },
+                    "moss-ao-signals",
+                ]
+            )
+        )
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 32\n"})
+
+        result = server.run()
+
+        assert server.head() == before, "deployed underneath a live debate"
+        assert "scheduler busy" in result.stdout
+
+    def test_stale_override_env_forces_every_limit(self, server: Server):
+        server.jlist.write_text(self._running_for("moss-ao-debate", 5))
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 28\n"})
+
+        result = server.run(DEPLOY_SCHEDULER_STALE_MIN="1")
+
+        assert server.head() == target
+        assert "DEPLOYED" in result.stdout
+
+    def test_garbage_stale_override_keeps_the_built_in_limits(self, server: Server):
+        """A typo'd override must not silently disable the guard."""
+        before = server.head()
+        server.jlist.write_text(self._running_for("moss-ao-debate", 5))
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 29\n"})
+
+        result = server.run(DEPLOY_SCHEDULER_STALE_MIN="soon")
+
+        assert server.head() == before
+        assert "scheduler busy" in result.stdout
 
     def test_a_job_with_no_start_time_is_treated_as_busy(self, server: Server):
         """Unknown age must fail toward deferring, never toward deploying

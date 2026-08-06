@@ -150,9 +150,18 @@ JSON으로만 응답해주세요:
     # and holding `moss-ao-backlog` "online" the whole time, which made
     # deploy.sh defer every back-end deploy. A short budget converts a wedged
     # GPU from "triage dies and blocks deploys" into "triage skips this cycle
-    # in a couple of minutes". The clock covers only the HTTP request —
-    # throttle waits and the concurrency slot are acquired first — so this
-    # does not penalise a scoring call merely queued behind a debate.
+    # in a couple of minutes".
+    #
+    # The clock covers only the HTTP request: `_wait_for_throttle()` and the
+    # in-process concurrency slot are both acquired before the client is
+    # constructed, so this budget does not start while a call waits its turn
+    # locally. It DOES include Ollama's own server-side queue, which is
+    # cross-process — a scoring call landing behind a 16k trends generate can
+    # legitimately exceed 120s. That is accepted: the cron stagger keeps
+    # trends (:15, every 2h) and backlog (:45, every 4h) apart, a timed-out
+    # idea takes no strike and is retried next cycle, and the breaker probes
+    # the backend before abandoning a run. Losing an occasional cycle is far
+    # cheaper than the 30-minute-per-idea stall this replaces.
     SCORING_TIMEOUT = 120
 
     def __init__(
