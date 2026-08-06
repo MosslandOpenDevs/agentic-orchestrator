@@ -200,7 +200,7 @@ class TestSecondPassGatesPromotion:
         from agentic_orchestrator.scoring import second_pass as sp
 
         class Fixed(sp.SecondPassReviewer):
-            async def review(self, title, content, local_score, context=""):
+            async def review(self, title, content, local_score, context="", siblings=None):
                 if verdict == sp.UNAVAILABLE:
                     return sp.ReviewVerdict(sp.UNAVAILABLE, reason="stub outage")
                 self.reviews_used += 1
@@ -266,7 +266,7 @@ class TestSecondPassGatesPromotion:
         seen = []
 
         class Counting(sp.SecondPassReviewer):
-            async def review(self, title, content, local_score, context=""):
+            async def review(self, title, content, local_score, context="", siblings=None):
                 seen.append(title)
                 return sp.ReviewVerdict(sp.CONFIRM, reason="stub")
 
@@ -276,6 +276,86 @@ class TestSecondPassGatesPromotion:
         run_scoring(session, golden_ideas(), ScriptedScorer({}, default=5.5), monkeypatch)
 
         assert seen == []
+
+
+class TestThemeLimitsPromotions:
+    """Five wordings of one idea must not become five plans.
+
+    The tight clustering threshold deliberately under-merges — merging there
+    deletes an idea, since only the representative proceeds. So a debate can
+    legitimately emit four separate representatives that a human would call
+    one theme (measured live 2026-08-06: four OpenZeppelin/Slither contract
+    scanners among 16). Theme grouping is the recoverable half of the
+    problem: at most one promotion per theme per cycle, and the losers keep
+    their row, their issue and their backlog place.
+    """
+
+    def _confirm_everything(self, monkeypatch):
+        from agentic_orchestrator.scoring import second_pass as sp
+
+        class AlwaysConfirm(sp.SecondPassReviewer):
+            async def review(self, title, content, local_score, context="", siblings=None):
+                self.reviews_used += 1
+                return sp.ReviewVerdict(sp.CONFIRM, reason="stub", score=8.0)
+
+        monkeypatch.setattr(sp, "SecondPassReviewer", AlwaysConfirm)
+
+    def test_a_theme_gets_at_most_one_promotion(self, session, monkeypatch, no_external):
+        self._confirm_everything(monkeypatch)
+
+        run_scoring(session, golden_ideas(), ScriptedScorer({}, default=8.5), monkeypatch)
+
+        promoted = IdeaRepository(session).get_by_status("promoted", limit=100)
+        themes = [
+            (row.extra_metadata.get("theme") or {}).get("id")
+            for row in promoted
+            if row.extra_metadata
+        ]
+        named = [t for t in themes if t]
+        assert len(named) == len(set(named)), f"a theme was promoted more than once: {themes}"
+
+    def test_theme_siblings_reach_the_reviewer(self, session, monkeypatch, no_external):
+        from agentic_orchestrator.scoring import second_pass as sp
+
+        seen = []
+
+        class Recording(sp.SecondPassReviewer):
+            async def review(self, title, content, local_score, context="", siblings=None):
+                seen.append(siblings or [])
+                return sp.ReviewVerdict(sp.DEMOTE, reason="stub")
+
+        monkeypatch.setattr(sp, "SecondPassReviewer", Recording)
+
+        run_scoring(session, golden_ideas(), ScriptedScorer({}, default=8.5), monkeypatch)
+
+        # At least one reviewed idea had same-theme company; the reviewer
+        # cannot notice redundancy it is never shown.
+        assert any(s for s in seen), "no siblings were ever passed to the reviewer"
+
+    def test_theme_is_recorded_on_the_row_for_audit(self, session, monkeypatch, no_external):
+        self._confirm_everything(monkeypatch)
+
+        run_scoring(session, golden_ideas(), ScriptedScorer({}, default=8.5), monkeypatch)
+
+        repo = IdeaRepository(session)
+        rows = repo.get_by_status("promoted", limit=100) + repo.get_by_status("scored", limit=100)
+        with_theme = [r for r in rows if (r.extra_metadata or {}).get("theme")]
+        assert with_theme, "theme grouping must be auditable on the idea row"
+
+    def test_disabling_theme_grouping_is_a_no_op(self, session, monkeypatch, no_external):
+        # theme_threshold: 0 must not break the pipeline, just stop limiting.
+        base = tasks_mod._load_backlog_config()
+        monkeypatch.setattr(
+            tasks_mod,
+            "_load_backlog_config",
+            lambda: {**base, "clustering": {**base["clustering"], "theme_threshold": 0}},
+        )
+        self._confirm_everything(monkeypatch)
+
+        run_scoring(session, golden_ideas(), ScriptedScorer({}, default=8.5), monkeypatch)
+
+        # Promotions still happen, capped only by max_per_cycle.
+        assert IdeaRepository(session).get_by_status("promoted", limit=100)
 
 
 class TestOnePlanPerDebate:

@@ -245,9 +245,28 @@ backlog:
   # harmless; erring low destroys ideas.
   # min_shared_terms is the safety rail that makes a mis-set threshold
   # survivable: with it, 24 unrelated ideas stay 24 clusters even at 0.04.
+  # Two thresholds, because two different questions are being asked.
+  #
+  #   threshold (0.18)       "is this the SAME idea?" -> decides who gets
+  #                          externalized at all. A wrong merge here DELETES
+  #                          an idea: only the representative proceeds. So it
+  #                          is precision-first and deliberately under-merges.
+  #   theme_threshold (0.12) "is this the same THEME?" -> only limits how
+  #                          many siblings may be promoted in one cycle. A
+  #                          wrong grouping costs a delayed promotion; the
+  #                          idea keeps its row, its issue and its backlog
+  #                          place. Recoverable, so it can afford recall.
+  #
+  # Measured on the live 2026-08-06 batch (16 representatives, every one
+  # scored exactly 8.00 by the local scorer): 0.12 yields 9 themes and picks
+  # out the groups a human does — four OpenZeppelin/Slither contract
+  # scanners together, three TEE attestation services together. 0.08
+  # over-merges into a 7-member blob; 0.18 finds almost nothing. Set
+  # theme_threshold to 0 to disable theme limiting entirely.
   clustering:
     enabled: true
     threshold: 0.18
+    theme_threshold: 0.12
     content_weight: 0.5
     max_df_ratio: 0.6
     min_shared_terms: 2
@@ -272,7 +291,13 @@ backlog:
     enabled: true
     paid_tier: review
     min_local_score: 7.0      # only promotion candidates are worth paying for
-    max_reviews_per_cycle: 8
+    # Measured 2026-08-06 on a live debate: 16 representatives all scored
+    # exactly 8.00 by the local scorer (zero discrimination), so all 16 were
+    # promotion candidates — but the cap of 8 meant half were never reviewed
+    # and were held unreviewed. A review costs $0.00049 (8 reviews added
+    # $0.0039 to a $0.4459 debate), so covering a whole batch costs under a
+    # cent. 20 leaves headroom above the 16 that debate produced.
+    max_reviews_per_cycle: 20
     max_tokens: 700
 
   # Backlog triage — the consumer that matches idea production (~40/day from

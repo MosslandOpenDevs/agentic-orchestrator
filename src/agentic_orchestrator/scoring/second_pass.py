@@ -63,12 +63,16 @@ REVIEW_PROMPT = """당신은 Mossland 신규 사업 심사위원입니다. 아�
 
 ⚠️ 1차 채점기는 점수를 후하게 주는 경향이 확인되었습니다(같은 아이디어 22건에 연속으로 8.0을 부여). 1차 점수에 끌려가지 말고 독립적으로 판단하세요.
 
+## 같은 토론에서 나온 유사 주제 아이디어
+{siblings}
+
 ## 토론 맥락
 {context}
 
 ## 판단 기준
 - **confirm**: 승격할 가치가 있다. 구체적이고, Mossland와 관련 있으며, 1-2주 MVP로 검증 가능하고, 기존 아이디어의 재탕이 아니다.
 - **demote**: 나쁘지 않지만 지금 플랜을 쓸 정도는 아니다. 백로그에 남긴다.
+- 위 유사 아이디어 목록이 비어 있지 않다면, 이 아이디어가 그중 **가장 구체적이고 실행 가능한 것**인지 따져라. 같은 일을 다르게 표현한 것 중 하나일 뿐이라면 demote하라 — 한 가지 일에 플랜을 여러 개 만들지 않는다.
 - **reject**: 승격도 백로그도 아니다. 내용이 공허하거나, 제목이 JSON 조각/템플릿 문구이거나, 실행 불가능하다.
 
 의심스러우면 confirm하지 마세요. 승격은 플랜 문서와 프로젝트 스캐폴드로 이어지므로 잘못된 confirm이 잘못된 demote보다 훨씬 비쌉니다.
@@ -92,6 +96,18 @@ RESPONSE_SCHEMA = {
     },
     "required": ["verdict", "reason"],
 }
+
+
+def _render_siblings(siblings: Optional[list]) -> str:
+    """Same-theme ideas from this debate, for the reviewer to compare against.
+
+    A debate routinely emits four or five wordings of one idea. Judged one
+    at a time each looks reasonable; seen together, four of them are
+    redundant. The reviewer cannot notice that unless it is shown them.
+    """
+    if not siblings:
+        return "없음 (이 주제로는 이 아이디어 하나)"
+    return "\n".join(f"- {str(s)[:120]}" for s in siblings[:6])
 
 
 @dataclass
@@ -164,6 +180,7 @@ class SecondPassReviewer:
         content: str,
         local_score: float,
         context: str = "",
+        siblings: Optional[list] = None,
     ) -> ReviewVerdict:
         """Return the reviewer's verdict, or UNAVAILABLE if it could not run.
 
@@ -175,6 +192,7 @@ class SecondPassReviewer:
             content=(content or "")[:4000],
             local_score=local_score,
             context=(context or "없음")[:800],
+            siblings=_render_siblings(siblings),
         )
         try:
             response = await self.router.route(
