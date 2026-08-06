@@ -2,6 +2,7 @@
 Hybrid LLM router for intelligent model selection.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -88,6 +89,11 @@ class HybridLLMRouter:
         # flag (MOSS_LOCAL_LLM_ONLY=false) and the tier's `enabled` in
         # config — everything not listed stays on local Ollama either way.
         self.paid_tiers = self._load_paid_tiers()
+        # A pinned paid tier retries ITSELF rather than degrading to local.
+        # Short and few: the debate's own cron tick is the real retry, and a
+        # long wait here just holds a debate round open.
+        self._paid_tier_retries = int(os.getenv("MOSS_PAID_TIER_RETRIES", "2"))
+        self._paid_tier_backoff = float(os.getenv("MOSS_PAID_TIER_BACKOFF", "2.0"))
 
         if not self.local_only:
             self._init_api_providers()
@@ -215,6 +221,7 @@ class HybridLLMRouter:
                     model = None
 
         # Determine model to use
+        tier_pinned = False
         if model:
             selected_model = model
         else:
@@ -246,6 +253,7 @@ class HybridLLMRouter:
                     and self.budget.get_budget_status()["can_use_api"]
                 ):
                     selected_model = tier_model
+                    tier_pinned = True
                     logger.info(
                         f"Paid tier '{paid_tier}' active: routing to "
                         f"{tier_provider_name}:{tier_model}"
@@ -299,28 +307,63 @@ class HybridLLMRouter:
                 provider_name = "ollama"
 
         except Exception as e:
-            # On error, try fallback (once only to prevent infinite loops)
             logger.error(f"Error with {selected_model}: {e}")
-            fallback = self.hierarchy.get_fallback_model(selected_model)
 
-            if fallback and fallback != selected_model:
-                try:
-                    response = await self._call_ollama(
-                        model=fallback,
-                        prompt=prompt,
-                        system=system,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        format_schema=response_schema,
-                        num_ctx=num_ctx,
+            # A pinned paid tier must NOT silently become a local call. The
+            # debate is the only tier today, and degrading one of its turns
+            # to gemma3:4b mid-round is worse than losing the turn: the
+            # round would mix two models' output quality invisibly, and it
+            # would push load onto the very Ollama path whose congestion the
+            # tier exists to escape (2026-08-05: three debates died there).
+            # Retry the same API briefly, then raise and let the scheduler's
+            # next cron tick be the retry.
+            if tier_pinned:
+                for attempt in range(1, self._paid_tier_retries + 1):
+                    delay = self._paid_tier_backoff * attempt
+                    logger.warning(
+                        f"Paid tier '{paid_tier}' call failed ({e}); retry "
+                        f"{attempt}/{self._paid_tier_retries} in {delay:.1f}s"
                     )
-                    selected_model = fallback
-                    provider_name = "ollama"
-                except Exception as fallback_error:
-                    logger.error(f"Fallback model {fallback} also failed: {fallback_error}")
-                    raise fallback_error
+                    await asyncio.sleep(delay)
+                    try:
+                        response = await self._call_openai(
+                            model=selected_model,
+                            prompt=prompt,
+                            system=system,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                        )
+                        provider_name = "openai"
+                        break
+                    except Exception as retry_error:  # noqa: PERF203
+                        e = retry_error
+                else:
+                    logger.error(
+                        f"Paid tier '{paid_tier}' exhausted its retries; failing the "
+                        f"call instead of degrading to local"
+                    )
+                    raise
             else:
-                raise
+                fallback = self.hierarchy.get_fallback_model(selected_model)
+
+                if fallback and fallback != selected_model:
+                    try:
+                        response = await self._call_ollama(
+                            model=fallback,
+                            prompt=prompt,
+                            system=system,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            format_schema=response_schema,
+                            num_ctx=num_ctx,
+                        )
+                        selected_model = fallback
+                        provider_name = "ollama"
+                    except Exception as fallback_error:
+                        logger.error(f"Fallback model {fallback} also failed: {fallback_error}")
+                        raise fallback_error
+                else:
+                    raise
 
         # Calculate duration
         duration = (utcnow() - start_time).total_seconds()

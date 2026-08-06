@@ -14,6 +14,8 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from agentic_orchestrator.llm.budget import BudgetController
 from agentic_orchestrator.llm.hierarchy import LLMHierarchy
 from agentic_orchestrator.llm.router import HybridLLMRouter
@@ -58,6 +60,20 @@ class BrokenOpenAI:
     async def generate(self, **kwargs):
         self.calls.append(kwargs)
         raise RuntimeError("429 rate limited")
+
+
+class FlakyOpenAI:
+    """Fails the first `fail_times` calls, then succeeds."""
+
+    def __init__(self, fail_times=1):
+        self.fail_times = fail_times
+        self.calls = []
+
+    async def generate(self, **kwargs):
+        self.calls.append(kwargs)
+        if len(self.calls) <= self.fail_times:
+            raise RuntimeError("503 upstream")
+        return {"content": "api reply", "input_tokens": 100, "output_tokens": 40}
 
 
 class FakeOllama:
@@ -169,14 +185,43 @@ class TestPaidTierRouting:
 class TestSpendAccounting:
     """The budget ledger is the only spend control — it must stay truthful."""
 
-    def test_failed_paid_call_falls_back_local_and_records_no_usage(self):
+    def test_failed_paid_call_never_degrades_to_local(self):
+        # A pinned tier must NOT become a local call on failure. Degrading a
+        # debate turn to gemma3:4b mid-round mixes two models' output quality
+        # invisibly AND pushes load onto the congested Ollama path the tier
+        # exists to escape. It retries itself briefly, then raises; the
+        # scheduler's next cron tick is the real retry.
         budget = FakeBudget()
-        router = make_router(paid_tiers=DEBATE_TIER, openai=BrokenOpenAI(), budget=budget)
+        api = BrokenOpenAI()
+        router = make_router(paid_tiers=DEBATE_TIER, openai=api, budget=budget)
+        router._paid_tier_retries = 2
+        router._paid_tier_backoff = 0.0
+
+        with pytest.raises(RuntimeError):
+            route(router, paid_tier="debate")
+
+        assert router.ollama.calls == []  # never touched local
+        assert budget.recorded == []  # nothing billed
+        assert len(api.calls) == 3  # first attempt + 2 retries
+
+    def test_paid_tier_retry_can_recover_without_touching_local(self):
+        budget = FakeBudget()
+        api = FlakyOpenAI(fail_times=1)
+        router = make_router(paid_tiers=DEBATE_TIER, openai=api, budget=budget)
+        router._paid_tier_retries = 2
+        router._paid_tier_backoff = 0.0
 
         response = route(router, paid_tier="debate")
 
-        assert response.provider == "ollama"  # debate degrades, never dies
-        assert budget.recorded == []  # and nothing is billed to the ledger
+        assert response.provider == "openai"
+        assert router.ollama.calls == []
+        assert budget.recorded == [("openai", "gpt-5.4-mini", 100, 40)]
+
+    def test_untagged_calls_keep_their_local_fallback(self):
+        # Only the pinned tier loses the fallback. An ordinary call that
+        # selected a model and failed still degrades as before.
+        router = make_router(paid_tiers=DEBATE_TIER, openai=FakeOpenAI())
+        assert route(router).provider == "ollama"
 
     def test_config_budget_limits_are_actually_enforced(self):
         # The config.yaml `budget:` block was decorative until v0.6.19:
