@@ -43,8 +43,10 @@ export default function DebatesPage() {
 
   const statusColors: Record<string, 'green' | 'cyan' | 'orange' | 'purple'> = {
     completed: 'green',
-    'in-progress': 'orange',
-    pending: 'cyan',
+    // DebateSessionStatus in db/models.py is active/completed/cancelled. The
+    // key used to be 'in-progress', which the backend has never emitted.
+    active: 'orange',
+    cancelled: 'purple',
   };
 
   const phaseColors: Record<string, 'green' | 'cyan' | 'orange' | 'purple'> = {

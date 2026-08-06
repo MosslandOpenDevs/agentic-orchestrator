@@ -8,6 +8,11 @@ import { formatLocalDateTime } from '@/lib/date';
 import type { ModalData } from '../modals/ModalProvider';
 import { TerminalBadge } from '../TerminalWindow';
 
+// Mirrors COMPLETED_PROJECT_STATUSES in db/models.py: a project that
+// finished with verification warnings is finished, not in limbo. Checking
+// only for 'ready' rendered an entirely blank panel for those.
+const COMPLETED_PROJECT_STATUSES = ['ready', 'ready_with_warnings'];
+
 interface PlanDetailProps {
   data: ModalData;
 }
@@ -68,10 +73,12 @@ export function PlanDetail({ data }: PlanDetailProps) {
           project: response.data!.project,
           generating: response.data!.project?.status === 'generating',
         }));
+        return response.data.project.status;
       }
     } catch (err) {
       console.warn('Failed to fetch project status:', err);
     }
+    return undefined;
   }, []);
 
   // Poll job status
@@ -95,14 +102,60 @@ export function PlanDetail({ data }: PlanDetailProps) {
           // Continue polling
           setTimeout(() => pollJobStatus(jobId), 3000);
         }
+      } else {
+        // The job is gone (jobs live in memory, so an API restart loses them).
+        setProjectState(prev => ({
+          ...prev,
+          jobId: null,
+          generating: false,
+          error: 'Generation job is no longer being tracked. Check the project list.',
+        }));
       }
     } catch (err) {
+      // Leaving `generating` true here left the spinner running forever and
+      // killed the polling chain with no way to retry.
       console.warn('Failed to poll job status:', err);
+      setProjectState(prev => ({
+        ...prev,
+        jobId: null,
+        generating: false,
+        error: 'Lost contact with the generation job.',
+      }));
     }
   }, [fetchProjectStatus, plan?.id]);
 
+  // Watch the project row for a run this tab does not own a job id for.
+  const pollProjectUntilSettled = useCallback(
+    async (attemptsLeft = 40) => {
+      if (!plan?.id) return;
+      const response = await ApiClient.getPlanProject(plan.id);
+      const status = response.data?.project?.status;
+
+      if (status && status !== 'generating') {
+        setProjectState(prev => ({
+          ...prev,
+          project: response.data!.project,
+          generating: false,
+        }));
+        return;
+      }
+      if (attemptsLeft <= 0) {
+        setProjectState(prev => ({
+          ...prev,
+          generating: false,
+          error:
+            'This project has been generating for a while. It may have been ' +
+            'interrupted; try again.',
+        }));
+        return;
+      }
+      setTimeout(() => pollProjectUntilSettled(attemptsLeft - 1), 5000);
+    },
+    [plan?.id]
+  );
+
   // Handle generate project button click
-  const handleGenerateProject = async () => {
+  const handleGenerateProject = async (force = false) => {
     if (!plan?.id) return;
 
     setProjectState(prev => ({
@@ -112,7 +165,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
     }));
 
     try {
-      const response = await ApiClient.generateProject(plan.id, false);
+      const response = await ApiClient.generateProject(plan.id, force);
       if (response.data) {
         if (response.data.status === 'accepted') {
           setProjectState(prev => ({
@@ -126,7 +179,12 @@ export function PlanDetail({ data }: PlanDetailProps) {
           await fetchProjectStatus(plan.id);
           setProjectState(prev => ({ ...prev, generating: false }));
         } else if (response.data.status === 'in_progress') {
+          // No job id to poll -- another caller owns this run -- so watch the
+          // project row instead. Bounded: this branch used to set the spinner
+          // and start nothing, so a generation that died left it turning
+          // forever with no way out.
           setProjectState(prev => ({ ...prev, generating: true }));
+          pollProjectUntilSettled();
         }
       } else {
         setProjectState(prev => ({
@@ -159,7 +217,8 @@ export function PlanDetail({ data }: PlanDetailProps) {
             setActiveTab(firstTabWithContent.key);
           }
           // Also fetch project status
-          await fetchProjectStatus(data.id);
+          const existing = await fetchProjectStatus(data.id);
+          if (existing === 'generating') pollProjectUntilSettled();
         } else {
           setError(response.error || t('detail.fetchError'));
         }
@@ -171,7 +230,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
     }
 
     fetchPlan();
-  }, [data.id, t, fetchProjectStatus]);
+  }, [data.id, t, fetchProjectStatus, pollProjectUntilSettled]);
 
   if (loading) {
     return (
@@ -193,10 +252,12 @@ export function PlanDetail({ data }: PlanDetailProps) {
   }
 
   const statusColors: Record<string, 'green' | 'cyan' | 'orange' | 'purple'> = {
+    // PlanStatus in db/models.py: draft / review / approved / rejected.
+    // The key here used to be 'in-review', which the backend never emits.
     approved: 'green',
     draft: 'cyan',
+    review: 'purple',
     rejected: 'orange',
-    'in-review': 'purple',
   };
 
   // Get active content with Korean fallback for final_plan
@@ -328,11 +389,16 @@ export function PlanDetail({ data }: PlanDetailProps) {
           </div>
         )}
 
-        {/* Project exists and ready */}
-        {projectState.project?.status === 'ready' && (
+        {/* Project exists and finished (with or without verification warnings) */}
+        {projectState.project &&
+          COMPLETED_PROJECT_STATUSES.includes(projectState.project.status) && (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <TerminalBadge variant="green">READY</TerminalBadge>
+              <TerminalBadge
+                variant={projectState.project.status === 'ready' ? 'green' : 'orange'}
+              >
+                {projectState.project.status === 'ready' ? 'READY' : 'READY (WARNINGS)'}
+              </TerminalBadge>
               <span className="text-[#c0c0c0] text-sm">
                 {projectState.project.name}
               </span>
@@ -359,7 +425,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
               <span className="text-[#39ff14]">{projectState.project.files_generated}</span>
             </div>
             <button
-              onClick={() => handleGenerateProject()}
+              onClick={() => handleGenerateProject(true)}
               className="w-full mt-2 px-4 py-2 text-sm border border-[#8b949e] text-[#8b949e] hover:border-[#00ffff] hover:text-[#00ffff] rounded transition-colors"
             >
               $ regenerate --force
@@ -440,7 +506,7 @@ export function PlanDetail({ data }: PlanDetailProps) {
         {/* No project yet - show generate button for approved plans */}
         {!projectState.project && !projectState.generating && plan.status === 'approved' && (
           <button
-            onClick={handleGenerateProject}
+            onClick={() => handleGenerateProject()}
             disabled={projectState.generating}
             className="w-full px-4 py-3 text-sm border border-[#39ff14] text-[#39ff14] hover:bg-[#39ff14]/10 rounded transition-colors font-mono disabled:opacity-50"
           >

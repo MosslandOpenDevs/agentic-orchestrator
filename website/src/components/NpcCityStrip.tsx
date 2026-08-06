@@ -7,23 +7,17 @@
  * every pageview, plus a 4 s timeout fallback to nothing — a sister
  * service hiccup never breaks this site's rendering.
  *
+ * That guarantee covers downtime *and* malformed success responses: every
+ * field is validated before use (see `toHeadline`), because this component
+ * renders inside the root layout and a throw here blanks the whole site.
+ *
  * Stylistically neutral on purpose: subtle translucent surface +
  * inline-styled NPC accent colors. Works on both dark and light
  * parent themes without forcing a dark-mode toggle.
  */
 import Link from "next/link";
 
-type Headline = {
-  npc: {
-    slug: string;
-    name: string;
-    role: string;
-    accent_color?: string | null;
-    portrait_url?: string | null;
-  };
-  text: string;
-  date: string;
-};
+import { parseHeadlines, type Headline } from "@/lib/npc-headlines";
 
 const NPC_BASE = "https://npc.moss.land";
 
@@ -34,8 +28,8 @@ async function fetchHeadlines(): Promise<Headline[]> {
       signal: AbortSignal.timeout(4000),
     });
     if (!res.ok) return [];
-    const data = (await res.json()) as { headlines?: Headline[] };
-    return data.headlines ?? [];
+
+    return parseHeadlines(await res.json());
   } catch {
     return [];
   }

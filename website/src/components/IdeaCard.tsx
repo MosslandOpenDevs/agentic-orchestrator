@@ -11,23 +11,36 @@ interface IdeaCardProps {
   ideaId?: string;
 }
 
+// Keys are IdeaStatus values from the backend (db/models.py). The previous
+// map used the demo fixtures' vocabulary (backlog / in-dev / done), so every
+// real status except `planned` fell through to the grey "Backlog" chip --
+// a rejected or archived idea was displayed as merely pending.
 const statusStyles: Record<string, { bg: string; text: string; label: string }> = {
-  backlog: { bg: 'bg-zinc-500/20', text: 'text-zinc-400', label: 'Backlog' },
+  pending: { bg: 'bg-zinc-500/20', text: 'text-zinc-400', label: 'Pending' },
+  scored: { bg: 'bg-zinc-500/20', text: 'text-zinc-300', label: 'Scored' },
+  in_debate: { bg: 'bg-[#ff6b35]/20', text: 'text-[#ff6b35]', label: 'In Debate' },
+  selected: { bg: 'bg-green-500/20', text: 'text-green-400', label: 'Selected' },
+  promoted: { bg: 'bg-green-500/20', text: 'text-green-400', label: 'Promoted' },
   planned: { bg: 'bg-purple-500/20', text: 'text-purple-400', label: 'Planned' },
-  'in-dev': { bg: 'bg-green-500/20', text: 'text-green-400', label: 'In Dev' },
-  done: { bg: 'bg-blue-500/20', text: 'text-blue-400', label: 'Done' },
+  rejected: { bg: 'bg-red-500/20', text: 'text-red-400', label: 'Rejected' },
+  archived: { bg: 'bg-zinc-700/40', text: 'text-zinc-500', label: 'Archived' },
 };
+
+const unknownStatusStyle = { bg: 'bg-zinc-500/20', text: 'text-zinc-400' };
 
 export function IdeaCard({ idea, index, ideaId }: IdeaCardProps) {
   const { t } = useI18n();
   const { openModal } = useModal();
-  const style = statusStyles[idea.status] || statusStyles.backlog;
+  // An unrecognised status is shown verbatim rather than relabelled as
+  // something it is not.
+  const style = statusStyles[idea.status] || { ...unknownStatusStyle, label: idea.status };
 
   const handleViewDetails = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     openModal('idea', {
-      id: ideaId || String(idea.id),
+      // idea.id is the display number; the detail endpoint needs the UUID.
+      id: ideaId || idea.apiId,
       title: idea.title,
     });
   };

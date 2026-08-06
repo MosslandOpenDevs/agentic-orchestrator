@@ -5,14 +5,24 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { useModal } from '@/components/modals/useModal';
 import { ApiClient, type PipelineLiveResponse } from '@/lib/api';
-import type { PipelineStage } from '@/lib/types';
+import type { PipelineStage, SystemHealth } from '@/lib/types';
 
 interface PipelineProps {
   stages: PipelineStage[];
+  /** What /status reported. The badge used to read RUNNING in green
+   *  unconditionally -- including during a total backend outage, six
+   *  pixels under a banner saying the system was degraded. */
+  status?: SystemHealth;
 }
 
-export function Pipeline({ stages }: PipelineProps) {
-  const { t } = useI18n();
+const BADGE: Record<SystemHealth, { className: string; label: string }> = {
+  operational: { className: 'tag tag-green', label: 'RUNNING' },
+  degraded: { className: 'tag tag-orange', label: 'DEGRADED' },
+  unknown: { className: 'tag', label: 'UNKNOWN' },
+};
+
+export function Pipeline({ stages, status = 'unknown' }: PipelineProps) {
+  const { t, locale } = useI18n();
   const { openModal } = useModal();
   const [liveData, setLiveData] = useState<PipelineLiveResponse | null>(null);
   const [isLive, setIsLive] = useState(false);
@@ -105,6 +115,10 @@ export function Pipeline({ stages }: PipelineProps) {
   ] : [...stages.map(s => ({ ...s, rate: '' })), { id: 'projects', name: 'Projects', count: 0, status: 'idle' as const, rate: '' }];
 
   const conversionRates = liveData?.conversion_rates;
+  // With no live data and no stages, the only tile left is the synthetic
+  // Projects one appended above -- a lone "0 PROJECTS" that looks like a
+  // measurement of an idle pipeline rather than an unreachable API.
+  const hasData = liveData !== null || stages.length > 0;
 
   return (
     <div className="card-cli p-4">
@@ -125,12 +139,17 @@ export function Pipeline({ stages }: PipelineProps) {
               LIVE
             </motion.span>
           )}
-          <span className="tag tag-green">RUNNING</span>
+          <span className={BADGE[status].className}>{BADGE[status].label}</span>
         </div>
       </div>
 
       {/* Pipeline visualization */}
-      <div className="overflow-x-auto pb-2">
+      {!hasData && (
+        <div className="py-6 text-center text-xs text-[#8b949e]">
+          $ {locale === 'ko' ? '파이프라인 상태를 불러오지 못했습니다' : 'pipeline status unavailable'}
+        </div>
+      )}
+      <div className={`overflow-x-auto pb-2${hasData ? '' : ' hidden'}`}>
         <div className="flex items-center justify-center gap-2 min-w-max px-4">
           {displayStages.map((stage, index) => {
             const colors = statusColors[stage.status] || statusColors.idle;

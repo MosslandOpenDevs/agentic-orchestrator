@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { ApiClient, type ApiDebate } from '@/lib/api';
@@ -42,27 +42,37 @@ export function DebateDetail({ data }: DebateDetailProps) {
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'conversation' | 'timeline' | 'live'>('live');
 
-  useEffect(() => {
-    async function fetchDebate() {
-      setLoading(true);
-      setError(null);
+  // Extracted so the live viewer can poll it. It used to be an inline
+  // function inside the effect, so no refresh callback could be passed and
+  // the "live" view never updated even once its status check was correct.
+  const loadDebate = useCallback(
+    async ({ silent = false }: { silent?: boolean } = {}) => {
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
 
       try {
         const response = await ApiClient.getDebateDetail(data.id);
         if (response.data) {
           setDebateData(response.data);
-        } else {
+        } else if (!silent) {
           setError(response.error || t('detail.fetchError'));
         }
       } catch {
-        setError(t('detail.fetchError'));
+        if (!silent) setError(t('detail.fetchError'));
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
       }
-    }
+    },
+    [data.id, t]
+  );
 
-    fetchDebate();
-  }, [data.id, t]);
+  const refreshDebate = useCallback(() => loadDebate({ silent: true }), [loadDebate]);
+
+  useEffect(() => {
+    loadDebate();
+  }, [loadDebate]);
 
   if (loading) {
     return (
@@ -87,8 +97,10 @@ export function DebateDetail({ data }: DebateDetailProps) {
 
   const statusColors: Record<string, 'green' | 'cyan' | 'orange' | 'purple'> = {
     completed: 'green',
-    'in-progress': 'orange',
-    pending: 'cyan',
+    // DebateSessionStatus in db/models.py is active/completed/cancelled. The
+    // key used to be 'in-progress', which the backend has never emitted.
+    active: 'orange',
+    cancelled: 'purple',
   };
 
   return (
@@ -217,7 +229,8 @@ export function DebateDetail({ data }: DebateDetailProps) {
           <LiveDebateViewer
             debate={debate}
             messages={messages}
-            isLive={debate.status === 'in-progress'}
+            isLive={debate.status === 'active'}
+            onRefresh={refreshDebate}
           />
         ) : viewMode === 'conversation' ? (
           <DebateConversation messages={messages} locale={locale} />

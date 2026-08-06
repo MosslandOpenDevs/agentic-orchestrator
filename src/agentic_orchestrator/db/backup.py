@@ -13,12 +13,16 @@ Safety properties (each closes a reviewed failure mode):
   corrupt source can never leave a garbage file that gates the backup
   interval or occupies a retention slot.
 - Copies are incremental (``pages``/``sleep``) so writers are not starved
-  while a large database is snapshotted; the production DB does not run WAL.
+  while a large database is snapshotted. Production runs in WAL mode, where
+  a reader never blocks the writer, but a write during the copy restarts it.
 - Pruning is regression-aware: if the history tables (ideas / plans /
   debate_sessions) shrank drastically versus the newest existing snapshot,
   the new snapshot is still written but nothing is pruned — a wiped-and-
   auto-refilled database can never rotate out the last pre-incident backups.
-- Missing / empty / dataless / corrupt databases are never snapshotted.
+- Missing / empty / dataless databases are never snapshotted (returns None).
+  A database that cannot produce a readable copy raises instead, so a caller
+  gating a deploy on having a restore point does not read it as 'nothing to
+  save' -- that is precisely when the restore point matters.
 """
 
 import logging
@@ -31,6 +35,18 @@ from ..timeutil import utcnow
 from .connection import get_db
 
 logger = logging.getLogger(__name__)
+
+
+class BackupIntegrityError(RuntimeError):
+    """The snapshot came out corrupt, so the source almost certainly is.
+
+    Distinct from returning ``None``: a missing, empty or dataless database
+    is nothing to back up, which is benign. A database that cannot produce
+    a readable copy is the state where a restore point matters most, and
+    callers that gate on backups (scripts/deploy.sh) must be able to tell
+    the two apart.
+    """
+
 
 BACKUP_DIR_NAME = "backup"
 BACKUP_PREFIX = "orchestrator-"
@@ -53,7 +69,9 @@ REGRESSION_MIN_BASELINE = 20
 REGRESSION_RATIO = 0.5
 
 # Incremental-copy tuning: copy N pages per step, sleeping between steps so
-# concurrent writers can grab the lock (production journal mode is not WAL).
+# concurrent writers can grab the lock. Production runs in WAL mode, where a
+# reader no longer blocks the writer at all, but the copy still restarts if the
+# source is written mid-backup -- yielding keeps that from starving a writer.
 _COPY_PAGES_PER_STEP = 1024
 _COPY_SLEEP_SECONDS = 0.1
 _BUSY_TIMEOUT_MS = 30_000
@@ -183,9 +201,11 @@ def backup_database(url: Optional[str] = None, keep: int = DEFAULT_KEEP) -> Opti
     """Snapshot the SQLite database into ``<db-dir>/backup/``, pruning old copies.
 
     Returns the snapshot path, or ``None`` when there is nothing worth backing
-    up (non-SQLite backend, missing/empty/dataless file) or the snapshot
-    failed its integrity check. Raises on an actual copy failure so callers
-    can surface it; no partial snapshot is ever left behind.
+    up: a non-SQLite backend, or a missing, empty or dataless file. Raises
+    ``BackupIntegrityError`` when a snapshot was taken but came out corrupt,
+    and propagates copy failures, so a caller gating a deploy on having a
+    restore point can tell "nothing to save" from "could not save it". No
+    partial snapshot is ever left behind.
     """
     db_url = url or get_db().url
     src = _sqlite_path(db_url)
@@ -234,7 +254,9 @@ def backup_database(url: Optional[str] = None, keep: int = DEFAULT_KEEP) -> Opti
             "discarded it and kept the existing backups",
             src,
         )
-        return None
+        raise BackupIntegrityError(
+            f"snapshot of {src} failed PRAGMA quick_check; the source is likely corrupt"
+        )
 
     tmp.rename(dest)  # atomic finalize: only verified snapshots become visible
     logger.info("Database backed up to %s", dest)

@@ -1,8 +1,9 @@
 /**
  * API Client for MOSS.AO Backend
  *
- * Provides typed API calls to the FastAPI backend with fallback to mock data
- * when the API is unavailable.
+ * Provides typed API calls to the FastAPI backend. An unavailable API or an
+ * empty result is reported as such -- it is never papered over with demo
+ * data, which used to make an outage indistinguishable from a busy system.
  */
 
 import type {
@@ -16,14 +17,6 @@ import type {
   GenerateProjectResponse,
   ProjectJobStatus,
 } from './types';
-import {
-  mockStats,
-  mockActivity,
-  mockTrends,
-  mockIdeas,
-  mockPlans,
-  mockPipeline,
-} from '@/data/mock';
 
 // API base URL - can be configured via environment variable
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -619,42 +612,61 @@ export class ApiClient {
   }
 }
 
-// Helper functions to convert API data to frontend types with mock fallback
+// Helpers converting API payloads to frontend types.
+//
+// These used to fall back to src/data/mock.ts not only when the API failed
+// but also when it legitimately returned an empty list, with no marker on
+// the result -- so an empty backlog, or a backend outage, rendered as a
+// plausible set of ideas that a reader had no way to tell from real ones.
+// An empty result is now empty and a failure is now empty-with-a-warning;
+// callers render their own empty state.
 
-export async function fetchSystemStats(): Promise<SystemStats> {
+export async function fetchSystemStats(): Promise<SystemStats | null> {
   // Use /status endpoint which has accurate counts
-  const [statusRes, trendsRes, rejectedPlansRes] = await Promise.all([
+  const [statusRes, trendsRes, rejectedPlansRes, signalsRes, projectsRes] = await Promise.all([
     ApiClient.getStatus(),
     ApiClient.getTrends({ limit: 1 }),
     ApiClient.getPlans({ limit: 1, status: 'rejected' }),
+    // The newest signal's collection time is the only evidence the API exposes
+    // of the pipeline actually having run.
+    ApiClient.getSignals({ limit: 1 }),
+    // Generated projects are the only "in development" the system has;
+    // this tile used to be a hard-coded 0.
+    ApiClient.getProjects({ limit: 1 }),
   ]);
 
   if (statusRes.error || !statusRes.data) {
-    console.warn('Using mock stats due to API error');
-    return mockStats;
+    console.warn('System stats unavailable:', statusRes.error);
+    return null;
   }
 
   const stats = statusRes.data.stats;
-  const trendsAnalyzed = trendsRes.data?.total ?? mockStats.trendsAnalyzed;
+  const trendsAnalyzed = trendsRes.data?.total ?? 0;
   const plansRejected = rejectedPlansRes.data?.total ?? 0;
 
   return {
+    systemStatus: statusRes.data.status === 'operational' ? 'operational' : 'degraded',
     totalIdeas: stats.ideas_generated,
     totalPlans: stats.plans_created,
     plansRejected,
-    inDevelopment: 0,
+    inDevelopment: projectsRes.data?.total ?? 0,
     trendsAnalyzed,
-    lastRun: new Date().toISOString(),
-    nextRun: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    // Both of these used to be made up from the browser clock: lastRun was
+    // "now", so the banner always read "less than a minute ago", and nextRun
+    // was now+24h while the signal cron actually runs every 30 minutes. The
+    // banner was rewritten to report only what the backend says; these two
+    // values were the part still being invented underneath it.
+    lastRun: signalsRes.data?.signals?.[0]?.collected_at ?? undefined,
+    nextRun: undefined,
   };
 }
 
 export async function fetchActivity(): Promise<ActivityItem[]> {
   const { data, error } = await ApiClient.getActivity(20);
 
-  if (error || !data || data.activities.length === 0) {
-    console.warn('Using mock activity due to API error or empty data');
-    return mockActivity;
+  if (error || !data) {
+    console.warn('Activity unavailable:', error);
+    return [];
   }
 
   return data.activities.map((a) => ({
@@ -667,9 +679,9 @@ export async function fetchActivity(): Promise<ActivityItem[]> {
 export async function fetchTrends(): Promise<Trend[]> {
   const { data, error } = await ApiClient.getTrends({ limit: 20 });
 
-  if (error || !data || data.trends.length === 0) {
-    console.warn('Using mock trends due to API error or empty data');
-    return mockTrends;
+  if (error || !data) {
+    console.warn('Trends unavailable:', error);
+    return [];
   }
 
   return data.trends.map((t) => ({
@@ -686,13 +698,14 @@ export async function fetchTrends(): Promise<Trend[]> {
 export async function fetchIdeas(): Promise<Idea[]> {
   const { data, error } = await ApiClient.getIdeas({ limit: 50 });
 
-  if (error || !data || data.ideas.length === 0) {
-    console.warn('Using mock ideas due to API error or empty data');
-    return mockIdeas;
+  if (error || !data) {
+    console.warn('Ideas unavailable:', error);
+    return [];
   }
 
   return data.ideas.map((i, index) => ({
-    id: index + 1, // Use index for display number
+    id: index + 1, // display number only
+    apiId: i.id,
     title: i.title,
     status: i.status,
     source: i.source_type,
@@ -704,13 +717,14 @@ export async function fetchIdeas(): Promise<Idea[]> {
 export async function fetchPlans(): Promise<Plan[]> {
   const { data, error } = await ApiClient.getPlans({ limit: 50 });
 
-  if (error || !data || data.plans.length === 0) {
-    console.warn('Using mock plans due to API error or empty data');
-    return mockPlans;
+  if (error || !data) {
+    console.warn('Plans unavailable:', error);
+    return [];
   }
 
   return data.plans.map((p, index) => ({
     id: index + 1,
+    apiId: p.id,
     title: p.title,
     ideaId: parseInt(p.idea_id) || index + 1,
     status: p.status,
@@ -739,8 +753,8 @@ export async function fetchPipeline(): Promise<PipelineStage[]> {
   ]);
 
   if (statusRes.error || !statusRes.data) {
-    console.warn('Using mock pipeline due to API error');
-    return mockPipeline;
+    console.warn('Pipeline unavailable:', statusRes.error);
+    return [];
   }
 
   const stats = statusRes.data.stats;

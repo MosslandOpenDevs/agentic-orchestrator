@@ -187,7 +187,16 @@ class OllamaProvider:
         """
         if not self._throttle_enabled:
             return None
-        limit = int(self.config.throttle.get("max_concurrent_requests", 1) or 0)
+        # A malformed value in config.yaml must not raise from inside the
+        # request path; fall back to the documented default instead.
+        try:
+            limit = int(self.config.throttle.get("max_concurrent_requests", 1) or 0)
+        except (TypeError, ValueError):
+            logger.warning(
+                "throttling.ollama.max_concurrent_requests is not a number (%r); using 1",
+                self.config.throttle.get("max_concurrent_requests"),
+            )
+            limit = 1
         if limit <= 0:
             return None
         state = self._throttle_state
@@ -238,22 +247,23 @@ class OllamaProvider:
                 state.is_cooling = False
                 state.request_count = 0
 
-        # Phase 2: Enforce minimum interval (release lock during sleep)
-        interval_wait = 0.0
+        # Phase 2: Reserve a slot at least min_interval after the last one.
+        #
+        # The wait used to be computed under the lock but the slot claimed only
+        # after sleeping, so every concurrent caller read the same
+        # last_request_time, computed the same delay, and woke together -- the
+        # interval throttled one caller and nothing else. Reserving and
+        # computing in the same critical section is what makes it real;
+        # sleeping still happens outside the lock so waiters do not serialize
+        # on the mutex itself.
         async with state._lock:
             now = time.time()
             min_interval = throttle_config.get("min_request_interval", 5)
-            elapsed = now - state.last_request_time
-            if elapsed < min_interval and state.last_request_time > 0:
-                interval_wait = min_interval - elapsed
+            scheduled_at = now
+            if state.last_request_time > 0:
+                scheduled_at = max(now, state.last_request_time + min_interval)
 
-        if interval_wait > 0:
-            logger.info(f"[Ollama] Throttling: waiting {interval_wait:.1f}s before next request...")
-            await asyncio.sleep(interval_wait)
-
-        # Phase 3: Update state (hold lock briefly)
-        async with state._lock:
-            state.last_request_time = time.time()
+            state.last_request_time = scheduled_at
             state.request_count += 1
 
             # Check if cooling period is needed
@@ -261,10 +271,15 @@ class OllamaProvider:
             if state.request_count >= requests_before_cooling:
                 cooling_seconds = throttle_config.get("cooling_period_seconds", 30)
                 state.is_cooling = True
-                state.cooling_until = time.time() + cooling_seconds
+                state.cooling_until = scheduled_at + cooling_seconds
                 logger.info(
                     f"[Ollama] Scheduling cooling period after {requests_before_cooling} requests ({cooling_seconds}s)"
                 )
+
+        interval_wait = scheduled_at - time.time()
+        if interval_wait > 0:
+            logger.info(f"[Ollama] Throttling: waiting {interval_wait:.1f}s before next request...")
+            await asyncio.sleep(interval_wait)
 
     @property
     def name(self) -> str:
@@ -514,17 +529,20 @@ class OllamaProvider:
         except Exception as e:
             raise ProviderError(f"Ollama chat error: {e}") from e
 
+    async def _fetch_available_models(self) -> List[str]:
+        """Ask the server which models it has. Raises on failure."""
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(f"{self.config.base_url}/api/tags")
+            response.raise_for_status()
+            data = response.json()
+
+        self._available_models = [model["name"] for model in data.get("models", [])]
+        return self._available_models
+
     async def get_available_models(self) -> List[str]:
-        """Get list of available models from Ollama."""
+        """Get list of available models from Ollama, or [] when unreachable."""
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(f"{self.config.base_url}/api/tags")
-                response.raise_for_status()
-                data = response.json()
-
-                self._available_models = [model["name"] for model in data.get("models", [])]
-                return self._available_models
-
+            return await self._fetch_available_models()
         except Exception as e:
             logger.error(f"Error getting Ollama models: {e}")
             return []
@@ -543,34 +561,62 @@ class OllamaProvider:
             return False
 
     async def health_check(self) -> Dict[str, Any]:
-        """Check Ollama health and available models."""
+        """Check Ollama health and available models.
+
+        This used to call ``get_available_models()``, which swallows every
+        network, HTTP and JSON error into an empty list, and then report
+        ``status="healthy"`` unconditionally -- so a completely unreachable
+        Ollama looked healthy with no models, and the scheduler's health task
+        never flagged it. The fetch now propagates its error, and a server
+        that answers but is missing the model everything runs on is reported
+        as degraded rather than healthy.
+        """
+        state = self._throttle_state
+        throttle_status = {
+            "enabled": self._throttle_enabled,
+            "request_count": state.request_count,
+            "is_cooling": state.is_cooling,
+            "config": self.config.throttle,
+        }
+
         try:
-            models = await self.get_available_models()
-            self._last_health_check = utcnow()
-
-            state = self._throttle_state
-            throttle_status = {
-                "enabled": self._throttle_enabled,
-                "request_count": state.request_count,
-                "is_cooling": state.is_cooling,
-                "config": self.config.throttle,
-            }
-
-            return {
-                "status": "healthy",
-                "base_url": self.config.base_url,
-                "available_models": models,
-                "default_model": self.config.default_model,
-                "last_check": self._last_health_check.isoformat(),
-                "throttle": throttle_status,
-            }
-
+            models = await self._fetch_available_models()
         except Exception as e:
+            logger.error(f"Ollama health check failed: {e}")
             return {
                 "status": "error",
                 "error": str(e),
                 "base_url": self.config.base_url,
+                "available_models": [],
+                "default_model": self.config.default_model,
+                "throttle": throttle_status,
             }
+
+        self._last_health_check = utcnow()
+
+        default_model = self.config.default_model
+        if not models:
+            status, detail = "degraded", "server reachable but reports no models"
+        elif default_model not in models:
+            status, detail = (
+                "degraded",
+                f"default model {default_model!r} is not installed on the server",
+            )
+        else:
+            status, detail = "healthy", None
+
+        result = {
+            "status": status,
+            "base_url": self.config.base_url,
+            "available_models": models,
+            "default_model": default_model,
+            "last_check": self._last_health_check.isoformat(),
+            "throttle": throttle_status,
+        }
+        if detail:
+            result["detail"] = detail
+            logger.warning(f"Ollama degraded: {detail}")
+        return result
 
     def get_model_for_task(self, task: str) -> str:
         """Get recommended model for a task type."""

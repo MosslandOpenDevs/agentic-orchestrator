@@ -5,6 +5,7 @@ Migration script: JSON/Markdown files → SQLite Database
 Migrates existing trend analysis and idea data to the new database schema.
 """
 
+import argparse
 import json
 import re
 import sys
@@ -15,8 +16,8 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
-from agentic_orchestrator.db.connection import init_database, get_db
-from agentic_orchestrator.db.models import Signal, Trend, Idea
+from agentic_orchestrator.db.connection import init_database
+from agentic_orchestrator.db.models import Idea, Signal, Trend
 
 
 def parse_trend_markdown(content: str, file_date: str) -> list[dict]:
@@ -24,12 +25,12 @@ def parse_trend_markdown(content: str, file_date: str) -> list[dict]:
     trends = []
 
     # Extract metadata
-    metadata_match = re.search(r'^---\n(.*?)\n---', content, re.DOTALL)
+    metadata_match = re.search(r"^---\n(.*?)\n---", content, re.DOTALL)
     if not metadata_match:
         return trends
 
     # Find all trend sections (### N. Title (Score: X.X))
-    trend_pattern = r'### \d+\.\s+(.+?)\s+\(Score:\s+([\d.]+)\)\n\n(.*?)(?=\n### \d+\.|\n## |\Z)'
+    trend_pattern = r"### \d+\.\s+(.+?)\s+\(Score:\s+([\d.]+)\)\n\n(.*?)(?=\n### \d+\.|\n## |\Z)"
     matches = re.findall(trend_pattern, content, re.DOTALL)
 
     for title, score, body in matches:
@@ -40,29 +41,29 @@ def parse_trend_markdown(content: str, file_date: str) -> list[dict]:
         }
 
         # Extract category
-        cat_match = re.search(r'\*\*Category:\*\*\s*(\w+)', body)
+        cat_match = re.search(r"\*\*Category:\*\*\s*(\w+)", body)
         if cat_match:
             trend["category"] = cat_match.group(1).lower()
 
         # Extract articles count
-        articles_match = re.search(r'\*\*Articles:\*\*\s*(\d+)', body)
+        articles_match = re.search(r"\*\*Articles:\*\*\s*(\d+)", body)
         if articles_match:
             trend["signal_count"] = int(articles_match.group(1))
 
         # Extract keywords
-        keywords_match = re.search(r'\*\*Keywords:\*\*\s*(.+)', body)
+        keywords_match = re.search(r"\*\*Keywords:\*\*\s*(.+)", body)
         if keywords_match:
-            trend["keywords"] = [k.strip() for k in keywords_match.group(1).split(',')]
+            trend["keywords"] = [k.strip() for k in keywords_match.group(1).split(",")]
 
         # Extract summary
-        summary_match = re.search(r'\*\*Summary:\*\*\s*(.+?)(?=\n\n|\*\*)', body, re.DOTALL)
+        summary_match = re.search(r"\*\*Summary:\*\*\s*(.+?)(?=\n\n|\*\*)", body, re.DOTALL)
         if summary_match:
             trend["description"] = summary_match.group(1).strip()
 
         # Extract idea seeds
-        seeds_match = re.search(r'\*\*Idea Seeds:\*\*\n((?:- .+\n?)+)', body)
+        seeds_match = re.search(r"\*\*Idea Seeds:\*\*\n((?:- .+\n?)+)", body)
         if seeds_match:
-            seeds = re.findall(r'- (.+)', seeds_match.group(1))
+            seeds = re.findall(r"- (.+)", seeds_match.group(1))
             trend["idea_seeds"] = seeds
 
         trends.append(trend)
@@ -78,23 +79,27 @@ def migrate_trends(data_dir: Path, session) -> int:
     # Find all markdown files
     for md_file in trends_dir.rglob("*.md"):
         # Extract date from filename (e.g., 2026-01-21.md)
-        date_match = re.search(r'(\d{4}-\d{2}-\d{2})\.md$', str(md_file))
+        date_match = re.search(r"(\d{4}-\d{2}-\d{2})\.md$", str(md_file))
         if not date_match:
             continue
 
         file_date = date_match.group(1)
         print(f"  Processing {md_file.name}...")
 
-        content = md_file.read_text(encoding='utf-8')
+        content = md_file.read_text(encoding="utf-8")
         trends = parse_trend_markdown(content, file_date)
 
         for trend_data in trends:
             # Check if trend already exists
-            existing = session.query(Trend).filter(
-                Trend.name == trend_data["name"],
-                Trend.analyzed_at >= datetime.fromisoformat(f"{file_date}T00:00:00"),
-                Trend.analyzed_at < datetime.fromisoformat(f"{file_date}T23:59:59"),
-            ).first()
+            existing = (
+                session.query(Trend)
+                .filter(
+                    Trend.name == trend_data["name"],
+                    Trend.analyzed_at >= datetime.fromisoformat(f"{file_date}T00:00:00"),
+                    Trend.analyzed_at < datetime.fromisoformat(f"{file_date}T23:59:59"),
+                )
+                .first()
+            )
 
             if existing:
                 continue
@@ -125,7 +130,7 @@ def migrate_ideas(data_dir: Path, session) -> int:
         print("  No idea_links.json found")
         return 0
 
-    with open(idea_links_file, 'r') as f:
+    with open(idea_links_file, "r") as f:
         idea_links = json.load(f)
 
     count = 0
@@ -133,9 +138,7 @@ def migrate_ideas(data_dir: Path, session) -> int:
         issue_number = link.get("idea_issue_number")
 
         # Check if idea already exists
-        existing = session.query(Idea).filter(
-            Idea.github_issue_id == issue_number
-        ).first()
+        existing = session.query(Idea).filter(Idea.github_issue_id == issue_number).first()
 
         if existing:
             continue
@@ -144,9 +147,7 @@ def migrate_ideas(data_dir: Path, session) -> int:
 
         # Try to get score from matching trend
         trend_score = 5.0  # Default neutral score
-        matching_trend = session.query(Trend).filter(
-            Trend.name == trend_topic
-        ).first()
+        matching_trend = session.query(Trend).filter(Trend.name == trend_topic).first()
         if matching_trend:
             trend_score = matching_trend.score
 
@@ -159,7 +160,9 @@ def migrate_ideas(data_dir: Path, session) -> int:
             github_issue_id=issue_number,
             github_issue_url=f"https://github.com/MosslandOpenDevs/agentic-orchestrator/issues/{issue_number}",
             score=trend_score,
-            created_at=datetime.fromisoformat(link.get("created_at", datetime.utcnow().isoformat()).replace('Z', '')),
+            created_at=datetime.fromisoformat(
+                link.get("created_at", datetime.utcnow().isoformat()).replace("Z", "")
+            ),
         )
         session.add(idea)
         count += 1
@@ -169,15 +172,30 @@ def migrate_ideas(data_dir: Path, session) -> int:
 
 
 def create_sample_signals(session) -> int:
-    """Create sample signals from trend data for demonstration."""
-    # Get existing trends
+    """Create demonstration signals derived from trend data.
+
+    Opt-in (``--with-sample-signals``) and idempotent. It used to run as part
+    of every migration with no dedupe key, so each re-run added another copy of
+    every synthetic row -- and it claimed ``source="rss"``, which left them
+    indistinguishable from collected signals in the source-mix statistics the
+    trend task logs. They now say ``source="demo"``, which is both honest and
+    what makes them visible in those statistics, and carry a derived id so a
+    re-run finds and skips them.
+    """
     trends = session.query(Trend).limit(20).all()
 
     count = 0
     for trend in trends:
-        # Create a signal for each trend
+        # Signal.id is String(36) and trend ids are full uuid4s, so the
+        # prefixed form has to be trimmed to fit. Deterministic either way,
+        # which is what makes the re-run check below work.
+        signal_id = f"demo-{trend.id}"[:36]
+        if session.query(Signal).filter(Signal.id == signal_id).first():
+            continue
+
         signal = Signal(
-            source="rss",
+            id=signal_id,
+            source="demo",
             category=trend.category or "other",
             title=trend.name,
             summary=trend.description,
@@ -193,38 +211,51 @@ def create_sample_signals(session) -> int:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Migrate JSON data into SQLite")
+    parser.add_argument(
+        "--with-sample-signals",
+        action="store_true",
+        help=(
+            "also create demonstration signals from the migrated trends. "
+            "Off by default: a data migration should not invent records."
+        ),
+    )
+    args = parser.parse_args()
+
     print("=" * 50)
     print("MOSS.AO Data Migration: JSON → SQLite")
     print("=" * 50)
     print()
 
     # Initialize database
-    print("[1/4] Initializing database...")
+    print("[1/3] Initializing database...")
     db = init_database()
 
     data_dir = project_root / "data"
+    signal_count = 0
 
     with db.session() as session:
         # Migrate trends
-        print("\n[2/4] Migrating trend analysis data...")
+        print("\n[2/3] Migrating trend analysis data...")
         trend_count = migrate_trends(data_dir, session)
         print(f"  ✓ Imported {trend_count} trends")
 
         # Migrate ideas
-        print("\n[3/4] Migrating idea links...")
+        print("\n[3/3] Migrating idea links...")
         idea_count = migrate_ideas(data_dir, session)
         print(f"  ✓ Imported {idea_count} ideas")
 
-        # Create sample signals
-        print("\n[4/4] Creating sample signals from trends...")
-        signal_count = create_sample_signals(session)
-        print(f"  ✓ Created {signal_count} signals")
+        if args.with_sample_signals:
+            print("\n[extra] Creating demonstration signals from trends...")
+            signal_count = create_sample_signals(session)
+            print(f"  ✓ Created {signal_count} signals")
 
     print("\n" + "=" * 50)
     print("Migration Complete!")
     print(f"  - Trends: {trend_count}")
     print(f"  - Ideas: {idea_count}")
-    print(f"  - Signals: {signal_count}")
+    if args.with_sample_signals:
+        print(f"  - Demo signals: {signal_count}")
     print("=" * 50)
 
 

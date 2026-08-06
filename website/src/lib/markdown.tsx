@@ -1,31 +1,17 @@
 'use client';
 
-import { marked } from 'marked';
 import { useMemo } from 'react';
 
-// Configure marked for safe rendering
-marked.setOptions({
-  breaks: true,  // Convert \n to <br>
-  gfm: true,     // GitHub Flavored Markdown
-});
+import { renderMarkdown } from './markdown-html';
+
+export { renderMarkdown };
 
 /**
- * Render markdown content to HTML string
- */
-export function renderMarkdown(content: string): string {
-  if (!content) return '';
-
-  try {
-    // Parse markdown to HTML
-    const html = marked.parse(content, { async: false }) as string;
-    return html;
-  } catch {
-    return content;
-  }
-}
-
-/**
- * Component to render markdown content
+ * Component to render markdown content.
+ *
+ * The HTML comes from `renderMarkdown`, which escapes raw HTML and rejects
+ * unsafe URL schemes -- do not swap in a bare `marked.parse()` here. The
+ * content is LLM output derived from public feeds, so it is untrusted input.
  */
 export function MarkdownContent({
   content,

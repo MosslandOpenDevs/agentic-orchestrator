@@ -82,10 +82,9 @@ export default function DebatesPage() {
   };
 
   const statusColors: Record<string, 'green' | 'cyan' | 'orange' | 'purple'> = {
+    // DebateSessionStatus in db/models.py: active/completed/cancelled.
     completed: 'green',
     active: 'orange',
-    'in-progress': 'orange',
-    pending: 'cyan',
     cancelled: 'purple',
   };
 

@@ -2,8 +2,22 @@
 Quality Assurance stage handler.
 
 Runs tests, performs code review, and validates the implementation.
+
+Two properties this file has to keep straight, because getting them wrong is
+how a gate becomes decoration:
+
+* "not checked" is not "passed". A missing implementation directory, no test
+  files, an absent pytest and no reachable reviewer used to all report success,
+  so an empty project scored 7.0/10 and was sent to DONE. Each of those is now
+  a distinct outcome and none of them satisfies the gate.
+* The tests being run are LLM output derived from public feeds. Executing them
+  in this process's environment hands that content the orchestrator's
+  filesystem, credentials and network -- and pytest runs arbitrary code at
+  import time, before a single assertion. Execution is therefore opt-in and
+  off by default; see RUN_GENERATED_TESTS_ENV.
 """
 
+import os
 import re
 import subprocess
 from datetime import datetime
@@ -19,6 +33,16 @@ from ..utils.logging import get_logger
 from .base import BaseStage, StageRegistry, StageResult
 
 logger = get_logger(__name__)
+
+# Executing model-written tests in this process is opt-in. pytest runs
+# arbitrary code during collection, before any assertion, so a generated
+# conftest or import is enough to reach the orchestrator's database,
+# .env and network.
+RUN_GENERATED_TESTS_ENV = "MOSS_RUN_GENERATED_TESTS"
+
+# Outcomes another DEV iteration cannot change: they are about the
+# environment, not the code.
+UNFIXABLE_BY_DEV = frozenset({"no_implementation", "tool_unavailable", "execution_disabled"})
 
 
 class QualityStage(BaseStage):
@@ -45,6 +69,14 @@ class QualityStage(BaseStage):
         super().__init__(state, base_path, dry_run)
         self._openai = None
         self._gemini = None
+
+    @staticmethod
+    def _generated_tests_may_run() -> bool:
+        return os.getenv(RUN_GENERATED_TESTS_ENV, "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
 
     @property
     def openai(self):
@@ -137,25 +169,48 @@ class QualityStage(BaseStage):
                     message=f"QA passed with score {overall['score']}/10",
                     artifacts=artifacts,
                 )
-            else:
-                # Check if we should iterate
-                if self.state.iteration.dev < self.state.limits.dev_max:
-                    return StageResult(
-                        success=True,
-                        next_stage=Stage.DEV,
-                        message=f"QA score {overall['score']}/10 below threshold, needs revision",
-                        artifacts=artifacts,
-                        should_iterate=True,
-                    )
-                else:
-                    # Max iterations, complete anyway
-                    logger.warning("Max iterations reached, marking as done despite QA issues")
-                    return StageResult(
-                        success=True,
-                        next_stage=Stage.DONE,
-                        message=f"Max iterations reached, completing with score {overall['score']}/10",
-                        artifacts=artifacts,
-                    )
+            # Some failures are not about the code, so sending them back to
+            # DEV just burns regeneration cycles on something DEV cannot fix:
+            # no implementation to test, no test runner, execution switched
+            # off, or no reviewer reachable. Stop and say so.
+            if test_results.get("outcome") in UNFIXABLE_BY_DEV or not code_review.get(
+                "reviewed", True
+            ):
+                logger.warning(
+                    "QA could not verify this project (tests: %s, reviewed: %s); halting",
+                    test_results.get("outcome"),
+                    code_review.get("reviewed", True),
+                )
+                return StageResult(
+                    success=False,
+                    error="QA could not verify the project",
+                    message=(
+                        "QA did not run: "
+                        f"tests={test_results.get('outcome')}, "
+                        f"reviewed={code_review.get('reviewed', True)}"
+                    ),
+                    artifacts=artifacts,
+                )
+
+            if self.state.iteration.dev < self.state.limits.dev_max:
+                return StageResult(
+                    success=True,
+                    next_stage=Stage.DEV,
+                    message=f"QA score {overall['score']}/10 below threshold, needs revision",
+                    artifacts=artifacts,
+                    should_iterate=True,
+                )
+
+            # Out of revisions. This used to route to DONE "anyway", which is
+            # the fail-open the rest of this stage exists to close: a project
+            # that never passed QA was recorded as finished.
+            logger.warning("Max revisions reached and QA still failing; stopping for a human")
+            return StageResult(
+                success=False,
+                error="QA never passed within the revision limit",
+                message=f"Max revisions reached with score {overall['score']}/10",
+                artifacts=artifacts,
+            )
 
         except QuotaExhaustedError as e:
             self.state.pause_for_quota(f"QA quota exhausted: {e}")
@@ -174,7 +229,11 @@ class QualityStage(BaseStage):
             )
 
     def _run_tests(self) -> dict[str, Any]:
-        """Run automated tests."""
+        """Run automated tests.
+
+        ``outcome`` is the honest answer; ``passed`` is True only when tests
+        actually ran and succeeded.
+        """
         logger.info("Running automated tests...")
 
         # Look for test files in implementation directory
@@ -182,9 +241,13 @@ class QualityStage(BaseStage):
 
         if not impl_dir.exists():
             return {
-                "passed": True,  # No tests = pass by default
-                "report": "# Test Results\n\nNo implementation directory found. Skipping tests.\n",
-                "details": "No tests to run",
+                "passed": False,
+                "outcome": "no_implementation",
+                "report": (
+                    "# Test Results\n\nNo implementation directory found: "
+                    "there is nothing to test.\n"
+                ),
+                "details": "No implementation directory",
             }
 
         # Check for Python tests
@@ -192,9 +255,26 @@ class QualityStage(BaseStage):
 
         if not test_files:
             return {
-                "passed": True,
-                "report": "# Test Results\n\nNo test files found. Consider adding tests.\n",
+                "passed": False,
+                "outcome": "no_tests",
+                "report": "# Test Results\n\nNo test files found; nothing was verified.\n",
                 "details": "No test files detected",
+            }
+
+        if not self._generated_tests_may_run():
+            return {
+                "passed": False,
+                "outcome": "execution_disabled",
+                "report": (
+                    "# Test Results\n\n"
+                    f"{len(test_files)} test file(s) were generated but not executed.\n\n"
+                    "These tests are model-written code derived from public feeds, and "
+                    "pytest executes arbitrary code at collection time. Running them "
+                    "here would give that code this process's filesystem, environment "
+                    "and network. Run them in a disposable, network-isolated container "
+                    f"instead, or set {RUN_GENERATED_TESTS_ENV}=1 to accept the risk.\n"
+                ),
+                "details": "generated test execution disabled",
             }
 
         # Try to run pytest
@@ -228,25 +308,29 @@ class QualityStage(BaseStage):
 
             return {
                 "passed": passed,
+                "outcome": "passed" if passed else "failed",
                 "report": report,
                 "details": output,
             }
 
         except FileNotFoundError:
             return {
-                "passed": True,
-                "report": "# Test Results\n\npytest not available. Skipping automated tests.\n",
+                "passed": False,
+                "outcome": "tool_unavailable",
+                "report": "# Test Results\n\npytest is not installed; nothing was verified.\n",
                 "details": "pytest not installed",
             }
         except subprocess.TimeoutExpired:
             return {
                 "passed": False,
+                "outcome": "timeout",
                 "report": "# Test Results\n\nTests timed out after 5 minutes.\n",
                 "details": "timeout",
             }
         except Exception as e:
             return {
                 "passed": False,
+                "outcome": "error",
                 "report": f"# Test Results\n\nError running tests: {e}\n",
                 "details": str(e),
             }
@@ -265,7 +349,8 @@ class QualityStage(BaseStage):
 
         if not code_files:
             return {
-                "score": 7.0,
+                "score": 0.0,
+                "reviewed": False,
                 "report": "# Code Review\n\nNo code files found to review.\n",
                 "issues_count": 0,
             }
@@ -297,9 +382,15 @@ class QualityStage(BaseStage):
             self._handle_quota_error("gemini", e)
 
         if not reviews:
+            # A default passing score for "nobody looked" is how an unreviewed
+            # project reached DONE.
             return {
-                "score": 7.0,
-                "report": "# Code Review\n\nNo external reviewers available. Passing with default score.\n",
+                "score": 0.0,
+                "reviewed": False,
+                "report": (
+                    "# Code Review\n\nNo external reviewer was reachable, so the code "
+                    "was not reviewed.\n"
+                ),
                 "issues_count": 0,
             }
 
@@ -489,9 +580,20 @@ Brief overall assessment
         }
 
     def _create_overall_report(self, qa_results: dict[str, Any]) -> dict[str, Any]:
-        """Create overall QA report."""
-        tests_passed = qa_results["tests"]["passed"]
-        review_score = qa_results["review"]["score"]
+        """Create overall QA report.
+
+        The gate passes only on positive evidence: tests that ran and passed,
+        a review that actually happened, and no security findings. Anything
+        that merely did not happen -- no implementation, no tests, no pytest,
+        no reachable reviewer -- fails, because treating those as success is
+        what let an empty project through at 7.0/10.
+        """
+        tests = qa_results["tests"]
+        review = qa_results["review"]
+        tests_passed = tests["passed"]
+        test_outcome = tests.get("outcome", "passed" if tests_passed else "failed")
+        reviewed = review.get("reviewed", True)
+        review_score = review["score"]
         security_issues = qa_results["security"]["issues_count"]
 
         # Calculate overall score
@@ -502,7 +604,10 @@ Brief overall assessment
             score = max(1, score - (security_issues * 0.5))
 
         passed = (
-            tests_passed and score >= self.state.quality.required_score and security_issues == 0
+            test_outcome == "passed"
+            and reviewed
+            and score >= self.state.quality.required_score
+            and security_issues == 0
         )
 
         report = f"""# Overall QA Report
@@ -511,8 +616,8 @@ Brief overall assessment
 
 | Check | Status | Details |
 |-------|--------|---------|
-| Tests | {"PASS" if tests_passed else "FAIL"} | {qa_results["tests"].get("details", "N/A")[:50]} |
-| Code Review | {review_score}/10 | {qa_results["review"]["issues_count"]} issues |
+| Tests | {test_outcome.upper()} | {tests.get("details", "N/A")[:50]} |
+| Code Review | {"NOT REVIEWED" if not reviewed else f"{review_score}/10"} | {review["issues_count"]} issues |
 | Security | {"PASS" if security_issues == 0 else "FAIL"} | {security_issues} issues |
 
 ## Overall Score: {score:.1f}/10

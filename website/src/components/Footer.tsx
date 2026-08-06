@@ -1,7 +1,10 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
+import { ApiClient } from '@/lib/api';
+import type { SystemHealth } from '@/lib/types';
 import { APP_VERSION, APP_CODENAME } from '@/lib/version';
 
 // Mossland ecosystem wayfinding — order and content are kept identical
@@ -66,8 +69,31 @@ const socialLinks = [
   },
 ];
 
+// The badge used to be the literal text "System Online" with a green dot,
+// on every page, regardless of whether anything was actually up.
+const FOOTER_STATUS: Record<SystemHealth, { dot: string; label: string }> = {
+  operational: { dot: 'online', label: 'System Online' },
+  degraded: { dot: 'pending', label: 'System Degraded' },
+  unknown: { dot: 'unknown', label: 'Status Unknown' },
+};
+
 export function Footer() {
   const { t } = useI18n();
+  const [health, setHealth] = useState<SystemHealth>('unknown');
+
+  useEffect(() => {
+    let cancelled = false;
+    ApiClient.getStatus()
+      .then(({ data }) => {
+        if (cancelled) return;
+        if (!data) return setHealth('unknown');
+        setHealth(data.status === 'operational' ? 'operational' : 'degraded');
+      })
+      .catch(() => !cancelled && setHealth('unknown'));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <motion.footer
@@ -211,8 +237,11 @@ export function Footer() {
             <span>v{APP_VERSION}{APP_CODENAME ? ` "${APP_CODENAME}"` : ''}</span>
             <span className="text-[#21262d]">|</span>
             <span className="flex items-center gap-1">
-              <span className="status-dot online" style={{ width: 4, height: 4 }} />
-              System Online
+              <span
+                className={`status-dot ${FOOTER_STATUS[health].dot}`}
+                style={{ width: 4, height: 4 }}
+              />
+              {FOOTER_STATUS[health].label}
             </span>
           </div>
         </div>

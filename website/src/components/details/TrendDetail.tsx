@@ -130,10 +130,7 @@ export function TrendDetail({ data }: TrendDetailProps) {
 
       {/* Trend Momentum */}
       <div className="card-cli p-4">
-        <TrendSparkline
-          signalCount={trend.signal_count}
-          showDetails={true}
-        />
+        <TrendSparkline showDetails={true} />
       </div>
 
       {/* Description */}

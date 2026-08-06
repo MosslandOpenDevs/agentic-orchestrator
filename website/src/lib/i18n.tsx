@@ -262,6 +262,8 @@ const translations: Record<Locale, Record<string, string>> = {
 
     // Score Breakdown
     'scoreBreakdown.title': 'Score Breakdown',
+    'scoreBreakdown.noBreakdown':
+      'No per-dimension breakdown was recorded for this idea; only the overall score is stored.',
     'scoreBreakdown.novelty': 'Novelty',
     'scoreBreakdown.feasibility': 'Feasibility',
     'scoreBreakdown.marketFit': 'Market Fit',
@@ -275,6 +277,8 @@ const translations: Record<Locale, Record<string, string>> = {
 
     // Trend Sparkline
     'trendSparkline.momentum': 'Momentum',
+    'trendSparkline.noHistory':
+      'No day-by-day signal history is recorded for this trend yet.',
     'trendSparkline.last7Days': 'Last 7 days',
     'trendSparkline.velocity': 'Velocity',
     'trendSparkline.signalsPerDay': 'signals/day',
@@ -782,6 +786,8 @@ const translations: Record<Locale, Record<string, string>> = {
 
     // Score Breakdown
     'scoreBreakdown.title': '점수 분석',
+    'scoreBreakdown.noBreakdown':
+      '이 아이디어에는 항목별 점수가 기록되어 있지 않습니다. 종합 점수만 저장됩니다.',
     'scoreBreakdown.novelty': '참신성',
     'scoreBreakdown.feasibility': '실현가능성',
     'scoreBreakdown.marketFit': '시장적합성',
@@ -795,6 +801,7 @@ const translations: Record<Locale, Record<string, string>> = {
 
     // Trend Sparkline
     'trendSparkline.momentum': '모멘텀',
+    'trendSparkline.noHistory': '이 트렌드의 일자별 시그널 이력은 아직 기록되지 않습니다.',
     'trendSparkline.last7Days': '최근 7일',
     'trendSparkline.velocity': '속도',
     'trendSparkline.signalsPerDay': '시그널/일',

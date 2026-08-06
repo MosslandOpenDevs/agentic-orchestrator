@@ -21,7 +21,7 @@
 
 ## 대시보드
 
-오케스트레이터를 실시간으로 모니터링하는 Next.js 기반 CLI 스타일 대시보드이며, 배포 주소는 **https://ao.moss.land**입니다. 로컬 실행은 `cd website && pnpm install && pnpm dev` 후 http://localhost:3000 에서 확인할 수 있습니다.
+오케스트레이터를 실시간으로 모니터링하는 Next.js 기반 CLI 스타일 대시보드이며, 배포 주소는 **https://ao.moss.land**입니다. 로컬 실행은 `cd website && npm ci && npm run dev` 후 http://localhost:3000 에서 확인할 수 있습니다.
 
 | 페이지 | 설명 |
 |--------|------|
@@ -89,7 +89,7 @@ cp .env.example .env
 npm install -g pm2
 
 # 대시보드 먼저 빌드 (moss-ao-web은 next start 실행이라 빌드 산출물 필요)
-cd website && pnpm install && pnpm build && cd ..
+cd website && npm ci && npm run build && cd ..
 
 # 모든 서비스 시작
 pm2 start ecosystem.config.js
@@ -137,7 +137,36 @@ bash scripts/deploy.sh --check   # 드라이런: 무엇을 할지 보고만
 bash scripts/deploy.sh           # 다음 틱을 기다리지 않고 즉시 배포
 ```
 
+배포기는 무엇을 초록불로 볼지에 대해 의도적으로 보수적입니다: CI 체크가 아직
+0건이거나 전부 skip된 커밋은 검증 없이 올리지 않고 다음 틱으로 미루며, 배포 전
+DB 스냅샷이 실패하면 되돌아갈 곳 없이 배포하는 대신 아예 거부합니다. API가 떠
+있는데 레디니스만 실패하는 상태(=DB 문제)라면, 장애가 지속되는 내내 5분마다
+재시작하고 롤백하는 대신 배포를 미룹니다.
+
 설치·설정·문제 해결: [docs/deployment.md](docs/deployment.md).
+
+## DB 백업과 복원
+
+데이터베이스는 의도적으로 git에 넣지 않는 단일 SQLite 파일이라, `data/backup/`에
+롤링 스냅샷을 둡니다 — 약 24시간마다 하나, 최신 7개 보관, 헬스체크가 찍고 코드
+배포 직전에는 강제로 한 번 더 찍습니다.
+
+복원은 파일을 복사하지 말고 명령으로 하십시오:
+
+```bash
+python -m agentic_orchestrator.scheduler restore-db --list   # 무엇이 있는지
+python -m agentic_orchestrator.scheduler restore-db          # 최신, 또는 --from PATH
+```
+
+스냅샷을 검증하고, 다른 프로세스가 쓰는 중이면 거부하고, 교체되는 DB를 따로
+보관하며(복원 자체를 되돌릴 수 있게), WAL sidecar를 제거한 뒤 파일을 바꿉니다.
+
+> **스냅샷을 `data/orchestrator.db` 위에 `cp` 하지 마십시오.** DB는 WAL 모드입니다.
+> 쓰기 프로세스가 정상 종료가 아니라 크래시나 OOM kill로 죽었다면 — 즉 백업을
+> 꺼내야 하는 바로 그 상황이라면 — `orchestrator.db-wal`이 살아남고, SQLite가 방금
+> 복사해 넣은 파일 위에 그것을 재생합니다. 복원은 조용히 무효가 되고
+> `PRAGMA integrity_check`는 여전히 `ok`를 반환합니다.
+> `tests/test_restore.py::TestTheHazard`가 이 현상을 그대로 재현합니다.
 
 ## API 엔드포인트
 
@@ -145,7 +174,8 @@ FastAPI 백엔드는 REST API 접근을 제공합니다:
 
 | 엔드포인트 | 메서드 | 설명 |
 |------------|--------|------|
-| `/health` | GET | 헬스 체크 |
+| `/health` | GET | 라이브니스 — 프로세스 생존 확인 (DB를 건드리지 않음) |
+| `/ready` | GET | 레디니스 — 실제 테이블을 읽고, 못 읽으면 503. 배포기가 게이트로 사용 |
 | `/status` | GET | 시스템 상태 |
 | `/signals` | GET | 최근 시그널 목록 |
 | `/debates` | GET | 토론 결과 목록 |
@@ -163,6 +193,31 @@ FastAPI 백엔드는 REST API 접근을 제공합니다:
 | 1. 발산 | 16 | 8 | 다양한 아이디어와 관점 생성 | 프론트엔드 / 백엔드 / 블록체인 엔지니어, 보안 리서처, DevOps, 프로덕트·UX 디자이너, 프로덕트 매니저, 그로스 마케터, 브랜드 전략가, 비즈니스 애널리스트, 커뮤니티 매니저 |
 | 2. 수렴 | 8 | 4 | 아이디어 통합 및 평가 | 크립토 VC·전통 VC 파트너, 액셀러레이터 멘토 2인, 연쇄 창업가와 초기 창업가, 기술·시장 도메인 전문가 |
 | 3. 기획 | 10 | 3 | 실행 가능한 구현 계획 생성 | CPO, 시니어 PM, 테크니컬 리드, 프론트엔드 / 백엔드 / 블록체인 리드, UX 리서처, QA 리드, 개발자 릴레이션, 프로젝트 매니저 |
+
+### 토론은 어떤 모델로 도는가
+
+토론은 유료 API가 허용된 유일한 작업이며, 거기까지 가려면 **독립적인 스위치 두 개**가
+모두 켜져 있어야 합니다. 둘 다 켜지기 전에는 1원도 쓰지 않습니다:
+
+1. `.env`의 `MOSS_LOCAL_LLM_ONLY=false` — 미설정이거나 true(기본값)인 동안 라우터는
+   유료 프로바이더를 아예 만들지 않고, 호출자가 `force_api`를 줘도 무시합니다.
+2. `config.yaml`의 `llm.paid_tiers.debate.enabled: true` — 여기서 모델을 지정합니다
+   (현재 `gpt-5.4-mini`). 토론의 네 호출 지점만 `paid_tier=debate`를 달고 있습니다.
+
+둘 다 켜져 있으면 발산·수렴·기획·점수화가 그 모델로 돕니다. 하나라도 꺼져 있거나,
+프로바이더가 없거나, 예산을 다 썼거나, 로컬 모델이 명시되면 토론은 **실패하지 않고
+로컬 `gemma3:4b`로 강등**됩니다. 그 외 파이프라인(트렌드, 번역, 트리아지 점수화)은
+언제나 로컬입니다.
+
+알아 둘 두 가지:
+
+- **티어가 켜져 있으면 비용이 실제로 발생합니다.** 일·월 상한의 단일 소스는
+  `config.yaml`의 `budget`이며(환경변수가 우선), 상한을 다 쓰면 토론이 중단되는 게
+  아니라 로컬로 강등됩니다.
+- **로컬로 돌 때는 GPU 하나가 처리량을 결정합니다.** 라운드가 얼마나 빨리 요청을 낼 수
+  있는지는 `throttling.ollama`(`min_request_interval`, `max_concurrent_requests`)가
+  정하고 둘 다 실제로 적용되므로, 로컬 모드 토론은 유료 모드보다 확연히 느립니다.
+  90분 주기 예산에 근접하면 조정할 곳은 그 값들입니다.
 
 각 페르소나는 0-10으로 점수화된 4축 성격 프로필도 함께 가진다. 라운드 부분집합을 이
 축들에 걸쳐 균형 잡는 것이 같은 성향의 에이전트만 모이는 것을 막아준다.
@@ -215,6 +270,9 @@ RSS 피드는 `config.yaml`의 최상위 `feeds:` 섹션에 정의되며, 시그
 | `GEMINI_API_KEY` | Gemini API 키 | 클라우드 모드용 |
 | `OLLAMA_HOST` | Ollama 서버 URL | 로컬 모드용 |
 | `MOSS_LOCAL_LLM_ONLY` | LLM 라우터를 Ollama 전용으로 고정. 기본값 `true`, `false`로 설정해야 위 클라우드 키 사용 | 아니오 (기본 `true`) |
+| `MOSS_API_KEY` | 변경 API 라우트에 요구되는 공유 비밀 (`X-API-Key`). 미설정이면 해당 라우트는 503 | 쓰기용 |
+| `MOSS_ENABLE_BROWSER_PROJECT_GENERATION` | 공개 대시보드의 생성 버튼이 `MOSS_API_KEY`를 쓰도록 허용. 기본 꺼짐 — 사이트에 사용자 계정이 없으므로 켜면 아무 방문자나 생성을 돌릴 수 있음 | 아니오 (기본 꺼짐) |
+| `MOSS_RUN_GENERATED_TESTS` | QA 단계가 모델이 쓴 테스트를 이 프로세스에서 실행하도록 허용. 기본 꺼짐 — 일회용 컨테이너에서 돌릴 것 | 아니오 (기본 꺼짐) |
 
 ## 프로젝트 구조
 
@@ -251,14 +309,21 @@ agentic-orchestrator/
 
 ## 개발
 
-```bash
-# 테스트 도구는 dev extra에 포함되어 있습니다
-pip install -e ".[dev]"
-pytest tests/ -v
-```
+의존성은 잠겨 있습니다. CI와 운영이 모두 `uv.lock`에서 설치하므로, 한 커밋은
+어디서든 같은 의존성 그래프로 해석됩니다:
 
 ```bash
-cd website && pnpm build   # 변경 후 대시보드 재빌드
+uv sync --frozen --extra dev      # 또는: pip install -e ".[dev]"
+uv run pytest tests/ -v
+```
+
+대시보드에도 자체 검사가 있고 CI가 전부 돌립니다 — 예전에는 빌드 실패가 운영
+서버에서 배포 도중에야 드러났습니다:
+
+```bash
+cd website
+npm ci
+npm run lint && npm run typecheck && npm test && npm run build
 ```
 
 ```bash
@@ -269,6 +334,7 @@ python -m agentic_orchestrator.scheduler run-debate
 python -m agentic_orchestrator.scheduler process-backlog
 python -m agentic_orchestrator.scheduler health-check
 python -m agentic_orchestrator.scheduler backup-db         # data/backup/에 스냅샷, 약 1일 주기 자동
+python -m agentic_orchestrator.scheduler restore-db --list # 스냅샷에서 복원 (위 절 참조)
 ```
 
 ## 라이선스
