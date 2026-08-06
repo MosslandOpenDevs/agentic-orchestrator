@@ -365,9 +365,22 @@ class TestStructuredOutputs:
         await router.route(prompt="p", force_local=True)
         assert fake_ollama.captured["payload"]["options"]["num_ctx"] == 16384
 
-    async def test_idea_scorer_stays_on_the_small_context(self):
-        """Scoring must pass SCORING_NUM_CTX (4096): its prompt+output fit,
-        and the small instance answers even when 16k loads hang."""
+    async def test_no_task_pins_its_own_num_ctx(self):
+        """One context size for the whole pipeline — no per-task override.
+
+        The shared Ollama host serves ONE model instance at a time, and each
+        distinct num_ctx is a distinct instance. A task that pins its own
+        size therefore evicts whatever is resident and pays a ~4.5s reload,
+        and the next caller evicts it straight back. v0.6.18 pinned scoring
+        to 4,096 on the belief that 16k loads hung indefinitely; re-measured
+        2026-08-06 that did not reproduce (non-resident load: 4.46s), and
+        the pin had become the thing breaking the single-instance
+        convergence agreed with the other service on the host.
+
+        If a task genuinely needs a different window, change the global
+        `throttling.ollama.num_ctx` and tell whoever shares the host —
+        do not add a second size.
+        """
         from agentic_orchestrator.scoring import IdeaScorer
 
         captured = {}
@@ -388,7 +401,11 @@ class TestStructuredOutputs:
         scorer = IdeaScorer(router=FakeRouter())
         await scorer.score_idea("idea content")
 
-        assert captured["num_ctx"] == IdeaScorer.SCORING_NUM_CTX == 4096
+        assert captured.get("num_ctx") is None, (
+            "scoring must not pin a per-call num_ctx — it would evict the "
+            "shared instance on every call"
+        )
+        assert not hasattr(IdeaScorer, "SCORING_NUM_CTX")
 
     async def test_analyzer_sends_its_trends_schema(self):
         from agentic_orchestrator.timeutil import utcnow
