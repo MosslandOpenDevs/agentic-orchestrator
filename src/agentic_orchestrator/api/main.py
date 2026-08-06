@@ -32,6 +32,7 @@ from ..timeutil import utcnow
 
 logger = logging.getLogger(__name__)
 
+from ..adapters.signalmap import feed_report as signalmap_feed_report
 from ..db.connection import ensure_schema, get_db
 from ..db.repositories import (
     APIUsageRepository,
@@ -299,6 +300,15 @@ async def system_status(session: Session = Depends(get_session)):
         logger.exception("/status could not read paid-tier configuration")
         llm_router_status = {"status": "unknown"}
 
+    try:
+        # Same shape of question as llm_router above, same constraints: config
+        # and a small local state file, no network and no DB, because this
+        # endpoint is public and hot.
+        signal_feed_status = signalmap_feed_report()
+    except Exception:
+        logger.exception("/status could not read the SignalMap feed state")
+        signal_feed_status = {"status": "unknown"}
+
     return StatusResponse(
         status="operational" if db_healthy else "degraded",
         timestamp=utcnow().isoformat(),
@@ -321,6 +331,15 @@ async def system_status(session: Session = Depends(get_session)):
             # "degraded" here = config says a tier should be spending, and it
             # cannot. Whether a call actually succeeded is /usage's job.
             "llm_router": llm_router_status,
+            # SignalMap is an upstream we depend on but do not operate, and its
+            # one interesting failure is invisible in every count we hold:
+            # `sourceWatermark` stops moving while `generatedAt` keeps
+            # advancing, i.e. it keeps publishing and stops collecting. Also
+            # config-level — the value was recorded by the last poll, not
+            # fetched here. Like llm_router, this never changes the top-level
+            # status: a stale upstream degrades idea quality, it does not take
+            # the site down, and it must not page as if it had.
+            "signal_feed": signal_feed_status,
         },
         stats=stats,
     )
@@ -1092,6 +1111,7 @@ async def get_adapters():
         NewsAPIAdapter,
         OnChainAdapter,
         RSSAdapter,
+        SignalMapAdapter,
         SocialMediaAdapter,
         ThreadsAdapter,
         TwitterAdapter,
@@ -1165,6 +1185,16 @@ async def get_adapters():
             "description": "Meta Threads 게시물 수집 (3개 계정)",
             "description_en": "Meta Threads posts (3 accounts)",
         },
+        {
+            "class": SignalMapAdapter,
+            # A UI grouping label, not SignalData.category. "news" rather than a
+            # truer word like "narrative" because AdapterDetailModal renders its
+            # category tally by iterating a fixed icon map — an unlisted value
+            # keeps its adapter card but drops it out of the counts.
+            "category": "news",
+            "description": "SignalMap 발행 피드 (canonical 토픽·엔티티·이벤트)",
+            "description_en": "SignalMap export feed (canonical topics, entities, events)",
+        },
     ]
 
     async def describe(adapter_info: dict) -> dict:
@@ -1214,6 +1244,9 @@ async def get_adapters():
             elif hasattr(adapter, "TRACKED_COINS"):
                 info["sources"] = adapter.TRACKED_COINS
                 info["source_count"] = len(adapter.TRACKED_COINS)
+            elif hasattr(adapter, "TRACKED_KINDS"):
+                info["sources"] = adapter.TRACKED_KINDS
+                info["source_count"] = len(adapter.TRACKED_KINDS)
 
             return info
 
@@ -1227,7 +1260,7 @@ async def get_adapters():
             }
 
     # One lock, one cache: this endpoint needs no authentication, and it used
-    # to run all eleven probes sequentially on every request, each with its own
+    # to run all twelve probes sequentially on every request, each with its own
     # ~10s timeout. That made a single GET a minute-long third-party fan-out
     # and any number of concurrent GETs an amplifier pointed at other people's
     # APIs. Probes now run together under a short per-probe budget, and the

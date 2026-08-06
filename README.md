@@ -9,7 +9,7 @@ An autonomous multi-agent orchestration system for discovering, planning, and im
 ## Key Features
 
 - **Multi-Stage Debate**: 34 AI agents with diverse personas debate through 3 phases (Divergence → Convergence → Planning)
-- **[Diverse Signal Sources](#signal-sources)**: 11 adapters across RSS, GitHub, on-chain, social, news, and market data
+- **[Diverse Signal Sources](#signal-sources)**: 12 adapters across RSS, GitHub, on-chain, social, news, market data, and SignalMap's canonical narrative store
 - **Hybrid LLM Routing**: Local Ollama models + Cloud API fallback with intelligent routing
 - **Human-in-the-Loop**: Humans select which ideas to develop via label promotion
 - **PM2 Scheduling**: Automated task scheduling with PM2 (signals, trends, debates, backlog, health checks)
@@ -35,9 +35,9 @@ A Next.js CLI-style dashboard for monitoring the orchestrator in real time, live
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  SIGNAL COLLECTION - 11 adapters                                        │
+│  SIGNAL COLLECTION - 12 adapters                                        │
 │  RSS, GitHub Events, On-Chain, Social, News API, Twitter/X,             │
-│  Discord, Lens, Farcaster, Coingecko, Threads                           │
+│  Discord, Lens, Farcaster, Coingecko, Threads, SignalMap                │
 │                                    │                                    │
 │                                    ▼                                    │
 │                        ┌───────────────────────┐                        │
@@ -235,7 +235,7 @@ subset across these axes is what stops it from being eight agents of one tempera
 
 ## Signal Sources
 
-Eleven adapters feed the collector, all configured in `config.yaml`. **Auth** names the
+Twelve adapters feed the collector, all configured in `config.yaml`. **Auth** names the
 credential an adapter needs; `—` means it works with no credential at all.
 
 | Adapter | What it pulls | Tracked scope | Auth |
@@ -251,6 +251,7 @@ credential an adapter needs; `—` means it works with no credential at all.
 | Farcaster | Casts via the Neynar API, Warpcast public API fallback | 10 users, 10 channels | `NEYNAR_API_KEY` |
 | Coingecko | Trending coins, top gainers/losers, global market stats | 16 coins incl. Mossland (MOC) | — |
 | Threads | Public profile scraping of Meta Threads accounts | 3 accounts | — |
+| SignalMap | Published export feed of another Mossland service — Korean YouTube narrative summaries and market pulses, carrying **canonical** topic/entity/event IDs that AO consumes and never mints | 6,747 signals + 5,112 pulses, cursor-paged | `SIGNALMAP_EXPORT_TOKEN` (optional — the export is currently open) |
 
 RSS feeds live in the top-level `feeds:` section of `config.yaml` — the single list shared by
 signal collection and trend analysis. Add or fix feeds there; no code change is needed.
@@ -287,9 +288,9 @@ agentic-orchestrator/
 ├── ecosystem.config.js      # PM2 configuration
 ├── .venv/                   # Python virtual environment
 ├── src/agentic_orchestrator/
-│   ├── adapters/            # 11 signal sources: rss, github_events, onchain,
+│   ├── adapters/            # 12 signal sources: rss, github_events, onchain,
 │   │                        #   social, news, twitter, discord, lens,
-│   │                        #   farcaster, coingecko, threads
+│   │                        #   farcaster, coingecko, threads, signalmap
 │   ├── api/                 # FastAPI backend
 │   │   └── main.py
 │   ├── cache/               # Caching layer

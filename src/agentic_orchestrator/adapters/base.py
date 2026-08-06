@@ -36,10 +36,22 @@ class SignalData:
     raw_data: Optional[Dict[str, Any]] = None
     collected_at: datetime = field(default_factory=utcnow)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # Upstream's own stable identifier, when the source publishes one.
+    #
+    # The content hash below is the right identity for a feed that only ever
+    # appends: RSS has no record id, so "same title + same link" is the best
+    # available answer. It is the WRONG identity for a source that revises
+    # records in place — SignalMap republishes a record with the same id and a
+    # bumped `revision` when a canonical topic/entity is later attached, and an
+    # upstream title edit would then land as a second, unrelated-looking row.
+    # When this is set, identity follows the publisher instead of the bytes.
+    external_id: Optional[str] = None
 
     @property
     def id(self) -> str:
-        """Generate unique ID based on content."""
+        """Stable unique ID: publisher's id when known, else a content hash."""
+        if self.external_id:
+            return hashlib.sha256(f"{self.source}:{self.external_id}".encode()).hexdigest()[:16]
         content = f"{self.source}:{self.title}:{self.url or ''}"
         return hashlib.sha256(content.encode()).hexdigest()[:16]
 
@@ -54,6 +66,7 @@ class SignalData:
             "raw_data": self.raw_data,
             "collected_at": self.collected_at.isoformat(),
             "metadata": self.metadata,
+            "external_id": self.external_id,
         }
 
 

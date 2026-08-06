@@ -17,6 +17,7 @@ from ..adapters.lens import LensAdapter
 from ..adapters.news import NewsAPIAdapter
 from ..adapters.onchain import OnChainAdapter
 from ..adapters.rss import RSSAdapter
+from ..adapters.signalmap import SignalMapAdapter
 from ..adapters.social import SocialMediaAdapter
 from ..adapters.threads import ThreadsAdapter
 from ..adapters.twitter import TwitterAdapter
@@ -67,6 +68,11 @@ class SignalAggregator:
             CoingeckoAdapter(),  # Market trends, gainers/losers, trending coins
             # Social media (new in v0.6.6)
             ThreadsAdapter(),  # Meta Threads posts
+            # Cross-service feed (new in v0.6.24). Unlike every adapter above,
+            # this one reads another Mossland service's published export rather
+            # than a third-party API, and it carries canonical topic/entity IDs
+            # that AO consumes but never mints.
+            SignalMapAdapter(),
         ]
 
     async def collect_all(
@@ -324,10 +330,25 @@ class SignalAggregator:
         seen_hashes: Dict[str, SignalData] = {}
 
         for signal in signals:
-            content = f"{signal.title}:{signal.url or ''}"
+            if signal.external_id:
+                # A source that publishes its own record ids gets deduped on
+                # them. Title+url is the right key only for feeds that never
+                # revise: a SignalMap record whose title was edited upstream is
+                # the same record, and would otherwise survive this pass as a
+                # second copy of itself.
+                content = f"{signal.source}:{signal.external_id}"
+            else:
+                content = f"{signal.title}:{signal.url or ''}"
             content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
 
-            if content_hash not in seen_hashes:
+            previous = seen_hashes.get(content_hash)
+            if previous is None:
+                seen_hashes[content_hash] = signal
+            elif self._revision_of(signal) > self._revision_of(previous):
+                # First-seen-wins was harmless while the key was title+url:
+                # colliding signals were identical by construction. Keying on a
+                # publisher id deliberately collapses two *versions* of one
+                # record, and keeping the first would keep the staler one.
                 seen_hashes[content_hash] = signal
 
         hash_deduped = list(seen_hashes.values())
@@ -405,50 +426,113 @@ class SignalAggregator:
             Number of signals saved
         """
         saved_count = 0
+        updated_count = 0
 
         with db.session() as session:
             repo = SignalRepository(session)
 
             for signal in signals:
                 try:
-                    # Check if signal already exists (by content hash)
+                    # Check if signal already exists (by content hash, or by the
+                    # publisher's own id when the source has one)
                     existing = session.query(Signal).filter(Signal.id == signal.id).first()
 
-                    if not existing:
-                        title_ko = None
-                        summary_ko = None
+                    if existing is not None:
+                        if self._apply_revision_update(existing, signal):
+                            updated_count += 1
+                        continue
 
-                        # Optional translation (disabled by default for performance)
-                        if translate:
-                            try:
-                                title_en, title_ko = await self._ensure_bilingual(signal.title)
-                                if signal.summary:
-                                    _, summary_ko = await self._ensure_bilingual(signal.summary)
-                            except Exception as e:
-                                logger.warning(f"Translation failed for signal: {e}")
+                    title_ko = None
+                    summary_ko = None
 
-                        repo.create(
-                            {
-                                "id": signal.id,
-                                "source": signal.source,
-                                "category": signal.category,
-                                "title": signal.title,
-                                "title_ko": title_ko,
-                                "summary": signal.summary,
-                                "summary_ko": summary_ko,
-                                "url": signal.url,
-                                "raw_data": signal.raw_data,
-                                "score": getattr(signal, "score", 0.0),
-                                "topics": signal.metadata.get("topics", []),
-                                "collected_at": signal.collected_at,
-                            }
-                        )
-                        saved_count += 1
+                    # Optional translation (disabled by default for performance)
+                    if translate:
+                        try:
+                            title_en, title_ko = await self._ensure_bilingual(signal.title)
+                            if signal.summary:
+                                _, summary_ko = await self._ensure_bilingual(signal.summary)
+                        except Exception as e:
+                            logger.warning(f"Translation failed for signal: {e}")
+
+                    repo.create(
+                        {
+                            "id": signal.id,
+                            "source": signal.source,
+                            "category": signal.category,
+                            "title": signal.title,
+                            "title_ko": title_ko,
+                            "summary": signal.summary,
+                            "summary_ko": summary_ko,
+                            "url": signal.url,
+                            "raw_data": signal.raw_data,
+                            "score": getattr(signal, "score", 0.0),
+                            "topics": signal.metadata.get("topics", []),
+                            "entities": signal.metadata.get("entities", []),
+                            "collected_at": signal.collected_at,
+                        }
+                    )
+                    saved_count += 1
 
                 except Exception as e:
                     logger.error(f"Error saving signal: {e}")
 
+        if updated_count:
+            logger.info(f"Refreshed {updated_count} signals whose publisher revised them")
+
         return saved_count
+
+    @staticmethod
+    def _revision_of(signal: SignalData) -> int:
+        """Publisher revision, or -1 for sources that do not publish one.
+
+        -1 rather than 0 so two revision-less signals never compare as one
+        being newer, which keeps first-seen-wins for every existing adapter.
+        """
+        value = signal.metadata.get("revision")
+        return value if isinstance(value, int) else -1
+
+    @staticmethod
+    def _apply_revision_update(existing: Signal, signal: SignalData) -> bool:
+        """Refresh a stored signal when its publisher has revised the record.
+
+        Only applies to sources that publish a monotonic revision counter
+        (currently SignalMap, whose records gain canonical topic/entity IDs in
+        a later release and come back with the same id and ``revision + 1``).
+        Every other source keeps the historical behaviour exactly: the first
+        write wins and re-collection is a no-op.
+
+        **A revision is only comparable within one ledger generation.** When a
+        publisher recreates its ledger it stamps a new `epoch` and sends every
+        record back at `revision: 1`, which is *lower* than what we hold — so a
+        bare monotonic test would refuse every update from that point on,
+        forever, while each poll keeps returning 200. The adapter's cursor
+        resync rewinds where we read from; it does nothing about revisions
+        already stored. So the epoch is carried onto each signal and a change of
+        epoch means "not comparable — the incoming record is the current truth".
+        """
+        incoming = signal.metadata.get("revision")
+        if not isinstance(incoming, int):
+            return False
+
+        stored_raw = existing.raw_data or {}
+        incoming_epoch = signal.metadata.get("epoch")
+        ledger_changed = bool(incoming_epoch) and incoming_epoch != stored_raw.get("epoch")
+
+        if not ledger_changed:
+            stored = stored_raw.get("revision")
+            if not isinstance(stored, int) or incoming <= stored:
+                return False
+
+        existing.title = signal.title
+        existing.summary = signal.summary
+        existing.url = signal.url
+        existing.raw_data = signal.raw_data
+        # Only ever gains ground: a revision that has not yet been matched to a
+        # canonical topic must not erase one we already recorded.
+        existing.topics = signal.metadata.get("topics") or existing.topics
+        existing.entities = signal.metadata.get("entities") or existing.entities
+        existing.processed_at = utcnow()
+        return True
 
     async def get_recent_signals(
         self,

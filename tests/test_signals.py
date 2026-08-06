@@ -539,7 +539,7 @@ class TestCanonicalFeedConfig:
         A hand-edited `feeds:` of the wrong shape must degrade, not raise.
 
         An uncaught AttributeError here propagates out of RSSAdapter.__init__
-        into SignalAggregator construction, which would stop all 11 adapters
+        into SignalAggregator construction, which would stop all 12 adapters
         from collecting — not just RSS.
         """
         from agentic_orchestrator.adapters.rss import RSSAdapter
@@ -577,7 +577,13 @@ class TestCanonicalFeedConfig:
         monkeypatch.chdir(tmp_path)
 
         aggregator = SignalAggregator()
-        assert len(aggregator.adapters) == 11
+        names = {adapter.name for adapter in aggregator.adapters}
+        # Named as well as counted: a bare count says the fleet changed size,
+        # not which adapter stopped constructing — and the two that parse
+        # config.yaml in __init__ (rss, signalmap) are exactly the ones a
+        # malformed config could take down.
+        assert {"rss", "signalmap"} <= names
+        assert len(aggregator.adapters) == 12
 
     def test_custom_feeds_do_not_mutate_shared_lists(self, tmp_path, monkeypatch):
         """custom_feeds must not leak into other adapter instances."""

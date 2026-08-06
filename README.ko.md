@@ -9,7 +9,7 @@
 ## 주요 기능
 
 - **멀티 스테이지 토론**: 34개 AI 에이전트가 3단계(발산 → 수렴 → 기획)를 거쳐 토론
-- **[다양한 시그널 소스](#시그널-소스)**: RSS, GitHub, 온체인, 소셜, 뉴스, 마켓 데이터를 아우르는 11개 어댑터
+- **[다양한 시그널 소스](#시그널-소스)**: RSS, GitHub, 온체인, 소셜, 뉴스, 마켓 데이터에 SignalMap canonical 내러티브 스토어를 더한 12개 어댑터
 - **하이브리드 LLM 라우팅**: 로컬 Ollama 모델 + 클라우드 API 폴백 지능형 라우팅
 - **휴먼 인 더 루프**: 라벨 프로모션을 통해 개발할 아이디어를 사람이 선택
 - **PM2 스케줄링**: PM2를 통한 자동화된 작업 스케줄링 (시그널, 트렌드, 토론, 백로그, 헬스체크)
@@ -35,9 +35,9 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  시그널 수집 - 어댑터 11개                                              │
+│  시그널 수집 - 어댑터 12개                                              │
 │  RSS, GitHub Events, On-Chain, Social, News API, Twitter/X,             │
-│  Discord, Lens, Farcaster, Coingecko, Threads                           │
+│  Discord, Lens, Farcaster, Coingecko, Threads, SignalMap                │
 │                                    │                                    │
 │                                    ▼                                    │
 │                        ┌───────────────────────┐                        │
@@ -229,7 +229,7 @@ FastAPI 백엔드는 REST API 접근을 제공합니다:
 
 ## 시그널 소스
 
-어댑터 11개가 시그널을 수집하며 모두 `config.yaml`에서 설정한다. **인증**은 해당 어댑터에
+어댑터 12개가 시그널을 수집하며 모두 `config.yaml`에서 설정한다. **인증**은 해당 어댑터에
 필요한 자격 증명이며, `—`는 자격 증명 없이도 동작한다는 뜻이다.
 
 | 어댑터 | 수집 내용 | 추적 범위 | 인증 |
@@ -245,6 +245,7 @@ FastAPI 백엔드는 REST API 접근을 제공합니다:
 | Farcaster | Neynar API 기반 캐스트, Warpcast 공개 API 폴백 | 유저 10개, 채널 10개 | `NEYNAR_API_KEY` |
 | Coingecko | 트렌딩 코인, 상승/하락 상위 종목, 글로벌 시장 통계 | Mossland(MOC) 포함 코인 16개 | — |
 | Threads | Meta Threads 계정 공개 프로필 스크래핑 | 계정 3개 | — |
+| SignalMap | 다른 모스랜드 서비스의 발행 피드 — 한국어 YouTube 내러티브 요약과 마켓 펄스, **canonical** 토픽·엔티티·이벤트 ID 포함 (AO는 소비만 하고 만들지 않음) | 시그널 6,747 + 펄스 5,112, 커서 페이징 | `SIGNALMAP_EXPORT_TOKEN` (선택 — 현재 발행은 열려 있음) |
 
 RSS 피드는 `config.yaml`의 최상위 `feeds:` 섹션에 정의되며, 시그널 수집과 트렌드 분석이 이
 목록 하나를 공유한다. 피드 추가·수정은 이 파일만 편집하면 되고 코드 변경은 필요 없다.
@@ -281,9 +282,9 @@ agentic-orchestrator/
 ├── ecosystem.config.js      # PM2 설정
 ├── .venv/                   # Python 가상환경
 ├── src/agentic_orchestrator/
-│   ├── adapters/            # 시그널 소스 11종: rss, github_events, onchain,
+│   ├── adapters/            # 시그널 소스 12종: rss, github_events, onchain,
 │   │                        #   social, news, twitter, discord, lens,
-│   │                        #   farcaster, coingecko, threads
+│   │                        #   farcaster, coingecko, threads, signalmap
 │   ├── api/                 # FastAPI 백엔드
 │   │   └── main.py
 │   ├── cache/               # 캐싱 레이어

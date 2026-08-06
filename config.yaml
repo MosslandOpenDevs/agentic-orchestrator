@@ -479,6 +479,64 @@ trends:
   # carrying a locally modified config.yaml, but should be considered removed.
 
 # =============================================================================
+# SignalMap export feed (v0.6.24)
+# =============================================================================
+# The 12th signal adapter, and the only one reading another Mossland service
+# rather than a third-party API. SignalMap owns the canonical entity / topic /
+# event IDs; AO indexes and consumes them and never mints its own. Contract and
+# rationale: docs/signalmap.md.
+#
+# Endpoint override lives in the environment (SIGNALMAP_BASE_URL), auth token in
+# SIGNALMAP_EXPORT_TOKEN — the export is currently open, since it carries only
+# what is already public on the site.
+signalmap:
+  enabled: true
+  base_url: "https://signalmap.moss.land"
+  path_prefix: "/api/signal/v1"
+
+  # Which record kinds become AO signals. Filtered client-side, not via the
+  # API's `kind` parameter: per-kind requests would mean a cursor per kind, and
+  # two cursors over one revision ledger is two ways to lose a record.
+  kinds:
+    - video.summary
+    - market.pulse
+
+  # One run's budget. 1000 x 3 = up to 3000 records per signal tick, so the
+  # 11,859-record first sync completes in about four ticks instead of pulling
+  # 19 MB at once. Server caps limit at 2000.
+  page_limit: 1000
+  max_pages_per_run: 3
+
+  # The corpus reaches back months and AO's trend window is hours. Older
+  # records are still WALKED — the cursor has to pass over them to reach the
+  # tail — they are simply not stored.
+  max_age_days: 30
+
+  # Records flagged policy.politicalSafety (left/right news channels) ship with
+  # evidence.claims empty by design, and re-deriving their positions from
+  # title+summary is exactly what that flag forbids. Every AO stage downstream
+  # is "hand text to a model and ask what it means", so the rule is enforced by
+  # not ingesting them at all. Turning this on makes honoring rule (2) of
+  # docs/signalmap.md the caller's problem in every prompt AO writes.
+  include_political_safety: false
+
+  # The publisher republishes a few times a day (06:00 / 06:30 KST plus manual
+  # deploys); polling harder only buys empty responses. Ignored while the
+  # initial backfill is still walking.
+  min_interval_minutes: 240
+
+  # daily-ingest runs 06:00 KST. A sourceWatermark that has not moved in over a
+  # day means upstream collection stopped — the one failure that no record
+  # count can show, because counts stop rising rather than falling.
+  watermark_stale_hours: 30
+
+  # Cursor + epoch + watermark. A file, not a table: the scheduler runs each
+  # task as a fresh process, and losing this must degrade to "resync from the
+  # start" (idempotent, thanks to the publisher's stable record ids) rather
+  # than to "silently skip".
+  state_file: "data/signalmap_state.json"
+
+# =============================================================================
 # RSS Feed Sources (canonical)
 # =============================================================================
 # SINGLE SOURCE OF TRUTH for every RSS feed the system reads. Consumed by:
