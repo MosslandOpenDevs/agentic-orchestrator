@@ -18,6 +18,111 @@ from .hierarchy import LLMHierarchy
 
 logger = logging.getLogger(__name__)
 
+# Env var that must hold an API key for a paid tier's provider to be usable.
+# Used by describe_paid_tier() to answer "could this tier bill anything?"
+# without constructing a provider or touching the network.
+_PROVIDER_KEY_ENV = {
+    "openai": "OPENAI_API_KEY",
+    "claude": "ANTHROPIC_API_KEY",
+}
+
+
+def describe_paid_tier(
+    name: str,
+    tier: Optional[dict],
+    *,
+    local_only: bool,
+    provider_ready: Optional[bool] = None,
+    budget_ok: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """Effective state of one paid tier: active, or *why* it is not.
+
+    A paid tier that cannot reach its provider degrades to local Ollama by
+    design — an API outage must not kill the debate. The failure mode that
+    design creates is that a tier which was never enabled is indistinguishable
+    from one working perfectly: no error, no alert, `/status` healthy, and the
+    only evidence is an empty `api_usage` ledger nobody watches. That is
+    exactly what happened between 2026-08-05 and 2026-08-06, when PM2 served
+    the debate a stale ``MOSS_LOCAL_LLM_ONLY=true`` and every debate quietly
+    ran on gemma3:4b — the quality ceiling v0.6.19 shipped to remove.
+
+    So the degradation stays, but it is never silent: route() logs the reason
+    at WARNING, and the API reports it on /status and /usage. This function is
+    the single place the reason is derived, so the runtime path and the
+    endpoints can never disagree about whether spending is possible.
+
+    ``provider_ready``/``budget_ok`` default to None meaning "not checked" —
+    a caller that cannot cheaply determine them (e.g. the DB-free /status
+    handler) gets a verdict from the preconditions it *can* see rather than a
+    false negative.
+    """
+    tier = tier if isinstance(tier, dict) else None
+    provider = str((tier or {}).get("provider") or "") or None
+    model = (tier or {}).get("model") or None
+    enabled = bool((tier or {}).get("enabled"))
+
+    if provider_ready is None and provider:
+        key_env = _PROVIDER_KEY_ENV.get(provider)
+        # Unknown provider name: no key to look for, so leave it unchecked
+        # rather than declaring it broken.
+        provider_ready = bool(os.getenv(key_env)) if key_env else None
+
+    # Precedence matters: report the switch an operator must flip *first*.
+    if tier is None:
+        reason = f"tier '{name}' is not configured in config.yaml llm.paid_tiers"
+    elif local_only:
+        reason = "MOSS_LOCAL_LLM_ONLY is engaged — paid providers disabled"
+    elif not enabled:
+        reason = f"tier '{name}' is disabled (llm.paid_tiers.{name}.enabled)"
+    elif not model:
+        reason = f"tier '{name}' has no model configured"
+    elif not provider:
+        reason = f"tier '{name}' has no provider configured"
+    elif provider_ready is False:
+        reason = f"provider '{provider}' unavailable (no {_PROVIDER_KEY_ENV.get(provider, 'API key')})"
+    elif budget_ok is False:
+        reason = "API budget exhausted (see config.yaml budget.*)"
+    else:
+        reason = None
+
+    return {
+        "name": name,
+        "enabled": enabled,
+        "provider": provider,
+        "model": model,
+        "active": reason is None,
+        "reason": reason,
+    }
+
+
+def paid_tier_report(budget_ok: Optional[bool] = None) -> Dict[str, Any]:
+    """Config-level view of every paid tier, for /status and /usage.
+
+    Derived from the same preconditions route() uses, but without building a
+    provider or making a network call, so it is safe on hot public endpoints.
+
+    Caveat worth knowing when reading the output: this reflects *this*
+    process's environment. The API and the debate scheduler are separate PM2
+    apps, so in principle they could disagree — in practice both take their
+    env from one `pm2 start ecosystem.config.js`, which is why they were
+    wrong together in the 2026-08-06 incident and why this reading would have
+    caught it.
+    """
+    local_only = local_llm_only()
+    tiers = {
+        name: describe_paid_tier(name, tier, local_only=local_only, budget_ok=budget_ok)
+        for name, tier in HybridLLMRouter._load_paid_tiers().items()
+    }
+    degraded = sorted(n for n, t in tiers.items() if t["enabled"] and not t["active"])
+    return {
+        # "degraded" means a tier that config says should be spending is not.
+        # An all-local deployment (no tiers, or all disabled) is "healthy".
+        "status": "degraded" if degraded else "healthy",
+        "local_only": local_only,
+        "degraded_tiers": degraded,
+        "paid_tiers": tiers,
+    }
+
 
 @dataclass
 class LLMResponse:
@@ -92,6 +197,10 @@ class HybridLLMRouter:
         # long wait here just holds a debate round open.
         self._paid_tier_retries = int(os.getenv("MOSS_PAID_TIER_RETRIES", "2"))
         self._paid_tier_backoff = float(os.getenv("MOSS_PAID_TIER_BACKOFF", "2.0"))
+        # Tiers already reported as degraded. One debate makes ~38 routed
+        # calls; the operator needs the fact once, not 38 times. Each cron
+        # tick is a fresh process, so this still warns once per debate run.
+        self._degraded_tiers_warned: set = set()
 
         if not self.local_only:
             self._init_api_providers()
@@ -127,6 +236,58 @@ class HybridLLMRouter:
         except Exception as e:
             logger.warning(f"Could not load paid-tier config, staying fully local: {e}")
             return {}
+
+    def _warn_tier_degraded(
+        self,
+        name: str,
+        *,
+        caller_model: Optional[str],
+        caller_forced_local: bool,
+    ) -> None:
+        """Report, once per process, that a requested paid tier is not active.
+
+        Never raises: this is diagnostics on the hot path, and a broken
+        ledger must not take down a debate that is otherwise fine.
+        """
+        if caller_model or caller_forced_local:
+            # Documented per-call opt-out, not a failure. Keep it at DEBUG so
+            # the WARNING channel stays a reliable signal of real degradation.
+            logger.debug(f"Paid tier '{name}' skipped: caller passed model/force_local")
+            return
+        # Lazily materialized: a router built without __init__ (tests do this,
+        # and paid_tiers is already documented as caller-settable) must still
+        # route rather than die on a missing diagnostics attribute.
+        warned = getattr(self, "_degraded_tiers_warned", None)
+        if warned is None:
+            warned = self._degraded_tiers_warned = set()
+        if name in warned:
+            return
+        warned.add(name)
+
+        try:
+            tier = self.paid_tiers.get(name)
+            provider_name = str((tier or {}).get("provider") or "")
+            try:
+                budget_ok = bool(self.budget.get_budget_status().get("can_use_api"))
+            except Exception:
+                # Ledger unreadable: report the preconditions we can see
+                # rather than blaming the budget.
+                budget_ok = None
+            state = describe_paid_tier(
+                name,
+                tier,
+                local_only=self.local_only,
+                provider_ready=(
+                    getattr(self, provider_name, None) is not None if provider_name else None
+                ),
+                budget_ok=budget_ok,
+            )
+            logger.warning(
+                f"Paid tier '{name}' requested but NOT active — this run is "
+                f"degrading to local Ollama. Reason: {state['reason']}"
+            )
+        except Exception:  # pragma: no cover - diagnostics must never break routing
+            logger.warning(f"Paid tier '{name}' requested but NOT active — degrading to local")
 
     def _init_api_providers(self):
         """Initialize API providers if not provided. No-op in local-only mode."""
@@ -202,6 +363,13 @@ class HybridLLMRouter:
         """
         start_time = utcnow()
 
+        # Captured before local-only mode rewrites them below: a tier that
+        # loses to the operator's kill switch is an infrastructure problem
+        # worth a WARNING, while one the *caller* opted out of via an
+        # explicit model / force_local is ordinary and must stay quiet.
+        caller_model = model
+        caller_forced_local = force_local
+
         # In local-only mode any caller-supplied force_api / paid model
         # selection is silently overridden — we never make billed calls.
         if self.local_only:
@@ -254,6 +422,16 @@ class HybridLLMRouter:
                         f"Paid tier '{paid_tier}' active: routing to "
                         f"{tier_provider_name}:{tier_model}"
                     )
+
+        # The tier was asked for and did not engage, so this call is about to
+        # run on local Ollama. Say so out loud — a capability that silently
+        # no-ops is indistinguishable from one that was never deployed.
+        if paid_tier and not tier_pinned:
+            self._warn_tier_degraded(
+                paid_tier,
+                caller_model=caller_model,
+                caller_forced_local=caller_forced_local,
+            )
 
         # Get model config
         model_config = self.hierarchy.get_model_config(selected_model)

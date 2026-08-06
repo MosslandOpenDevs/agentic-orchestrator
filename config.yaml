@@ -119,13 +119,17 @@ budget:
   # Daily spending limit in USD. Measured cost of one debate on gpt-5.4-mini
   # is $0.446 (38 calls, 273k in / 54k out — debate context accumulates
   # across rounds, which is why the input side dominates), so 4 debates/day
-  # is ~$1.78. That leaves only ~$0.21 of headroom — enough for a retry, but
-  # roughly two legacy completions would cross the cap (see the note above).
-  daily_limit_usd: 2.0
-  # Monthly spending limit in USD. Must exceed daily x 31 ($62) or the month
-  # dies before the day does: at $45 the cap bit around day 25 and every
-  # later debate silently degraded to local gemma. $100 covers the measured
-  # ~$54/month with room for extra manual debates.
+  # is ~$1.78. At the old $2.00 that left ~$0.21 of headroom, and roughly two
+  # legacy completions would cross the cap (see the note above) — which does
+  # not fail loudly for the tier, it just puts the rest of the day's debates
+  # back on local gemma. $3.00 covers the four debates plus retries and a
+  # manual `ao` session on the same day.
+  daily_limit_usd: 3.0
+  # Monthly spending limit in USD. Must exceed daily x 31 or the month dies
+  # before the day does: at $45 the cap bit around day 25 and every later
+  # debate degraded to local gemma. $100 still clears the new daily ceiling
+  # (31 x $3 = $93) and covers the measured ~$54/month of scheduled debates
+  # with room for extra manual ones.
   monthly_limit_usd: 100.0
   # Warn when usage reaches this percentage
   warning_threshold: 0.7

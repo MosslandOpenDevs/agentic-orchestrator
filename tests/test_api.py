@@ -729,3 +729,51 @@ class TestAdaptersEndpoint:
         # TRACKED_COINS must feed the shared sources/source_count contract.
         assert coingecko["source_count"] > 0
         assert len(coingecko["sources"]) == coingecko["source_count"]
+
+
+class TestPaidTierVisibility:
+    """A silently-dead paid tier must be visible without reading logs.
+
+    Between 2026-08-05 and 2026-08-06 the debate tier was inert (stale PM2
+    env pinned MOSS_LOCAL_LLM_ONLY=true) and no endpoint said so: /status
+    reported "operational" and /usage showed $0.00, which is also what a
+    quiet day looks like. These endpoints now distinguish the two.
+    """
+
+    def test_status_reports_the_tier_as_degraded_under_the_kill_switch(
+        self, client, monkeypatch
+    ):
+        monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "true")
+        router = client.get("/status").json()["components"]["llm_router"]
+        assert router["status"] == "degraded"
+        assert router["local_only"] is True
+        assert "debate" in router["degraded_tiers"]
+        assert "MOSS_LOCAL_LLM_ONLY" in router["paid_tiers"]["debate"]["reason"]
+
+    def test_status_reports_healthy_when_the_tier_can_spend(self, client, monkeypatch):
+        monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "false")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        router = client.get("/status").json()["components"]["llm_router"]
+        assert router["status"] == "healthy"
+        assert router["degraded_tiers"] == []
+
+    def test_status_stays_operational_when_only_the_tier_is_down(self, client, monkeypatch):
+        # Top-level status still tracks the database. A dead paid tier is a
+        # quality problem, not an outage, and must not page as one.
+        monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "true")
+        assert client.get("/status").json()["status"] == "operational"
+
+    def test_usage_explains_a_zero_ledger(self, client, monkeypatch):
+        monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "true")
+        data = client.get("/usage").json()
+        assert data["today"]["total_cost"] == 0
+        assert data["llm_routing"]["status"] == "degraded"
+        assert "MOSS_LOCAL_LLM_ONLY" in data["llm_routing"]["paid_tiers"]["debate"]["reason"]
+
+    def test_usage_never_leaks_the_api_key(self, client, monkeypatch):
+        # The report is derived from key *presence*; the value must not ride
+        # along on a public endpoint.
+        monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "false")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-secret-do-not-leak")
+        assert "sk-secret-do-not-leak" not in client.get("/usage").text
+        assert "sk-secret-do-not-leak" not in client.get("/status").text

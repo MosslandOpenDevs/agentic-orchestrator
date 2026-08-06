@@ -319,12 +319,61 @@ for a in json.load(sys.stdin):
 **예방 규칙**:
 
 - PM2 관리 프로세스 **안에서** `pm2 ... --update-env` 또는 `pm2 start`를 절대
-  실행하지 말 것. 운영 안내 명령(`pm2 restart ecosystem.config.js --update-env`)은
-  로그인 셸 전용이다.
+  실행하지 말 것. 로그인 셸 전용이다.
 - 이 deploy.sh를 복사해 쓰는 다른 프로젝트(Algora, bridge-2026/oracle,
   signalmap의 daily-ingest.sh 등)도 같은 수정이 필요하다 — 실제로 2026-08-05
   스윕에서 `algora-web`(1-59/5)·`oracle-web`(3-59/5)이 같은 방식으로 오염돼
   있었다.
+
+## `.env`를 고쳤는데 프로세스가 옛 값을 들고 있다 (2026-08-06 사고)
+
+**증상**: `.env`에는 `MOSS_LOCAL_LLM_ONLY=false`인데 `pm2 jlist`의 앱 환경은 `true`.
+`pm2 restart ecosystem.config.js --update-env`를 (로그인 셸에서, 오염 키를 unset하고)
+실행해도 값이 그대로다.
+
+**원인** (PM2 7.0.3에서 프로브 변수로 실측):
+
+| 명령 형태 | 호출한 셸의 환경을 병합하나? |
+|-----------|------------------------------|
+| `pm2 restart moss-ao-api --update-env` (앱 **이름**) | **예** |
+| `pm2 restart ecosystem.config.js --update-env` (설정 **파일**) | **아니오** — 파일의 `env:` 블록만 적용 |
+
+`ecosystem.config.js`의 `env:` 블록에는 `NODE_ENV`/`PYTHONPATH`/`OLLAMA_HOST` 정도만
+있고, `.env`의 나머지 키(`MOSS_LOCAL_LLM_ONLY`, `GITHUB_TOKEN` …)는 파일 상단의 인라인
+로더가 **`pm2` CLI 프로세스의 `process.env`**에 실어 주는 경로로만 앱에 들어간다 —
+즉 `pm2 start` 시점의 스냅샷이 전부다. 따라서 그동안 안내돼 온 설정 파일 형태는
+`.env` 키를 갱신할 수 없는 유일한 형태였다.
+
+**결과**: `.env`를 고쳐도 반영되지 않고, 배포는 (`--update-env` 없이 재시작하므로)
+당연히 반영하지 않으며, 아무 에러도 나지 않는다. 유료 토론 티어가 이렇게 하루 동안
+로컬 gemma로 조용히 돌았다.
+
+**수정**: 삭제 후 재등록 — 이 문서가 cron 오염 제거에 쓰는 방법과 같다.
+
+```bash
+pm2 delete moss-ao-signals moss-ao-health moss-ao-trends moss-ao-backlog \
+           moss-ao-deploy moss-ao-debate moss-ao-web moss-ao-api
+pm2 start ecosystem.config.js && pm2 save
+```
+
+**검증** (`.env`와 실제 프로세스 환경이 일치하는지):
+
+```bash
+pm2 jlist | python3 -c "
+import json, sys
+for a in json.load(sys.stdin):
+    if a['name'].startswith('moss-ao'):
+        print(a['name'], a['pm2_env'].get('MOSS_LOCAL_LLM_ONLY'))
+"
+```
+
+> `pm2 start ecosystem.config.js`는 CLI의 `process.env` 전체를 **모든** 앱에 스냅샷한다.
+> 그래서 `GITHUB_TOKEN` 같은 배포 전용 키도 api/web 환경에 들어간다 — 2026-08-05의
+> `--update-env` 오염과는 원인이 다른, 이 설정 방식 자체의 성질이다. 최소권한이
+> 필요해지면 인라인 로더가 `process.env`를 오염시키는 대신 앱별 `env:` 블록에만
+> 값을 넣도록 바꿔야 한다.
+
+
 
 ## 업그레이드 경로: GitHub Actions + Tailscale
 

@@ -435,9 +435,22 @@ pm2 save
 - **스케줄러는 재시작하지 않는다**: signals/trends/debate/backlog/health는 cron 틱마다
   파이썬을 새로 띄우므로 다음 실행에서 새 코드를 자동으로 집는다. 재시작하면 진행 중인
   작업만 죽는다. 상시 실행되는 `moss-ao-api`·`moss-ao-web`만 재시작 대상이다.
-- **`ecosystem.config.js` 변경은 수동 반영**: cron·env 정의는 자동 재등록되지 않는다.
-  로그에 안내가 뜨면 **로그인 셸에서** `pm2 restart ecosystem.config.js --update-env
-  && pm2 save` 실행.
+- **`ecosystem.config.js`·`.env` 변경은 수동 반영**: cron·env 정의는 자동 재등록되지 않는다.
+  **삭제 후 재등록**이 유일하게 확실한 방법이다 (로그인 셸에서):
+
+  ```bash
+  pm2 delete moss-ao-signals moss-ao-health moss-ao-trends moss-ao-backlog moss-ao-deploy moss-ao-debate moss-ao-web moss-ao-api
+  pm2 start ecosystem.config.js && pm2 save
+  ```
+
+- **`pm2 restart ecosystem.config.js --update-env`는 `.env` 값을 갱신하지 못한다**
+  (PM2 7.0.3에서 실측, 2026-08-06). 설정 파일을 인자로 주면 PM2는 파일의 `env:` 블록만
+  적용하고 **호출한 셸의 환경은 병합하지 않는다** — 앱 이름을 주는
+  `pm2 restart moss-ao-api --update-env` 형태는 병합한다. `MOSS_LOCAL_LLM_ONLY`처럼
+  `.env`에만 있는 키는 `env:` 블록에 없고 `pm2 start` 시점의 `process.env` 스냅샷으로만
+  들어가므로, 하필 안내돼 온 그 명령이 갱신하지 못하는 유일한 형태였다. 그 결과
+  `.env`가 `false`인데 프로세스는 `true`를 들고 하루치 토론이 통째로 로컬 gemma로
+  돌았다 (아래 [유료 티어 조용한 강등](#유료-티어가-조용히-죽지-않게-하는-법) 참조).
 - **PM2 관리 프로세스 안에서 `pm2 ... --update-env` 금지**: PM2는 프로세스 자신의
   설정 키(`cron_restart` 등)를 환경변수로 주입하므로, `--update-env`가 그것을 대상
   앱 설정으로 병합해 api/web이 5분마다 재시작되는 사고가 났다 (2026-08-05).
@@ -933,14 +946,43 @@ GPU(~8 GB)에 상주하는 모델은 두 개뿐이며 스왑이 발생하지 않
 - **예산은 이제 하나의 통을 둘이 나눠 쓴다.** 레거시 실행이 `api_usage`에 기록되고
   라우터도 같은 원장에서 `can_use_api`를 읽으므로, 수동 `ao` 실행의 지출이 토론 티어의
   잔여 예산을 깎는다. 한도를 넘기면 레거시는 시끄럽게 실패(`BudgetExhaustedError`)하지만
-  **토론 티어는 조용히 로컬 gemma로 강등된다.** 일 $2.00 = 토론 4회(~$1.78) 기준이라
-  여유는 ~$0.21뿐 — 레거시 기본 모델(`gpt-5.2-chat-latest`, 토론 모델의 3.3배 단가)로는
-  완성 2건이면 넘긴다. 토론이 도는 날 수동 작업을 하려면 `config.yaml`의
+  **토론 티어는 로컬 gemma로 강등된다** (v0.6.20부터 조용히는 아니다 — WARNING과
+  `/usage`의 `llm_routing`에 잡힌다). 일 한도는 $2.00 → **$3.00**으로 올렸다:
+  $2.00에서는 토론 4회(~$1.78) 뒤 여유가 ~$0.21뿐이라 레거시 기본 모델
+  (`gpt-5.2-chat-latest`, 토론 모델의 3.3배 단가) 완성 2건이면 넘겼다. $3.00은 토론
+  4회 + 재시도 + 같은 날 수동 `ao` 세션을 감당하고, 월 한도 $100도 넘지 않는다
+  (31 × $3 = $93). 그보다 큰 수동 작업을 할 거면 `config.yaml`의
   `budget.daily_limit_usd`를 먼저 올릴 것.
 
 > **서버는 `MOSS_LOCAL_LLM_ONLY=false`로 운영된다** (토론 유료 티어에 필요). 즉 거기서
 > 수동 `ao` 실행을 묶는 것은 킬 스위치가 아니라 **원장과 예산 상한**이다 — 프로덕션에서는
 > 두 병목 중 하나만 실제로 작동한다.
+
+### 유료 티어가 조용히 죽지 않게 하는 법
+
+유료 티어의 모든 전제조건은 **설계상 조용히 로컬로 강등된다** (API 장애가 토론을 죽여선
+안 되므로). 그 설계의 대가는 *한 번도 켜진 적 없는 티어*와 *완벽히 동작하는 티어*가
+구별되지 않는다는 것이다. 2026-08-05~06에 실제로 그렇게 됐다: PM2가 스케줄러에 낡은
+`MOSS_LOCAL_LLM_ONLY=true`를 물려 하루치 토론이 전부 gemma3:4b로 돌았는데 에러도,
+알림도 없었고 `/status`는 계속 정상이었다. 유일한 증거는 아무도 안 보는 $0.00 원장뿐.
+
+강등은 그대로 두되, 침묵만 없앴다 (v0.6.20):
+
+| 관측 지점 | 내용 |
+|-----------|------|
+| **토론 로그 WARNING** | 티어를 요청했는데 활성화되지 않으면 `Paid tier 'debate' requested but NOT active — ... Reason: <원인>`. 프로세스당 1회 (토론 1회 ≈ 38콜이라 중복 억제). 호출자가 `model`/`force_local`로 직접 옵트아웃한 경우는 DEBUG — 정상 동작이 WARNING 채널을 오염시키지 않게 |
+| **`GET /status`** | `components.llm_router` = `{status, local_only, degraded_tiers, paid_tiers{...}}`. 설정 수준 판정이라 네트워크·DB를 건드리지 않는다 (이 엔드포인트는 공개·핫 경로). **최상위 `status`는 그대로 DB만 반영** — 티어가 죽은 건 장애가 아니라 품질 문제라 페이징 대상이 아니다 |
+| **`GET /usage`** | `llm_routing` 블록. 여기선 예산까지 확인하므로 `$0.00`이 "쓸 일이 없었다"인지 "티어가 죽었다"인지 구별된다 |
+
+원인 판정은 `llm/router.py`의 `describe_paid_tier()` 한 곳에서만 만들어지고 라우터와
+엔드포인트가 이를 공유한다 — 런타임과 관측이 서로 다른 답을 내놓을 수 없다. 우선순위는
+"운영자가 **먼저** 만져야 할 스위치" 순: 킬 스위치 → `enabled` → 모델/프로바이더 →
+API 키 → 예산.
+
+> **주의:** `/status`의 판정은 **API 프로세스 자신의 환경** 기준이다. API와 토론
+> 스케줄러는 별개 PM2 앱이라 원칙적으로 어긋날 수 있다. 실제로는 둘 다 하나의
+> `pm2 start ecosystem.config.js`에서 환경을 받으므로 2026-08-06에도 **같이** 틀렸고,
+> 그래서 이 판정이 그때 사고를 잡아냈을 것이다.
 
 > **임베딩은 현재 어떤 코드도 호출하지 않는다 (2026-08-05 확인).** `hierarchy.py`에
 > `qwen3-embedding:0.6b`가 등록돼 있고 이 문서도 오랫동안 "RAG 인덱싱, 유사도 비교"에
