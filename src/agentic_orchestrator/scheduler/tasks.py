@@ -484,6 +484,7 @@ def _load_backlog_config() -> dict:
 
     import yaml
 
+    from ..scoring.second_pass import SECOND_PASS_DEFAULTS
     from .backlog_triage import TRIAGE_DEFAULTS
 
     defaults = {
@@ -522,6 +523,10 @@ def _load_backlog_config() -> dict:
         for key, value in clustering_defaults.items():
             clustering.setdefault(key, value)
         backlog_config["clustering"] = clustering
+        second_pass = backlog_config.get("second_pass") or {}
+        for key, value in SECOND_PASS_DEFAULTS.items():
+            second_pass.setdefault(key, value)
+        backlog_config["second_pass"] = second_pass
         return backlog_config
     except Exception as e:
         logger.warning(f"Failed to load backlog config, using defaults: {e}")
@@ -530,6 +535,7 @@ def _load_backlog_config() -> dict:
             "issue_lifecycle": dict(lifecycle_defaults),
             "triage": dict(TRIAGE_DEFAULTS),
             "clustering": dict(clustering_defaults),
+            "second_pass": dict(SECOND_PASS_DEFAULTS),
         }
 
 
@@ -827,6 +833,15 @@ async def _auto_score_and_save_ideas(
     # reach planning through the normal backlog-triage path.
     final_plan_claimed = False
 
+    # Second-pass review: the local scorer proposes, a capable model
+    # disposes. Promotion is what leads to a plan and then a scaffolded
+    # project, so it takes two signatures — and when the reviewer cannot
+    # run, the idea is HELD rather than promoted (see second_pass docstring).
+    from ..scoring.second_pass import SecondPassReviewer
+
+    reviewer = SecondPassReviewer(router, backlog_config.get("second_pass") or {})
+    review_stats = {"confirmed": 0, "demoted": 0, "rejected": 0, "unavailable": 0}
+
     for idea in representatives:
         try:
             # Build idea content string
@@ -854,6 +869,40 @@ async def _auto_score_and_save_ideas(
             # Create idea in database
             idea_id = str(uuid.uuid4())[:8]
             status = "pending"
+
+            review = None
+            if decision == "promote" and reviewer.enabled:
+                # With the second pass on, promotion needs an explicit
+                # CONFIRM — no exceptions. Everything else (demote, reject,
+                # reviewer unreachable, per-cycle budget spent) holds the
+                # idea instead. Promoting an unreviewed candidate because
+                # the budget ran out would reintroduce exactly the hole this
+                # gate exists to close, and it would do so invisibly.
+                if reviewer.should_review(score.total):
+                    review = await reviewer.review(
+                        title=idea_title,
+                        content=idea_content,
+                        local_score=score.total,
+                        context=score_context,
+                    )
+                    review_stats[
+                        {
+                            "confirm": "confirmed",
+                            "demote": "demoted",
+                            "reject": "rejected",
+                        }.get(review.verdict, "unavailable")
+                    ] += 1
+                    if review.rejects:
+                        decision = "archive"
+                    elif not review.promotes:
+                        decision = "pending"
+                else:
+                    review_stats["unavailable"] += 1
+                    logger.info(
+                        f"Holding '{idea_title[:50]}' — no second-pass review available "
+                        f"this cycle (budget spent or below review threshold)"
+                    )
+                    decision = "pending"
 
             if decision == "promote" and promoted_count < max_per_cycle:
                 status = "promoted"
@@ -957,6 +1006,7 @@ async def _auto_score_and_save_ideas(
                     "extra_metadata": {
                         "auto_score": score.to_dict(),
                         "debate_topic": topic,
+                        **({"second_pass": review.to_dict()} if review else {}),
                     },
                 }
             )
@@ -1185,7 +1235,9 @@ async def _auto_score_and_save_ideas(
     logger.info(
         f"Auto-scoring complete: {promoted_count} promoted, {archived_count} archived, "
         f"{pending_count} pending, {dedup_skipped} duplicates skipped, "
-        f"{duplicate_saved} clustered near-duplicates stored"
+        f"{duplicate_saved} clustered near-duplicates stored, "
+        f"second pass {review_stats['confirmed']}✓/{review_stats['demoted']}↓/"
+        f"{review_stats['rejected']}✗/{review_stats['unavailable']}?"
     )
     if github_client:
         logger.info("GitHub Issues created for all processed ideas")

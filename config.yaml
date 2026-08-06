@@ -169,6 +169,14 @@ llm:
       enabled: true
       provider: openai
       model: gpt-5.4-mini   # $0.75/M in, $4.50/M out (2026-08)
+    # Second-pass promotion review (v0.6.22). Same model, different job: it
+    # sees one idea plus the local scorer's verdict and says confirm/demote/
+    # reject. Narrow funnel — only promotion candidates are reviewed, ~3-8
+    # per debate, so roughly $0.03 a debate.
+    review:
+      enabled: true
+      provider: openai
+      model: gpt-5.4-mini
 
 # =============================================================================
 # Backlog Controls (idea de-duplication + GitHub issue cap)
@@ -211,6 +219,29 @@ backlog:
     content_weight: 0.5
     max_df_ratio: 0.6
     min_shared_terms: 2
+
+  # Second-pass promotion review (v0.6.22). The pipeline had an inversion:
+  # debates ran on gpt-5.4-mini but the gate deciding whether their output
+  # became a plan — and then a scaffolded project — was a local gemma3:4b
+  # re-score. The strong model produced the work and the weak one graded it,
+  # which is exactly how 2026-08-05 ended with 22 consecutive 8.0s and three
+  # near-identical projects.
+  #
+  # Promotion now needs two signatures. The local scorer still grades every
+  # candidate (free, and a fine filter for obvious rejects); only ideas it
+  # wants to PROMOTE are sent to the paid reviewer.
+  #
+  # When the reviewer cannot run — no key, no budget, provider down, tier
+  # off — the idea is HELD at `scored`, never promoted. Auto-approval and
+  # project generation are downstream of promotion, so a silent reviewer can
+  # never let an unvetted idea reach either. A degraded-to-local response is
+  # also refused: that is the first opinion twice, not a second one.
+  second_pass:
+    enabled: true
+    paid_tier: review
+    min_local_score: 7.0      # only promotion candidates are worth paying for
+    max_reviews_per_cycle: 8
+    max_tokens: 700
 
   # Backlog triage — the consumer that matches idea production (~40/day from
   # debates) with terminal decisions. Every backlog cycle (4h in production)
