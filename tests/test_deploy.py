@@ -1007,6 +1007,22 @@ class TestFailureBackoff:
         assert server.state() == target
 
 
+class TestWebsiteInstall:
+    """The poller runs with NODE_ENV=production, which npm reads as
+    --omit=dev. The Next build needs postcss, @tailwindcss/postcss and
+    typescript, all devDependencies, so an install that honours NODE_ENV
+    exits 0 with a tree the build cannot use (45 packages instead of 382;
+    observed in production on 2026-08-06)."""
+
+    def test_npm_ci_installs_dev_dependencies(self, server: Server):
+        server.push({"website/package.json": '{"name": "web", "version": "2"}\n'})
+
+        server.run(NODE_ENV="production")
+
+        calls = server.calls()
+        assert "npm ci --include=dev" in calls, calls
+
+
 class TestAtomicWebBuild:
     """website/ builds go to a staging dir (.next.new) and are swapped in
     whole right before the web restart, so a failed build can never leave the

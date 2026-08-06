@@ -322,8 +322,15 @@ build_and_restart() {
 
   if [ "${web}" = "1" ]; then
     if [ "${nodedeps}" = "1" ]; then
-      log "npm ci (dependencies changed)"
-      (cd website && "${NPM_BIN}" ci --no-audit --no-fund) \
+      # --include=dev is load-bearing. The poller runs with NODE_ENV=production
+      # (ecosystem.config.js), and npm reads that as --omit=dev: the install
+      # then skips postcss, @tailwindcss/postcss and typescript, exits 0, and
+      # `next build` dies on "Can't resolve '@vercel/turbopack/postcss'".
+      # Confirmed on the server: 45 packages without the flag, 382 with it.
+      # It stayed hidden because npm ci only runs when website/package*.json
+      # changes, and node_modules had been installed by hand long before.
+      log "npm ci --include=dev (dependencies changed)"
+      (cd website && "${NPM_BIN}" ci --include=dev --no-audit --no-fund) \
         || { log "ERROR npm ci failed"; return 1; }
     fi
     # NEXT_PUBLIC_* is baked in at build time, so the frontend always needs a
