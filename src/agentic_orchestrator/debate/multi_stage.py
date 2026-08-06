@@ -291,13 +291,18 @@ class MultiStageDebate:
 
             # Run agents in parallel
             tasks = []
-            for agent in round_agents:
+            # enumerate: each agent gets its own creativity technique. The
+            # whole round runs concurrently off ONE self.ideas snapshot, so
+            # the technique index is the only thing distinguishing agents
+            # within a round — without it they all return the same idea.
+            for agent_index, agent in enumerate(round_agents):
                 task = self._run_divergence_agent(
                     agent=agent,
                     topic=topic,
                     context=context,
                     round_num=round_num,
                     previous_ideas=[i.title for i in self.ideas],
+                    agent_index=agent_index,
                 )
                 tasks.append(task)
 
@@ -806,6 +811,7 @@ class MultiStageDebate:
         context: str,
         round_num: int,
         previous_ideas: List[str],
+        agent_index: Optional[int] = None,
     ) -> tuple[DebateMessage, Optional[Idea], int, float]:
         """Run a single divergence agent."""
         personality_modifiers = agent.personality.get_behavior_modifiers()
@@ -816,6 +822,7 @@ class MultiStageDebate:
             agent_personality=personality_modifiers,
             round_num=round_num,
             previous_ideas=previous_ideas,
+            agent_index=agent_index,
         )
 
         # Add similarity feedback to encourage differentiation
@@ -838,6 +845,7 @@ Present your opinion with your unique perspective and expertise.
             response = await self.router.route(
                 prompt=prompt,
                 task_type="idea_generation",
+                paid_tier="debate",
                 system=system_prompt,
                 quality="normal",
                 temperature=self.protocol.get_temperature(DebatePhase.DIVERGENCE),
@@ -898,6 +906,7 @@ Assign a score between 1-10 for each idea.
             response = await self.router.route(
                 prompt=prompt,
                 task_type="evaluation",
+                paid_tier="debate",
                 system=system_prompt,
                 quality="normal",
                 temperature=self.protocol.get_temperature(DebatePhase.CONVERGENCE),
@@ -956,6 +965,7 @@ Your task is to write an actionable implementation plan.
             response = await self.router.route(
                 prompt=prompt,
                 task_type="final_plan",
+                paid_tier="debate",
                 system=system_prompt,
                 quality="high",  # Use better model for planning
                 temperature=self.protocol.get_temperature(DebatePhase.PLANNING),
@@ -1018,6 +1028,7 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
             response = await self.router.route(
                 prompt=prompt,
                 task_type="quality_check",
+                paid_tier="debate",
                 system=system_prompt,
                 quality="normal",
                 temperature=self.protocol.get_temperature(DebatePhase.PLANNING),

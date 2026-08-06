@@ -6,7 +6,7 @@ Includes throttling and cooling support to prevent overheating.
 """
 
 import asyncio
-import functools
+import contextlib as asynccontextlib
 import json
 import logging
 import os
@@ -70,23 +70,14 @@ class ThrottleState:
     is_cooling: bool = False
     cooling_until: float = 0.0
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-
-
-def _throttled(func):
-    """Apply the request interval and the concurrency cap to a provider call.
-
-    Both guards must wrap the *whole* call: the interval decides when a
-    request may start, the semaphore decides how many may be in flight, and
-    only the latter can keep a slow request from overlapping the next one.
-    """
-
-    @functools.wraps(func)
-    async def wrapper(self, *args, **kwargs):
-        await self._wait_for_throttle()
-        async with self._request_slots:
-            return await func(self, *args, **kwargs)
-
-    return wrapper
+    # Caps requests that are IN FLIGHT, which `_lock` never did — it only
+    # guards state updates and is released before the HTTP call. Until
+    # v0.6.21 `throttling.ollama.max_concurrent_requests` was therefore dead
+    # config: a divergence round fans out 8 agents through asyncio.gather,
+    # min_request_interval spaced their *starts* 5s apart, and all 8 then sat
+    # on the single shared GPU at once. That is the load pattern behind the
+    # KV-cache stalls that killed three debates on 2026-08-05.
+    _slots: Optional[asyncio.Semaphore] = None
 
 
 @dataclass
@@ -182,29 +173,57 @@ class OllamaProvider:
         self._last_health_check: Optional[datetime] = None
         self._throttle_state = ThrottleState()
         self._throttle_enabled = os.getenv("OLLAMA_THROTTLE", "true").lower() == "true"
-        # `max_concurrent_requests` was documented in config.yaml ("1 =
-        # sequential only") but nothing ever read it, so the single GPU could
-        # be hit by as many requests as there were agents in a round.
-        try:
-            max_concurrent = int(self.config.throttle.get("max_concurrent_requests", 1))
-        except (TypeError, ValueError):
-            max_concurrent = 1
-        self._request_slots = asyncio.Semaphore(max(1, max_concurrent))
         # 503 retry configuration. Tunable via env so the operator can
         # widen/narrow the patience window without a code change.
         self._max_503_retries = int(os.getenv("OLLAMA_503_RETRIES", "4"))
         self._503_backoff_base = float(os.getenv("OLLAMA_503_BACKOFF", "5"))
 
-    async def _wait_for_throttle(self) -> None:
-        """Claim this request's slot, then sleep until the slot is due.
+    def _concurrency_slots(self) -> Optional[asyncio.Semaphore]:
+        """Lazily build the in-flight semaphore on the running loop.
 
-        The wait is computed and the slot claimed in the *same* critical
-        section. Previously the wait was computed under the lock but
-        ``last_request_time`` was only updated after sleeping, so every
-        concurrent caller read the same timestamp, computed the same delay and
-        woke together -- the interval throttled a single caller and nothing
-        else. Sleeping happens outside the lock so waiting callers do not
-        serialize on the mutex itself.
+        Created lazily (not in the dataclass default) because the provider is
+        constructed outside any event loop by the schedulers, and binding a
+        Semaphore to the wrong loop raises at await time.
+        """
+        if not self._throttle_enabled:
+            return None
+        # A malformed value in config.yaml must not raise from inside the
+        # request path; fall back to the documented default instead.
+        try:
+            limit = int(self.config.throttle.get("max_concurrent_requests", 1) or 0)
+        except (TypeError, ValueError):
+            logger.warning(
+                "throttling.ollama.max_concurrent_requests is not a number (%r); using 1",
+                self.config.throttle.get("max_concurrent_requests"),
+            )
+            limit = 1
+        if limit <= 0:
+            return None
+        state = self._throttle_state
+        if state._slots is None or getattr(state._slots, "_moss_limit", None) != limit:
+            state._slots = asyncio.Semaphore(limit)
+            state._slots._moss_limit = limit  # type: ignore[attr-defined]
+        return state._slots
+
+    @asynccontextlib.asynccontextmanager
+    async def _request_slot(self):
+        """Hold one in-flight slot for the duration of an HTTP request.
+
+        This is the piece `max_concurrent_requests` was missing: the throttle
+        only spaced request *starts*, so 8 concurrent divergence agents all
+        reached the GPU together regardless of the configured limit.
+        """
+        slots = self._concurrency_slots()
+        if slots is None:
+            yield
+            return
+        async with slots:
+            yield
+
+    async def _wait_for_throttle(self) -> None:
+        """Wait for throttling conditions to be met.
+
+        Releases the lock during sleep to avoid blocking other coroutines.
         """
         if not self._throttle_enabled:
             return
@@ -229,6 +248,14 @@ class OllamaProvider:
                 state.request_count = 0
 
         # Phase 2: Reserve a slot at least min_interval after the last one.
+        #
+        # The wait used to be computed under the lock but the slot claimed only
+        # after sleeping, so every concurrent caller read the same
+        # last_request_time, computed the same delay, and woke together -- the
+        # interval throttled one caller and nothing else. Reserving and
+        # computing in the same critical section is what makes it real;
+        # sleeping still happens outside the lock so waiters do not serialize
+        # on the mutex itself.
         async with state._lock:
             now = time.time()
             min_interval = throttle_config.get("min_request_interval", 5)
@@ -258,7 +285,6 @@ class OllamaProvider:
     def name(self) -> str:
         return "ollama"
 
-    @_throttled
     async def generate(
         self,
         prompt: str,
@@ -268,6 +294,7 @@ class OllamaProvider:
         max_tokens: Optional[int] = None,
         stream: bool = False,
         format_schema: Optional[Dict[str, Any]] = None,
+        num_ctx: Optional[int] = None,
         **kwargs,
     ) -> OllamaResponse:
         """
@@ -290,6 +317,9 @@ class OllamaProvider:
         Returns:
             OllamaResponse with generated text
         """
+        # Wait for throttle/cooling period
+        await self._wait_for_throttle()
+
         model = model or self.config.default_model
 
         payload = {
@@ -301,7 +331,13 @@ class OllamaProvider:
                 # Always sent: without it Ollama loads the model at its own
                 # default (4096), and long prompts silently truncate the
                 # output at prompt+output == num_ctx. See DEFAULT_NUM_CTX.
-                "num_ctx": self.config.throttle.get("num_ctx", DEFAULT_NUM_CTX),
+                # A per-call num_ctx wins over the throttle-config default:
+                # each distinct num_ctx is its own model instance on the
+                # server, and a task whose prompt fits a small context must
+                # be able to say so — a 16k KV-cache load can hang for
+                # minutes on a congested shared GPU while the already-
+                # resident small instance answers instantly (2026-08-05).
+                "num_ctx": num_ctx or self.config.throttle.get("num_ctx", DEFAULT_NUM_CTX),
             },
         }
 
@@ -324,7 +360,7 @@ class OllamaProvider:
         last_503_body = None
         for attempt in range(self._max_503_retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with self._request_slot(), httpx.AsyncClient(timeout=timeout) as client:
                     response = await client.post(
                         f"{self.config.base_url}/api/generate",
                         json=payload,
@@ -427,7 +463,6 @@ class OllamaProvider:
         except Exception as e:
             raise ProviderError(f"Ollama stream error: {e}") from e
 
-    @_throttled
     async def chat(
         self,
         messages: List[Dict[str, str]],
@@ -449,6 +484,9 @@ class OllamaProvider:
         Returns:
             OllamaResponse with generated text
         """
+        # Wait for throttle/cooling period
+        await self._wait_for_throttle()
+
         model = model or self.config.default_model
 
         # Add system message if provided
@@ -473,7 +511,7 @@ class OllamaProvider:
         timeout = self.config.throttle.get("request_timeout", self.config.timeout)
 
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with self._request_slot(), httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(f"{self.config.base_url}/api/chat", json=payload)
                 response.raise_for_status()
                 data = response.json()

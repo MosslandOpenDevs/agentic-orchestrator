@@ -63,11 +63,14 @@ class TestIntervalThrottle:
 
 class TestConcurrencyCap:
     def test_cap_is_read_from_config(self):
-        assert _provider(max_concurrent_requests=3)._request_slots._value == 3
+        assert _provider(max_concurrent_requests=3)._concurrency_slots()._value == 3
 
     def test_invalid_cap_falls_back_to_one(self):
-        assert _provider(max_concurrent_requests="nonsense")._request_slots._value == 1
-        assert _provider(max_concurrent_requests=0)._request_slots._value == 1
+        """A typo in config.yaml must not raise from inside the request path."""
+        assert _provider(max_concurrent_requests="nonsense")._concurrency_slots()._value == 1
+
+    def test_zero_or_negative_disables_the_cap(self):
+        assert _provider(max_concurrent_requests=0)._concurrency_slots() is None
 
     async def test_cap_actually_serializes_calls(self):
         """config.yaml documented `1 = sequential only` but nothing read the
@@ -78,7 +81,7 @@ class TestConcurrencyCap:
 
         async def work():
             nonlocal in_flight, peak
-            async with provider._request_slots:
+            async with provider._request_slot():
                 in_flight += 1
                 peak = max(peak, in_flight)
                 await asyncio.sleep(0.02)
@@ -93,9 +96,13 @@ class TestTheGuardsAreActuallyApplied:
     proves they work but not that anything uses them. These go through the
     public entry points, so removing the decorator fails them."""
 
-    def test_generate_and_chat_are_wrapped(self):
-        assert hasattr(OllamaProvider.generate, "__wrapped__")
-        assert hasattr(OllamaProvider.chat, "__wrapped__")
+    def test_generate_and_chat_hold_a_slot(self):
+        import inspect
+
+        for method in (OllamaProvider.generate, OllamaProvider.chat):
+            source = inspect.getsource(method)
+            assert "_request_slot()" in source, method.__name__
+            assert "_wait_for_throttle()" in source, method.__name__
 
     async def test_generate_calls_are_serialized_by_the_cap(self, monkeypatch):
         provider = _provider(max_concurrent_requests=1, min_request_interval=0)

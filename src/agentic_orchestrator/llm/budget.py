@@ -10,6 +10,9 @@ from typing import Any, Dict, Optional
 
 from ..db.connection import db
 from ..db.repositories import APIUsageRepository
+from ..utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -49,6 +52,7 @@ class BudgetController:
         "claude-haiku-3-5": ProviderPricing(input=0.80, output=4.0),
         # OpenAI models
         "gpt-5.2": ProviderPricing(input=2.5, output=10.0),
+        "gpt-5.4-mini": ProviderPricing(input=0.75, output=4.50),
         "gpt-5.2-chat-latest": ProviderPricing(input=2.5, output=10.0),
         "gpt-4o": ProviderPricing(input=2.5, output=10.0),
         # Gemini models
@@ -63,12 +67,53 @@ class BudgetController:
         budget: Optional[UsageBudget] = None,
         storage_path: Optional[Path] = None,
     ):
-        self.budget = budget or UsageBudget(
-            daily_limit_usd=float(os.getenv("DAILY_BUDGET_USD", "1.0")),
-            monthly_limit_usd=float(os.getenv("MONTHLY_BUDGET_USD", "30.0")),
-        )
+        self.budget = budget or self._budget_from_settings()
         self.storage_path = storage_path or Path("data/usage")
         self.storage_path.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _budget_from_settings() -> UsageBudget:
+        """Build the budget from config.yaml, with env vars overriding.
+
+        Until v0.6.19 the ``budget:`` block in config.yaml was decorative —
+        limits came only from ``DAILY_BUDGET_USD`` / ``MONTHLY_BUDGET_USD``
+        (defaults 1.0 / 30.0), which happened to match the file, so nobody
+        noticed. Raising the file's numbers for the paid debate tier would
+        have changed nothing and the tier would have silently degraded to
+        local part-way through each day. config.yaml is now the source of
+        truth; env vars still win for per-machine overrides.
+        """
+        from pathlib import Path as _Path
+
+        import yaml
+
+        settings: dict = {}
+        config_path = _Path(__file__).parent.parent.parent.parent / "config.yaml"
+        try:
+            with open(config_path) as f:
+                config = yaml.safe_load(f) or {}
+            settings = config.get("budget") or {}
+            if not isinstance(settings, dict):
+                settings = {}
+        except Exception as e:
+            logger.warning(f"Could not load budget config, using defaults: {e}")
+
+        def _limit(env_var: str, config_key: str, default: float) -> float:
+            raw = os.getenv(env_var)
+            if raw is None:
+                raw = settings.get(config_key, default)
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                logger.warning(f"Invalid budget value for {config_key}: {raw!r}; using {default}")
+                return default
+
+        return UsageBudget(
+            daily_limit_usd=_limit("DAILY_BUDGET_USD", "daily_limit_usd", 1.0),
+            monthly_limit_usd=_limit("MONTHLY_BUDGET_USD", "monthly_limit_usd", 30.0),
+            warning_threshold=_limit("BUDGET_WARNING_THRESHOLD", "warning_threshold", 0.7),
+            critical_threshold=_limit("BUDGET_CRITICAL_THRESHOLD", "critical_threshold", 0.9),
+        )
 
     def can_use_api(
         self,

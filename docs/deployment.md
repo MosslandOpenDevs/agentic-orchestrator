@@ -33,13 +33,13 @@ git push → main 머지
               ↓  (초록불일 때만)
    서버: moss-ao-deploy (5분마다, :04/:09/…/:59)
               ↓
-   git fetch → 변경 없으면 즉시 종료 (무상태·무로그)
+   git fetch → "마지막 성공 SHA"와 비교, 변경 없으면 즉시 종료 (무로그)
               ↓
-   가드: 브랜치 확인 · 로컬 수정 확인 · CI 상태 · 토론 진행 중 여부
+   가드: 실패 백오프 · 브랜치 · 로컬 수정 · 로컬 커밋 · CI 상태 · 토론 진행 중
               ↓
-   DB 스냅샷 (data/backup/) → git reset --hard → 빌드 → PM2 재시작
+   DB 스냅샷 (data/backup/) → git reset --hard → 빌드(.next.new 스테이징) → PM2 재시작
               ↓
-   헬스체크 (:3001/ready, :3000) → 실패 시 이전 커밋으로 자동 롤백
+   헬스체크 (:3001/ready, :3000) → 성공 시에만 성공 SHA 기록 / 실패 시 자동 롤백
 ```
 
 ### 변경 범위에 따라 필요한 작업만 수행
@@ -58,6 +58,17 @@ git push → main 머지
 
 ## 안전장치
 
+- **배포 기준은 HEAD가 아니라 "마지막 성공 SHA"** — `git reset --hard`는 빌드·헬스체크
+  **전에** HEAD를 전진시키므로, 배포 도중 폴러가 죽으면(OOM SIGKILL·재부팅) HEAD만 새
+  커밋에 가 있고 실제로는 옛 빌드가 돌아가는 상태가 됩니다. 예전 스크립트는 이때 다음
+  틱부터 "up to date"로 읽어 실패를 영구히 은폐했습니다. 이제 성공한 배포의 SHA를
+  `.git/moss-ao-deployed-sha`에 (헬스체크 통과 후에만) 기록하고 이 값을 비교 기준으로
+  씁니다. 상태와 HEAD가 어긋나면 미완 배포로 간주하고 재시도합니다.
+- **실패 백오프** — 같은 대상 SHA로 배포가 실패하면 시도 횟수를
+  `.git/moss-ao-deploy-attempt`에 (작업 시작 **전에** — SIGKILL도 세도록) 기록하고,
+  다음 재시도까지 `5분 × 2^(n-1)`(최대 60분, `DEPLOY_RETRY_*`로 조정)을 기다립니다.
+  강제 DB 스냅샷·빌드·이중 재시작·롤백·웹훅으로 이루어진 풀 사이클을 5분마다 반복하지
+  않기 위해서입니다. 원격에 새 커밋이 오면 즉시 리셋되고, `--force`는 백오프를 무시합니다.
 - **데이터 보존** — `git clean`을 절대 사용하지 않습니다. `git reset --hard`는 추적되지 않는
   파일을 건드리지 않으므로 `data/orchestrator.db`, `data/backup/`, `.env`,
   `website/.env.local`이 그대로 남습니다. 2026-07 DB 유실 사고의 재발 방지선이며
@@ -82,18 +93,36 @@ git push → main 머지
   확인합니다 (미지정 시 보고된 체크만 검사).
 - **로컬 수정 보호** — 서버 체크아웃에서 추적 중인 파일이 손으로 수정돼 있으면 배포를
   중단합니다(`--force`로만 덮어씀). `reset --hard`가 조용히 지우는 사고를 막습니다.
+- **로컬 커밋 보호** — HEAD가 `origin/main`의 조상이 아니면(서버에 로컬 커밋이 있거나
+  분기) `merge-base --is-ancestor` 검사가 배포를 중단합니다. `reset --hard`가 서버의
+  의도적 로컬 커밋을 조용히 버리는 것을 막습니다. reflog에는 남지만, 조용한 파괴는
+  파괴입니다. `--force`로만 덮어씁니다.
+- **프론트 빌드 원자화** — `npm run build`는 라이브 `.next`(moss-ao-web이 서빙 중)가
+  아니라 스테이징 디렉터리 `website/.next.new`에 빌드하고(`next.config.ts`가
+  `NEXT_DIST_DIR`를 읽음), 빌드가 통째로 성공했을 때만 web 재시작 직전에 rename 두 번으로
+  교체합니다. 실패하거나 도중에 죽은 빌드가 라이브 디렉터리를 반쯤 덮어쓴 채 남을 수
+  없습니다. 이전 빌드 캐시는 스테이징 디렉터리로 시딩해 증분 빌드를 유지합니다.
 - **토론 중 대기** — `moss-ao-debate` 등이 실행 중이면 백엔드 배포를 다음 틱으로 미룹니다
   (토론 1회 ~30분). 프론트엔드 전용 변경은 영향이 없으므로 그대로 진행합니다.
-- **동시 실행 방지** — 락 디렉터리 사용. 90분 이상 묵은 락은 자동 회수합니다.
+- **동시 실행 방지** — 락 디렉터리에 소유 프로세스의 PID를 기록합니다. 소유자가 죽어
+  있으면(SIGKILL은 EXIT trap을 건너뛰어 락을 못 지웁니다) 다음 틱이 **즉시** 회수하고,
+  PID를 읽을 수 없는 락만 90분 백스톱을 기다립니다. 같은 이유로 폴러의
+  `max_memory_restart`도 1G→3G로 올렸습니다 — Next 빌드가 폴러 프로세스의 메모리 예산
+  안에서 돌고, 한도 초과 시 PM2가 SIGKILL로 죽이기 때문입니다.
 - **헬스체크는 readiness를 봅니다** — `/health`가 아니라 **`/ready`** 를 호출합니다.
   `/health`는 프로세스 생존만 보고하므로 2026-07 사고 때 모든 DB 엔드포인트가 500을
   내는 동안에도 200을 유지했고, 그 상태로 배포가 성공 판정될 수 있었습니다. `/ready`는
-  실제 테이블을 읽고 안 되면 503을 반환합니다.
-  > 전환 주의: `/ready`가 없던 커밋으로 **롤백**하면 그 커밋에는 이 경로가 없어
-  > 404 → 헬스체크 실패 → `CRITICAL` 알림이 뜹니다. `/ready`가 포함된 커밋이 한 번
-  > 배포된 뒤로는 발생하지 않는 1회성 상황이며, 실제 서비스에는 영향이 없습니다.
-- **자동 롤백** — 빌드 실패나 배포 후 헬스체크 실패 시 이전 커밋으로 되돌리고 **재빌드까지**
-  수행해 일관된 상태로 복구합니다. 롤백마저 실패하면 `CRITICAL` 로그와 알림을 남깁니다.
+  실제 테이블을 읽고 안 되면 503을 반환합니다. 배포 **전에도** 같은 것을 봅니다: API가
+  떠 있는데 레디니스만 실패하는 상태(=DB 문제)라면, 어떤 코드를 올려도 그 게이트를
+  통과할 수 없으므로 재시작·롤백을 5분마다 반복하는 대신 배포를 미룹니다.
+  > 롤백 시에는 `/ready`가 없던 커밋으로 돌아갈 수 있으므로 `/health`도 함께 받아들입니다.
+- **자동 롤백** — 빌드 실패나 배포 후 헬스체크 실패 시 **마지막 성공 SHA**로 되돌리고
+  **재빌드까지** 수행해 일관된 상태로 복구합니다 (미완 배포 재시도 중이라면 HEAD는 이미
+  깨진 커밋에 가 있으므로, "직전 HEAD"가 아니라 마지막 성공 지점이 기준입니다).
+  롤백마저 실패하면 `CRITICAL` 로그와 알림을 남깁니다.
+- **자기 갱신 안전** — 스크립트 전체가 `main()` 함수로 감싸여 마지막 줄에서 호출됩니다.
+  bash는 스크립트를 실행하면서 읽으므로, 이 장치가 없으면 자기 자신이 배포되는 도중
+  새 파일을 엉뚱한 바이트 오프셋부터 읽을 수 있습니다.
 
 ## 설치 (서버에서 1회)
 
@@ -139,9 +168,13 @@ tail -f logs/deploy.log
 | `DEPLOY_ALERT_WEBHOOK` | (없음) | 실패·롤백 시 알릴 Slack/Discord 웹훅 |
 | `GITHUB_TOKEN` | (없음) | 선택. CI 상태 조회의 rate limit 완화용 |
 | `DEPLOY_VERBOSE` | `0` | `1`이면 변경 없는 틱도 로그에 남김 |
+| `DEPLOY_RETRY_BASE_MIN` | `5` | 첫 실패 후 재시도 대기(분). 실패마다 2배 |
+| `DEPLOY_RETRY_MAX_MIN` | `60` | 백오프 상한(분) |
 
-그 외 조정 가능한 값(`DEPLOY_HEALTH_RETRIES`, `DEPLOY_API_URL`, `UV_BIN` 등)은
-`scripts/deploy.sh` 상단 주석에 정리돼 있습니다.
+그 외 조정 가능한 값(`DEPLOY_HEALTH_RETRIES`, `DEPLOY_API_URL`, `UV_BIN`,
+`DEPLOY_STATE_FILE`/`DEPLOY_ATTEMPT_FILE` 등)은 `scripts/deploy.sh` 상단 주석에
+정리돼 있습니다. 배포 상태 파일 두 개는 `reset --hard`가 닿지 못하는 `.git/` 안에
+삽니다 (`moss-ao-deployed-sha`, `moss-ao-deploy-attempt`).
 
 ### uv / pip 자동 판별
 
@@ -180,13 +213,21 @@ pm2 delete moss-ao-deploy && pm2 save   # 완전 해제
 
 ### 수동 롤백
 
-자동 롤백은 "직전 커밋"까지만 되돌립니다. 더 이전으로 가려면:
+자동 롤백은 "마지막 성공 배포"까지만 되돌립니다. 더 이전으로 가려면:
 
 ```bash
 pm2 stop moss-ao-deploy          # 다시 앞으로 끌려가지 않도록 먼저 중지
 git reset --hard <커밋>
 pip install -e . && (cd website && npm run build)
 pm2 restart moss-ao-api moss-ao-web --update-env
+```
+
+수동으로 되돌린 뒤에는 상태 파일도 현재 HEAD로 맞춰 둡니다. 폴러가 재개되면 어차피
+`origin/main`으로 다시 배포되지만(그래서 먼저 중지하는 것), 상태 파일이 실제로 돌고
+있는 커밋을 가리켜야 그 배포의 변경 범위 계산과 로그·롤백 기준이 진실과 일치합니다:
+
+```bash
+git rev-parse HEAD > .git/moss-ao-deployed-sha
 ```
 
 DB까지 되돌려야 하면 손으로 파일을 복사하지 말고 복원 명령을 쓰십시오 — WAL 모드라
@@ -211,6 +252,10 @@ python -m agentic_orchestrator.scheduler restore-db
 | 증상 | 원인 / 조치 |
 |------|-------------|
 | 로그에 `ABORT ... local modifications` | 서버 체크아웃에서 추적 파일이 수정됨. `git status`로 확인 후 정리하거나 `--force` |
+| 로그에 `ABORT ... local commits` | 서버에 `origin/main`에 없는 커밋이 있음. push하거나 되돌린 뒤 재시도, 급하면 `--force`(로컬 커밋은 reflog로만 복구 가능해짐) |
+| `incomplete deploy detected ... retrying` | 직전 배포가 도중에 죽었음(OOM·재부팅). 정상 자기치유 — 반복되면 `logs/deploy.log`에서 무엇이 죽는지 확인 |
+| `backing off (retry Nm ...)` 반복 | 같은 커밋이 계속 실패해 재시도 간격을 늘리는 중. 원인 수정 커밋을 머지하면 즉시 재개, 급하면 `--force` |
+| `lock owner (pid N) is gone -- reclaiming` | 이전 폴러가 SIGKILL로 죽어 락을 못 지웠음. 자동 회수 — 정보성 로그 |
 | `CI: still running -- deferring` 반복 | CI가 아직 진행 중이거나 멈춤. Actions 탭 확인 |
 | `CI: status unavailable` 반복 | GitHub API 접근 실패(레이트 리밋 등). `GITHUB_TOKEN` 설정 검토 |
 | `scheduler busy` 로 계속 밀림 | 토론이 오래 걸리는 중. 급하면 `--force` |

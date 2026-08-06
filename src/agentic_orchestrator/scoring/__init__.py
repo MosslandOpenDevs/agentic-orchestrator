@@ -122,6 +122,16 @@ JSON으로만 응답해주세요:
         "required": ["feasibility", "relevance", "novelty", "impact"],
     }
 
+    # Scoring never needs the global 16k context: prompt (~2.5k tokens with a
+    # 2,000-char idea + trend context) + 1,024-token output budget fit in the
+    # server's default 4,096 instance with headroom. Passing this explicitly
+    # keeps scoring on the already-resident small instance — on 2026-08-05 a
+    # congested shared GPU hung every 16k KV-cache load for 30 min while the
+    # 4k instance kept answering in under a second, which starved backlog
+    # triage (and only triage needed rescuing; big-context tasks like trends
+    # genuinely need 16k and must wait for the box instead).
+    SCORING_NUM_CTX = 4096
+
     def __init__(
         self,
         router: Optional[HybridLLMRouter] = None,
@@ -178,6 +188,7 @@ JSON으로만 응답해주세요:
                 # window (the failure mode trends hit in 2026-08).
                 max_tokens=1024,
                 response_schema=self.SCORE_RESPONSE_SCHEMA,
+                num_ctx=self.SCORING_NUM_CTX,
             )
 
             score = self._parse_score_response(response.content)

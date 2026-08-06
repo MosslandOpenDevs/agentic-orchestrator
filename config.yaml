@@ -103,10 +103,16 @@ throttling:
 
 # API Budget Configuration
 budget:
-  # Daily spending limit in USD
-  daily_limit_usd: 1.0
-  # Monthly spending limit in USD
-  monthly_limit_usd: 30.0
+  # Daily spending limit in USD. Measured cost of one debate on gpt-5.4-mini
+  # is $0.446 (38 calls, 273k in / 54k out — debate context accumulates
+  # across rounds, which is why the input side dominates), so 4 debates/day
+  # is ~$1.78 and this leaves headroom for a retry or a manual run.
+  daily_limit_usd: 2.0
+  # Monthly spending limit in USD. Must exceed daily x 31 ($62) or the month
+  # dies before the day does: at $45 the cap bit around day 25 and every
+  # later debate silently degraded to local gemma. $100 covers the measured
+  # ~$54/month with room for extra manual debates.
+  monthly_limit_usd: 100.0
   # Warn when usage reaches this percentage
   warning_threshold: 0.7
   # Critical alert at this percentage (prefer local models)
@@ -117,8 +123,12 @@ budget:
 # =============================================================================
 project:
   # Auto-generation settings
+  # PAUSED 2026-08-06 while the debate diversity gate is verified: until the
+  # clustering gate has run a real debate end to end, a promoted duplicate
+  # would scaffold another near-identical project. Re-enable after the
+  # golden replay passes and one live debate looks right.
   auto_generate:
-    enabled: true
+    enabled: false
     # Minimum score for automatic project generation
     min_score: 8.0
     # Maximum concurrent project generations
@@ -138,6 +148,25 @@ project:
   output_dir: "projects"
 
 # =============================================================================
+# Paid-API routing (v0.6.19)
+# =============================================================================
+# The debate was the one task where local gemma3:4b visibly capped quality
+# (score inflation, generic titles) AND the one most exposed to the shared
+# GPU's congestion (needs 16k context locally). Everything else (scoring,
+# translation, trends, project generation) stays on local Ollama.
+#
+# TWO switches must both be on before a single cent is spent:
+#   1. server .env: MOSS_LOCAL_LLM_ONLY=false  (enables paid providers at all)
+#   2. a tier below with enabled: true          (names who may use them)
+# Budget limits above still apply — over budget, the tier degrades to local.
+llm:
+  paid_tiers:
+    debate:
+      enabled: true
+      provider: openai
+      model: gpt-5.4-mini   # $0.75/M in, $4.50/M out (2026-08)
+
+# =============================================================================
 # Backlog Controls (idea de-duplication + GitHub issue cap)
 # =============================================================================
 backlog:
@@ -151,6 +180,33 @@ backlog:
   # is paused. With triage draining the backlog this is an emergency valve
   # that should never trip. Set to 0 to disable the cap.
   max_open_ideas: 800
+
+  # Idea diversity gate (v0.6.20). A capable debate model given one topic
+  # returns one idea many times over, in wordings distinct enough that the
+  # title-prefix fingerprint above sees nothing: 2026-08-05 produced 24 ideas
+  # of which 8 were the same payment gateway, three of those were each
+  # promoted, and each scaffolded a project whose plan document was
+  # byte-identical to the others. Ideas are clustered per debate BEFORE
+  # scoring (so the LLM is not paid to score copies) and before GitHub (so
+  # the tracker mirrors decisions, not noise); only the representative of
+  # each cluster proceeds, the rest are stored as linked `duplicate` rows.
+  #
+  # TUNE ON PRECISION, NEVER ON CLUSTER COUNT. Measured on the 24 golden
+  # ideas (tests/data/golden_debate_x402.json): threshold 0.18 is the lowest
+  # value reaching pairwise precision 1.00 — 11 clusters, zero cross-theme
+  # merges. Lower thresholds do reach the "6-7 themes" the eye expects, but
+  # they get there by merging distinct ideas (precision 0.60-0.79), and a
+  # merged idea is deleted for good because only the representative
+  # proceeds. Precision >= 0.96 holds across 0.16-0.30, so erring high is
+  # harmless; erring low destroys ideas.
+  # min_shared_terms is the safety rail that makes a mis-set threshold
+  # survivable: with it, 24 unrelated ideas stay 24 clusters even at 0.04.
+  clustering:
+    enabled: true
+    threshold: 0.18
+    content_weight: 0.5
+    max_df_ratio: 0.6
+    min_shared_terms: 2
 
   # Backlog triage — the consumer that matches idea production (~40/day from
   # debates) with terminal decisions. Every backlog cycle (4h in production)

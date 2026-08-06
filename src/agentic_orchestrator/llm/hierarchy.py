@@ -123,6 +123,16 @@ class LLMHierarchy:
             capabilities=["reasoning", "analysis", "coding"],
             recommended_for=["drafts", "review", "coding"],
         ),
+        "gpt-5.4-mini": ModelConfig(
+            name="gpt-5.4-mini",
+            provider="openai",
+            tier=ModelTier.STANDARD,
+            context_size=400000,
+            cost_per_1k_input=0.00075,
+            cost_per_1k_output=0.0045,
+            capabilities=["reasoning", "analysis", "writing", "debate"],
+            recommended_for=["debate"],
+        ),
         "gpt-5.2": ModelConfig(
             name="gpt-5.2",
             provider="openai",

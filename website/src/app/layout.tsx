@@ -2,6 +2,14 @@ import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
 import { MotionConfig } from "framer-motion";
 import { I18nProvider } from "@/lib/i18n";
+import {
+  SITE_URL,
+  SITE_NAME,
+  SITE_TITLE,
+  TITLE_TEMPLATE,
+  SITE_DESCRIPTION,
+  OG_IMAGE,
+} from "@/lib/metadata";
 import { ModalProvider } from "@/components/modals/ModalProvider";
 import { Navigation } from "@/components/Navigation";
 import { Footer } from "@/components/Footer";
@@ -18,25 +26,26 @@ export const metadata: Metadata = {
   // Without metadataBase, Next.js resolves the relative og-image/twitter-image
   // URLs against http://localhost:3000 in the production build, so social
   // shares of ao.moss.land pointed their preview image at localhost.
-  metadataBase: new URL("https://ao.moss.land"),
-  title: "MOSS.AO — Agentic Orchestrator · Mossland",
-  description: "Multi-agent AI orchestration system for Mossland ecosystem",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: SITE_TITLE,
+    template: TITLE_TEMPLATE,
+  },
+  description: SITE_DESCRIPTION,
   keywords: ["AI", "agents", "orchestrator", "mossland", "crypto", "debate"],
   authors: [{ name: "Mossland" }],
   openGraph: {
-    title: "MOSS.AO — Agentic Orchestrator · Mossland",
-    description: "Multi-agent AI orchestration system for Mossland ecosystem",
-    url: "https://ao.moss.land",
-    siteName: "Mossland",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    url: SITE_URL,
+    siteName: SITE_NAME,
     type: "website",
-    // The image comes from app/opengraph-image.tsx, which Next.js wires up
-    // automatically. Declaring a URL here instead is what left the metadata
-    // pointing at a /og-image.png that was never added.
+    images: [OG_IMAGE],
   },
   twitter: {
     card: "summary_large_image",
-    title: "MOSS.AO — Agentic Orchestrator · Mossland",
-    description: "Multi-agent AI orchestration system for Mossland ecosystem",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
   },
   icons: {
     icon: "/favicon.ico",

@@ -2,6 +2,7 @@
 Hybrid LLM router for intelligent model selection.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -81,10 +82,53 @@ class HybridLLMRouter:
         self.budget = budget or BudgetController()
         self.hierarchy = hierarchy or LLMHierarchy()
 
+        # Paid-tier allowlist (config.yaml `llm.paid_tiers`): call sites may
+        # name a tier ("debate"); only enabled tiers whose provider is
+        # actually initialized can reach a paid model. Two independent
+        # switches must both be on before a single cent is spent: the env
+        # flag (MOSS_LOCAL_LLM_ONLY=false) and the tier's `enabled` in
+        # config — everything not listed stays on local Ollama either way.
+        self.paid_tiers = self._load_paid_tiers()
+        # A pinned paid tier retries ITSELF rather than degrading to local.
+        # Short and few: the debate's own cron tick is the real retry, and a
+        # long wait here just holds a debate round open.
+        self._paid_tier_retries = int(os.getenv("MOSS_PAID_TIER_RETRIES", "2"))
+        self._paid_tier_backoff = float(os.getenv("MOSS_PAID_TIER_BACKOFF", "2.0"))
+
         if not self.local_only:
             self._init_api_providers()
         else:
             logger.info("HybridLLMRouter: MOSS_LOCAL_LLM_ONLY active — paid providers disabled")
+
+    @staticmethod
+    def _load_paid_tiers() -> dict:
+        """Read `llm.paid_tiers` from config.yaml; {} on any failure."""
+        from pathlib import Path
+
+        import yaml
+
+        config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
+        try:
+            with open(config_path) as f:
+                config = yaml.safe_load(f) or {}
+            tiers = (config.get("llm") or {}).get("paid_tiers") or {}
+            if not isinstance(tiers, dict):
+                return {}
+            # Drop malformed entries here rather than at the call site: a
+            # one-line YAML typo (`debate: true`) would otherwise reach
+            # `tier.get(...)` in route() as a bool and raise AttributeError
+            # on every debate call — outside the try/fallback block, so it
+            # would kill the debate instead of degrading it to local.
+            clean = {}
+            for name, tier in tiers.items():
+                if isinstance(tier, dict):
+                    clean[name] = tier
+                else:
+                    logger.warning(f"Ignoring malformed paid tier '{name}': expected a mapping")
+            return clean
+        except Exception as e:
+            logger.warning(f"Could not load paid-tier config, staying fully local: {e}")
+            return {}
 
     def _init_api_providers(self):
         """Initialize API providers if not provided. No-op in local-only mode."""
@@ -117,6 +161,8 @@ class HybridLLMRouter:
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         response_schema: Optional[dict] = None,
+        num_ctx: Optional[int] = None,
+        paid_tier: Optional[str] = None,
     ) -> LLMResponse:
         """
         Route a request to the appropriate LLM.
@@ -137,6 +183,23 @@ class HybridLLMRouter:
                 cannot emit smart-quote delimiters, prose preambles, or
                 markdown fences. Ignored on the Claude/OpenAI paths, which
                 are unused in local-only production.
+            num_ctx: Per-call Ollama context override. Each distinct value
+                is its own model instance server-side; tasks whose prompt
+                fits a small context should pass one so they use the
+                already-resident instance instead of forcing a large
+                KV-cache load (which can hang on a congested shared GPU).
+                None keeps the throttle-config default. Forwarded on every
+                Ollama path, including both fallbacks — a dropped override
+                would silently reintroduce the hang.
+            paid_tier: Name of a paid-API tier from config.yaml
+                `llm.paid_tiers` (e.g. "debate"). Honored only when the tier
+                is enabled, its provider is initialized (needs
+                MOSS_LOCAL_LLM_ONLY=false plus an API key), the caller did
+                not pass an explicit `model` or `force_local`, and the
+                budget has headroom. Any missing precondition silently
+                falls back to the normal local selection — an API outage or
+                an exhausted budget must degrade the tier's task to local,
+                never kill it.
 
         Returns:
             LLMResponse with generated content
@@ -158,6 +221,7 @@ class HybridLLMRouter:
                     model = None
 
         # Determine model to use
+        tier_pinned = False
         if model:
             selected_model = model
         else:
@@ -167,6 +231,33 @@ class HybridLLMRouter:
                 force_local=force_local,
                 force_api=force_api,
             )
+            # Paid-tier override — the ONLY doorway to paid models besides
+            # an explicit force_api/model. Note force_local has already
+            # absorbed local-only mode above, so the env kill-switch also
+            # kills tiers. If the provider object is missing (no key /
+            # local-only) the provider branch below falls back to local by
+            # itself, but checking here keeps the budget math honest.
+            if paid_tier and not force_local:
+                # _load_paid_tiers guarantees dict values; be defensive
+                # anyway since paid_tiers is a public attribute callers and
+                # tests may set directly, and this runs outside the try.
+                tier = self.paid_tiers.get(paid_tier)
+                tier = tier if isinstance(tier, dict) else {}
+                tier_model = tier.get("model")
+                tier_provider_name = str(tier.get("provider") or "")
+                tier_provider = getattr(self, tier_provider_name, None)
+                if (
+                    tier.get("enabled")
+                    and tier_model
+                    and tier_provider is not None
+                    and self.budget.get_budget_status()["can_use_api"]
+                ):
+                    selected_model = tier_model
+                    tier_pinned = True
+                    logger.info(
+                        f"Paid tier '{paid_tier}' active: routing to "
+                        f"{tier_provider_name}:{tier_model}"
+                    )
 
         # Get model config
         model_config = self.hierarchy.get_model_config(selected_model)
@@ -182,6 +273,7 @@ class HybridLLMRouter:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     format_schema=response_schema,
+                    num_ctx=num_ctx,
                 )
             elif provider_name == "claude" and self.claude:
                 response = await self._call_claude(
@@ -209,32 +301,69 @@ class HybridLLMRouter:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     format_schema=response_schema,
+                    num_ctx=num_ctx,
                 )
                 selected_model = fallback
                 provider_name = "ollama"
 
         except Exception as e:
-            # On error, try fallback (once only to prevent infinite loops)
             logger.error(f"Error with {selected_model}: {e}")
-            fallback = self.hierarchy.get_fallback_model(selected_model)
 
-            if fallback and fallback != selected_model:
-                try:
-                    response = await self._call_ollama(
-                        model=fallback,
-                        prompt=prompt,
-                        system=system,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        format_schema=response_schema,
+            # A pinned paid tier must NOT silently become a local call. The
+            # debate is the only tier today, and degrading one of its turns
+            # to gemma3:4b mid-round is worse than losing the turn: the
+            # round would mix two models' output quality invisibly, and it
+            # would push load onto the very Ollama path whose congestion the
+            # tier exists to escape (2026-08-05: three debates died there).
+            # Retry the same API briefly, then raise and let the scheduler's
+            # next cron tick be the retry.
+            if tier_pinned:
+                for attempt in range(1, self._paid_tier_retries + 1):
+                    delay = self._paid_tier_backoff * attempt
+                    logger.warning(
+                        f"Paid tier '{paid_tier}' call failed ({e}); retry "
+                        f"{attempt}/{self._paid_tier_retries} in {delay:.1f}s"
                     )
-                    selected_model = fallback
-                    provider_name = "ollama"
-                except Exception as fallback_error:
-                    logger.error(f"Fallback model {fallback} also failed: {fallback_error}")
-                    raise fallback_error
+                    await asyncio.sleep(delay)
+                    try:
+                        response = await self._call_openai(
+                            model=selected_model,
+                            prompt=prompt,
+                            system=system,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                        )
+                        provider_name = "openai"
+                        break
+                    except Exception as retry_error:  # noqa: PERF203
+                        e = retry_error
+                else:
+                    logger.error(
+                        f"Paid tier '{paid_tier}' exhausted its retries; failing the "
+                        f"call instead of degrading to local"
+                    )
+                    raise
             else:
-                raise
+                fallback = self.hierarchy.get_fallback_model(selected_model)
+
+                if fallback and fallback != selected_model:
+                    try:
+                        response = await self._call_ollama(
+                            model=fallback,
+                            prompt=prompt,
+                            system=system,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            format_schema=response_schema,
+                            num_ctx=num_ctx,
+                        )
+                        selected_model = fallback
+                        provider_name = "ollama"
+                    except Exception as fallback_error:
+                        logger.error(f"Fallback model {fallback} also failed: {fallback_error}")
+                        raise fallback_error
+                else:
+                    raise
 
         # Calculate duration
         duration = (utcnow() - start_time).total_seconds()
@@ -313,6 +442,7 @@ class HybridLLMRouter:
         temperature: float,
         max_tokens: Optional[int],
         format_schema: Optional[dict] = None,
+        num_ctx: Optional[int] = None,
     ) -> OllamaResponse:
         """Call Ollama provider."""
         return await self.ollama.generate(
@@ -322,6 +452,7 @@ class HybridLLMRouter:
             temperature=temperature,
             max_tokens=max_tokens,
             format_schema=format_schema,
+            num_ctx=num_ctx,
         )
 
     async def _call_claude(

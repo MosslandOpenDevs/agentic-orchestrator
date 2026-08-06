@@ -257,7 +257,13 @@ module.exports = {
       instances: 1,
       autorestart: false,  // Don't auto-restart, wait for cron
       watch: false,
-      max_memory_restart: '1G',  // headroom for `npm run build`
+      // 3G, not 1G: `npm run build` (Next.js) runs inside this process's
+      // memory budget, and PM2 enforces the limit with SIGKILL -- which skips
+      // bash's EXIT trap, so a mid-build kill used to leave the deploy lock
+      // held for DEPLOY_LOCK_STALE_MIN (90 min). deploy.sh now also records
+      // the lock owner's PID and reclaims a dead owner's lock on the next
+      // tick, but not being killed mid-build is strictly better.
+      max_memory_restart: '3G',
       cron_restart: schedule.deploy,
       env: {
         NODE_ENV: 'production',

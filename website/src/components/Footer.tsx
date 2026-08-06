@@ -190,13 +190,16 @@ export function Footer() {
             <span className="uppercase tracking-wider">{t('ecosystem.label')}</span>
           </div>
           <ul className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs">
+            {/* The {' '} after each site name is load-bearing: the margin on
+                the description span adds no text, so without it the accessible
+                name reads "BRIDGEGovernance OS". */}
             {ecosystemSites.map((site) => (
               <li key={site.name}>
                 {site.current ? (
                   <span aria-current="true" className="text-[#39ff14]">
                     <span aria-hidden="true">● </span>
-                    {site.name}
-                    <span className="ml-1.5 text-[10px] text-[#8b949e]">
+                    {site.name}{' '}
+                    <span className="ml-1 text-[10px] text-[#8b949e]">
                       {t(site.descKey)}
                     </span>
                   </span>
@@ -207,10 +210,17 @@ export function Footer() {
                     rel="noopener"
                     className="text-[#c0c0c0] hover:text-[#39ff14] transition-colors"
                   >
-                    {site.name}
-                    <span className="ml-1.5 text-[10px] text-[#8b949e]">
+                    {site.name}{' '}
+                    <span className="ml-1 text-[10px] text-[#8b949e]">
                       {t(site.descKey)}
                     </span>
+                    <span
+                      aria-hidden="true"
+                      className="ml-1 text-[10px] text-[#8b949e]"
+                    >
+                      ↗
+                    </span>
+                    <span className="sr-only">{` (${t('ecosystem.newTab')})`}</span>
                   </a>
                 )}
               </li>

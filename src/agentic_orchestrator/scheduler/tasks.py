@@ -492,6 +492,13 @@ def _load_backlog_config() -> dict:
         "dedup_prefix_tokens": 6,
         "max_open_ideas": 800,
     }
+    clustering_defaults = {
+        "enabled": True,
+        "threshold": 0.18,
+        "content_weight": 0.5,
+        "max_df_ratio": 0.6,
+        "min_shared_terms": 2,
+    }
     lifecycle_defaults = {
         "enabled": True,
         "max_age_days": 14,
@@ -512,6 +519,10 @@ def _load_backlog_config() -> dict:
         for key, value in TRIAGE_DEFAULTS.items():
             triage.setdefault(key, value)
         backlog_config["triage"] = triage
+        clustering = backlog_config.get("clustering") or {}
+        for key, value in clustering_defaults.items():
+            clustering.setdefault(key, value)
+        backlog_config["clustering"] = clustering
         return backlog_config
     except Exception as e:
         logger.warning(f"Failed to load backlog config, using defaults: {e}")
@@ -519,6 +530,7 @@ def _load_backlog_config() -> dict:
             **defaults,
             "issue_lifecycle": dict(lifecycle_defaults),
             "triage": dict(TRIAGE_DEFAULTS),
+            "clustering": dict(clustering_defaults),
         }
 
 
@@ -642,6 +654,50 @@ def _truncate_markdown(text: str, limit: int) -> str:
     return cut + "\n\n_(truncated)_"
 
 
+def _cluster_debate_ideas(ideas: list, config: dict) -> list:
+    """Group one debate's ideas; return [{representative, duplicates}, ...].
+
+    Thin adapter over ``scheduler.idea_clustering`` so a clustering failure
+    can never take the pipeline down: on any error every idea becomes its
+    own representative, i.e. exactly the pre-v0.6.20 behavior.
+
+    Clustering is deliberately batch-local (IDF is computed over this
+    debate's ideas only). Cluster membership is therefore NOT stable across
+    batches and must never be persisted as a stable id — it is recomputed
+    per run and used only to pick who proceeds.
+    """
+    if not config.get("enabled", True) or len(ideas) < 2:
+        return [{"representative": idea, "duplicates": []} for idea in ideas]
+    try:
+        from .idea_clustering import IdeaDoc, cluster_ideas
+
+        docs = []
+        for index, idea in enumerate(ideas):
+            title = getattr(idea, "title", "") or ""
+            content = getattr(idea, "content", None) or getattr(idea, "description", "") or ""
+            docs.append(IdeaDoc(key=str(index), title=title, content=str(content)[:1200]))
+
+        clusters = cluster_ideas(
+            docs,
+            threshold=float(config.get("threshold", 0.18)),
+            content_weight=float(config.get("content_weight", 0.5)),
+            max_df_ratio=float(config.get("max_df_ratio", 0.6)),
+            min_shared_terms=int(config.get("min_shared_terms", 2)),
+        )
+
+        grouped = []
+        for cluster in clusters:
+            rep = ideas[int(cluster.representative.key)]
+            dups = [
+                ideas[int(m.key)] for m in cluster.members if m.key != cluster.representative.key
+            ]
+            grouped.append({"representative": rep, "duplicates": dups})
+        return grouped
+    except Exception as e:
+        logger.warning(f"Idea clustering failed, treating every idea as unique: {e}")
+        return [{"representative": idea, "duplicates": []} for idea in ideas]
+
+
 async def _auto_score_and_save_ideas(
     router,
     ideas: list,
@@ -741,7 +797,38 @@ async def _auto_score_and_save_ideas(
     archived_count = 0
     pending_count = 0
 
-    for idea in ideas:
+    # ---- Diversity gate: cluster the batch, externalize representatives ---
+    # A capable model given one topic and identical instructions returns one
+    # idea 24 times over, in 24 distinct wordings that the title-prefix
+    # fingerprint cannot see (2026-08-05: 24 ideas, 8 of them the same
+    # payment-gateway, three of which were each promoted and each scaffolded
+    # a near-identical project whose plan documents were byte-identical).
+    # Clustering runs BEFORE scoring so the LLM is not paid to score eight
+    # copies of one idea, and before GitHub so the tracker mirrors decisions
+    # rather than noise. Non-representatives are NOT discarded: they are
+    # stored as `duplicate` rows pointing at their representative, so a bad
+    # merge is auditable and reversible (they are also already in
+    # debate_messages verbatim).
+    cluster_config = _load_backlog_config().get("clustering") or {}
+    clusters = _cluster_debate_ideas(ideas, cluster_config)
+    representatives = [c["representative"] for c in clusters]
+    duplicates_by_rep = {id(c["representative"]): c["duplicates"] for c in clusters}
+    duplicate_saved = 0
+    if len(representatives) < len(ideas):
+        logger.info(
+            f"Diversity gate: {len(ideas)} ideas -> {len(representatives)} "
+            f"representatives ({len(ideas) - len(representatives)} near-duplicates "
+            f"kept as linked rows)"
+        )
+
+    # Only ONE plan (and therefore one project) per debate: the planning phase
+    # produced exactly one final_plan document, so copying it into every
+    # promoted idea's plan manufactured identical plans. It goes to the
+    # first idea promoted this cycle; the rest are promoted without it and
+    # reach planning through the normal backlog-triage path.
+    final_plan_claimed = False
+
+    for idea in representatives:
         try:
             # Build idea content string
             idea_title = getattr(idea, "title", str(idea)[:100])
@@ -788,6 +875,15 @@ async def _auto_score_and_save_ideas(
             # arrival is pure tracker noise — the DB row is the record.
             github_issue_url = None
             github_issue_id = None
+            # The GitHub call itself happens AFTER the DB row is committed
+            # (below). Creating the issue first — as this did until v0.6.20 —
+            # opens an orphan window: the row is only committed at the end of
+            # the whole loop, so a crash, a 30-minute Ollama translation
+            # timeout, or an operator kill leaves an issue on GitHub with no
+            # DB row behind it and nothing that can ever reconcile it
+            # (observed: issue #2965 on 2026-08-05). DB first means the worst
+            # case is a committed idea whose mirror issue is missing — which
+            # the DB, as the source of truth, can always re-mirror.
             if github_client and not backlog_full and status != "archived":
                 try:
                     # Build issue body
@@ -817,18 +913,16 @@ async def _auto_score_and_save_ideas(
                     else:
                         issue_labels.append(Labels.STATUS_BACKLOG)
 
-                    issue = github_client.create_issue(
-                        title=f"[Idea] {_clean_issue_title(idea_title)[:100]}",
-                        body=issue_body,
-                        labels=issue_labels,
-                    )
-                    github_issue_url = issue.html_url
-                    github_issue_id = issue.number
-                    logger.info(
-                        f"Created GitHub Issue #{issue.number} for idea: {idea_title[:50]}..."
-                    )
+                    pending_issue = {
+                        "title": f"[Idea] {_clean_issue_title(idea_title)[:100]}",
+                        "body": issue_body,
+                        "labels": issue_labels,
+                    }
                 except Exception as e:
-                    logger.warning(f"Failed to create GitHub Issue for idea: {e}")
+                    logger.warning(f"Failed to prepare GitHub Issue for idea: {e}")
+                    pending_issue = None
+            else:
+                pending_issue = None
 
             # Translate idea fields (bilingual: detect language, provide both EN and KO)
             try:
@@ -861,14 +955,67 @@ async def _auto_score_and_save_ideas(
                     "debate_session_id": debate_session_id,
                     "status": status,
                     "score": score.total,
-                    "github_issue_id": github_issue_id,
-                    "github_issue_url": github_issue_url,
                     "extra_metadata": {
                         "auto_score": score.to_dict(),
                         "debate_topic": topic,
                     },
                 }
             )
+            # Commit the row BEFORE touching GitHub so the mirror can never
+            # outrun the source of truth.
+            db_session.commit()
+
+            # Keep this cluster's near-duplicates as linked rows. They get no
+            # GitHub issue (that was the noise) and no LLM score (they cannot
+            # be promoted), but they stay auditable, so a wrong merge is
+            # visible and reversible instead of a silent deletion. Status
+            # "duplicate" is outside backlog triage's queue by construction.
+            for dup in duplicates_by_rep.get(id(idea), []):
+                try:
+                    dup_title = (getattr(dup, "title", "") or "")[:500]
+                    dup_content = getattr(dup, "content", None) or getattr(dup, "description", "")
+                    idea_repo.create(
+                        {
+                            "id": str(uuid.uuid4())[:8],
+                            "title": dup_title,
+                            "summary": (
+                                _format_idea_summary(str(dup_content)) if dup_content else dup_title
+                            ),
+                            "description": str(dup_content) if dup_content else None,
+                            "source_type": "debate",
+                            "debate_session_id": debate_session_id,
+                            "status": "duplicate",
+                            "score": 0.0,
+                            "extra_metadata": {
+                                "duplicate_of": idea_id,
+                                "duplicate_of_title": idea_title[:200],
+                                "debate_topic": topic,
+                            },
+                        }
+                    )
+                    duplicate_saved += 1
+                except Exception as e:
+                    logger.warning(f"Could not store duplicate idea row: {e}")
+            db_session.commit()
+
+            if pending_issue:
+                try:
+                    issue = github_client.create_issue(**pending_issue)
+                    github_issue_url = issue.html_url
+                    github_issue_id = issue.number
+                    idea_repo.update_fields(
+                        idea_id,
+                        {
+                            "github_issue_id": github_issue_id,
+                            "github_issue_url": github_issue_url,
+                        },
+                    )
+                    db_session.commit()
+                    logger.info(
+                        f"Created GitHub Issue #{issue.number} for idea: {idea_title[:50]}..."
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to create GitHub Issue for idea: {e}")
 
             # If promoted, create a draft plan
             if status == "promoted":
@@ -928,19 +1075,37 @@ async def _auto_score_and_save_ideas(
                     auto_gen_min_score = project_config.get("auto_generate", {}).get(
                         "min_score", 8.0
                     )
-                    plan_status = "approved" if score.total >= auto_gen_min_score else "draft"
-
-                    # Translate final_plan content if available
-                    plan_final_content_en = final_plan_content
+                    # Exactly one plan per debate carries the debate-wide
+                    # final_plan. Copying it into every promoted idea's plan
+                    # produced byte-identical plan documents (three plans of
+                    # 16,453 chars each on 2026-08-05) and therefore
+                    # near-identical generated projects. Later promotions this
+                    # cycle get a plan without it and are not auto-approved,
+                    # so they reach planning through backlog triage instead.
+                    plan_final_source = None if final_plan_claimed else final_plan_content
+                    if plan_final_source:
+                        final_plan_claimed = True
+                    plan_final_content_en = plan_final_source
                     plan_final_content_ko = None
-                    if final_plan_content:
+                    if plan_final_source:
                         try:
                             plan_final_content_en, plan_final_content_ko = (
-                                await translator.ensure_bilingual(final_plan_content)
+                                await translator.ensure_bilingual(plan_final_source)
                             )
                         except Exception as e:
                             logger.warning(f"Final plan translation failed: {e}")
-                            plan_final_content_en = final_plan_content
+                            plan_final_content_en = plan_final_source
+
+                    # Auto-approval (which is what triggers project
+                    # generation) requires BOTH a high score and the actual
+                    # plan document. Without the second condition a
+                    # second promoted idea would scaffold a project from an
+                    # empty plan.
+                    plan_status = (
+                        "approved"
+                        if score.total >= auto_gen_min_score and plan_final_content_en
+                        else "draft"
+                    )
 
                     plan_repo.create(
                         {
@@ -1020,7 +1185,8 @@ async def _auto_score_and_save_ideas(
 
     logger.info(
         f"Auto-scoring complete: {promoted_count} promoted, {archived_count} archived, "
-        f"{pending_count} pending, {dedup_skipped} duplicates skipped"
+        f"{pending_count} pending, {dedup_skipped} duplicates skipped, "
+        f"{duplicate_saved} clustered near-duplicates stored"
     )
     if github_client:
         logger.info("GitHub Issues created for all processed ideas")

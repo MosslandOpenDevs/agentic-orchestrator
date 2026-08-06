@@ -533,6 +533,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'ecosystem.bridge.desc': 'Governance OS',
     'ecosystem.algora.desc': 'AI Deliberation Lab',
     'ecosystem.ao.desc': 'Agentic Orchestrator',
+    'ecosystem.newTab': 'opens in new tab',
   },
   ko: {
     'nav.dashboard': '대시보드',
@@ -1055,6 +1056,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'ecosystem.bridge.desc': '거버넌스 OS',
     'ecosystem.algora.desc': 'AI 숙의 실험실',
     'ecosystem.ao.desc': '에이전트 오케스트레이터',
+    'ecosystem.newTab': '새 탭에서 열림',
   },
 };
 

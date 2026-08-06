@@ -4,7 +4,7 @@
 
 An autonomous multi-agent orchestration system for discovering, planning, and implementing micro Web3 services for the Mossland ecosystem.
 
-**Version**: v0.6.17
+**Version**: v0.6.19
 
 ## Key Features
 
@@ -198,25 +198,32 @@ by `debate.normal.*_agents_per_round` in `config.yaml`.
 
 ### Which model runs a debate
 
-Every debate call — divergence, convergence, planning, scoring — resolves to the
-local **`gemma3:4b`** on Ollama. Two things make that true independently of each
-other, so it is easy to assume otherwise and be wrong:
+The debate is the one task allowed onto a paid API, and it takes **two
+independent switches** to get there. Both must be on before a cent is spent:
 
-- `MOSS_LOCAL_LLM_ONLY` defaults to `true`, and in that mode the router does not
-  even construct the paid providers; a caller asking for `force_api` is ignored.
-- The task-to-model map in `llm/hierarchy.py` sends every debate task to
-  `gemma3:4b` anyway, so turning the flag off does not move debates onto a paid
-  API. Nothing in `debate/multi_stage.py` names a paid model.
+1. `MOSS_LOCAL_LLM_ONLY=false` in `.env` — while it is unset or true (the
+   default) the router does not even construct the paid providers, and a caller
+   asking for `force_api` is ignored.
+2. `llm.paid_tiers.debate.enabled: true` in `config.yaml`, which names the model
+   (currently `gpt-5.4-mini`). The four debate call sites carry
+   `paid_tier=debate`; nothing else does.
 
-The cloud keys are reached only from the manual `ao` CLI pipeline —
-`stages/planning.py` and `stages/quality.py` use OpenAI and Gemini for external
-review — and from `backlog.py`. No PM2 scheduler job makes a billed call.
+With both on, divergence / convergence / planning / scoring run on that model.
+With either off — or no provider configured, or the budget spent, or an explicit
+local model requested — the debate **degrades to local `gemma3:4b` rather than
+failing**. Everything else in the pipeline (trends, translation, triage scoring)
+is local regardless.
 
-The practical consequence is throughput: a debate is bounded by one local GPU,
-and `throttling.ollama` in `config.yaml` (`min_request_interval`,
-`max_concurrent_requests`) decides how fast its rounds may issue requests. Both
-are enforced; if debates approach the 90-minute cycle budget, those are the
-knobs.
+Two consequences worth knowing:
+
+- **Cost is real when the tier is on.** `budget` in `config.yaml` is the source
+  of truth for the daily and monthly caps (env still overrides), and exhausting
+  it degrades debates back to local rather than stopping them.
+- **On local, throughput is bounded by one GPU.** `throttling.ollama`
+  (`min_request_interval`, `max_concurrent_requests`) decides how fast a round
+  may issue requests, and both are enforced — so a local-mode debate is
+  materially slower than a paid one. If it approaches the 90-minute cycle
+  budget, those are the knobs.
 
 Every persona also carries a 4-axis personality profile scored 0-10. Balancing a round's
 subset across these axes is what stops it from being eight agents of one temperament.
