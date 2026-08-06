@@ -10,39 +10,19 @@ interface SignalHistoryItem {
 }
 
 interface TrendSparklineProps {
-  signalCount: number;
   signalHistory?: SignalHistoryItem[];
   momentum?: number; // Percentage change (e.g., +15, -10)
   velocity?: number; // Signals per day
   showDetails?: boolean;
 }
 
-// Generate simulated 7-day history from current count
-function generateHistoryFromCount(currentCount: number): SignalHistoryItem[] {
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const today = new Date().getDay();
-  const history: SignalHistoryItem[] = [];
-
-  // Work backwards from today
-  for (let i = 6; i >= 0; i--) {
-    const dayIndex = (today - i + 7) % 7;
-    // Generate counts with an upward trend toward currentCount
-    const baseRatio = (7 - i) / 7;
-    const variance = 0.3;
-    const ratio = Math.max(0.1, baseRatio + (Math.random() - 0.5) * variance);
-    const count = Math.round(currentCount * ratio * 0.7);
-
-    history.push({
-      day: days[dayIndex === 0 ? 6 : dayIndex - 1], // Adjust for Sunday = 0
-      count: i === 0 ? currentCount : count,
-    });
-  }
-
-  return history;
-}
+// A simulated 7-day history used to be invented here from the current
+// count plus Math.random(), and rendered under the heading "Trend
+// Momentum" complete with derived momentum and velocity figures. None of
+// it came from the backend. Until a real history endpoint exists, this
+// component renders only what it was actually given.
 
 export function TrendSparkline({
-  signalCount,
   signalHistory,
   momentum,
   velocity,
@@ -50,11 +30,7 @@ export function TrendSparkline({
 }: TrendSparklineProps) {
   const { t } = useI18n();
 
-  // Use provided history or generate from count
-  const history = useMemo(
-    () => signalHistory || generateHistoryFromCount(signalCount),
-    [signalHistory, signalCount]
-  );
+  const history = useMemo(() => signalHistory ?? [], [signalHistory]);
 
   // Calculate momentum if not provided
   const calculatedMomentum = useMemo(() => {
@@ -75,7 +51,7 @@ export function TrendSparkline({
     return +(total / history.length).toFixed(1);
   }, [velocity, history]);
 
-  const maxCount = Math.max(...history.map(h => h.count));
+  const maxCount = history.length ? Math.max(...history.map(h => h.count)) : 0;
 
   const getMomentumColor = () => {
     if (calculatedMomentum >= 10) return 'text-[#39ff14]';
@@ -89,6 +65,17 @@ export function TrendSparkline({
     if (calculatedMomentum >= 0) return '→';
     return '↓';
   };
+
+  if (history.length === 0) {
+    return (
+      <div className="space-y-2">
+        <span className="text-xs text-[#8b949e] uppercase tracking-wider">
+          {t('trendSparkline.momentum')}
+        </span>
+        <p className="text-xs text-[#8b949e]">{t('trendSparkline.noHistory')}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -164,18 +151,13 @@ export function TrendSparkline({
 
 // Compact sparkline for cards
 export function TrendSparklineCompact({
-  signalCount,
   signalHistory,
   momentum,
 }: {
-  signalCount: number;
   signalHistory?: SignalHistoryItem[];
   momentum?: number;
 }) {
-  const history = useMemo(
-    () => signalHistory || generateHistoryFromCount(signalCount),
-    [signalHistory, signalCount]
-  );
+  const history = useMemo(() => signalHistory ?? [], [signalHistory]);
 
   const calculatedMomentum = useMemo(() => {
     if (momentum !== undefined) return momentum;
@@ -188,7 +170,7 @@ export function TrendSparklineCompact({
     return Math.round(((recent - earlier) / earlier) * 100);
   }, [momentum, history]);
 
-  const maxCount = Math.max(...history.map(h => h.count));
+  const maxCount = history.length ? Math.max(...history.map(h => h.count)) : 0;
 
   return (
     <div className="flex items-center gap-2">

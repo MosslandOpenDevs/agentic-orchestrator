@@ -50,9 +50,20 @@ GIT_ENV = {
     "GIT_COMMITTER_EMAIL": "test@example.com",
 }
 
-CI_SUCCESS = json.dumps({"check_runs": [{"status": "completed", "conclusion": "success"}]})
+CI_SUCCESS = json.dumps(
+    {"check_runs": [{"name": "test (3.12)", "status": "completed", "conclusion": "success"}]}
+)
 CI_PENDING = json.dumps({"check_runs": [{"status": "in_progress"}]})
 CI_FAILURE = json.dumps({"check_runs": [{"status": "completed", "conclusion": "failure"}]})
+# A commit GitHub has not registered any checks for -- the usual state
+# seconds after a push, which the poller sees before CI has started.
+CI_NONE = json.dumps({"check_runs": []})
+CI_SKIPPED = json.dumps({"check_runs": [{"status": "completed", "conclusion": "skipped"}]})
+CI_STALE = json.dumps({"check_runs": [{"status": "completed", "conclusion": "stale"}]})
+# Shapes the GitHub API should never produce. The gate parser raises on
+# these; what matters is that the script still refuses to deploy.
+CI_WRONG_SHAPE = json.dumps({"check_runs": {"unexpected": "object"}})
+CI_RUNS_NOT_OBJECTS = json.dumps({"check_runs": ["not-an-object"]})
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -80,6 +91,11 @@ class Server:
         self.stub_log = tmp_path / "stub.log"
         self.jlist = tmp_path / "jlist.json"
         self.health_fail = tmp_path / "health_fail"
+        # How many more /ready calls answer before the route starts 404ing
+        # while /health keeps working. 0 = the database is down from the
+        # start; 1 = the pre-deploy check passes and the rollback target
+        # then turns out to predate the route.
+        self.ready_ok_remaining = tmp_path / "ready_ok_remaining"
         # Deploy bookkeeping lives inside .git/ -- out of reset --hard's reach.
         self.state_file = self.checkout / ".git" / "moss-ao-deployed-sha"
         self.attempt_file = self.checkout / ".git" / "moss-ao-deploy-attempt"
@@ -116,6 +132,7 @@ class Server:
 
         self.jlist.write_text("[]")
         self.health_fail.write_text("0")
+        self.ready_ok_remaining.write_text("999")
         self._write_stubs()
 
     def _scripts_dir(self) -> Path:
@@ -189,6 +206,18 @@ case "$url" in
     done
     exit 0
     ;;
+  */ready)
+    k=$(cat "{self.ready_ok_remaining}" 2>/dev/null || echo 999)
+    if [ "$k" -le 0 ]; then exit 22; fi
+    echo $((k - 1)) > "{self.ready_ok_remaining}"
+    n=$(cat "{self.health_fail}" 2>/dev/null || echo 0)
+    if [ "$n" -gt 0 ]; then
+      echo $((n - 1)) > "{self.health_fail}"
+      exit 22
+    fi
+    printf '{{"status":"ready"}}'
+    exit 0
+    ;;
   *)
     n=$(cat "{self.health_fail}" 2>/dev/null || echo 0)
     if [ "$n" -gt 0 ]; then
@@ -202,11 +231,17 @@ esac
 """,
             executable=True,
         )
-        # Stands in for .venv/bin/python (backup-db, pip install -e .).
+        # Stands in for .venv/bin/python (backup-db, pip install -e .). The two
+        # callers get separate exit codes: the deploy refuses to run at all
+        # when the pre-deploy snapshot fails, so a test about a failing
+        # `pip install` must still be able to take a snapshot first.
         _write(
             self.bin / "venv-python",
             f"""#!/usr/bin/env bash
 echo "python $*" >> "{self.stub_log}"
+case "$*" in
+  *backup-db*) exit ${{BACKUP_STUB_EXIT:-0}} ;;
+esac
 exit ${{PYTHON_STUB_EXIT:-0}}
 """,
             executable=True,
@@ -322,6 +357,69 @@ class TestDeploy:
         assert (server.checkout / "data" / "orchestrator.db").read_text() == "SQLITE-DATA"
         assert (server.checkout / ".env").exists()
         assert (server.checkout / "website" / ".env.local").exists()
+
+    def test_failed_snapshot_refuses_to_deploy(self, server: Server):
+        """The snapshot IS the restore point for the change being applied.
+        Deploying after it failed is the 2026-07 outage with no way back."""
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 22\n"})
+
+        result = server.run(BACKUP_STUB_EXIT="1")
+
+        assert result.returncode == 1
+        assert server.head() == before
+        assert "refusing to deploy without a restore point" in result.stdout
+        assert "pm2 restart" not in server.calls()
+
+    def test_nothing_to_snapshot_is_not_a_failure(self, server: Server):
+        """backup-db exits 2 when the database is missing/empty/dataless --
+        benign (a fresh server), so the deploy proceeds."""
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 23\n"})
+
+        result = server.run(BACKUP_STUB_EXIT="2")
+
+        assert server.head() == target
+        assert "nothing to snapshot yet" in result.stdout
+        assert "DEPLOYED" in result.stdout
+
+    def test_a_lock_only_change_still_installs(self, server: Server):
+        """uv.lock is tracked now, so a dependency bump can arrive with no
+        pyproject change at all. Without a classifier entry that commit reads
+        as docs-only and nothing installs -- ever, since the state advances."""
+        server.make_uv_managed()
+        server.push({"uv.lock": "# bumped\n"})
+
+        result = server.run()
+
+        calls = server.calls()
+        assert "uv sync" in calls
+        assert "pm2 restart moss-ao-api" in calls
+        assert "docs only" not in result.stdout
+
+    def test_uv_sync_never_rewrites_the_tracked_lockfile(self, server: Server):
+        """A non-frozen sync re-resolves and can rewrite uv.lock -- a tracked
+        file. The dirty-tree guard would then abort every subsequent tick."""
+        server.make_uv_managed()
+        server.push({"pyproject.toml": 'version = "0.0.20"\n'})
+
+        server.run()
+
+        assert "uv sync --frozen" in server.calls()
+
+    def test_a_pip_venv_wins_over_the_committed_lockfile(self, server: Server):
+        """uv.lock is tracked now, so every checkout has one. What the venv
+        records about how it was built has to take precedence."""
+        _write(server.checkout / "uv.lock", "# lock\n")
+        _write(
+            server.checkout / ".venv" / "pyvenv.cfg",
+            "home = /usr/bin\ninclude-system-site-packages = false\n",
+        )
+        server.push({"pyproject.toml": 'version = "0.0.12"\n'})
+        server.run()
+
+        calls = server.calls()
+        assert "pip install" in calls
+        assert "uv sync" not in calls
 
     def test_pre_deploy_database_snapshot_is_taken(self, server: Server):
         server.push({"src/agentic_orchestrator/api.py": "VERSION = 4\n"})
@@ -536,6 +634,126 @@ class TestGuards:
         assert server.head() == target
         assert "Bearer ghp_from_dotenv" in server.stub_log.read_text()
 
+    def test_no_checks_reported_defers_instead_of_deploying_unverified(self, server: Server):
+        """Zero checks is not a green build. It is usually just CI not having
+        registered yet -- the poller runs every 5 minutes and can easily fire
+        seconds after the push. Deploying on it shipped unverified commits."""
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 18\n"})
+
+        result = server.run(DEPLOY_REQUIRE_CI="1", CI_JSON=CI_NONE)
+
+        assert result.returncode == 0
+        assert server.head() == before
+        assert "no checks reported" in result.stdout
+
+    @pytest.mark.parametrize("ci_json", [CI_SKIPPED, CI_STALE], ids=["skipped", "stale"])
+    def test_checks_that_verified_nothing_defer(self, server: Server, ci_json: str):
+        """skipped/stale conclusions used to fall through to "success" because
+        they were merely absent from the failure list."""
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 19\n"})
+
+        result = server.run(DEPLOY_REQUIRE_CI="1", CI_JSON=ci_json)
+
+        assert result.returncode == 0
+        assert server.head() == before
+        assert "none verified the commit" in result.stdout
+
+    @pytest.mark.parametrize(
+        "ci_json",
+        [CI_WRONG_SHAPE, CI_RUNS_NOT_OBJECTS],
+        ids=["check_runs-is-an-object", "runs-are-not-objects"],
+    )
+    def test_unexpected_api_shapes_never_deploy(self, server: Server, ci_json: str):
+        """The parser cannot make sense of these and raises. The wrapper has to
+        turn that into a deferral, not a green light."""
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 25\n"})
+
+        result = server.run(DEPLOY_REQUIRE_CI="1", CI_JSON=ci_json)
+
+        assert result.returncode == 0
+        assert server.head() == before
+        assert "pm2 restart" not in server.calls()
+
+    def test_required_jobs_must_all_have_passed(self, server: Server):
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 20\n"})
+
+        result = server.run(
+            DEPLOY_REQUIRE_CI="1",
+            CI_JSON=CI_SUCCESS,  # only reports "test (3.12)"
+            DEPLOY_REQUIRE_CI_JOBS="test (3.12),lint",
+        )
+
+        assert server.head() == before
+        assert "required jobs" in result.stdout
+
+    def test_required_jobs_present_deploys(self, server: Server):
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 21\n"})
+
+        result = server.run(
+            DEPLOY_REQUIRE_CI="1", CI_JSON=CI_SUCCESS, DEPLOY_REQUIRE_CI_JOBS="test (3.12)"
+        )
+
+        assert server.head() == target
+        assert "CI: green" in result.stdout
+
+    def test_a_stuck_deferral_eventually_says_so(self, server: Server):
+        """The streak escalation has to cover every verdict that defers, not
+        only the undeterminable one: "no checks reported" repeating forever
+        stops deploys just as completely, and just as quietly."""
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 50\n"})
+        env = {"DEPLOY_REQUIRE_CI": "1", "CI_JSON": CI_NONE, "DEPLOY_CI_UNKNOWN_ALERT": "3"}
+
+        first = server.run(**env)
+        second = server.run(**env)
+        third = server.run(**env)
+
+        assert "no checks reported" in first.stdout
+        assert "ERROR" not in first.stdout
+        assert "ERROR" not in second.stdout
+        assert "deploys are stalled" in third.stdout
+
+    def test_a_green_run_clears_the_deferral_streak(self, server: Server):
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 51\n"})
+        env = {"DEPLOY_REQUIRE_CI": "1", "DEPLOY_CI_UNKNOWN_ALERT": "2"}
+
+        server.run(CI_JSON=CI_NONE, **env)
+        server.run(CI_JSON=CI_SUCCESS, **env)
+
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 52\n"})
+        after = server.run(CI_JSON=CI_NONE, **env)
+
+        # Counter restarted: one deferral is not an escalation.
+        assert "deploys are stalled" not in after.stdout
+
+    def test_deploy_defers_while_the_database_is_unhealthy(self, server: Server):
+        """The post-deploy gate reads the database. With the database down no
+        deploy can pass it, so deploying would restart, fail, roll back and
+        repeat every five minutes for the length of an unrelated outage."""
+        before = server.head()
+        server.ready_ok_remaining.write_text("0")  # /ready 404s, /health answers
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 40\n"})
+
+        result = server.run()
+
+        assert result.returncode == 0
+        assert server.head() == before
+        assert "not ready" in result.stdout
+        assert "pm2 restart" not in server.calls()
+
+    def test_deploy_proceeds_when_the_api_is_down_entirely(self, server: Server):
+        """A stopped API is a different case: the deploy may be the fix."""
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 41\n"})
+        server.health_fail.write_text("2")
+
+        result = server.run()
+
+        assert server.head() == target
+        assert "DEPLOYED" in result.stdout
+
     def test_backend_deploy_waits_for_a_running_debate(self, server: Server):
         before = server.head()
         server.jlist.write_text(
@@ -582,7 +800,12 @@ class TestRollback:
         )
         # 2 retries x 2 probes = 4 failing health calls, then healthy again, so
         # the deploy fails and the rollback comes back up.
-        server.health_fail.write_text("4")
+        # Call accounting: the pre-deploy readiness gate probes /ready and
+        # then /health (2 calls, both failing here -- the "API is down
+        # entirely" case, so it proceeds), then 2 retries x 2 probes = 4
+        # more. After those 6 the stub is healthy again, so the deploy
+        # fails its health check and the rollback comes back up.
+        server.health_fail.write_text("6")
 
         result = server.run()
 
@@ -601,6 +824,22 @@ class TestRollback:
         assert result.returncode == 1
         assert server.head() == before
         assert "pip install failed" in result.stdout
+
+    def test_rollback_accepts_a_target_that_predates_ready(self, server: Server):
+        """/ready is new. A rollback target may not have it, and a 404 there
+        would report a healthy rollback as CRITICAL."""
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 31\n"})
+        # /ready answers once -- for the pre-deploy check -- then 404s, so the
+        # forward deploy fails its health check and rolls back onto a target
+        # that predates the route. That rollback must still pass.
+        server.ready_ok_remaining.write_text("1")
+
+        result = server.run()
+
+        assert server.head() == before
+        assert "rollback healthy" in result.stdout
+        assert "CRITICAL" not in result.stdout
 
     def test_unhealthy_rollback_is_reported_as_critical(self, server: Server):
         server.push({"src/agentic_orchestrator/api.py": "VERSION = 17\n"})
@@ -829,6 +1068,56 @@ class TestLockOwnership:
         assert result.returncode == 0
         assert server.head() == before
         assert "another deploy is running" in result.stdout
+
+
+class TestEcosystemChanges:
+    """PM2 process definitions are deliberately not re-registered by the
+    deployer -- doing that from inside a PM2-managed process is the 2026-08-05
+    incident. But the deploy state advances either way and later ticks are
+    no-ops, so a single log line was the entire notification."""
+
+    def test_change_is_recorded_and_keeps_reminding(self, server: Server):
+        server.push({"ecosystem.config.js": "module.exports = { apps: [] }\n"})
+        first = server.run()
+
+        assert "ecosystem" in first.stdout.lower()
+        pending = server.checkout / "logs" / ".ecosystem-pending"
+        assert pending.exists()
+
+        second = server.run()
+        assert "REMINDER" in second.stdout
+        assert "pm2 restart ecosystem.config.js" in second.stdout
+
+    def test_reminder_stops_once_the_operator_clears_it(self, server: Server):
+        server.push({"ecosystem.config.js": "module.exports = { apps: [] }\n"})
+        server.run()
+        (server.checkout / "logs" / ".ecosystem-pending").unlink()
+
+        assert "REMINDER" not in server.run().stdout
+
+    def test_an_unwritable_record_does_not_abort_the_deploy(self, server: Server):
+        """Recording the pending change happens after `git reset --hard` and
+        before the build. Aborting there would leave git on the new commit with
+        PM2 still running the old code."""
+        logs = server.checkout / "logs"
+        logs.mkdir(exist_ok=True)
+        pending = logs / ".ecosystem-pending"
+        pending.write_text("")
+        pending.chmod(0o444)
+        try:
+            target = server.push(
+                {
+                    "ecosystem.config.js": "module.exports = { apps: [] }\n",
+                    "src/agentic_orchestrator/api.py": "VERSION = 30\n",
+                }
+            )
+            result = server.run()
+
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert server.head() == target
+            assert "pm2 restart moss-ao-api" in server.calls()
+        finally:
+            pending.chmod(0o644)
 
 
 class TestPm2EnvHygiene:

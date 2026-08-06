@@ -13,7 +13,7 @@ import { TerminalWindow, TerminalBadge } from '@/components/TerminalWindow';
 import { AdapterDetailModal } from '@/components/AdapterDetailModal';
 import { useModal } from '@/components/modals/useModal';
 import { clickableProps } from '@/lib/a11y';
-import { rssCategories, aiProviders, mockStats, mockPipeline } from '@/data/mock';
+import { rssCategories, aiProviders } from '@/data/mock';
 import { fetchSystemStats, fetchActivity, fetchPipeline, fetchAdapters, ApiClient, type ApiProject } from '@/lib/api';
 import { formatLocalDateTime } from '@/lib/date';
 import type { SystemStats, ActivityItem, PipelineStage, AdapterInfo } from '@/lib/types';
@@ -30,9 +30,11 @@ const ASCII_LOGO = `
 export default function Dashboard() {
   const { locale } = useI18n();
   const { openModal } = useModal();
-  const [stats, setStats] = useState<SystemStats>(mockStats);
+  // null until the API answers: seeding with demo numbers showed a
+  // populated dashboard before (and, on failure, instead of) real data.
+  const [stats, setStats] = useState<SystemStats | null>(null);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
-  const [pipeline, setPipeline] = useState<PipelineStage[]>(mockPipeline);
+  const [pipeline, setPipeline] = useState<PipelineStage[]>([]);
   const [adapters, setAdapters] = useState<AdapterInfo[]>([]);
   const [projects, setProjects] = useState<ApiProject[]>([]);
   const [isActivityLoading, setIsActivityLoading] = useState(true);
@@ -110,7 +112,11 @@ export default function Dashboard() {
           transition={{ delay: 0.1 }}
           className="mb-6"
         >
-          <SystemStatus lastRun={stats.lastRun} nextRun={stats.nextRun} />
+          <SystemStatus
+            lastRun={stats?.lastRun}
+            nextRun={stats?.nextRun}
+            status={stats?.systemStatus ?? 'unknown'}
+          />
         </motion.div>
 
         {/* Stats Grid */}
@@ -120,7 +126,13 @@ export default function Dashboard() {
           transition={{ delay: 0.2 }}
           className="mb-6"
         >
-          <StatsGrid stats={stats} />
+          {stats ? (
+            <StatsGrid stats={stats} />
+          ) : (
+            <div className="card-cli p-4 text-sm text-[#8b949e]">
+              $ {locale === 'ko' ? '통계를 불러오지 못했습니다' : 'statistics unavailable'}
+            </div>
+          )}
         </motion.div>
 
         {/* Pipeline Visualization */}
@@ -130,7 +142,7 @@ export default function Dashboard() {
           transition={{ delay: 0.3 }}
           className="mb-6"
         >
-          <Pipeline stages={pipeline} />
+          <Pipeline stages={pipeline} status={stats?.systemStatus ?? 'unknown'} />
         </motion.div>
 
         {/* Recent Projects */}
@@ -265,7 +277,10 @@ export default function Dashboard() {
                     <div className="border-t border-[#21262d] pt-3 mt-3">
                       <div className="flex justify-between items-center">
                         <span className="text-[#8b949e] text-xs">total_adapters:</span>
-                        <span className="text-[#39ff14] font-bold">9</span>
+                        {/* Was a literal 9 while the backend registers 11. */}
+                        <span className="text-[#39ff14] font-bold">
+                          {adapters.length || '—'}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -291,17 +306,15 @@ export default function Dashboard() {
                     <div className="text-[#00ffff] text-xs mb-2">
                       <span className="text-[#bd93f9]">@</span> Local Models (Ollama)
                     </div>
-                    {['gemma3:4b', 'qwen3-embedding:0.6b'].map((model, idx) => (
+                    {/* Configuration, not health. These rows used to carry a
+                        pulsing green "online" dot that nothing measured -- and
+                        the list included qwen3-embedding:0.6b, which is not
+                        installed on the production host and which no code path
+                        calls (see CLAUDE.md). */}
+                    {['gemma3:4b'].map((model) => (
                       <div key={model} className="flex items-center justify-between py-1 ml-4">
                         <span className="text-[#c0c0c0] text-xs">{model}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="tag tag-green">FREE</span>
-                          <motion.div
-                            className="status-dot online"
-                            animate={{ opacity: [1, 0.5, 1] }}
-                            transition={{ duration: 2, repeat: Infinity, delay: idx * 0.2 }}
-                          />
-                        </div>
+                        <span className="tag tag-green">FREE</span>
                       </div>
                     ))}
                   </div>
@@ -311,17 +324,14 @@ export default function Dashboard() {
                     <div className="text-[#ff6b35] text-xs mb-2">
                       <span className="text-[#bd93f9]">@</span> API Models (Budget Controlled)
                     </div>
-                    {aiProviders.map((provider, idx) => (
+                    {/* Also configuration. Nothing here checks whether these
+                        are reachable -- and MOSS_LOCAL_LLM_ONLY defaults to
+                        true, which stops the router instantiating them at
+                        all -- so no status indicator is shown. */}
+                    {aiProviders.map((provider) => (
                       <div key={provider} className="flex items-center justify-between py-1 ml-4">
                         <span className="text-[#c0c0c0] text-xs">{provider}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="tag tag-orange">PAID</span>
-                          <motion.div
-                            className="status-dot online"
-                            animate={{ opacity: [1, 0.5, 1] }}
-                            transition={{ duration: 2, repeat: Infinity, delay: idx * 0.3 }}
-                          />
-                        </div>
+                        <span className="tag tag-orange">PAID</span>
                       </div>
                     ))}
                   </div>

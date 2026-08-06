@@ -27,6 +27,24 @@ class SignalStorage:
         self.backup_dir = backup_dir or Path("data/signals")
         self.backup_dir.mkdir(parents=True, exist_ok=True)
 
+    # These read methods return plain dicts, not ORM rows.
+    #
+    # ``db.session()`` commits and closes on exit, and the session expires its
+    # instances on commit, so a returned Signal was detached with no loaded
+    # state: the caller got a DetachedInstanceError on the first attribute
+    # access. Serialising inside the session is what makes the results usable
+    # outside it -- and everything downstream (backup, export, the daily
+    # summary) already wanted dicts.
+
+    @staticmethod
+    def _serialize(signal: Signal, include_raw: bool = False) -> Dict[str, Any]:
+        """Signal.to_dict() deliberately omits raw_data (it is bulky provider
+        payload). Callers that ask for it get it merged in here."""
+        data = signal.to_dict()
+        if include_raw:
+            data["raw_data"] = signal.raw_data
+        return data
+
     def get_recent(
         self,
         hours: int = 24,
@@ -34,31 +52,39 @@ class SignalStorage:
         source: Optional[str] = None,
         category: Optional[str] = None,
         min_score: float = 0.0,
-    ) -> List[Signal]:
+        include_raw: bool = False,
+    ) -> List[Dict[str, Any]]:
         """Get recent signals from database."""
         with db.session() as session:
             repo = SignalRepository(session)
-            return repo.get_recent(
-                hours=hours, limit=limit, source=source, category=category, min_score=min_score
-            )
+            return [
+                self._serialize(s, include_raw)
+                for s in repo.get_recent(
+                    hours=hours,
+                    limit=limit,
+                    source=source,
+                    category=category,
+                    min_score=min_score,
+                )
+            ]
 
-    def get_by_source(self, source: str, limit: int = 50) -> List[Signal]:
+    def get_by_source(self, source: str, limit: int = 50) -> List[Dict[str, Any]]:
         """Get signals by source."""
         with db.session() as session:
             repo = SignalRepository(session)
-            return repo.get_by_source(source, limit)
+            return [s.to_dict() for s in repo.get_by_source(source, limit)]
 
-    def get_by_category(self, category: str, limit: int = 50) -> List[Signal]:
+    def get_by_category(self, category: str, limit: int = 50) -> List[Dict[str, Any]]:
         """Get signals by category."""
         with db.session() as session:
             repo = SignalRepository(session)
-            return repo.get_by_category(category, limit)
+            return [s.to_dict() for s in repo.get_by_category(category, limit)]
 
-    def search(self, query: str, limit: int = 50) -> List[Signal]:
+    def search(self, query: str, limit: int = 50) -> List[Dict[str, Any]]:
         """Search signals."""
         with db.session() as session:
             repo = SignalRepository(session)
-            return repo.search(query, limit)
+            return [s.to_dict() for s in repo.search(query, limit)]
 
     def get_stats(self) -> Dict[str, Any]:
         """Get signal statistics."""
@@ -120,19 +146,14 @@ class SignalStorage:
         include_raw: bool = False,
     ) -> Path:
         """Backup recent signals to JSON file."""
-        signals = self.get_recent(hours=hours, limit=10000)
+        signals = self.get_recent(hours=hours, limit=10000, include_raw=include_raw)
 
         # Create backup filename
         timestamp = utcnow().strftime("%Y%m%d_%H%M%S")
         backup_file = self.backup_dir / f"signals_{timestamp}.json"
 
         # Convert to JSON-serializable format
-        data = []
-        for signal in signals:
-            signal_dict = signal.to_dict()
-            if not include_raw:
-                signal_dict.pop("raw_data", None)
-            data.append(signal_dict)
+        data = list(signals)
 
         with open(backup_file, "w") as f:
             json.dump(data, f, indent=2, default=str)
@@ -211,7 +232,7 @@ class SignalStorage:
         export_file = self.backup_dir / f"export_{timestamp}.{format}"
 
         if format == "json":
-            data = [s.to_dict() for s in signals]
+            data = list(signals)
             with open(export_file, "w") as f:
                 json.dump(data, f, indent=2, default=str)
 
@@ -235,13 +256,16 @@ class SignalStorage:
                 for signal in signals:
                     writer.writerow(
                         {
-                            "id": signal.id,
-                            "source": signal.source,
-                            "category": signal.category,
-                            "title": signal.title,
-                            "url": signal.url,
-                            "score": signal.score,
-                            "collected_at": signal.collected_at,
+                            key: signal.get(key)
+                            for key in (
+                                "id",
+                                "source",
+                                "category",
+                                "title",
+                                "url",
+                                "score",
+                                "collected_at",
+                            )
                         }
                     )
 

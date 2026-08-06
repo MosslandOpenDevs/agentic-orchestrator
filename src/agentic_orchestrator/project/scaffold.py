@@ -16,9 +16,11 @@ import json
 import logging
 import subprocess
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..db.models import COMPLETED_PROJECT_STATUSES
 from ..timeutil import utcnow
 from .generator import GeneratedFile, ProjectCodeGenerator
 from .parser import ParsedPlan, PlanParser
@@ -27,6 +29,12 @@ from .templates import TemplateFile, TemplateManager, slugify_project_name
 from .verifier import UNKNOWN, CodeVerifier, VerificationStatus, detect_language
 
 logger = logging.getLogger(__name__)
+
+# How long a project may sit in `generating` before we assume the run that
+# claimed it died. Nothing clears that status on a crash or a restart, so
+# without an expiry a killed generation blocks every future attempt for
+# that plan forever. Generation itself is minutes, not hours.
+STALE_GENERATING_AFTER_HOURS = 2
 
 
 @dataclass
@@ -135,16 +143,49 @@ class ProjectScaffold:
                     error=f"Plan not found: {plan_id}",
                 )
 
-            # Check if project already exists
+            # Check if project already exists.
+            #
+            # Only a project that succeeded (or is mid-flight) is a reason to
+            # stop. This used to return early for *any* existing row, so a
+            # retry of a failed generation -- which is exactly what the API
+            # allows an `error` project to request -- reported success=True
+            # with project_path=None and did no work at all, and the background
+            # job recorded it as "completed".
             existing_project = await self._get_existing_project(plan_id)
             if existing_project and not force_regenerate:
-                return ProjectGenerationResult(
-                    success=True,
-                    project_id=existing_project.get("id"),
-                    project_path=existing_project.get("directory_path"),
-                    plan_id=plan_id,
-                    tech_stack=existing_project.get("tech_stack", {}),
-                    error="Project already exists. Use force_regenerate=True to regenerate.",
+                existing_status = existing_project.get("status")
+                if existing_status in COMPLETED_PROJECT_STATUSES:
+                    return ProjectGenerationResult(
+                        success=True,
+                        project_id=existing_project.get("id"),
+                        project_path=existing_project.get("directory_path"),
+                        plan_id=plan_id,
+                        tech_stack=existing_project.get("tech_stack", {}),
+                        error="Project already exists. Use force_regenerate=True to regenerate.",
+                    )
+                if existing_status == "generating":
+                    started = existing_project.get("created_at")
+                    stale = bool(
+                        started
+                        and (utcnow() - started) > timedelta(hours=STALE_GENERATING_AFTER_HOURS)
+                    )
+                    if not stale:
+                        return ProjectGenerationResult(
+                            success=False,
+                            project_id=existing_project.get("id"),
+                            plan_id=plan_id,
+                            error="Project generation is already in progress for this plan.",
+                        )
+                    logger.warning(
+                        "Project %s for plan %s has been 'generating' for over %dh; "
+                        "treating it as abandoned and regenerating",
+                        existing_project.get("id"),
+                        plan_id,
+                        STALE_GENERATING_AFTER_HOURS,
+                    )
+                logger.info(
+                    f"Existing project for plan {plan_id} is in state "
+                    f"'{existing_status}'; regenerating"
                 )
 
             # Parse plan content with deep extraction
@@ -331,10 +372,24 @@ class ProjectScaffold:
         try:
             from ..db.models import Project
 
-            project = self.db_session.query(Project).filter(Project.plan_id == plan_id).first()
+            # A plan can now have more than one project row: retrying a failed
+            # generation leaves the `error` record and adds a new one. Without
+            # an order, `first()` may keep returning the stale error row, which
+            # would make every retry regenerate forever. Prefer a project that
+            # succeeded, then the most recent attempt.
+            project = (
+                self.db_session.query(Project)
+                .filter(Project.plan_id == plan_id)
+                .order_by(
+                    Project.status.in_(COMPLETED_PROJECT_STATUSES).desc(),
+                    Project.created_at.desc(),
+                )
+                .first()
+            )
             if project:
                 return {
                     "id": project.id,
+                    "created_at": project.created_at,
                     "directory_path": project.directory_path,
                     "tech_stack": project.tech_stack,
                     "status": project.status,

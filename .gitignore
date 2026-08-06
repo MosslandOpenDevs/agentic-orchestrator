@@ -71,11 +71,15 @@ out/
 *.local.md
 CLAUDE.local.md
 
-# Application data (SQLite DB and backups - never commit)
+# Application data (SQLite DB and backups - never commit).
+# The glob matters as much as the exact names: restore-db leaves
+# orchestrator.db.pre-restore-<timestamp> beside the database (a full copy of
+# production), and a failed restore can leave orchestrator.db.restore-tmp.
 data/orchestrator.db
 data/orchestrator.db-journal
 data/orchestrator.db-wal
 data/orchestrator.db-shm
+data/orchestrator.db.*
 data/backup/
 
 # Async job state
@@ -87,4 +91,6 @@ data/orchestrator.db.bak*
 # Anchored to the repo root so it does NOT also ignore nested dirs such as
 # website/src/app/projects/ (the frontend Projects page).
 /projects/
-uv.lock
+# uv.lock is TRACKED: CI and production must install the same dependency
+# graph for a given commit, and an ignored lock meant each machine resolved
+# its own (pyproject pins mostly lower bounds).

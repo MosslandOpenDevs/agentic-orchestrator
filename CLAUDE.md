@@ -159,7 +159,8 @@ agentic-orchestrator/
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
 | GET | `/` | API 인덱스 (버전, 엔드포인트 목록) |
-| GET | `/health` | API 헬스체크 (DB 미사용) |
+| GET | `/health` | 라이브니스 — 프로세스 생존만 확인 (DB 미사용) |
+| GET | `/ready` | 레디니스 — 실제 테이블을 읽어 확인, 실패 시 503 (배포 게이트가 사용) |
 | GET | `/status` | 시스템 상태 및 통계 |
 | GET | `/signals` | 수집된 신호 목록 |
 | GET | `/signals/timeline` | 신호 수집 타임라인 (`period=24h\|7d`) |
@@ -234,11 +235,52 @@ agentic-orchestrator/
    **회귀 인지 프루닝**: 히스토리(ideas/plans/debate_sessions) 행 수가 직전 스냅샷
    대비 급감하면 프루닝을 중단해 사고 이전 백업을 보존 — 시그널이 30분 만에
    빈 DB를 다시 채워도 안전. DB가 없거나/비었거나/데이터가 없거나/무결성 실패면
-   건너뜀. 수동 실행: `python -m agentic_orchestrator.scheduler backup-db`
+   건너뜀. 수동 실행: `python -m agentic_orchestrator.scheduler backup-db`,
+   복원은 `python -m agentic_orchestrator.scheduler restore-db`
 
-**복원 절차**: 쓰기 프로세스 중지 → 최신 `data/backup/orchestrator-*.db`를
-`data/orchestrator.db`로 복사 → 재시작. 배포 시 `git clean -fdx`는 반드시
-`-e data -e .env`와 함께 사용할 것.
+**복원 절차**: 손으로 파일을 복사하지 말고 명령을 쓸 것.
+
+```bash
+# 1) 무엇이 있는지 본다 (스냅샷별 시각·크기·행 수·무결성)
+python -m agentic_orchestrator.scheduler restore-db --list
+
+# 2) 쓰기 프로세스를 멈추고
+pm2 stop moss-ao-api moss-ao-signals moss-ao-trends moss-ao-debate moss-ao-backlog moss-ao-health
+
+# 3) 복원한다 (기본값은 최신 스냅샷; --from 으로 지정 가능)
+python -m agentic_orchestrator.scheduler restore-db
+
+# 4) 다시 올린다
+pm2 restart all
+```
+
+`restore-db`는 스냅샷 검증(무결성 + 실제 행 존재) → 다른 프로세스가 쓰는 중이면 거부 →
+**현재 DB를 `orchestrator.db.pre-restore-<시각>`으로 따로 보관**(복원 자체를 되돌릴 수
+있게) → 교체 파일을 먼저 만든 뒤 sidecar 제거 후 스왑 → 결과 검증 순으로 진행한다.
+종료 코드: `0` 완료, `2` 복원할 스냅샷 없음, `1` 거부/실패.
+
+> **왜 손으로 복사하면 안 되는가.** DB는 WAL 모드다. 쓰기 프로세스가 정상 종료가 아니라
+> 강제 종료(OOM kill, `kill -9`, 크래시 — 즉 백업을 꺼내야 하는 바로 그 상황)로 죽으면
+> `data/orchestrator.db-wal`이 살아남는다. 그 옆에 스냅샷을 `cp`로 덮어쓰면 SQLite가
+> 옛 WAL을 새 파일 위에 **재생**한다. 복원은 조용히 무효가 되고 `PRAGMA integrity_check`는
+> `ok`를 반환한다 — 복원했다고 믿은 채 잃은 데이터를 그대로 안고 가게 된다.
+> `tests/test_restore.py::TestTheHazard`가 이 현상(스냅샷 1행 → 복원 후 401행, 무결성 ok)을
+> 실제로 재현해 고정해 둔다.
+
+배포 시 `git clean -fdx`는 반드시 `-e data -e .env`와 함께 사용할 것.
+
+### 커넥션 풀과 저널 모드
+
+파일 SQLite는 **커넥션을 세션마다 따로** 잡는다 (`db/connection.py`). 예전에는
+파일 DB에도 `StaticPool`을 써서 프로세스 안의 모든 `Session`이 커넥션 하나 =
+트랜잭션 하나를 공유했고, 그래서 한 요청의 rollback이 다른 요청의 미커밋 쓰기를
+지우고 긴 프로젝트 생성이 API 전체를 자기 트랜잭션에 묶어 둘 수 있었다.
+인메모리 DB(`:memory:`)만 `StaticPool`을 유지한다 — 커넥션이 곧 데이터베이스라
+공유하지 않으면 매번 빈 DB가 되기 때문이다.
+
+커넥션이 갈라진 만큼 동시성이 실제로 발생하므로 파일 DB에는
+`journal_mode=WAL`(읽기와 쓰기 동시 진행)과 `busy_timeout=30s`(잠금 대기 시
+"database is locked" 대신 대기)를 함께 건다. `PRAGMA foreign_keys=ON`은 그대로다.
 
 ## 환경 변수
 
@@ -375,8 +417,12 @@ pm2 save
 - **활성화**: 서버 `.env`에 `MOSS_AO_AUTO_DEPLOY=1` → `pm2 start ecosystem.config.js
   --only moss-ao-deploy && pm2 save`. 이 플래그가 없으면 PM2 앱 목록에 등록조차 되지 않아
   다른 체크아웃이 자기 자신을 배포하는 사고가 나지 않는다.
-- **가드**: CI 초록불일 때만 / 서버에 로컬 수정·로컬 커밋이 있으면 중단 / 토론 실행 중이면
-  백엔드 배포는 다음 틱으로 연기 / 배포 전 강제 DB 스냅샷 / 헬스체크 실패 시 자동 롤백(재빌드 포함).
+- **가드**: CI 초록불일 때만 (체크 0건·`skipped`·`stale`은 초록이 아니라 **연기**;
+  `DEPLOY_REQUIRE_CI_JOBS`로 필수 job까지 지정 가능) / 서버에 로컬 수정·로컬 커밋이
+  있으면 중단 / 토론 실행 중이면 백엔드 배포는 다음 틱으로 연기 / 배포 전 강제 DB 스냅샷,
+  **실패 시 배포 중단**(복원 지점 없이 배포하지 않음) / API가 떠 있는데 레디니스만
+  실패하면(=DB 문제) 배포를 연기 / 배포 후 `/ready`(DB를 실제로 읽음) 실패 시 자동
+  롤백(재빌드 포함).
 - **배포 상태는 HEAD가 아니라 "마지막 성공 SHA"** (`.git/moss-ao-deployed-sha`, 헬스체크
   통과 후에만 기록): 배포 도중 죽으면(OOM SIGKILL·재부팅) 다음 틱이 미완 배포로 감지해
   재시도한다. 같은 SHA가 반복 실패하면 지수 백오프(5분→…→60분)로 풀 사이클 반복을 막고,
@@ -589,7 +635,8 @@ curl -s "$OLLAMA_HOST/api/ps"
 
 **해결 (v0.6.10+):**
 - API·스케줄러가 기동 시 스키마를 자동 생성하므로 재시작만으로 500은 해소됨 (`pm2 restart moss-ao-api`)
-- 데이터 복원: 최신 `data/backup/orchestrator-*.db`를 `data/orchestrator.db`로 복사 후 재시작
+- 데이터 복원: `python -m agentic_orchestrator.scheduler restore-db`
+  (목록은 `--list`, 특정 스냅샷은 `--from`). 손으로 복사하지 말 것 — 위 '복원 절차' 참조
 - `/status`가 `"degraded"`를 반환하면 DB가 실제로 죽어 있다는 뜻 — `pm2 logs moss-ao-api`에서 traceback 확인
 
 ## 콘텐츠 품질 요구사항

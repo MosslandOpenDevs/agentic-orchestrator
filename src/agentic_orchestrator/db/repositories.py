@@ -226,11 +226,38 @@ class TrendRepository(BaseRepository):
         return self.session.query(func.count(Trend.id)).filter(Trend.period == period).scalar() or 0
 
     def delete_older_than(self, days: int) -> int:
-        """Delete trends older than specified days."""
+        """Delete trends older than ``days`` that nothing still points at.
+
+        A trend an Idea was generated from is that idea's provenance (it is
+        what ``/ideas/{id}/lineage`` walks), and ``Idea.source_trend_id`` has
+        no ON DELETE policy -- deleting the parent raised
+        ``FOREIGN KEY constraint failed`` and took the whole sweep down with
+        it. Referenced trends are kept; the rest are pruned.
+        """
         cutoff = utcnow() - timedelta(days=days)
-        result = self.session.query(Trend).filter(Trend.analyzed_at < cutoff).delete()
+        referenced = self.session.query(Idea.source_trend_id).filter(
+            Idea.source_trend_id.isnot(None)
+        )
+        result = (
+            self.session.query(Trend)
+            .filter(Trend.analyzed_at < cutoff, ~Trend.id.in_(referenced))
+            .delete(synchronize_session=False)
+        )
         self.session.flush()
         return result
+
+    def count_older_than_still_referenced(self, days: int) -> int:
+        """How many prunable-by-age trends were kept because of a reference."""
+        cutoff = utcnow() - timedelta(days=days)
+        referenced = self.session.query(Idea.source_trend_id).filter(
+            Idea.source_trend_id.isnot(None)
+        )
+        return (
+            self.session.query(func.count(Trend.id))
+            .filter(Trend.analyzed_at < cutoff, Trend.id.in_(referenced))
+            .scalar()
+            or 0
+        )
 
 
 class IdeaRepository(BaseRepository):
@@ -482,16 +509,49 @@ class DebateRepository(BaseRepository):
             self.session.flush()
         return debate
 
-    def delete_older_than(self, days: int) -> int:
-        """Delete debate sessions (and their cascaded messages) older than days."""
-        cutoff = utcnow() - timedelta(days=days)
-        # Delete child messages first to avoid orphaning if cascade isn't set.
-        old_session_ids = [
+    def _prunable_session_ids(self, cutoff: datetime) -> List[str]:
+        """Old sessions that no surviving Idea or Plan points at.
+
+        Ideas and Plans are never deleted and both carry
+        ``debate_session_id`` with no ON DELETE policy, so deleting their
+        session raised ``FOREIGN KEY constraint failed`` -- which, because
+        both sweeps shared one transaction, silently disabled retention
+        entirely. A session that produced a surviving record is part of its
+        provenance and is kept.
+        """
+        referenced_by_ideas = self.session.query(Idea.debate_session_id).filter(
+            Idea.debate_session_id.isnot(None)
+        )
+        referenced_by_plans = self.session.query(Plan.debate_session_id).filter(
+            Plan.debate_session_id.isnot(None)
+        )
+        return [
             sid
             for (sid,) in self.session.query(DebateSession.id)
-            .filter(DebateSession.started_at < cutoff)
+            .filter(
+                DebateSession.started_at < cutoff,
+                ~DebateSession.id.in_(referenced_by_ideas),
+                ~DebateSession.id.in_(referenced_by_plans),
+            )
             .all()
         ]
+
+    def count_older_than_still_referenced(self, days: int) -> int:
+        """How many prunable-by-age sessions were kept because of a reference."""
+        cutoff = utcnow() - timedelta(days=days)
+        total_old = (
+            self.session.query(func.count(DebateSession.id))
+            .filter(DebateSession.started_at < cutoff)
+            .scalar()
+            or 0
+        )
+        return total_old - len(self._prunable_session_ids(cutoff))
+
+    def delete_older_than(self, days: int) -> int:
+        """Delete unreferenced debate sessions (and their messages) older than days."""
+        cutoff = utcnow() - timedelta(days=days)
+        # Delete child messages first to avoid orphaning if cascade isn't set.
+        old_session_ids = self._prunable_session_ids(cutoff)
         if not old_session_ids:
             return 0
         self.session.query(DebateMessage).filter(

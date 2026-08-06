@@ -29,7 +29,7 @@ CI에서 서버로 밀어넣는(push) 방식이 아니라 서버가 당겨오는
 ```
 git push → main 머지
               ↓
-        GitHub Actions CI (test + lint)
+     GitHub Actions CI (test + lint + website)
               ↓  (초록불일 때만)
    서버: moss-ao-deploy (5분마다, :04/:09/…/:59)
               ↓
@@ -39,7 +39,7 @@ git push → main 머지
               ↓
    DB 스냅샷 (data/backup/) → git reset --hard → 빌드(.next.new 스테이징) → PM2 재시작
               ↓
-   헬스체크 (:3001/health, :3000) → 성공 시에만 성공 SHA 기록 / 실패 시 자동 롤백
+   헬스체크 (:3001/ready, :3000) → 성공 시에만 성공 SHA 기록 / 실패 시 자동 롤백
 ```
 
 ### 변경 범위에 따라 필요한 작업만 수행
@@ -73,14 +73,24 @@ git push → main 머지
   파일을 건드리지 않으므로 `data/orchestrator.db`, `data/backup/`, `.env`,
   `website/.env.local`이 그대로 남습니다. 2026-07 DB 유실 사고의 재발 방지선이며
   `tests/test_deploy.py`가 이 불변식을 실제로 검증합니다.
-- **배포 전 DB 스냅샷** — 코드 배포 직전 `scheduler backup-db`(강제 스냅샷)를 실행합니다.
-  헬스체크가 쓰는 약 1일 주기 `maybe_backup_database()`와 달리 항상 찍습니다.
-  단, **문서만 바뀐 동기화는 스냅샷을 생략**합니다 — 아무것도 재시작하지 않고
-  `reset --hard`는 untracked DB를 건드릴 수 없어 보호할 대상이 없는데, 스냅샷마다
-  7슬롯 백업 창이 돌기 때문입니다.
+- **배포 전 DB 스냅샷 (fail-closed)** — 코드 배포 직전 `scheduler backup-db`(강제 스냅샷)를
+  실행합니다. 헬스체크가 쓰는 약 1일 주기 `maybe_backup_database()`와 달리 항상 찍습니다.
+  **스냅샷이 실패하면 배포하지 않습니다** — 이 스냅샷이 바로 지금 적용할 변경의 복원
+  지점이라, 실패한 채로 배포하면 되돌아갈 곳 없이 2026-07 사고를 반복하게 됩니다.
+  `backup-db`의 종료 코드가 계약입니다: `0`=기록됨, `2`=찍을 것이 없음(빈/없는 DB —
+  정상), 그 외=실패(배포 중단 + 알림). 단, **문서만 바뀐 동기화는 스냅샷을 생략**합니다 —
+  아무것도 재시작하지 않고 `reset --hard`는 untracked DB를 건드릴 수 없어 보호할 대상이
+  없는데, 스냅샷마다 7슬롯 백업 창이 돌기 때문입니다.
 - **CI 게이트** — GitHub check-runs API로 해당 커밋이 초록불일 때만 배포합니다.
   진행 중이면 다음 틱으로 미루고, 빨간불이면 배포하지 않습니다. API를 못 읽어도(네트워크
   장애 등) 눈감고 배포하지 않고 미룹니다.
+  **체크가 0건인 것은 초록불이 아닙니다** — 푸시 직후 GitHub이 아직 체크를 등록하지 않은
+  상태가 대부분이라(폴러는 5분마다 돕니다) 진행 중과 동일하게 다음 틱으로 미룹니다.
+  예전에는 이때 그냥 배포해서 검증되지 않은 커밋이 운영에 올라갔습니다. 마찬가지로
+  `skipped`/`stale`처럼 **아무것도 검증하지 않은 결론**은 실패 목록에 없다는 이유로
+  초록불 취급됐지만 이제 미룹니다. 초록으로 인정하는 결론은 `success`와 `neutral`뿐입니다.
+  `DEPLOY_REQUIRE_CI_JOBS`에 job 이름을 지정하면 그 job들이 실제로 통과했는지까지
+  확인합니다 (미지정 시 보고된 체크만 검사).
 - **로컬 수정 보호** — 서버 체크아웃에서 추적 중인 파일이 손으로 수정돼 있으면 배포를
   중단합니다(`--force`로만 덮어씀). `reset --hard`가 조용히 지우는 사고를 막습니다.
 - **로컬 커밋 보호** — HEAD가 `origin/main`의 조상이 아니면(서버에 로컬 커밋이 있거나
@@ -99,6 +109,13 @@ git push → main 머지
   PID를 읽을 수 없는 락만 90분 백스톱을 기다립니다. 같은 이유로 폴러의
   `max_memory_restart`도 1G→3G로 올렸습니다 — Next 빌드가 폴러 프로세스의 메모리 예산
   안에서 돌고, 한도 초과 시 PM2가 SIGKILL로 죽이기 때문입니다.
+- **헬스체크는 readiness를 봅니다** — `/health`가 아니라 **`/ready`** 를 호출합니다.
+  `/health`는 프로세스 생존만 보고하므로 2026-07 사고 때 모든 DB 엔드포인트가 500을
+  내는 동안에도 200을 유지했고, 그 상태로 배포가 성공 판정될 수 있었습니다. `/ready`는
+  실제 테이블을 읽고 안 되면 503을 반환합니다. 배포 **전에도** 같은 것을 봅니다: API가
+  떠 있는데 레디니스만 실패하는 상태(=DB 문제)라면, 어떤 코드를 올려도 그 게이트를
+  통과할 수 없으므로 재시작·롤백을 5분마다 반복하는 대신 배포를 미룹니다.
+  > 롤백 시에는 `/ready`가 없던 커밋으로 돌아갈 수 있으므로 `/health`도 함께 받아들입니다.
 - **자동 롤백** — 빌드 실패나 배포 후 헬스체크 실패 시 **마지막 성공 SHA**로 되돌리고
   **재빌드까지** 수행해 일관된 상태로 복구합니다 (미완 배포 재시도 중이라면 HEAD는 이미
   깨진 커밋에 가 있으므로, "직전 HEAD"가 아니라 마지막 성공 지점이 기준입니다).
@@ -147,6 +164,7 @@ tail -f logs/deploy.log
 | `MOSS_AO_AUTO_DEPLOY` | (없음) | `1`이어야 `moss-ao-deploy`가 PM2에 등록됨 |
 | `DEPLOY_BRANCH` | `main` | 추적할 브랜치 |
 | `DEPLOY_REQUIRE_CI` | `1` | `0`이면 CI 결과와 무관하게 배포 |
+| `DEPLOY_REQUIRE_CI_JOBS` | (없음) | 반드시 통과해야 할 check-run 이름들(쉼표 구분). 예: `test (3.12),test (3.13),lint,website` |
 | `DEPLOY_ALERT_WEBHOOK` | (없음) | 실패·롤백 시 알릴 Slack/Discord 웹훅 |
 | `GITHUB_TOKEN` | (없음) | 선택. CI 상태 조회의 rate limit 완화용 |
 | `DEPLOY_VERBOSE` | `0` | `1`이면 변경 없는 틱도 로그에 남김 |
@@ -160,11 +178,14 @@ tail -f logs/deploy.log
 
 ### uv / pip 자동 판별
 
-의존성 설치는 체크아웃 형태를 보고 고릅니다. `uv.lock`이 있거나 `.venv/pyvenv.cfg`에
-`uv = ...`가 적혀 있으면 `uv sync`, 아니면 `pip install -e .`입니다. 운영 서버의
-`.venv`는 uv가 만든 것이라 **내부에 pip이 아예 없어서** `pip install -e .`는 실패합니다
-(`uv.lock`은 저장소에 커밋돼 있지 않고 서버에만 있으므로, 이 판별은 커밋이 아니라
-머신의 속성입니다).
+의존성 설치는 체크아웃 형태를 보고 고릅니다. **`.venv/pyvenv.cfg`에 `uv = ...`가 적혀
+있으면 `uv sync`, 아니면 `pip install -e .`** 입니다. 운영 서버의 `.venv`는 uv가 만든
+것이라 **내부에 pip이 아예 없어서** `pip install -e .`는 실패합니다.
+
+> `uv.lock`은 이제 저장소에 **커밋**되어 있습니다 (CI와 운영이 같은 커밋에서 같은
+> 의존성 그래프를 설치해야 하므로). 그래서 모든 체크아웃에 lockfile이 존재하며,
+> 판별 기준은 lockfile이 아니라 venv가 스스로 기록한 생성 방식입니다. venv가 아직
+> 없을 때만 lockfile 존재 여부로 판단합니다.
 
 ## 운영
 
@@ -209,8 +230,14 @@ pm2 restart moss-ao-api moss-ao-web --update-env
 git rev-parse HEAD > .git/moss-ao-deployed-sha
 ```
 
-DB까지 되돌려야 하면 `CLAUDE.md`의 복원 절차(최신 `data/backup/orchestrator-*.db`를
-`data/orchestrator.db`로 복사)를 따릅니다.
+DB까지 되돌려야 하면 손으로 파일을 복사하지 말고 복원 명령을 쓰십시오 — WAL 모드라
+스냅샷을 `cp`로 덮어쓰면 남아 있던 WAL이 그 위에 재생돼 복원이 조용히 무효가 됩니다
+(`CLAUDE.md`의 복원 절차 참조):
+
+```bash
+python -m agentic_orchestrator.scheduler restore-db --list
+python -m agentic_orchestrator.scheduler restore-db
+```
 
 ### 로그
 
@@ -232,7 +259,7 @@ DB까지 되돌려야 하면 `CLAUDE.md`의 복원 절차(최신 `data/backup/or
 | `CI: still running -- deferring` 반복 | CI가 아직 진행 중이거나 멈춤. Actions 탭 확인 |
 | `CI: status unavailable` 반복 | GitHub API 접근 실패(레이트 리밋 등). `GITHUB_TOKEN` 설정 검토 |
 | `scheduler busy` 로 계속 밀림 | 토론이 오래 걸리는 중. 급하면 `--force` |
-| `ecosystem.config.js changed` 안내 | PM2 프로세스 정의(cron·env)는 자동 재등록되지 않음. **로그인 셸에서** `pm2 restart ecosystem.config.js --update-env && pm2 save` 를 직접 실행 (PM2 관리 프로세스 안에서 실행 금지 — 아래 [cron_restart 오염](#pm2-cron_restart-오염-2026-08-05-사고) 참조) |
+| `REMINDER ecosystem.config.js changed ...` 반복 | PM2 프로세스 정의(cron·env)는 자동 재등록되지 않음. **로그인 셸에서** `pm2 restart ecosystem.config.js --update-env && pm2 save` 실행 후 `rm logs/.ecosystem-pending` (PM2 관리 프로세스 안에서 실행 금지 — 아래 [cron_restart 오염](#pm2-cron_restart-오염-2026-08-05-사고) 참조). 이 알림은 파일을 지울 때까지 매 틱 반복됩니다 — 예전에는 배포 한 번만 안내하고 사라져서 변경이 무기한 미적용으로 남을 수 있었습니다 |
 | `CRITICAL rollback ... unhealthy` | 배포도 롤백도 헬스체크 실패. `pm2 logs moss-ao-api` 확인 후 수동 개입 |
 | 배포는 됐는데 화면이 그대로 | 프론트엔드는 `NEXT_PUBLIC_*`가 빌드 시점에 박히므로 빌드 필요. `logs/deploy.log`에 `npm run build`가 있는지 확인 |
 | **api/web 업타임이 5분을 못 넘기고 ↺ 만 증가** | PM2 `cron_restart` 오염. 아래 절 참조 |

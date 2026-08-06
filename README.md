@@ -21,7 +21,7 @@ An autonomous multi-agent orchestration system for discovering, planning, and im
 
 ## Dashboard
 
-A Next.js CLI-style dashboard for monitoring the orchestrator in real time, live at **https://ao.moss.land**. To run it locally: `cd website && pnpm install && pnpm dev`, then open http://localhost:3000.
+A Next.js CLI-style dashboard for monitoring the orchestrator in real time, live at **https://ao.moss.land**. To run it locally: `cd website && npm ci && npm run dev`, then open http://localhost:3000.
 
 | Page | Description |
 |------|-------------|
@@ -89,7 +89,7 @@ cp .env.example .env
 npm install -g pm2
 
 # Build the dashboard first (moss-ao-web runs `next start`, which needs a build)
-cd website && pnpm install && pnpm build && cd ..
+cd website && npm ci && npm run build && cd ..
 
 # Start all services
 pm2 start ecosystem.config.js
@@ -137,7 +137,38 @@ bash scripts/deploy.sh --check   # dry run: report what would happen
 bash scripts/deploy.sh           # deploy now, without waiting for the next tick
 ```
 
+Deploys are deliberately conservative about what counts as a green light: a
+commit with no CI checks reported yet, or whose checks all skipped, defers to
+the next tick rather than shipping unverified; a failed pre-deploy DB snapshot
+refuses outright rather than deploying with no way back; and if the API is up
+but failing readiness (a database problem), the deploy defers instead of
+restarting and rolling back every five minutes for the length of the outage.
+
 Setup, configuration, and troubleshooting: [docs/deployment.md](docs/deployment.md).
+
+## Database Backup and Restore
+
+The database is a single SQLite file that is deliberately never in git, so
+`data/backup/` holds rolling snapshots — one roughly every 24 hours, newest
+seven kept, taken by the health check and forced before every code deploy.
+
+Restore with the command, not by copying files:
+
+```bash
+python -m agentic_orchestrator.scheduler restore-db --list   # what is available
+python -m agentic_orchestrator.scheduler restore-db          # newest, or --from PATH
+```
+
+It validates the snapshot, refuses while another process is writing, keeps the
+database it replaces (so the restore is itself reversible), and removes the WAL
+sidecars before swapping the file in.
+
+> **Do not `cp` a snapshot over `data/orchestrator.db`.** The database runs in
+> WAL mode. If the writer did not exit cleanly — a crash or an OOM kill, which
+> is the situation you are in when you reach for a backup — `orchestrator.db-wal`
+> survives, and SQLite replays it on top of whatever you just copied in. The
+> restore silently does not happen and `PRAGMA integrity_check` still reports
+> `ok`. `tests/test_restore.py::TestTheHazard` reproduces exactly that.
 
 ## API Endpoints
 
@@ -145,7 +176,8 @@ The FastAPI backend provides REST API access:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/health` | GET | Health check |
+| `/health` | GET | Liveness — the process is up (does not touch the database) |
+| `/ready` | GET | Readiness — reads a real table; 503 when it cannot. What the deployer gates on |
 | `/status` | GET | System status |
 | `/signals` | GET | List recent signals |
 | `/debates` | GET | List debate results |
@@ -163,6 +195,35 @@ by `debate.normal.*_agents_per_round` in `config.yaml`.
 | 1. Divergence | 16 | 8 | Generate diverse ideas and perspectives | Frontend / Backend / Blockchain engineers, Security Researcher, DevOps, Product and UX Designers, Product Managers, Growth Marketer, Brand Strategist, Business Analyst, Community Manager |
 | 2. Convergence | 8 | 4 | Synthesize and evaluate ideas | Crypto VC and Traditional VC partners, two Accelerator Mentors, serial and first-time founders, Tech and Market Domain Experts |
 | 3. Planning | 10 | 3 | Create actionable implementation plans | CPO, Senior PM, Technical Lead, Frontend / Backend / Blockchain Leads, UX Researcher, QA Lead, Developer Relations, Project Manager |
+
+### Which model runs a debate
+
+The debate is the one task allowed onto a paid API, and it takes **two
+independent switches** to get there. Both must be on before a cent is spent:
+
+1. `MOSS_LOCAL_LLM_ONLY=false` in `.env` — while it is unset or true (the
+   default) the router does not even construct the paid providers, and a caller
+   asking for `force_api` is ignored.
+2. `llm.paid_tiers.debate.enabled: true` in `config.yaml`, which names the model
+   (currently `gpt-5.4-mini`). The four debate call sites carry
+   `paid_tier=debate`; nothing else does.
+
+With both on, divergence / convergence / planning / scoring run on that model.
+With either off — or no provider configured, or the budget spent, or an explicit
+local model requested — the debate **degrades to local `gemma3:4b` rather than
+failing**. Everything else in the pipeline (trends, translation, triage scoring)
+is local regardless.
+
+Two consequences worth knowing:
+
+- **Cost is real when the tier is on.** `budget` in `config.yaml` is the source
+  of truth for the daily and monthly caps (env still overrides), and exhausting
+  it degrades debates back to local rather than stopping them.
+- **On local, throughput is bounded by one GPU.** `throttling.ollama`
+  (`min_request_interval`, `max_concurrent_requests`) decides how fast a round
+  may issue requests, and both are enforced — so a local-mode debate is
+  materially slower than a paid one. If it approaches the 90-minute cycle
+  budget, those are the knobs.
 
 Every persona also carries a 4-axis personality profile scored 0-10. Balancing a round's
 subset across these axes is what stops it from being eight agents of one temperament.
@@ -215,6 +276,9 @@ Four more crypto feeds (Chainlink, Polygon, Paradigm, a16z Crypto) are kept with
 | `GEMINI_API_KEY` | Gemini API key | For cloud mode |
 | `OLLAMA_HOST` | Ollama server URL | For local mode |
 | `MOSS_LOCAL_LLM_ONLY` | Pin the LLM router to Ollama. Defaults to `true`; set `false` to enable the cloud keys above | No (default `true`) |
+| `MOSS_API_KEY` | Shared secret required on the mutating API routes (`X-API-Key`). Unset means those routes answer 503 | For writes |
+| `MOSS_ENABLE_BROWSER_PROJECT_GENERATION` | Let the public dashboard's generate button spend `MOSS_API_KEY`. Off by default: the site has no user accounts, so on means any visitor can start a generation | No (default off) |
+| `MOSS_RUN_GENERATED_TESTS` | Allow the QA stage to execute model-written tests in this process. Off by default — run them in a disposable container instead | No (default off) |
 
 ## Project Structure
 
@@ -251,14 +315,21 @@ agentic-orchestrator/
 
 ## Development
 
-```bash
-# Test tooling lives in the dev extra
-pip install -e ".[dev]"
-pytest tests/ -v
-```
+Dependencies are locked. CI and production both install from `uv.lock`, so a
+given commit resolves to one dependency graph everywhere:
 
 ```bash
-cd website && pnpm build   # rebuild the dashboard after a change
+uv sync --frozen --extra dev      # or: pip install -e ".[dev]"
+uv run pytest tests/ -v
+```
+
+The dashboard has its own checks, and CI runs all of them — a broken build used
+to surface only on the production server, mid-deploy:
+
+```bash
+cd website
+npm ci
+npm run lint && npm run typecheck && npm test && npm run build
 ```
 
 ```bash
@@ -269,6 +340,7 @@ python -m agentic_orchestrator.scheduler run-debate
 python -m agentic_orchestrator.scheduler process-backlog
 python -m agentic_orchestrator.scheduler health-check
 python -m agentic_orchestrator.scheduler backup-db         # snapshot into data/backup/, auto ~daily
+python -m agentic_orchestrator.scheduler restore-db --list # restore from a snapshot (see above)
 ```
 
 ## License

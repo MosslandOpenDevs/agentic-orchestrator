@@ -242,6 +242,12 @@ body::before {
   animation: blink 1s ease-in-out infinite;
 }
 
+/* Neither up nor known to be down -- e.g. the status endpoint is
+   unreachable. Deliberately not green and not red. */
+.status-dot.unknown {
+  background: var(--text-secondary, #8b949e);
+}
+
 /* Tag styles */
 .tag {
   display: inline-flex;

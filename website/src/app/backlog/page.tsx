@@ -4,17 +4,23 @@ import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { IdeaCard } from '@/components/IdeaCard';
-import { mockIdeas, mockPlans } from '@/data/mock';
 import { fetchIdeas, fetchPlans } from '@/lib/api';
 import type { Idea, Plan } from '@/lib/types';
 
 type SortOption = 'newest' | 'oldest' | 'score-high' | 'score-low';
 
+
 export default function BacklogPage() {
   const { t } = useI18n();
-  const [activeTab, setActiveTab] = useState<'ideas' | 'plans' | 'in-dev'>('ideas');
-  const [ideas, setIdeas] = useState<Idea[]>(mockIdeas);
-  const [plans, setPlans] = useState<Plan[]>(mockPlans);
+  // No 'in-dev' tab: it had a count but no render branch, so selecting it
+  // showed an empty page whatever the count claimed. Generated projects
+  // live on /projects, which is where that view already exists.
+  const [activeTab, setActiveTab] = useState<'ideas' | 'plans'>('ideas');
+  // Start empty: seeding with demo rows meant the page rendered a
+  // convincing fake backlog before the first fetch, and kept it forever
+  // if the fetch threw.
+  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Filter states
@@ -55,18 +61,12 @@ export default function BacklogPage() {
   const tabs = [
     { id: 'ideas' as const, label: t('backlog.ideas'), count: ideas.length },
     { id: 'plans' as const, label: t('backlog.plans'), count: plans.length },
-    { id: 'in-dev' as const, label: t('backlog.inDevelopment'), count: ideas.filter(i => i.status === 'in-dev').length },
   ];
 
   const filteredIdeas = useMemo(() => {
     let result = ideas;
 
-    // Tab filter
-    if (activeTab === 'in-dev') {
-      result = result.filter(i => i.status === 'in-dev');
-    } else if (activeTab === 'plans') {
-      result = result.filter(i => i.status === 'planned');
-    }
+    // No tab filter: the Plans tab renders the plans list, not ideas.
 
     // Status filter
     if (statusFilter !== 'all') {
@@ -104,7 +104,7 @@ export default function BacklogPage() {
     });
 
     return result;
-  }, [ideas, activeTab, statusFilter, sourceFilter, sortBy, searchQuery]);
+  }, [ideas, statusFilter, sourceFilter, sortBy, searchQuery]);
 
   return (
     <div className="min-h-screen bg-zinc-950 pt-14">

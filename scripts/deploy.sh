@@ -41,6 +41,7 @@
 #   DEPLOY_BRANCH          branch to track                     (default: main)
 #   DEPLOY_REMOTE          git remote                          (default: origin)
 #   DEPLOY_REQUIRE_CI      1 = only deploy CI-green commits     (default: 1)
+#   DEPLOY_REQUIRE_CI_JOBS check-run names that must have passed (comma list)
 #   DEPLOY_GITHUB_REPO     owner/name used for the CI query
 #   DEPLOY_API_URL         backend health URL                  (:3001)
 #   DEPLOY_WEB_URL         frontend health URL                 (:3000)
@@ -186,21 +187,38 @@ ci_conclusion() {
     *) echo "unknown"; return 0 ;;
   esac
 
-  printf '%s' "${body}" | python3 -c '
-import json, sys
+  printf '%s' "${body}" | REQUIRED_JOBS="${DEPLOY_REQUIRE_CI_JOBS}" python3 -c '
+import json, os, sys
 try:
     runs = json.load(sys.stdin).get("check_runs", [])
 except Exception:
     print("unknown"); raise SystemExit
+# Zero checks is not evidence of success. GitHub commonly has not registered
+# them yet when the 5-minute poller fires seconds after a push, so treat it the
+# same as "still running": defer and look again next tick.
 if not runs:
     print("none"); raise SystemExit
-bad = {"failure", "cancelled", "timed_out", "action_required", "startup_failure"}
+
+hard_fail = {"failure", "cancelled", "timed_out", "action_required", "startup_failure"}
+# Only these two mean "this check verified the commit". skipped/stale/null do
+# not, and were previously counted as green by being absent from the bad set.
+green = {"success", "neutral"}
+
 if any(r.get("status") != "completed" for r in runs):
-    print("pending")
-elif any(r.get("conclusion") in bad for r in runs):
-    print("failure")
-else:
-    print("success")
+    print("pending"); raise SystemExit
+if any(r.get("conclusion") in hard_fail for r in runs):
+    print("failure"); raise SystemExit
+if any(r.get("conclusion") not in green for r in runs):
+    print("incomplete"); raise SystemExit
+
+# Optional: pin the exact jobs that must have reported. Without it, a workflow
+# that stops running the tests still reads as green.
+required = [j.strip() for j in (os.environ.get("REQUIRED_JOBS") or "").split(",") if j.strip()]
+passed = {r.get("name") for r in runs if r.get("conclusion") in green}
+if any(job not in passed for job in required):
+    print("missing-required"); raise SystemExit
+
+print("success")
 ' 2>/dev/null || echo "unknown"
 }
 
@@ -237,13 +255,18 @@ print(",".join(busy))
 ' 2>/dev/null || echo ""
 }
 
-# uv-managed checkout? Either the lockfile is present (it is untracked on the
-# server, so this is a property of the machine, not of the commit) or the venv
-# itself records that uv built it.
+# uv-managed checkout? The venv records how it was built, and that is the
+# authoritative answer. uv.lock used to imply "uv" on its own, which was fine
+# while the lockfile was untracked (a property of the machine); it is committed
+# now, so every checkout has one and it can only decide the case where no venv
+# exists yet.
 uses_uv() {
   [ -x "${UV_BIN}" ] || return 1
-  [ -f "${REPO_ROOT}/uv.lock" ] && return 0
-  grep -qs '^uv = ' "${REPO_ROOT}/.venv/pyvenv.cfg"
+  if [ -f "${REPO_ROOT}/.venv/pyvenv.cfg" ]; then
+    grep -qs '^uv = ' "${REPO_ROOT}/.venv/pyvenv.cfg"
+    return
+  fi
+  [ -f "${REPO_ROOT}/uv.lock" ]
 }
 
 # Swap the staged frontend build into place: two renames, run immediately
@@ -284,10 +307,15 @@ build_and_restart() {
     # pip/venv checkout is still the documented local setup. Use whichever
     # this checkout actually is.
     if uses_uv; then
-      log "uv sync (pyproject.toml changed)"
-      "${UV_BIN}" sync --quiet || { log "ERROR uv sync failed"; return 1; }
+      # --frozen installs strictly from the committed uv.lock and never
+      # rewrites it. Without it a re-resolution would modify a *tracked* file
+      # in the server checkout, and the dirty-tree guard would then abort every
+      # subsequent 5-minute tick until someone SSHed in. It also means
+      # production installs exactly the graph CI verified.
+      log "uv sync --frozen (dependencies changed)"
+      "${UV_BIN}" sync --frozen --quiet || { log "ERROR uv sync failed"; return 1; }
     else
-      log "pip install -e . (pyproject.toml changed)"
+      log "pip install -e . (dependencies changed)"
       "${PYTHON_BIN}" -m pip install -e . --quiet || { log "ERROR pip install failed"; return 1; }
     fi
   fi
@@ -346,8 +374,18 @@ health_ok() {
   local i=0
   while [ "${i}" -lt "${DEPLOY_HEALTH_RETRIES}" ]; do
     local api_ok=1 web_ok=1
-    if [ "${PY_CHANGED}" = "1" ] || [ "${ROLLING_BACK:-0}" = "1" ]; then
-      curl -fsS -m 5 "${DEPLOY_API_URL}/health" >/dev/null 2>&1 || api_ok=0
+    # /ready, not /health: liveness stayed 200 through the 2026-07 incident
+    # while every DB-backed endpoint returned 500, so a deploy that broke the
+    # database would still have been recorded as DEPLOYED. /ready reads a real
+    # table and answers 503 when it cannot.
+    if [ "${ROLLING_BACK:-0}" = "1" ]; then
+      # Rolling back: the target commit may predate /ready, and a 404 there
+      # would report a perfectly good rollback as CRITICAL. Accept either.
+      curl -fsS -m 5 "${DEPLOY_API_URL}/ready" >/dev/null 2>&1 \
+        || curl -fsS -m 5 "${DEPLOY_API_URL}/health" >/dev/null 2>&1 \
+        || api_ok=0
+    elif [ "${PY_CHANGED}" = "1" ]; then
+      curl -fsS -m 5 "${DEPLOY_API_URL}/ready" >/dev/null 2>&1 || api_ok=0
     fi
     if [ "${WEB_CHANGED}" = "1" ] || [ "${ROLLING_BACK:-0}" = "1" ]; then
       curl -fsS -m 8 -o /dev/null "${DEPLOY_WEB_URL}/" 2>/dev/null || web_ok=0
@@ -391,6 +429,38 @@ record_success() {
   rm -f "${DEPLOY_ATTEMPT_FILE}" 2>/dev/null || true
 }
 
+# Any CI verdict that defers is transient by design; one that never clears
+# means auto-deploy has silently stopped. Upstream counted only the
+# undeterminable case; this counts every deferring verdict through the same
+# per-target streak file so there is one mechanism and one knob.
+note_stalled_ci() {
+  local message="$1" reason="$2" streak
+  streak=$(ci_unknown_streak "${TARGET}")
+  log "${message} (${streak} in a row)"
+  if [ "${streak}" -ge "${DEPLOY_CI_UNKNOWN_ALERT}" ] \
+     && [ $(( streak % DEPLOY_CI_UNKNOWN_ALERT )) -eq 0 ]; then
+    log "ERROR CI has been undeployable for ${streak} consecutive ticks (${reason}) -- deploys are stalled"
+    alert "MOSS.AO deploys stalled: ${reason} for ${streak} consecutive ticks on ${TARGET:0:8}"
+  fi
+}
+
+clear_ci_streak() {
+  rm -f "${DEPLOY_CI_UNKNOWN_FILE}" 2>/dev/null || true
+}
+
+ecosystem_reminder() {
+  [ -s "${ECOSYSTEM_PENDING}" ] || return 0
+  local n
+  n=$(wc -l <"${ECOSYSTEM_PENDING}" 2>/dev/null | tr -d ' ' || echo '?')
+  log "REMINDER ecosystem.config.js changed in ${n} deploy(s) and PM2 has not been"
+  log "         re-registered; process definitions (cron, env) are still the old ones."
+  log "         From a LOGIN SHELL only -- never from inside a PM2-managed process,"
+  log "         which injects config keys like cron_restart that --update-env would"
+  log "         copy onto every app (see docs/deployment.md):"
+  log "           pm2 restart ecosystem.config.js --update-env && pm2 save"
+  log "           rm ${ECOSYSTEM_PENDING}"
+}
+
 main() {
   SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
   REPO_ROOT=$(cd -- "${SCRIPT_DIR}/.." && pwd)
@@ -399,6 +469,12 @@ main() {
   DEPLOY_BRANCH=${DEPLOY_BRANCH:-main}
   DEPLOY_REMOTE=${DEPLOY_REMOTE:-origin}
   DEPLOY_REQUIRE_CI=${DEPLOY_REQUIRE_CI:-1}
+# Comma-separated GitHub check-run names that must have passed, e.g.
+# "test (3.12),test (3.13),lint,website". Empty = accept whatever reported.
+DEPLOY_REQUIRE_CI_JOBS=${DEPLOY_REQUIRE_CI_JOBS:-}
+# Outstanding ecosystem.config.js changes that still need a manual PM2
+# re-register. Cleared by the operator once done.
+ECOSYSTEM_PENDING=${ECOSYSTEM_PENDING:-${REPO_ROOT}/logs/.ecosystem-pending}
   DEPLOY_GITHUB_REPO=${DEPLOY_GITHUB_REPO:-MosslandOpenDevs/agentic-orchestrator}
   DEPLOY_API_URL=${DEPLOY_API_URL:-http://127.0.0.1:3001}
   DEPLOY_WEB_URL=${DEPLOY_WEB_URL:-http://127.0.0.1:3000}
@@ -489,6 +565,7 @@ main() {
   fi
 
   if [ "${DEPLOYED}" = "${TARGET}" ] && [ "${CURRENT}" = "${TARGET}" ]; then
+    ecosystem_reminder
     if [ "${DEPLOY_VERBOSE}" = "1" ] || [ "${CHECK_ONLY}" = "1" ]; then
       log "up to date at ${TARGET:0:8}"
     fi
@@ -579,29 +656,34 @@ main() {
   if [ "${DEPLOY_REQUIRE_CI}" = "1" ] && [ "${FORCE}" = "0" ]; then
     CI=$(ci_conclusion "${TARGET}")
     case "${CI}" in
-      success) log "CI: green"; rm -f "${DEPLOY_CI_UNKNOWN_FILE}" 2>/dev/null || true ;;
-      none)    log "CI: no checks reported for this commit -- proceeding"
-               rm -f "${DEPLOY_CI_UNKNOWN_FILE}" 2>/dev/null || true ;;
-      pending) log "CI: still running -- deferring to next tick"; rm -f "${DEPLOY_CI_UNKNOWN_FILE}" 2>/dev/null || true; exit 0 ;;
-      failure) log "CI: FAILED -- refusing to deploy ${TARGET:0:8}"
-               rm -f "${DEPLOY_CI_UNKNOWN_FILE}" 2>/dev/null || true
-               alert "MOSS.AO deploy skipped: CI failed on ${TARGET:0:8} (${SUBJECT})"
-               exit 0 ;;
+      success)    log "CI: green"; clear_ci_streak ;;
+      pending)    note_stalled_ci "CI: still running -- deferring to next tick" \
+                    "CI still running"; exit 0 ;;
+      none)       note_stalled_ci \
+                    "CI: no checks reported yet for ${TARGET:0:8} -- deferring to next tick" \
+                    "no checks reported"; exit 0 ;;
+      incomplete) note_stalled_ci \
+                    "CI: checks reported but none verified the commit (skipped/stale) \
+-- deferring to next tick" "checks verified nothing"; exit 0 ;;
+      missing-required)
+                  log "CI: required jobs (${DEPLOY_REQUIRE_CI_JOBS}) did not pass -- refusing"
+                  clear_ci_streak
+                  alert "MOSS.AO deploy skipped: required CI jobs missing on ${TARGET:0:8}"
+                  exit 0 ;;
+      failure)    log "CI: FAILED -- refusing to deploy ${TARGET:0:8}"
+                  clear_ci_streak
+                  alert "MOSS.AO deploy skipped: CI failed on ${TARGET:0:8} (${SUBJECT})"
+                  exit 0 ;;
       unauthorized)
-               log "ERROR CI: GitHub rejected the status query (401/403). DEPLOYS ARE BLOCKED."
-               log "       GITHUB_TOKEN is missing, expired, or the anonymous rate limit was hit."
-               log "       This does not clear by itself -- fix the token in .env and restart"
-               log "       moss-ao-deploy, or set DEPLOY_REQUIRE_CI=0 to deploy without the gate."
-               alert "MOSS.AO deploys BLOCKED: GitHub CI status query unauthorized (401/403) on ${TARGET:0:8} -- GITHUB_TOKEN missing/expired or rate-limited"
-               exit 0 ;;
-      *)       STREAK=$(ci_unknown_streak "${TARGET}")
-               log "CI: status unavailable (network/API) -- deferring to next tick (${STREAK} in a row)"
-               if [ "${STREAK}" -ge "${DEPLOY_CI_UNKNOWN_ALERT}" ] \
-                  && [ $(( STREAK % DEPLOY_CI_UNKNOWN_ALERT )) -eq 0 ]; then
-                 log "ERROR CI status has been undeterminable for ${STREAK} consecutive ticks -- deploys are stalled"
-                 alert "MOSS.AO deploys stalled: CI status undeterminable for ${STREAK} consecutive ticks on ${TARGET:0:8}"
-               fi
-               exit 0 ;;
+                  log "ERROR CI: GitHub rejected the status query (401/403). DEPLOYS ARE BLOCKED."
+                  log "       GITHUB_TOKEN is missing, expired, or the anonymous rate limit was hit."
+                  log "       This does not clear by itself -- fix the token in .env and restart"
+                  log "       moss-ao-deploy, or set DEPLOY_REQUIRE_CI=0 to deploy without the gate."
+                  alert "MOSS.AO deploys BLOCKED: GitHub CI status query unauthorized (401/403) on ${TARGET:0:8} -- GITHUB_TOKEN missing/expired or rate-limited"
+                  exit 0 ;;
+      *)          note_stalled_ci \
+                    "CI: status unavailable (network/API) -- deferring to next tick" \
+                    "CI status unavailable"; exit 0 ;;
     esac
   fi
 
@@ -614,13 +696,13 @@ main() {
   while IFS= read -r f; do
     [ -n "${f}" ] || continue
     case "${f}" in
-      src/*|config.yaml|pyproject.toml|prompts/*) PY_CHANGED=1 ;;
+      src/*|config.yaml|pyproject.toml|uv.lock|prompts/*) PY_CHANGED=1 ;;
     esac
     case "${f}" in
       website/*) WEB_CHANGED=1 ;;
     esac
     case "${f}" in
-      pyproject.toml) DEPS_CHANGED=1 ;;
+      pyproject.toml|uv.lock) DEPS_CHANGED=1 ;;
       website/package.json|website/package-lock.json) NODE_DEPS_CHANGED=1 ;;
       ecosystem.config.js) ECOSYSTEM_CHANGED=1 ;;
     esac
@@ -632,6 +714,25 @@ EOF
     BUSY=$(scheduler_busy)
     if [ -n "${BUSY}" ]; then
       log "scheduler busy (${BUSY}) -- deferring back-end deploy to next tick"
+      exit 0
+    fi
+  fi
+
+  # Don't deploy into an environment that is already failing readiness.
+  #
+  # The post-deploy check gates on /ready, which reads the database. With the
+  # database down a deploy cannot pass that check however good the code is: it
+  # would restart the API, fail, roll back, and repeat five minutes later --
+  # restart churn every tick for the length of an unrelated outage. Three
+  # states, three answers: ready -> deploy; up but not ready -> the database is
+  # the problem, a deploy can neither be verified nor help, so defer; API down
+  # entirely -> deploying may be the fix, so proceed.
+  if [ "${PY_CHANGED}" = "1" ] && [ "${FORCE}" = "0" ]; then
+    if ! curl -fsS -m 5 "${DEPLOY_API_URL}/ready" >/dev/null 2>&1 \
+       && curl -fsS -m 5 "${DEPLOY_API_URL}/health" >/dev/null 2>&1; then
+      log "API is up but not ready (database unhealthy) -- deferring: a deploy \
+could not be verified and would restart-and-roll-back every tick"
+      alert "MOSS.AO deploy deferred: API not ready (database unhealthy)"
       exit 0
     fi
   fi
@@ -660,13 +761,27 @@ pydeps=${DEPS_CHANGED} nodedeps=${NODE_DEPS_CHANGED} ecosystem=${ECOSYSTEM_CHANG
   # points into minutes.
   if [ "${PY_CHANGED}" = "1" ] || [ "${WEB_CHANGED}" = "1" ]; then
     if [ -x "${PYTHON_BIN}" ]; then
-      if PYTHONPATH=./src "${PYTHON_BIN}" -m agentic_orchestrator.scheduler backup-db >/dev/null 2>&1; then
+      # Exit codes are the contract with backup-db: 0 written, 2 nothing worth
+      # snapshotting (no/empty/dataless DB -- benign), anything else a real
+      # failure, including a corrupt source. Deploying after a failed snapshot
+      # is the 2026-07 outage with no way back, so it refuses.
+      SNAP_RC=0
+      PYTHONPATH=./src "${PYTHON_BIN}" -m agentic_orchestrator.scheduler backup-db \
+        >/dev/null 2>&1 || SNAP_RC=$?
+      if [ "${SNAP_RC}" = "0" ]; then
         log "pre-deploy DB snapshot written to data/backup/"
+      elif [ "${SNAP_RC}" = "2" ]; then
+        log "pre-deploy DB snapshot: nothing to snapshot yet -- continuing"
       else
-        log "WARN pre-deploy DB snapshot failed (continuing)"
+        log "ERROR pre-deploy DB snapshot failed (rc=${SNAP_RC}) -- refusing to \
+deploy without a restore point"
+        alert "MOSS.AO deploy skipped: pre-deploy DB snapshot failed on ${TARGET:0:8}"
+        return 1
       fi
     else
-      log "WARN ${PYTHON_BIN} not found -- skipping DB snapshot"
+      log "ERROR ${PYTHON_BIN} not found -- refusing to deploy without a DB snapshot"
+      alert "MOSS.AO deploy skipped: ${PYTHON_BIN} missing, no DB snapshot possible"
+      return 1
     fi
   else
     log "docs-only sync -- skipping DB snapshot (nothing restarts)"
@@ -676,12 +791,15 @@ pydeps=${DEPS_CHANGED} nodedeps=${NODE_DEPS_CHANGED} ecosystem=${ECOSYSTEM_CHANG
   git reset --hard --quiet "${TARGET}"
 
   if [ "${ECOSYSTEM_CHANGED}" = "1" ]; then
-    log "NOTE ecosystem.config.js changed -- process definitions (cron, env) are"
-    log "     NOT re-registered automatically. Run on the server when convenient:"
-    log "     pm2 restart ecosystem.config.js --update-env && pm2 save"
-    log "     (from a login shell only -- never from inside a PM2-managed process:"
-    log "      PM2 injects config keys like cron_restart into the environment and"
-    log "      --update-env would copy them onto every app; see docs/deployment.md)"
+    # Record the debt rather than only announcing it once: the deploy state
+    # advances either way and later ticks are no-ops, so a single log line was
+    # the whole notification -- a cron or env change could sit unapplied
+    # indefinitely with nothing left pointing at it. Guarded like log(), since
+    # aborting here would leave the checkout moved but nothing rebuilt.
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${TARGET}" \
+      >>"${ECOSYSTEM_PENDING}" 2>/dev/null \
+      || log "WARN could not record the pending ecosystem change in ${ECOSYSTEM_PENDING}"
+    alert "MOSS.AO: ecosystem.config.js changed in ${TARGET:0:8} -- PM2 needs a manual re-register"
   fi
 
   # Docs-only changes are synced (checkout updated above) but not deployed:
@@ -689,6 +807,7 @@ pydeps=${DEPS_CHANGED} nodedeps=${NODE_DEPS_CHANGED} ecosystem=${ECOSYSTEM_CHANG
   if [ "${PY_CHANGED}" = "0" ] && [ "${WEB_CHANGED}" = "0" ]; then
     record_success || exit 1
     log "SYNCED ${DEPLOYED:0:8} -> ${TARGET:0:8} (docs only -- no deploy)"
+    ecosystem_reminder
     exit 0
   fi
 
@@ -706,6 +825,7 @@ pydeps=${DEPS_CHANGED} nodedeps=${NODE_DEPS_CHANGED} ecosystem=${ECOSYSTEM_CHANG
 
   record_success || exit 1
   log "DEPLOYED ${DEPLOYED:0:8} -> ${TARGET:0:8}"
+  ecosystem_reminder
   git log --oneline "${DEPLOYED}..${TARGET}" | head -10 | while read -r l; do log "       ${l}"; done
   exit 0
 }

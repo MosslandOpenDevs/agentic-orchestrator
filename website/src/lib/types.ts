@@ -1,11 +1,19 @@
+export type SystemHealth = 'operational' | 'degraded' | 'unknown';
+
 export interface SystemStats {
+  /** What /status actually reported, not an assumption. */
+  systemStatus: SystemHealth;
   totalIdeas: number;
   totalPlans: number;
   plansRejected: number;
   inDevelopment: number;
   trendsAnalyzed: number;
-  lastRun: string;
-  nextRun: string;
+  /** When the pipeline last actually produced something. Absent when the
+   *  API exposes nothing to derive it from -- it must never be the
+   *  viewer's own clock dressed up as a pipeline run. */
+  lastRun?: string;
+  /** Absent: the API does not report the scheduler's next tick. */
+  nextRun?: string;
 }
 
 export interface ActivityItem {
@@ -25,7 +33,10 @@ export interface Trend {
 }
 
 export interface Idea {
+  /** Display number (position in the list), not an API identifier. */
   id: number;
+  /** The backend's UUID. Detail lookups must use this, never `id`. */
+  apiId: string;
   title: string;
   status: string;
   source: string;
@@ -34,7 +45,10 @@ export interface Idea {
 }
 
 export interface Plan {
+  /** Display number (position in the list), not an API identifier. */
   id: number;
+  /** The backend's UUID. Detail lookups must use this, never `id`. */
+  apiId: string;
   title: string;
   ideaId: number;
   status: string;

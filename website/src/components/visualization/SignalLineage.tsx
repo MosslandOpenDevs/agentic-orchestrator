@@ -63,7 +63,8 @@ export function SignalLineage({ lineage, onNodeClick }: SignalLineageProps) {
       case 'scored':
       case 'draft':
         return 'bg-[#00ffff]/20 text-[#00ffff]';
-      case 'in-progress':
+      case 'active':
+      case 'in_debate':
         return 'bg-[#ff6b35]/20 text-[#ff6b35]';
       default:
         return 'bg-[#8b949e]/20 text-[#8b949e]';

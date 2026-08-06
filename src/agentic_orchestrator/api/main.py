@@ -13,11 +13,13 @@ Endpoints:
 - GET /agents - Agent personas information
 """
 
+import asyncio
 import logging
 import os
 import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime
+from time import monotonic
 from typing import Any, Dict, Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, status
@@ -133,10 +135,29 @@ def require_api_key(x_api_key: Optional[str] = Header(default=None)) -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# /adapters probe budget
+# ---------------------------------------------------------------------------
+# The endpoint is unauthenticated and every request used to fan out to eleven
+# third-party APIs, sequentially, each with its own ~10s timeout. Bound both
+# the per-probe wait and how often we probe at all.
+_ADAPTER_PROBE_TIMEOUT = 5.0
+_ADAPTERS_CACHE_TTL = 60.0
+_adapters_cache: Dict[str, Any] = {"payload": None, "fetched_at": 0.0}
+_adapters_cache_lock = asyncio.Lock()
+
+
 class HealthResponse(BaseModel):
     status: str
     timestamp: str
     version: str
+
+
+class ReadinessResponse(BaseModel):
+    status: str
+    timestamp: str
+    version: str
+    checks: dict
 
 
 class StatusResponse(BaseModel):
@@ -173,11 +194,50 @@ class AgentResponse(BaseModel):
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Check API health status."""
+    """Liveness: the process is up. Deliberately does not touch the database.
+
+    Use ``/ready`` to decide whether this build can actually serve traffic.
+    """
     return HealthResponse(
         status="healthy",
         timestamp=utcnow().isoformat(),
         version=__version__,
+    )
+
+
+@app.get("/ready", response_model=ReadinessResponse)
+async def readiness_check():
+    """Readiness: 200 only when the API can serve database-backed traffic.
+
+    In the 2026-07 incident every DB endpoint returned 500 while ``/health``
+    kept answering 200, so anything gated on liveness alone -- the auto-deploy
+    health check included -- called a dead site a success. This probe runs a
+    real table read, which a missing schema fails and a bare ``SELECT 1`` does
+    not, and returns 503 when it cannot.
+    """
+    from sqlalchemy import func
+
+    from ..db.models import Signal
+
+    try:
+        with get_db().session() as session:
+            session.query(func.count(Signal.id)).scalar()
+    except Exception as exc:
+        logger.exception("/ready database probe failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "status": "not_ready",
+                "version": __version__,
+                "checks": {"database": f"unavailable ({type(exc).__name__})"},
+            },
+        ) from exc
+
+    return ReadinessResponse(
+        status="ready",
+        timestamp=utcnow().isoformat(),
+        version=__version__,
+        checks={"database": "ok"},
     )
 
 
@@ -231,10 +291,16 @@ async def system_status(session: Session = Depends(get_session)):
         status="operational" if db_healthy else "degraded",
         timestamp=utcnow().isoformat(),
         components={
+            # "api" is honest by construction: this handler answered.
             "api": {"status": "healthy"},
             "database": {"status": "healthy" if db_healthy else "unhealthy"},
-            "cache": {"status": "healthy"},
-            "llm_router": {"status": "healthy"},
+            # These two were reported as healthy unconditionally -- nothing
+            # here probes a cache or the LLM router, and this endpoint is
+            # public and hot, so it must not start making network calls to
+            # find out. "unknown" is what we actually know; the scheduler's
+            # 5-minute health check is what measures the router.
+            "cache": {"status": "unknown"},
+            "llm_router": {"status": "unknown"},
         },
         stats=stats,
     )
@@ -349,7 +415,7 @@ async def get_signal_detail(
 
 @app.get("/signals")
 async def get_signals(
-    limit: int = Query(default=20, le=100),
+    limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     source: Optional[str] = None,
     category: Optional[str] = None,
@@ -388,7 +454,7 @@ async def get_signals(
 
 @app.get("/debates")
 async def get_debates(
-    limit: int = Query(default=10, le=50),
+    limit: int = Query(default=10, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
     status: Optional[str] = None,
     phase: Optional[str] = None,
@@ -455,7 +521,7 @@ async def get_debate_detail(
 
 @app.get("/trends")
 async def get_trends(
-    limit: int = Query(default=10, le=100),
+    limit: int = Query(default=10, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     period: Optional[str] = Query(default="all", pattern="^(all|24h|7d|30d)$"),
     category: Optional[str] = None,
@@ -487,7 +553,7 @@ async def get_trends(
 
 @app.get("/ideas")
 async def get_ideas(
-    limit: int = Query(default=20, le=100),
+    limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     status: Optional[str] = None,
     session: Session = Depends(get_session),
@@ -696,7 +762,7 @@ async def get_idea_lineage(
 
 @app.get("/plans")
 async def get_plans(
-    limit: int = Query(default=20, le=100),
+    limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     status: Optional[str] = None,
     session: Session = Depends(get_session),
@@ -723,7 +789,7 @@ async def get_plans(
 
 @app.get("/plans/pending-approval")
 async def get_pending_approval_plans(
-    limit: int = Query(default=20, le=100),
+    limit: int = Query(default=20, ge=1, le=100),
     session: Session = Depends(get_session),
 ):
     """
@@ -821,7 +887,7 @@ async def get_usage(
 
 @app.get("/activity")
 async def get_activity(
-    limit: int = Query(default=20, le=100),
+    limit: int = Query(default=20, ge=1, le=100),
     session: Session = Depends(get_session),
 ):
     """Get recent system activity for the activity feed.
@@ -993,8 +1059,6 @@ async def get_adapters():
         TwitterAdapter,
     )
 
-    adapters_info = []
-
     # Define all adapters with their details
     adapter_classes = [
         {
@@ -1065,12 +1129,19 @@ async def get_adapters():
         },
     ]
 
-    for adapter_info in adapter_classes:
+    async def describe(adapter_info: dict) -> dict:
+        """Static description plus a bounded health probe; never raises."""
         try:
             adapter = adapter_info["class"]()
 
-            # Get health check info
-            health = await adapter.health_check()
+            try:
+                health = await asyncio.wait_for(
+                    adapter.health_check(), timeout=_ADAPTER_PROBE_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                health = {"status": "unknown", "error": "health probe timed out"}
+            except Exception as probe_error:
+                health = {"status": "unknown", "error": str(probe_error)}
 
             # Build detailed info
             info = {
@@ -1100,30 +1171,45 @@ async def get_adapters():
                 info["sources"] = adapter.TRACKED_USERS
                 info["source_count"] = len(adapter.TRACKED_USERS)
             elif hasattr(adapter, "TRACKED_SERVERS"):
-                info["sources"] = [s["name"] for s in adapter.TRACKED_SERVERS]
+                info["sources"] = [srv["name"] for srv in adapter.TRACKED_SERVERS]
                 info["source_count"] = len(adapter.TRACKED_SERVERS)
             elif hasattr(adapter, "TRACKED_COINS"):
                 info["sources"] = adapter.TRACKED_COINS
                 info["source_count"] = len(adapter.TRACKED_COINS)
 
-            adapters_info.append(info)
+            return info
 
         except Exception as e:
-            adapters_info.append(
-                {
-                    "name": adapter_info["class"].__name__.replace("Adapter", "").lower(),
-                    "category": adapter_info["category"],
-                    "description": adapter_info["description"],
-                    "enabled": False,
-                    "error": str(e),
-                }
-            )
+            return {
+                "name": adapter_info["class"].__name__.replace("Adapter", "").lower(),
+                "category": adapter_info["category"],
+                "description": adapter_info["description"],
+                "enabled": False,
+                "error": str(e),
+            }
 
-    return {
-        "adapters": adapters_info,
-        "total": len(adapters_info),
-        "enabled_count": sum(1 for a in adapters_info if a.get("enabled", False)),
-    }
+    # One lock, one cache: this endpoint needs no authentication, and it used
+    # to run all eleven probes sequentially on every request, each with its own
+    # ~10s timeout. That made a single GET a minute-long third-party fan-out
+    # and any number of concurrent GETs an amplifier pointed at other people's
+    # APIs. Probes now run together under a short per-probe budget, and the
+    # result is shared for _ADAPTERS_CACHE_TTL seconds.
+    async with _adapters_cache_lock:
+        cached = _adapters_cache.get("payload")
+        fetched_at = _adapters_cache.get("fetched_at")
+        if cached is not None and (monotonic() - fetched_at) < _ADAPTERS_CACHE_TTL:
+            return cached
+
+        adapters_info = list(await asyncio.gather(*(describe(a) for a in adapter_classes)))
+        payload = {
+            "adapters": adapters_info,
+            "total": len(adapters_info),
+            "enabled_count": sum(1 for a in adapters_info if a.get("enabled", False)),
+            "probed_at": utcnow().isoformat(),
+        }
+        _adapters_cache["payload"] = payload
+        _adapters_cache["fetched_at"] = monotonic()
+        return payload
 
 
 @app.get("/agents")
@@ -1359,6 +1445,7 @@ async def root():
         "description": "Mossland Agentic Orchestrator API",
         "endpoints": {
             "health": "/health",
+            "ready": "/ready",
             "status": "/status",
             "signals": "/signals",
             "trends": "/trends",
@@ -1438,6 +1525,7 @@ async def _generate_project_task(
     _project_jobs[job_id]["started_at"] = utcnow().isoformat()
     _save_jobs()
 
+    session = None
     try:
         # Initialize components
         db = get_database()
@@ -1456,7 +1544,6 @@ async def _generate_project_task(
         )
 
         session.commit()
-        session.close()
 
         # Update job status
         _project_jobs[job_id]["status"] = "completed" if result.success else "failed"
@@ -1465,10 +1552,21 @@ async def _generate_project_task(
         _save_jobs()
 
     except Exception as e:
+        # Generation can fail anywhere: the router, the scaffold, or the
+        # commit. Only the success path used to close the session, so a run of
+        # failures leaked a connection and an open transaction each time --
+        # which, on the single-connection pool this used to run against, could
+        # wedge the whole API.
+        logger.exception("Project generation job %s failed", job_id)
+        if session is not None:
+            session.rollback()
         _project_jobs[job_id]["status"] = "failed"
         _project_jobs[job_id]["completed_at"] = utcnow().isoformat()
         _project_jobs[job_id]["error"] = str(e)
         _save_jobs()
+    finally:
+        if session is not None:
+            session.close()
 
 
 @app.post("/plans/{plan_id}/generate-project", response_model=GenerateProjectResponse)
@@ -1563,7 +1661,7 @@ async def get_job_status(job_id: str):
 
 @app.get("/projects")
 async def get_projects(
-    limit: int = Query(default=20, le=100),
+    limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     status: Optional[str] = None,
     session: Session = Depends(get_session),
@@ -1709,12 +1807,19 @@ async def approve_plan(
             message=message,
         )
 
-    # Approve the plan
+    # Approve the plan.
+    #
+    # extra_metadata is a plain JSON column, not MutableDict, so SQLAlchemy
+    # cannot see an in-place mutation: assigning a *new* dict is what marks the
+    # attribute dirty. Mutating the existing one (the previous code) silently
+    # dropped the approval audit trail for every pipeline-created plan, since
+    # those always arrive with extra_metadata already populated.
     plan.status = "approved"
-    if plan.extra_metadata is None:
-        plan.extra_metadata = {}
-    plan.extra_metadata["manually_approved"] = True
-    plan.extra_metadata["approved_at"] = utcnow().isoformat()
+    plan.extra_metadata = {
+        **(plan.extra_metadata or {}),
+        "manually_approved": True,
+        "approved_at": utcnow().isoformat(),
+    }
     session.commit()
 
     job_id = None

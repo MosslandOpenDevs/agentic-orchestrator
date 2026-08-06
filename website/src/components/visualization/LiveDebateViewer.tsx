@@ -198,7 +198,7 @@ export function LiveDebateViewer({
       {/* Debate Info */}
       <div className="flex items-center gap-3 text-xs">
         <span className={`px-2 py-0.5 rounded ${
-          debate.status === 'in-progress' ? 'bg-[#ff6b35]/20 text-[#ff6b35]' :
+          debate.status === 'active' ? 'bg-[#ff6b35]/20 text-[#ff6b35]' :
           debate.status === 'completed' ? 'bg-[#39ff14]/20 text-[#39ff14]' :
           'bg-[#8b949e]/20 text-[#8b949e]'
         }`}>
