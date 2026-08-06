@@ -4,9 +4,11 @@ Hybrid LLM router for intelligent model selection.
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from ..providers.base import local_llm_only
 from ..providers.claude import ClaudeProvider
 from ..providers.ollama import OllamaProvider, OllamaResponse
 from ..providers.openai import OpenAIProvider
@@ -62,19 +64,15 @@ class HybridLLMRouter:
         budget: Optional[BudgetController] = None,
         hierarchy: Optional[LLMHierarchy] = None,
     ):
-        import os
-
         # Ollama-only mode: when MOSS_LOCAL_LLM_ONLY is unset or truthy
         # (default), the router refuses to instantiate paid providers and
         # forces every request to local models, regardless of what
         # `quality` or `force_api` the caller asks for. Set to "false" to
         # re-enable the hybrid behavior.
-        self.local_only = os.getenv("MOSS_LOCAL_LLM_ONLY", "true").lower() not in (
-            "0",
-            "false",
-            "no",
-            "off",
-        )
+        #
+        # Shared with the paid provider factories via local_llm_only() so
+        # the router and the legacy `ao` CLI path read one flag one way.
+        self.local_only = local_llm_only()
 
         self.ollama = ollama or OllamaProvider()
         self.claude = None if self.local_only else claude
@@ -132,8 +130,6 @@ class HybridLLMRouter:
 
     def _init_api_providers(self):
         """Initialize API providers if not provided. No-op in local-only mode."""
-        import os
-
         if self.local_only:
             return
 

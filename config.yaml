@@ -102,11 +102,25 @@ throttling:
     request_timeout: 60
 
 # API Budget Configuration
+#
+# ONE POT, TWO CONSUMERS. This ledger (`api_usage`) is now shared:
+#   1. the scheduled paid debate tier (llm.paid_tiers.debate), via the router
+#   2. manual `ao` CLI runs (`ao step` / `ao loop` / `ao backlog run`), which
+#      were unmetered before the legacy paths were gated — they wrote nothing
+#      here, so debates always saw the full budget
+# The router reads `can_use_api` from this same ledger, so spend from a manual
+# run subtracts from what the debate tier has left, and once the cap is
+# crossed the debate SILENTLY degrades to local gemma3:4b for the rest of the
+# period (the legacy path gets a loud BudgetExhaustedError; the tier does
+# not). Legacy runs default to gpt-5.2-chat-latest at $2.50/$10.00 per M —
+# 3.3x the debate model — so they eat the headroom fast. Raise the daily
+# limit before doing manual `ao` work on a day that also runs debates.
 budget:
   # Daily spending limit in USD. Measured cost of one debate on gpt-5.4-mini
   # is $0.446 (38 calls, 273k in / 54k out — debate context accumulates
   # across rounds, which is why the input side dominates), so 4 debates/day
-  # is ~$1.78 and this leaves headroom for a retry or a manual run.
+  # is ~$1.78. That leaves only ~$0.21 of headroom — enough for a retry, but
+  # roughly two legacy completions would cross the cap (see the note above).
   daily_limit_usd: 2.0
   # Monthly spending limit in USD. Must exceed daily x 31 ($62) or the month
   # dies before the day does: at $45 the cap bit around day 25 and every
