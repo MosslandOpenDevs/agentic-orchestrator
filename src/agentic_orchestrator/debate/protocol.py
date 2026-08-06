@@ -392,21 +392,53 @@ Present ideas in the format: "Applying [Pattern Y] from [Industry X] to Mossland
         }
         return temps.get(phase, 0.7)
 
-    def get_creativity_technique(self, round_num: int, use_lateral: bool = False) -> str:
-        """Get creativity technique prompt for the given round.
+    def creativity_technique_pool(self) -> List[Dict[str, str]]:
+        """Every creativity technique, SCAMPER and lateral, in a stable order.
+
+        Deterministic: sorted by the integer keys of the two class-level
+        dicts, so the same agent index always draws the same technique.
+        """
+        return [self.SCAMPER_TECHNIQUES[k] for k in sorted(self.SCAMPER_TECHNIQUES)] + [
+            self.LATERAL_THINKING[k] for k in sorted(self.LATERAL_THINKING)
+        ]
+
+    def get_creativity_technique(
+        self,
+        round_num: int,
+        use_lateral: bool = False,
+        agent_index: Optional[int] = None,
+    ) -> str:
+        """Get the creativity technique prompt for one agent in one round.
+
+        ``agent_index`` is what makes a divergence round actually diverge.
+        Without it every agent in a round received the *same* technique
+        (the key was ``round_num`` alone) — and since the whole round runs
+        concurrently off one ``self.ideas`` snapshot, nothing else told the
+        agents apart either. On 2026-08-05 that produced 24 ideas that were
+        all one idea: a capable model given identical instructions returns
+        identical thinking, where gemma3:4b's incoherence had been
+        supplying diversity by accident.
+
+        With an index, the 8 agents of a round span all six techniques
+        (three SCAMPER + three lateral) and the assignment rotates by round
+        so an agent does not repeat its own angle.
 
         Args:
             round_num: Current round number (1-indexed)
-            use_lateral: Use lateral thinking instead of SCAMPER
+            use_lateral: Legacy round-parity selection; used only when
+                ``agent_index`` is None, so old callers keep their behavior.
+            agent_index: 0-based position of this agent within its round.
 
         Returns:
             Creativity technique prompt string
         """
-        techniques = self.LATERAL_THINKING if use_lateral else self.SCAMPER_TECHNIQUES
-        # Cycle through techniques if round_num exceeds available techniques
-        technique_key = ((round_num - 1) % len(techniques)) + 1
-        technique = techniques.get(technique_key, techniques[1])
-        return technique["prompt"]
+        if agent_index is None:
+            techniques = self.LATERAL_THINKING if use_lateral else self.SCAMPER_TECHNIQUES
+            technique_key = ((round_num - 1) % len(techniques)) + 1
+            return techniques.get(technique_key, techniques[1])["prompt"]
+
+        pool = self.creativity_technique_pool()
+        return pool[(agent_index + round_num - 1) % len(pool)]["prompt"]
 
     def create_divergence_prompt(
         self,
@@ -415,14 +447,19 @@ Present ideas in the format: "Applying [Pattern Y] from [Industry X] to Mossland
         agent_personality: Dict[str, str],
         round_num: int,
         previous_ideas: List[str],
+        agent_index: Optional[int] = None,
     ) -> str:
         """Create prompt for divergence phase with SCAMPER creativity techniques."""
         personality_desc = "\n".join(f"- {k}: {v}" for k, v in agent_personality.items())
 
-        # Get creativity technique for this round
-        # Use SCAMPER for odd rounds, Lateral Thinking for even rounds
+        # One technique per AGENT, not per round — see
+        # get_creativity_technique for why a shared technique made a whole
+        # round converge on a single idea. agent_index=None keeps the old
+        # round-parity behavior for any caller that has not been updated.
         use_lateral = round_num % 2 == 0
-        creativity_prompt = self.get_creativity_technique(round_num, use_lateral=use_lateral)
+        creativity_prompt = self.get_creativity_technique(
+            round_num, use_lateral=use_lateral, agent_index=agent_index
+        )
 
         previous_section = ""
         if previous_ideas:

@@ -174,7 +174,19 @@ for a in "$@"; do url="$a"; done
 echo "curl $url" >> "{self.stub_log}"
 case "$url" in
   *api.github.com*)
+    # Record the auth header so a test can prove which token was used.
+    for a in "$@"; do
+      case "$a" in Authorization:*) echo "curl-auth $a" >> "{self.stub_log}" ;; esac
+    done
+    # ci_conclusion asks for the body plus a trailing status line via
+    # -w. CI_HTTP lets a test inject 403 (rate-limited / bad token) or a
+    # 5xx without changing the body.
+    code="${{CI_HTTP:-200}}"
+    if [ "${{CI_CURL_FAIL:-0}}" = "1" ]; then exit 7; fi
     printf '%s' "$CI_JSON"
+    for a in "$@"; do
+      case "$a" in *%{{http_code}}*) printf '\n%s' "$code" ;; esac
+    done
     exit 0
     ;;
   *)
@@ -463,6 +475,66 @@ class TestGuards:
 
         assert server.head() == before
         assert "status unavailable" in result.stdout
+
+    def test_rejected_ci_query_says_so_loudly_instead_of_deferring_quietly(self, server: Server):
+        # A 401/403 never heals by itself: the token is missing or expired, or
+        # the anonymous rate limit was hit. Until v0.6.21 this looked exactly
+        # like a network blip ("status unavailable") and deploys stopped
+        # forever with nothing in the log naming the cause.
+        before = server.head()
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 14\n"})
+
+        result = server.run(DEPLOY_REQUIRE_CI="1", CI_HTTP="403", CI_JSON="{}")
+
+        assert server.head() == before  # still refuses to deploy blind
+        assert "DEPLOYS ARE BLOCKED" in result.stdout
+        assert "GITHUB_TOKEN" in result.stdout
+        assert "status unavailable" not in result.stdout
+
+    def test_repeated_undeterminable_ci_escalates_after_a_streak(self, server: Server):
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 15\n"})
+        env = {
+            "DEPLOY_REQUIRE_CI": "1",
+            "CI_CURL_FAIL": "1",
+            "DEPLOY_CI_UNKNOWN_ALERT": "3",
+        }
+
+        first = server.run(**env)
+        second = server.run(**env)
+        third = server.run(**env)
+
+        assert "(1 in a row)" in first.stdout
+        assert "ERROR" not in first.stdout
+        assert "(2 in a row)" in second.stdout
+        assert "ERROR" not in second.stdout
+        # Third consecutive failure: stop calling it a blip.
+        assert "(3 in a row)" in third.stdout
+        assert "deploys are stalled" in third.stdout
+
+    def test_a_good_tick_clears_the_undeterminable_streak(self, server: Server):
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 16\n"})
+
+        server.run(DEPLOY_REQUIRE_CI="1", CI_CURL_FAIL="1")
+        recovered = server.run(DEPLOY_REQUIRE_CI="1", CI_JSON=CI_SUCCESS)
+
+        assert server.head() == target
+        assert "CI: green" in recovered.stdout
+
+        server.push({"src/agentic_orchestrator/api.py": "VERSION = 17\n"})
+        after = server.run(DEPLOY_REQUIRE_CI="1", CI_CURL_FAIL="1")
+        assert "(1 in a row)" in after.stdout  # counter restarted, not 2
+
+    def test_github_token_is_read_from_dotenv_when_absent_from_the_env(self, server: Server):
+        # The PM2 poller gets the token from ecosystem.config.js's .env load;
+        # a manual SSH run does not, and the anonymous request is 403-rate-
+        # limited on the server's shared IP.
+        (server.checkout / ".env").write_text('GITHUB_TOKEN="ghp_from_dotenv"\n')
+        target = server.push({"src/agentic_orchestrator/api.py": "VERSION = 18\n"})
+
+        server.run(DEPLOY_REQUIRE_CI="1", CI_JSON=CI_SUCCESS, GITHUB_TOKEN="")
+
+        assert server.head() == target
+        assert "Bearer ghp_from_dotenv" in server.stub_log.read_text()
 
     def test_backend_deploy_waits_for_a_running_debate(self, server: Server):
         before = server.head()
