@@ -12,6 +12,7 @@ Orchestrates the complete project generation pipeline:
 8. Auto-commit and push to GitHub
 """
 
+import asyncio
 import json
 import logging
 import subprocess
@@ -22,6 +23,8 @@ from typing import Any, Dict, List, Optional
 
 from ..db.models import COMPLETED_PROJECT_STATUSES
 from ..timeutil import utcnow
+from .build_gate import run_build_gate
+from .build_gate import summarize as summarize_build_gate
 from .generator import GeneratedFile, ProjectCodeGenerator
 from .parser import ParsedPlan, PlanParser
 from .repair import CodeRepairer, ensure_contract_dependencies
@@ -61,6 +64,25 @@ class ProjectGenerationResult:
             "error": self.error,
             "duration_seconds": self.duration_seconds,
         }
+
+
+def _load_build_gate_config() -> Dict[str, Any]:
+    """Read `project.build_gate` from config.yaml; defaults on any failure."""
+    import yaml
+
+    from .build_gate import BUILD_GATE_DEFAULTS
+
+    config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+        gate = (config.get("project") or {}).get("build_gate") or {}
+        if not isinstance(gate, dict):
+            gate = {}
+    except Exception as e:
+        logger.warning(f"Could not load build-gate config, using defaults: {e}")
+        gate = {}
+    return {**BUILD_GATE_DEFAULTS, **gate}
 
 
 class ProjectScaffold:
@@ -108,6 +130,7 @@ class ProjectScaffold:
             except Exception:  # config unreadable — fail closed, never push
                 auto_push = False
         self.auto_push = auto_push
+        self.build_gate_config = _load_build_gate_config()
 
         self.parser = PlanParser(router=router)
         self.templates = TemplateManager(projects_dir=projects_dir)
@@ -283,9 +306,32 @@ class ProjectScaffold:
 
             logger.info(f"Project created at: {project_path}")
 
-            # Update project status in database. Unresolved verification
-            # failures surface as `ready_with_warnings` rather than blocking.
-            final_status = "ready_with_warnings" if verification.get("unresolved") else "ready"
+            # Build gate: `ready` must mean the thing actually builds.
+            #
+            # The old rule was `ready unless some file FAILED verification` —
+            # but CodeVerifier returns SKIPPED, not FAILED, when a language's
+            # toolchain is missing, and the production box has node without
+            # tsc, esbuild or solc. Every TypeScript and Solidity file came
+            # back SKIPPED, `unresolved` was empty, and the project was
+            # marked ready having had nothing checked at all.
+            #
+            # Now `ready` requires the real toolchain to have run and passed.
+            # Everything else — a build failure, a missing toolchain, the
+            # gate switched off — is `ready_with_warnings`: the files are
+            # still delivered and the plan issue still closes, but nobody is
+            # told it compiles when nobody checked.
+            gate = await asyncio.to_thread(
+                run_build_gate, str(project_path), self.build_gate_config
+            )
+            verification["build_gate"] = gate.to_dict()
+            logger.info(summarize_build_gate(gate))
+
+            final_status = "ready" if gate.passed else "ready_with_warnings"
+            if not gate.passed:
+                logger.info(
+                    f"Project marked ready_with_warnings: {gate.reason} "
+                    f"(files are delivered; the build was not proven)"
+                )
             await self._update_project_status(
                 project_id=project_id,
                 status=final_status,
