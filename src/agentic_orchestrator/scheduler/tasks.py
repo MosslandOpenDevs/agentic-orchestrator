@@ -1877,13 +1877,23 @@ def _process_backlog():
 
                 triage_session = db.get_session()
                 try:
+                    # Triage promotes far more than a debate does (25 ideas
+                    # every 4h), so it gets the same second-pass gate: the
+                    # local scorer proposes, a capable model disposes.
+                    from ..llm import HybridLLMRouter
+                    from ..scoring.second_pass import SecondPassReviewer
+
+                    triage_router = HybridLLMRouter()
                     stats["backlog_triage"] = asyncio.run(
                         run_backlog_triage(
                             idea_repo=IdeaRepository(triage_session),
                             plan_repo=PlanRepository(triage_session),
                             trend_repo=TrendRepository(triage_session),
-                            scorer=IdeaScorer(),
+                            scorer=IdeaScorer(router=triage_router),
                             config=triage_config,
+                            reviewer=SecondPassReviewer(
+                                triage_router, backlog_config.get("second_pass") or {}
+                            ),
                         )
                     )
                 finally:

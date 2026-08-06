@@ -33,6 +33,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
+from ..scoring.second_pass import UNAVAILABLE
 from ..timeutil import utcnow
 from ..utils.logging import get_logger
 
@@ -182,6 +183,7 @@ async def run_backlog_triage(
     scorer,
     config: Optional[dict] = None,
     now: Optional[datetime] = None,
+    reviewer=None,
 ) -> Dict[str, int]:
     """Re-evaluate the oldest backlog ideas and force terminal decisions.
 
@@ -201,7 +203,18 @@ async def run_backlog_triage(
         "errors": 0,
         "aborted": 0,
         "probe_cleared": 0,
+        "review_unavailable": 0,
     }
+    review_stats = {"confirmed": 0, "demoted": 0, "rejected": 0, "unavailable": 0}
+    if reviewer is None:
+        # Not fatal — a caller may deliberately want the old behavior — but it
+        # must never be silent. Triage promotes 25 ideas every 4 hours, and
+        # without a reviewer every one of those promotions rests on the local
+        # scorer that once returned exactly 8.00 for sixteen ideas in a row.
+        logger.warning(
+            "Backlog triage running WITHOUT a second-pass reviewer: promotions "
+            "will be decided by the local scorer alone"
+        )
     if not config.get("enabled", True):
         return stats
 
@@ -287,6 +300,51 @@ async def run_backlog_triage(
                 "strikes": prior_strikes,
             }
 
+            if decision == "promote" and reviewer is not None and reviewer.enabled:
+                # Same rule the debate path uses, for the same reason: the
+                # local scorer proposes, a capable model disposes. Triage is
+                # the BIGGER promoter — 25 ideas every 4 hours against a
+                # debate's handful — so leaving it on the local score alone
+                # would have left the inversion in place where it does the
+                # most work. (It ran that way until v0.6.24: `promoted` was
+                # decided by the same gemma3:4b that scored 16 consecutive
+                # ideas at exactly 8.00.)
+                if reviewer.should_review(score.total):
+                    review = await reviewer.review(
+                        title=idea.title or "",
+                        content=content,
+                        local_score=score.total,
+                        context=context,
+                    )
+                    record["second_pass"] = review.to_dict()
+                    review_stats[
+                        {"confirm": "confirmed", "demote": "demoted", "reject": "rejected"}.get(
+                            review.verdict, "unavailable"
+                        )
+                    ] += 1
+                    if review.rejects:
+                        decision = "archive"
+                    elif not review.promotes:
+                        # DEMOTE is a real verdict about a real idea, so it
+                        # counts as a strike and the idea still converges on a
+                        # terminal state. UNAVAILABLE is not a verdict: it must
+                        # not archive ideas by attrition during an outage, so
+                        # it is treated like the scorer fallback above.
+                        decision = "pending" if review.verdict != UNAVAILABLE else "skip"
+                else:
+                    review_stats["unavailable"] += 1
+                    logger.info(
+                        f"Triage holding {idea.id}: no second-pass review available "
+                        f"this cycle (budget spent or below review threshold)"
+                    )
+                    decision = "skip"
+
+            if decision == "skip":
+                # No verdict was reached; leave the idea exactly as it was so
+                # the next cycle can try again. No strike, no status change.
+                stats["review_unavailable"] += 1
+                continue
+
             if decision == "promote":
                 _promote(idea_repo, plan_repo, idea, score, record)
                 stats["promoted"] += 1
@@ -322,6 +380,12 @@ async def run_backlog_triage(
             except Exception:
                 pass
 
+    if any(review_stats.values()):
+        logger.info(
+            f"Second pass: {review_stats['confirmed']} confirmed, "
+            f"{review_stats['demoted']} demoted, {review_stats['rejected']} rejected, "
+            f"{review_stats['unavailable']} unavailable"
+        )
     logger.info(
         "Backlog triage done: "
         f"{stats['promoted']} promoted, {stats['archived']} archived, "

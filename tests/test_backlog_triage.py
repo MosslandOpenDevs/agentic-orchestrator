@@ -105,7 +105,7 @@ def make_idea(
     return idea
 
 
-def triage(idea_repo, plan_repo, trend_repo, scorer, config=None):
+def triage(idea_repo, plan_repo, trend_repo, scorer, config=None, reviewer=None):
     return asyncio.run(
         run_backlog_triage(
             idea_repo=idea_repo,
@@ -114,6 +114,7 @@ def triage(idea_repo, plan_repo, trend_repo, scorer, config=None):
             scorer=scorer,
             config=config,
             now=NOW,
+            reviewer=reviewer,
         )
     )
 
@@ -456,3 +457,116 @@ class TestSelection:
 
         assert stats["examined"] == 0
         assert scorer.calls == []
+
+
+class TestSecondPassGatesTriagePromotion:
+    """Triage promotes far more than debates do; it needs the same gate.
+
+    Until v0.6.24 the second pass covered the debate path only, while triage
+    — 25 ideas every 4 hours — kept promoting on the local score alone. The
+    local scorer is the one that returned exactly 8.00 for sixteen
+    consecutive ideas in the 2026-08-06 live run.
+    """
+
+    def _reviewer(self, verdict, score=6.5):
+        from agentic_orchestrator.scoring import second_pass as sp
+
+        class Fixed(sp.SecondPassReviewer):
+            def __init__(self):
+                super().__init__(router=None, config={"max_reviews_per_cycle": 50})
+                self.seen = []
+
+            def should_review(self, local_score):
+                return local_score >= 7.0 and self.reviews_used < 50
+
+            async def review(self, title, content, local_score, context="", siblings=None):
+                self.seen.append(title)
+                if verdict == sp.UNAVAILABLE:
+                    return sp.ReviewVerdict(sp.UNAVAILABLE, reason="stub outage")
+                self.reviews_used += 1
+                return sp.ReviewVerdict(verdict, reason="stub", score=score)
+
+        return Fixed()
+
+    def test_confirm_lets_the_promotion_through(self, repos):
+        from agentic_orchestrator.scoring import second_pass as sp
+
+        idea_repo, plan_repo, trend_repo, session = repos
+        make_idea(idea_repo, session, "i1", "great idea")
+        scorer = FakeScorer({"great idea": (FakeScore(total=8.2), "promote")})
+        reviewer = self._reviewer(sp.CONFIRM, score=8.0)
+
+        stats = triage(idea_repo, plan_repo, trend_repo, scorer, reviewer=reviewer)
+
+        assert stats["promoted"] == 1
+        assert idea_repo.get_by_id("i1").status == "promoted"
+        assert reviewer.seen  # it really was reviewed
+
+    def test_demote_holds_the_idea_and_counts_a_strike(self, repos):
+        from agentic_orchestrator.scoring import second_pass as sp
+
+        idea_repo, plan_repo, trend_repo, session = repos
+        make_idea(idea_repo, session, "i1", "great idea")
+        scorer = FakeScorer({"great idea": (FakeScore(total=8.2), "promote")})
+
+        stats = triage(idea_repo, plan_repo, trend_repo, scorer, reviewer=self._reviewer(sp.DEMOTE))
+
+        assert stats["promoted"] == 0
+        assert stats["strikes"] == 1  # a real verdict still drives convergence
+        assert idea_repo.get_by_id("i1").status == "scored"
+        assert plan_repo.get_by_idea("i1") == []
+
+    def test_reject_archives(self, repos):
+        from agentic_orchestrator.scoring import second_pass as sp
+
+        idea_repo, plan_repo, trend_repo, session = repos
+        make_idea(idea_repo, session, "i1", "great idea")
+        scorer = FakeScorer({"great idea": (FakeScore(total=8.2), "promote")})
+
+        stats = triage(idea_repo, plan_repo, trend_repo, scorer, reviewer=self._reviewer(sp.REJECT))
+
+        assert stats["archived"] == 1
+        assert idea_repo.get_by_id("i1").status == "archived"
+
+    def test_an_unavailable_reviewer_neither_promotes_nor_strikes(self, repos):
+        # An outage must not promote unvetted ideas, and must not archive
+        # them by attrition either. Same contract as the scorer fallback.
+        from agentic_orchestrator.scoring import second_pass as sp
+
+        idea_repo, plan_repo, trend_repo, session = repos
+        make_idea(idea_repo, session, "i1", "great idea")
+        scorer = FakeScorer({"great idea": (FakeScore(total=8.2), "promote")})
+
+        stats = triage(
+            idea_repo, plan_repo, trend_repo, scorer, reviewer=self._reviewer(sp.UNAVAILABLE)
+        )
+
+        assert stats["promoted"] == 0
+        assert stats["strikes"] == 0
+        assert stats["review_unavailable"] == 1
+        idea = idea_repo.get_by_id("i1")
+        assert idea.status == "scored"
+        assert not (idea.extra_metadata or {}).get("triage")  # untouched
+
+    def test_archive_and_strike_paths_do_not_need_a_review(self, repos):
+        # Only promotions are gated — paying to review a rejection is waste.
+        from agentic_orchestrator.scoring import second_pass as sp
+
+        idea_repo, plan_repo, trend_repo, session = repos
+        make_idea(idea_repo, session, "i1", "weak idea")
+        scorer = FakeScorer({"weak idea": (FakeScore(total=2.0), "archive")})
+        reviewer = self._reviewer(sp.CONFIRM)
+
+        stats = triage(idea_repo, plan_repo, trend_repo, scorer, reviewer=reviewer)
+
+        assert stats["archived"] == 1
+        assert reviewer.seen == []
+
+    def test_running_without_a_reviewer_warns(self, repos, caplog):
+        idea_repo, plan_repo, trend_repo, session = repos
+        make_idea(idea_repo, session, "i1", "any idea")
+
+        with caplog.at_level("WARNING"):
+            triage(idea_repo, plan_repo, trend_repo, FakeScorer())
+
+        assert any("WITHOUT a second-pass reviewer" in r.message for r in caplog.records)
