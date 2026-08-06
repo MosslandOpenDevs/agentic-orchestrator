@@ -9,6 +9,9 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 
 ## [Unreleased]
 
+### 테스트
+- **다양성 게이트의 알고리즘뿐 아니라 배선도 이제 커버된다.** `tests/test_idea_clustering.py`는 클러스터링 모듈을 단독으로 검증했지만, 이 게이트가 고치려는 버그는 전부 *배선* 버그였다 — `result.all_ideas`가 이미 계산된 `selected_ideas`를 무시한 것, 그리고 `final_plan` 문서 하나가 승격된 플랜마다 바이트 단위로 복사된 것. 새 `tests/test_debate_pipeline_gate.py`(테스트 9개)가 실제 `_auto_score_and_save_ideas`를 실제 골든 24개로, 인메모리 DB + 스크립트된 채점기 + GitHub 클라이언트 없이 구동한다 — 그래서 공유 GPU를 못 쓰는 동안에도 돌아간다. 고정하는 것: 대표만 채점됨, 탈락분은 살아있는 대표를 가리키는 `duplicate` 행으로 보존되고 GitHub에 미러되지 않음, 배치 전체가 누락 없이 계상됨, 토론 문서를 지닌 플랜은 최대 1개, 문서 없는 플랜은 자동 승인되지 않음, 게이트 비활성화는 진짜 no-op, 클러스터링 실패는 토론을 죽이지 않고 게이트 이전 동작으로 열림. 뮤테이션 검증: 게이트를 `all_ideas`로 되돌리기·`final_plan` 복사 복원·중복 저장 생략 각각이 대응 테스트를 실패시킨다.
+
 ### 수정
 - **CI를 확인할 수 없는 배포가 더 이상 영원히 조용히 실패하지 않는다.** `ci_conclusion`이 모든 비정상 응답을 `unknown` 하나로 뭉갰고, 게이트는 "CI: status unavailable (network/API)" 한 줄만 남기고 연기했다. 일시적 네트워크 장애에는 맞는 처리지만 다른 원인에는 치명적이다: 토큰이 없으면 요청이 익명으로 나가고 GitHub가 서버의 공유 IP를 403으로 레이트리밋하며, 그러면 *이후 모든* 틱도 똑같이 연기된다. 배포가 영구히 멈추는데 증상은 일시적 잡음처럼 읽히는 로그 한 줄뿐이다. 세 가지 수정: `ci_conclusion`이 HTTP 상태를 읽어 **401/403(`unauthorized`)** 을 일시적 실패와 구분하고, `unauthorized`면 원인과 해결법을 담아 "DEPLOYS ARE BLOCKED"를 명시적으로 로그하고 알림 웹훅을 발사한다; 진짜로 판정 불가인 경우는 대상 SHA별로 연속 횟수를 세어 `DEPLOY_CI_UNKNOWN_ALERT`틱(기본 3회 ≈ 15분) 연속 실패하면 조용히 있지 않고 `ERROR`+알림으로 승격한다; 그리고 환경에 없으면 `.env`에서 `GITHUB_TOKEN`을 읽어, SSH 수동 실행도 PM2 폴러와 동일하게 인증한다(폴러는 `ecosystem.config.js`를 통해 상속받지만 SSH 세션은 아니며, 이 문제가 그렇게 발견됐다). dotenv 읽기는 `source`가 아니라 해당 키만 찾는 방식이다 — deploy.sh가 그 파일의 나머지를 상속하면 안 되기 때문. 새 테스트 5개; 세 가드 모두 각각 되돌려 대응 테스트가 실패하는 것을 뮤테이션 검증했다.
 
