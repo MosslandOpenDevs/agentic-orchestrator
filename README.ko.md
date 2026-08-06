@@ -137,7 +137,36 @@ bash scripts/deploy.sh --check   # 드라이런: 무엇을 할지 보고만
 bash scripts/deploy.sh           # 다음 틱을 기다리지 않고 즉시 배포
 ```
 
+배포기는 무엇을 초록불로 볼지에 대해 의도적으로 보수적입니다: CI 체크가 아직
+0건이거나 전부 skip된 커밋은 검증 없이 올리지 않고 다음 틱으로 미루며, 배포 전
+DB 스냅샷이 실패하면 되돌아갈 곳 없이 배포하는 대신 아예 거부합니다. API가 떠
+있는데 레디니스만 실패하는 상태(=DB 문제)라면, 장애가 지속되는 내내 5분마다
+재시작하고 롤백하는 대신 배포를 미룹니다.
+
 설치·설정·문제 해결: [docs/deployment.md](docs/deployment.md).
+
+## DB 백업과 복원
+
+데이터베이스는 의도적으로 git에 넣지 않는 단일 SQLite 파일이라, `data/backup/`에
+롤링 스냅샷을 둡니다 — 약 24시간마다 하나, 최신 7개 보관, 헬스체크가 찍고 코드
+배포 직전에는 강제로 한 번 더 찍습니다.
+
+복원은 파일을 복사하지 말고 명령으로 하십시오:
+
+```bash
+python -m agentic_orchestrator.scheduler restore-db --list   # 무엇이 있는지
+python -m agentic_orchestrator.scheduler restore-db          # 최신, 또는 --from PATH
+```
+
+스냅샷을 검증하고, 다른 프로세스가 쓰는 중이면 거부하고, 교체되는 DB를 따로
+보관하며(복원 자체를 되돌릴 수 있게), WAL sidecar를 제거한 뒤 파일을 바꿉니다.
+
+> **스냅샷을 `data/orchestrator.db` 위에 `cp` 하지 마십시오.** DB는 WAL 모드입니다.
+> 쓰기 프로세스가 정상 종료가 아니라 크래시나 OOM kill로 죽었다면 — 즉 백업을
+> 꺼내야 하는 바로 그 상황이라면 — `orchestrator.db-wal`이 살아남고, SQLite가 방금
+> 복사해 넣은 파일 위에 그것을 재생합니다. 복원은 조용히 무효가 되고
+> `PRAGMA integrity_check`는 여전히 `ok`를 반환합니다.
+> `tests/test_restore.py::TestTheHazard`가 이 현상을 그대로 재현합니다.
 
 ## API 엔드포인트
 
@@ -145,7 +174,8 @@ FastAPI 백엔드는 REST API 접근을 제공합니다:
 
 | 엔드포인트 | 메서드 | 설명 |
 |------------|--------|------|
-| `/health` | GET | 헬스 체크 |
+| `/health` | GET | 라이브니스 — 프로세스 생존 확인 (DB를 건드리지 않음) |
+| `/ready` | GET | 레디니스 — 실제 테이블을 읽고, 못 읽으면 503. 배포기가 게이트로 사용 |
 | `/status` | GET | 시스템 상태 |
 | `/signals` | GET | 최근 시그널 목록 |
 | `/debates` | GET | 토론 결과 목록 |
@@ -215,6 +245,9 @@ RSS 피드는 `config.yaml`의 최상위 `feeds:` 섹션에 정의되며, 시그
 | `GEMINI_API_KEY` | Gemini API 키 | 클라우드 모드용 |
 | `OLLAMA_HOST` | Ollama 서버 URL | 로컬 모드용 |
 | `MOSS_LOCAL_LLM_ONLY` | LLM 라우터를 Ollama 전용으로 고정. 기본값 `true`, `false`로 설정해야 위 클라우드 키 사용 | 아니오 (기본 `true`) |
+| `MOSS_API_KEY` | 변경 API 라우트에 요구되는 공유 비밀 (`X-API-Key`). 미설정이면 해당 라우트는 503 | 쓰기용 |
+| `MOSS_ENABLE_BROWSER_PROJECT_GENERATION` | 공개 대시보드의 생성 버튼이 `MOSS_API_KEY`를 쓰도록 허용. 기본 꺼짐 — 사이트에 사용자 계정이 없으므로 켜면 아무 방문자나 생성을 돌릴 수 있음 | 아니오 (기본 꺼짐) |
+| `MOSS_RUN_GENERATED_TESTS` | QA 단계가 모델이 쓴 테스트를 이 프로세스에서 실행하도록 허용. 기본 꺼짐 — 일회용 컨테이너에서 돌릴 것 | 아니오 (기본 꺼짐) |
 
 ## 프로젝트 구조
 
@@ -251,14 +284,21 @@ agentic-orchestrator/
 
 ## 개발
 
-```bash
-# 테스트 도구는 dev extra에 포함되어 있습니다
-pip install -e ".[dev]"
-pytest tests/ -v
-```
+의존성은 잠겨 있습니다. CI와 운영이 모두 `uv.lock`에서 설치하므로, 한 커밋은
+어디서든 같은 의존성 그래프로 해석됩니다:
 
 ```bash
-cd website && npm run build   # 변경 후 대시보드 재빌드
+uv sync --frozen --extra dev      # 또는: pip install -e ".[dev]"
+uv run pytest tests/ -v
+```
+
+대시보드에도 자체 검사가 있고 CI가 전부 돌립니다 — 예전에는 빌드 실패가 운영
+서버에서 배포 도중에야 드러났습니다:
+
+```bash
+cd website
+npm ci
+npm run lint && npm run typecheck && npm test && npm run build
 ```
 
 ```bash
@@ -269,6 +309,7 @@ python -m agentic_orchestrator.scheduler run-debate
 python -m agentic_orchestrator.scheduler process-backlog
 python -m agentic_orchestrator.scheduler health-check
 python -m agentic_orchestrator.scheduler backup-db         # data/backup/에 스냅샷, 약 1일 주기 자동
+python -m agentic_orchestrator.scheduler restore-db --list # 스냅샷에서 복원 (위 절 참조)
 ```
 
 ## 라이선스

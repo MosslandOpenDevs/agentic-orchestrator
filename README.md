@@ -137,7 +137,38 @@ bash scripts/deploy.sh --check   # dry run: report what would happen
 bash scripts/deploy.sh           # deploy now, without waiting for the next tick
 ```
 
+Deploys are deliberately conservative about what counts as a green light: a
+commit with no CI checks reported yet, or whose checks all skipped, defers to
+the next tick rather than shipping unverified; a failed pre-deploy DB snapshot
+refuses outright rather than deploying with no way back; and if the API is up
+but failing readiness (a database problem), the deploy defers instead of
+restarting and rolling back every five minutes for the length of the outage.
+
 Setup, configuration, and troubleshooting: [docs/deployment.md](docs/deployment.md).
+
+## Database Backup and Restore
+
+The database is a single SQLite file that is deliberately never in git, so
+`data/backup/` holds rolling snapshots — one roughly every 24 hours, newest
+seven kept, taken by the health check and forced before every code deploy.
+
+Restore with the command, not by copying files:
+
+```bash
+python -m agentic_orchestrator.scheduler restore-db --list   # what is available
+python -m agentic_orchestrator.scheduler restore-db          # newest, or --from PATH
+```
+
+It validates the snapshot, refuses while another process is writing, keeps the
+database it replaces (so the restore is itself reversible), and removes the WAL
+sidecars before swapping the file in.
+
+> **Do not `cp` a snapshot over `data/orchestrator.db`.** The database runs in
+> WAL mode. If the writer did not exit cleanly — a crash or an OOM kill, which
+> is the situation you are in when you reach for a backup — `orchestrator.db-wal`
+> survives, and SQLite replays it on top of whatever you just copied in. The
+> restore silently does not happen and `PRAGMA integrity_check` still reports
+> `ok`. `tests/test_restore.py::TestTheHazard` reproduces exactly that.
 
 ## API Endpoints
 
@@ -145,7 +176,8 @@ The FastAPI backend provides REST API access:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/health` | GET | Health check |
+| `/health` | GET | Liveness — the process is up (does not touch the database) |
+| `/ready` | GET | Readiness — reads a real table; 503 when it cannot. What the deployer gates on |
 | `/status` | GET | System status |
 | `/signals` | GET | List recent signals |
 | `/debates` | GET | List debate results |
@@ -163,6 +195,28 @@ by `debate.normal.*_agents_per_round` in `config.yaml`.
 | 1. Divergence | 16 | 8 | Generate diverse ideas and perspectives | Frontend / Backend / Blockchain engineers, Security Researcher, DevOps, Product and UX Designers, Product Managers, Growth Marketer, Brand Strategist, Business Analyst, Community Manager |
 | 2. Convergence | 8 | 4 | Synthesize and evaluate ideas | Crypto VC and Traditional VC partners, two Accelerator Mentors, serial and first-time founders, Tech and Market Domain Experts |
 | 3. Planning | 10 | 3 | Create actionable implementation plans | CPO, Senior PM, Technical Lead, Frontend / Backend / Blockchain Leads, UX Researcher, QA Lead, Developer Relations, Project Manager |
+
+### Which model runs a debate
+
+Every debate call — divergence, convergence, planning, scoring — resolves to the
+local **`gemma3:4b`** on Ollama. Two things make that true independently of each
+other, so it is easy to assume otherwise and be wrong:
+
+- `MOSS_LOCAL_LLM_ONLY` defaults to `true`, and in that mode the router does not
+  even construct the paid providers; a caller asking for `force_api` is ignored.
+- The task-to-model map in `llm/hierarchy.py` sends every debate task to
+  `gemma3:4b` anyway, so turning the flag off does not move debates onto a paid
+  API. Nothing in `debate/multi_stage.py` names a paid model.
+
+The cloud keys are reached only from the manual `ao` CLI pipeline —
+`stages/planning.py` and `stages/quality.py` use OpenAI and Gemini for external
+review — and from `backlog.py`. No PM2 scheduler job makes a billed call.
+
+The practical consequence is throughput: a debate is bounded by one local GPU,
+and `throttling.ollama` in `config.yaml` (`min_request_interval`,
+`max_concurrent_requests`) decides how fast its rounds may issue requests. Both
+are enforced; if debates approach the 90-minute cycle budget, those are the
+knobs.
 
 Every persona also carries a 4-axis personality profile scored 0-10. Balancing a round's
 subset across these axes is what stops it from being eight agents of one temperament.
@@ -215,6 +269,9 @@ Four more crypto feeds (Chainlink, Polygon, Paradigm, a16z Crypto) are kept with
 | `GEMINI_API_KEY` | Gemini API key | For cloud mode |
 | `OLLAMA_HOST` | Ollama server URL | For local mode |
 | `MOSS_LOCAL_LLM_ONLY` | Pin the LLM router to Ollama. Defaults to `true`; set `false` to enable the cloud keys above | No (default `true`) |
+| `MOSS_API_KEY` | Shared secret required on the mutating API routes (`X-API-Key`). Unset means those routes answer 503 | For writes |
+| `MOSS_ENABLE_BROWSER_PROJECT_GENERATION` | Let the public dashboard's generate button spend `MOSS_API_KEY`. Off by default: the site has no user accounts, so on means any visitor can start a generation | No (default off) |
+| `MOSS_RUN_GENERATED_TESTS` | Allow the QA stage to execute model-written tests in this process. Off by default — run them in a disposable container instead | No (default off) |
 
 ## Project Structure
 
@@ -251,14 +308,21 @@ agentic-orchestrator/
 
 ## Development
 
-```bash
-# Test tooling lives in the dev extra
-pip install -e ".[dev]"
-pytest tests/ -v
-```
+Dependencies are locked. CI and production both install from `uv.lock`, so a
+given commit resolves to one dependency graph everywhere:
 
 ```bash
-cd website && npm run build   # rebuild the dashboard after a change
+uv sync --frozen --extra dev      # or: pip install -e ".[dev]"
+uv run pytest tests/ -v
+```
+
+The dashboard has its own checks, and CI runs all of them — a broken build used
+to surface only on the production server, mid-deploy:
+
+```bash
+cd website
+npm ci
+npm run lint && npm run typecheck && npm test && npm run build
 ```
 
 ```bash
@@ -269,6 +333,7 @@ python -m agentic_orchestrator.scheduler run-debate
 python -m agentic_orchestrator.scheduler process-backlog
 python -m agentic_orchestrator.scheduler health-check
 python -m agentic_orchestrator.scheduler backup-db         # snapshot into data/backup/, auto ~daily
+python -m agentic_orchestrator.scheduler restore-db --list # restore from a snapshot (see above)
 ```
 
 ## License
