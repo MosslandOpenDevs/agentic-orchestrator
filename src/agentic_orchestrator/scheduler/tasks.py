@@ -496,6 +496,7 @@ def _load_backlog_config() -> dict:
     clustering_defaults = {
         "enabled": True,
         "threshold": 0.18,
+        "theme_threshold": 0.12,
         "content_weight": 0.5,
         "max_df_ratio": 0.6,
         "min_shared_terms": 2,
@@ -697,11 +698,70 @@ def _cluster_debate_ideas(ideas: list, config: dict) -> list:
             dups = [
                 ideas[int(m.key)] for m in cluster.members if m.key != cluster.representative.key
             ]
-            grouped.append({"representative": rep, "duplicates": dups})
+            grouped.append({"representative": rep, "duplicates": dups, "theme": None})
+
+        _assign_themes(grouped, config)
         return grouped
     except Exception as e:
         logger.warning(f"Idea clustering failed, treating every idea as unique: {e}")
         return [{"representative": idea, "duplicates": []} for idea in ideas]
+
+
+def _assign_themes(grouped: list, config: dict) -> None:
+    """Tag each representative with a looser "theme" group, in place.
+
+    Two different questions need two different thresholds, and conflating
+    them is what made the tight one look wrong:
+
+    * "is this the SAME idea?" decides who gets externalized at all, and a
+      wrong merge there deletes an idea permanently — only the
+      representative proceeds. That stays precision-first at 0.18.
+    * "is this the same THEME?" only limits how many siblings may be
+      promoted in one cycle. A wrong grouping there costs a delayed
+      promotion: the idea still gets its row, its issue, and its place in
+      the backlog. That is recoverable, so it can afford recall.
+
+    Measured on the live 2026-08-06 batch (16 representatives, all scored
+    exactly 8.00 by the local scorer): 0.12 groups them into 9 themes and
+    the groups are the ones a human picks out — four OpenZeppelin/Slither
+    contract scanners together, three TEE attestation services together.
+    0.08 over-merges (a 7-member blob), 0.18 finds almost nothing.
+    """
+    threshold = float(config.get("theme_threshold", 0.12))
+    if threshold <= 0 or len(grouped) < 2:
+        return
+    try:
+        from .idea_clustering import IdeaDoc, cluster_ideas
+
+        docs = []
+        for index, group in enumerate(grouped):
+            rep = group["representative"]
+            title = getattr(rep, "title", "") or ""
+            content = getattr(rep, "content", None) or getattr(rep, "description", "") or ""
+            docs.append(IdeaDoc(key=str(index), title=title, content=str(content)[:1200]))
+
+        for theme_index, cluster in enumerate(
+            cluster_ideas(
+                docs,
+                threshold=threshold,
+                content_weight=float(config.get("content_weight", 0.5)),
+                max_df_ratio=float(config.get("max_df_ratio", 0.6)),
+                min_shared_terms=int(config.get("min_shared_terms", 2)),
+            )
+        ):
+            siblings = [grouped[int(m.key)]["representative"] for m in cluster.members]
+            for member in cluster.members:
+                grouped[int(member.key)]["theme"] = {
+                    "id": f"t{theme_index}",
+                    "size": cluster.size,
+                    "siblings": [
+                        (getattr(s, "title", "") or "")[:120]
+                        for s in siblings
+                        if s is not grouped[int(member.key)]["representative"]
+                    ],
+                }
+    except Exception as e:
+        logger.warning(f"Theme grouping failed, promotions will not be theme-limited: {e}")
 
 
 async def _auto_score_and_save_ideas(
@@ -819,6 +879,13 @@ async def _auto_score_and_save_ideas(
     clusters = _cluster_debate_ideas(ideas, cluster_config)
     representatives = [c["representative"] for c in clusters]
     duplicates_by_rep = {id(c["representative"]): c["duplicates"] for c in clusters}
+    theme_by_rep = {id(c["representative"]): c.get("theme") for c in clusters}
+    # At most one promotion per theme per cycle. Five wordings of "LLM plus a
+    # static analyzer scans your contracts" are five separate ideas by the
+    # tight clustering rule — correctly, since merging them would delete
+    # four — but promoting all five would produce five plans for one piece
+    # of work, which is the shape of the 2026-08-05 incident one level up.
+    promoted_themes: set = set()
     duplicate_saved = 0
     if len(representatives) < len(ideas):
         logger.info(
@@ -871,6 +938,14 @@ async def _auto_score_and_save_ideas(
             idea_id = str(uuid.uuid4())[:8]
             status = "pending"
 
+            theme = theme_by_rep.get(id(idea)) or {}
+            if decision == "promote" and theme.get("id") in promoted_themes:
+                logger.info(
+                    f"Holding '{idea_title[:50]}' — theme {theme.get('id')} already has a "
+                    f"promotion this cycle ({theme.get('size')} siblings)"
+                )
+                decision = "pending"
+
             review = None
             if decision == "promote" and reviewer.enabled:
                 # With the second pass on, promotion needs an explicit
@@ -885,6 +960,7 @@ async def _auto_score_and_save_ideas(
                         content=idea_content,
                         local_score=score.total,
                         context=score_context,
+                        siblings=theme.get("siblings") or [],
                     )
                     review_stats[
                         {
@@ -908,6 +984,8 @@ async def _auto_score_and_save_ideas(
             if decision == "promote" and promoted_count < max_per_cycle:
                 status = "promoted"
                 promoted_count += 1
+                if theme.get("id"):
+                    promoted_themes.add(theme["id"])
                 logger.info(f"Auto-promoting: {idea_title[:50]}... (score: {score.total:.1f})")
             elif decision == "archive":
                 status = "archived"
@@ -1008,6 +1086,7 @@ async def _auto_score_and_save_ideas(
                         "auto_score": score.to_dict(),
                         "debate_topic": topic,
                         **({"second_pass": review.to_dict()} if review else {}),
+                        **({"theme": theme} if theme else {}),
                     },
                 }
             )
