@@ -24,6 +24,7 @@ from .base import (
     QuotaExhaustedError,
     RateLimitError,
     RetryConfig,
+    enforce_local_only,
 )
 
 logger = get_logger(__name__)
@@ -224,6 +225,21 @@ class ClaudeProvider(BaseProvider):
         if self._mode is None:
             self._mode = self._determine_mode()
         return self._mode
+
+    def bills_to_api_ledger(self) -> bool:
+        """CLI mode bills the Claude Code subscription, not the API budget.
+
+        Keeps the budget *check* aligned with the ledger *write*: CLI
+        responses carry no token usage, so they can never move api_usage,
+        and refusing them once the API cap is spent would break a working
+        manual workflow without protecting a cent. Mode resolution can
+        raise (no CLI and no key); treat that as billed and let the real
+        request surface the error.
+        """
+        try:
+            return self.mode != "cli"
+        except ProviderError:
+            return True
 
     def _determine_mode(self) -> str:
         """Determine which mode to use."""
@@ -572,6 +588,11 @@ def create_claude_provider(
     from ..utils.config import load_config
 
     config = load_config()
+    dry_run = dry_run or config.dry_run
+    # Gated even for prefer_cli: Claude Code is not a local model either, and
+    # `mode` is decided inside the constructor, so the factory cannot know
+    # which of the two billing surfaces it is about to hand out.
+    enforce_local_only("claude", dry_run=dry_run)
 
     return ClaudeProvider(
         model=model or config.claude_model,
@@ -581,5 +602,5 @@ def create_claude_provider(
             max_retries=config.rate_limit_max_retries,
             max_wait_seconds=config.rate_limit_max_wait,
         ),
-        dry_run=dry_run or config.dry_run,
+        dry_run=dry_run,
     )

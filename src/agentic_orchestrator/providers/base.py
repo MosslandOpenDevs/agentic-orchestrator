@@ -2,8 +2,39 @@
 Base provider interface for LLM adapters.
 
 Defines common interfaces, exceptions, and retry logic for all providers.
+
+Spend governance lives here because there are two disjoint ways to reach a
+paid model, and only one of them used to be governed:
+
+    router path   HybridLLMRouter.route() -> provider.generate()
+                  -> _make_request()            [gated + metered by the router]
+    legacy path   stage/backlog @property -> provider.complete()
+                  -> _complete_with_retry() -> _make_request()
+
+The legacy path is the state-machine pipeline (``ao step`` / ``ao loop``) and
+the GitHub backlog orchestrator (``ao backlog run`` / ``process``). It builds
+Claude/OpenAI/Gemini providers straight from the ``create_*_provider``
+factories, so it consulted neither ``MOSS_LOCAL_LLM_ONLY`` nor the budget:
+no kill switch, no ``record_usage``, invisible to ``/usage``. No scheduled
+job *calls* it — ``Orchestrator`` and ``BacklogOrchestrator`` are constructed
+only in ``cli.py`` — but both API keys live in the server's ``.env``, so a
+manual ``ao`` invocation on the box could spend without limit or trace, on
+``gpt-5.2-chat-latest`` ($2.50/$10.00 per M), 3.3x the debate tier's model.
+
+Governing it at the factory (kill switch) and at ``_complete_with_retry``
+(budget check + ledger write) covers all three paid providers, including
+Gemini's overridden ``complete()``, and cannot double-count the router,
+which never calls into this path.
+
+Which guard actually binds depends on the machine. Production must run
+``MOSS_LOCAL_LLM_ONLY=false`` for the v0.6.19 paid debate tier, so there the
+factory gate is a no-op and **the ledger is the only control** — which also
+means legacy spend now shares the debate tier's daily cap (see the
+``budget:`` block in config.yaml). Everywhere else — laptops, CI, any box
+that never set the flag — the kill switch is what stops the call.
 """
 
+import os
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -12,6 +43,23 @@ from typing import Any
 from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+LOCAL_ONLY_ENV = "MOSS_LOCAL_LLM_ONLY"
+
+# Values that turn the kill switch OFF. Anything else — including the
+# variable being unset — keeps the system local-only, so a forgotten or
+# misspelled env var fails closed (no spend) rather than open.
+_LOCAL_ONLY_DISABLED = ("0", "false", "no", "off")
+
+
+def local_llm_only() -> bool:
+    """Whether the ``MOSS_LOCAL_LLM_ONLY`` kill switch is engaged.
+
+    Single source of truth for the flag: both the router and the paid
+    provider factories read it through here, so the two entry points to a
+    billed call can never disagree about whether spending is allowed.
+    """
+    return os.getenv(LOCAL_ONLY_ENV, "true").lower() not in _LOCAL_ONLY_DISABLED
 
 
 class ProviderError(Exception):
@@ -61,10 +109,61 @@ class QuotaExhaustedError(ProviderError):
         self.quota_type = quota_type  # e.g., "tokens", "requests", "billing"
 
 
+class BudgetExhaustedError(QuotaExhaustedError):
+    """
+    Exception raised when the shared API budget has no headroom left.
+
+    Deliberately a ``QuotaExhaustedError``: the legacy state machine already
+    treats that as "pause and alert the operator" rather than "crash", and a
+    spent budget wants exactly that handling. Unlike the router — which can
+    silently degrade a task to local Ollama — the legacy path has no local
+    alternative, so refusing is the only way to hold the cap.
+    """
+
+    def __init__(self, message: str, provider: str = "", model: str = ""):
+        super().__init__(message, provider, model, quota_type="budget")
+
+
+class PaidProviderBlockedError(ProviderError):
+    """
+    Exception raised when a paid provider is built under the kill switch.
+
+    Raised at construction time by the ``create_*_provider`` factories so the
+    refusal lands before any prompt is assembled, and so it cannot be
+    mistaken for a transient API failure and retried.
+    """
+
+    pass
+
+
 class ModelNotAvailableError(ProviderError):
     """Exception raised when a model is not available."""
 
     pass
+
+
+def enforce_local_only(provider_name: str, dry_run: bool = False) -> None:
+    """Refuse to build a paid provider while the kill switch is engaged.
+
+    Args:
+        provider_name: Provider being constructed, for the error message.
+        dry_run: Dry-run providers return canned text and never reach the
+            network, so they are exempt — blocking them would break
+            ``--dry-run`` rehearsals of the legacy pipeline, which are the
+            safe way to exercise it.
+
+    Raises:
+        PaidProviderBlockedError: If ``MOSS_LOCAL_LLM_ONLY`` is engaged.
+    """
+    if dry_run or not local_llm_only():
+        return
+
+    raise PaidProviderBlockedError(
+        f"{LOCAL_ONLY_ENV} is engaged — refusing to construct the paid "
+        f"{provider_name} provider. Set {LOCAL_ONLY_ENV}=false to allow "
+        f"billed calls, or pass dry_run=True to rehearse without spending.",
+        provider=provider_name,
+    )
 
 
 class AuthenticationError(ProviderError):
@@ -234,9 +333,16 @@ class BaseProvider(ABC):
         last_error = None
         backoff = self.retry_config.initial_backoff
 
+        # Before the first byte leaves: the ledger is the only thing standing
+        # between a manual `ao` run and an unbounded bill. Checked here rather
+        # than in complete() so each model in a fallback chain re-checks.
+        self._check_budget(model)
+
         for attempt in range(self.retry_config.max_retries + 1):
             try:
-                return self._make_request(messages, model, **kwargs)
+                response = self._make_request(messages, model, **kwargs)
+                self._record_usage(model, response)
+                return response
 
             except RateLimitError as e:
                 last_error = e
@@ -282,6 +388,118 @@ class BaseProvider(ABC):
         if last_error:
             raise last_error
         raise ProviderError(f"Unknown error in {self.provider_name}")
+
+    @staticmethod
+    def _budget_controller():
+        """Build a BudgetController, or None if the ledger is unreachable.
+
+        Imported lazily: ``llm.budget`` pulls in the DB layer and
+        ``llm/__init__`` imports the router, which imports this module —
+        a module-level import would be circular.
+        """
+        try:
+            from ..llm.budget import BudgetController
+
+            return BudgetController()
+        except Exception as e:  # DB down, migrations missing, import error
+            logger.warning(f"Budget ledger unavailable: {e}")
+            return None
+
+    def _ledger(self):
+        """Memoized ledger for this provider instance.
+
+        ``BudgetController()`` re-reads and re-parses config.yaml and
+        mkdirs its storage path; building one for the budget check and
+        another for the ledger write would do that twice per completion.
+        """
+        if not hasattr(self, "_budget_ctl"):
+            self._budget_ctl = self._budget_controller()
+        return self._budget_ctl
+
+    def bills_to_api_ledger(self) -> bool:
+        """Whether this provider's requests cost money from the API budget.
+
+        Subclasses override when a mode of theirs is billed elsewhere. The
+        budget check and the ledger write must agree on this: refusing a
+        call that can never move the ledger protects nothing and only
+        breaks a workflow.
+        """
+        return True
+
+    def _check_budget(self, model: str) -> None:
+        """Refuse the call when the daily or monthly cap is already spent.
+
+        Fails *open* when the ledger itself is unreachable: a broken DB
+        should not take down the pipeline, and the kill switch plus the
+        provider's own quota errors remain as backstops.
+
+        Raises:
+            BudgetExhaustedError: If the budget has no headroom.
+        """
+        # Calls that never reach the api_usage ledger cannot be capped by
+        # it — Claude Code CLI bills a subscription, so a spent API budget
+        # is no reason to refuse it. Mirrors the same skip in _record_usage.
+        if not self.bills_to_api_ledger():
+            return
+
+        controller = self._ledger()
+        if controller is None:
+            return
+
+        try:
+            status = controller.get_budget_status()
+        except Exception as e:
+            logger.warning(f"Could not read budget status, allowing call: {e}")
+            return
+
+        if status.get("can_use_api", True):
+            return
+
+        daily = status.get("daily", {})
+        monthly = status.get("monthly", {})
+        raise BudgetExhaustedError(
+            f"API budget exhausted — refusing {self.provider_name}:{model}. "
+            f"Today ${daily.get('total_cost', 0):.4f}/"
+            f"${daily.get('daily_limit', 0):.2f}, this month "
+            f"${monthly.get('total_cost', 0):.4f}/"
+            f"${monthly.get('monthly_limit', 0):.2f}.",
+            provider=self.provider_name,
+            model=model,
+        )
+
+    def _record_usage(self, model: str, response: CompletionResponse) -> None:
+        """Write a billed completion to the shared ``api_usage`` ledger.
+
+        Only the legacy synchronous path lands here — the router reaches
+        ``_make_request`` through ``generate()`` and records usage itself —
+        so this cannot double-count.
+
+        Metering must never be the reason a call fails, so every error is
+        swallowed with a warning.
+        """
+        usage = response.usage or {}
+        input_tokens = int(usage.get("prompt_tokens") or 0)
+        output_tokens = int(usage.get("completion_tokens") or 0)
+
+        # Claude's CLI mode reports no token usage (it bills against the
+        # Claude Code subscription, not the API). Recording zero-token rows
+        # would inflate the request count in /usage without adding cost.
+        if not input_tokens and not output_tokens:
+            return
+
+        controller = self._ledger()
+        if controller is None:
+            return
+
+        try:
+            controller.record_usage(
+                provider=self.provider_name,
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+        except Exception as e:
+            logger.warning(f"Could not record {self.provider_name}:{model} usage: {e}")
 
     def _calculate_wait_time(self, error: RateLimitError, default_backoff: float) -> float:
         """Calculate wait time from rate limit error or use default backoff."""
