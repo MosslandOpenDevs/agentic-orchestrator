@@ -262,7 +262,7 @@ exit ${{UV_STUB_EXIT:-0}}
         else:
             _write(
                 self.checkout / ".venv" / "pyvenv.cfg",
-                "home = /home/atrn/.local/share/uv/python/cpython-3.12.13\nuv = 0.11.21\n",
+                "home = /home/user/.local/share/uv/python/cpython-3.12.13\nuv = 0.11.21\n",
             )
 
     # -- helpers ---------------------------------------------------------

@@ -9,10 +9,12 @@
 
 ## Summary
 
-Our two services share the Ollama host at `192.168.1.65:11434`, and we request
-the **same model at different context sizes**. In Ollama each distinct
-`num_ctx` is a *separate model instance*, so whichever of us is resident wins
-and the other blocks on a model load that, under contention, does not complete.
+Our two services share one Ollama host on the office LAN — `<ollama-host>:11434`,
+the real address kept in the gitignored `CLAUDE.local.md` because this repo is
+public — and we request the **same model at different context sizes**. In Ollama
+each distinct `num_ctx` is a *separate model instance*, so whichever of us is
+resident wins and the other blocks on a model load that, under contention, does
+not complete.
 
 Since roughly 2026-08-05 midday this has cost MOSS.AO its entire local-LLM
 pipeline: three debates died after ~90 minutes each, trend analysis saved zero
@@ -22,7 +24,7 @@ isolation, and ours was equally unilateral. We just cannot both pick a number.
 
 ## Measurements
 
-Taken from `atrn-vm-linux` against the shared host on 2026-08-06 04:10 UTC.
+Taken from our app-server VM against the shared host on 2026-08-06 04:10 UTC.
 
 **Only the resident context size responds. Every other size hangs.**
 
