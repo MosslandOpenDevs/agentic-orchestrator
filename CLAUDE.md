@@ -522,6 +522,51 @@ pm2 save
   상세·정리법: `docs/deployment.md`의 "cron_restart 오염" 절.
 - 즉시 배포: `bash scripts/deploy.sh` / 가드 무시: `--force` / 미리보기: `--check`
 
+## 가용성 모니터링 (v0.6.20)
+
+**AO의 가장 흔한 다운 원인은 코드가 아니라 사무실 회선이다.** 앱은 사무실
+VM(`atrn-vm-linux`, tailnet `100.109.139.25`)에서 돌고 Lightsail nginx가 테일넷
+너머로 프록시하므로, 회선이 끊기면 3000·3001이 동시에 사라지고 **모든 요청이
+nginx 504**가 된다. PM2도 호스트도 멀쩡한 채로. 2026-08-04와 08-06에 각각 약
+16분씩 이렇게 죽었고 둘 다 사후에 nginx error.log를 손으로 뒤져 재구성했다.
+
+`scripts/monitor/`가 그 측정을 **고장 도메인 양쪽에 나눠서** 한다 (상세: 같은
+디렉터리의 README.md).
+
+| 프로버 | 위치 | 역할 |
+|--------|------|------|
+| `probe_uptime.py` | Lightsail (`mossland`, 사무실 밖) | 30초마다 `100.109.139.25:3001/health`. 끊겨도 계속 기록. **상태 전환 시에만** Discord 알림 |
+| `probe_netpath.py` | 사무실 VM (끊기는 쪽) | 30초마다 게이트웨이 → `1.1.1.1`(생 IP) → DNS → `tailscale ping`. 알림 없음 |
+| `report.py` | 아무 데나 | 두 CSV를 조인해 다운마다 원인 판정 |
+
+둘 다 **사용자 crontab** (`* * * * *`, 스크립트가 그 안에서 30초 간격 2샘플,
+`flock`으로 중복 방지). 사무실 VM에는 sudo 권한이 없어 systemd는 쓰지 않는다.
+
+```bash
+scripts/monitor/pull-report.sh --since 2026-08-01
+```
+
+원인 판정은 **바깥으로 나가며 처음 실패한 계층**이다: 게이트웨이 불통 → LAN/라우터,
+게이트웨이 정상 + 1.1.1.1 불통 → ISP, DNS만 불통 → 리졸버, tailscale만 불통 → 터널,
+**전 계층 정상인데 다운 → 네트워크 무혐의, 우리 버그**.
+
+> **주의 1.** 다운 확정은 **연속 2샘플 실패**를 요구하고 1샘플짜리는 `순간 블립`으로
+> 따로 센다. nginx 로그를 08-04~06 구간에서 클러스터링하면 에러 뭉치 19개가 나오지만
+> 실제 다운은 2건뿐이고 나머지는 에러 1~2건짜리다 — 합쳐 세면 "3일에 2번"이
+> "하루 6번"이 되어 숫자의 신뢰를 잃는다.
+>
+> **주의 2. tailscale의 `health` 경고를 다운의 근거로 쓰지 말 것.** 2026-08-06
+> 19:26~19:41에 컨트롤 플레인이 끊겼지만 데이터 경로는 살아 있어 nginx 에러가
+> **0건**이었다 — 사이트는 안 죽었다. journald의 tailscaled 로그만 보면 다운
+> 횟수를 2배로 세게 된다.
+
+Discord 웹훅은 각 박스의 `~/ao-monitor/config.env`(600, git 미추적)에 있고,
+비어 있으면 기록만 하고 알림은 보내지 않는다. 확인: `python3 ~/ao-monitor/probe_uptime.py --test-notify`
+
+증거로 쓰던 기존 로그의 보존도 함께 늘렸다 — nginx logrotate 14 → **90일**
+(백업: `/etc/logrotate.d/nginx.bak-ao-monitor`). 사무실 VM의 journald는 아직 3일치이며
+연장에 sudo가 필요하다: `/etc/systemd/journald.conf`에 `MaxRetentionSec=90d`.
+
 ## 개발 워크플로우
 
 > 아래는 서버에 직접 들어가 손으로 반영할 때의 절차다. 자동 배포가 켜진 뒤로는
