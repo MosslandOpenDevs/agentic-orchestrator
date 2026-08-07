@@ -97,11 +97,26 @@ scp scripts/monitor/config.env.example atrn@100.109.139.25:ao-monitor/config.env
 (Discord 서버 설정 → 연동 → 웹후크 → 새 웹후크 → URL 복사). 비워두면 기록만
 하고 알림은 보내지 않는다.
 
+웹훅은 **Lightsail에만** 넣는다. 사무실 VM의 프로버는 알림 기능이 없어서 거기
+넣은 값은 아무 데도 읽히지 않는다 (양쪽에 같은 `config.env` 템플릿이 깔려 있어
+헷갈리기 쉽다).
+
 확인:
 
 ```bash
 ssh mossland 'python3 ~/ao-monitor/probe_uptime.py --test-notify'
 ```
+
+> **함정: Cloudflare가 Python의 기본 User-Agent를 막는다.** 디스코드는
+> Cloudflare 뒤에 있고, `Python-urllib/3.x` UA로 오는 요청에 **HTTP 403 +
+> `error code: 1010`** 을 돌려준다. curl로는 204가 떨어지므로 **웹훅은 멀쩡한데
+> 스크립트의 알림만 전부 죽는다** — 이 모니터가 없애려는 바로 그 침묵이다.
+> 그래서 `USER_AGENT` 상수를 명시적으로 보낸다 (2026-08-07 실측: 동일 요청,
+> 기본 UA → 403, 지정 UA → 204). 이 헤더를 지우지 말 것.
+>
+> 알림 전송이 실패하면 `data/notify.log`에 시각·제목·사유가 남는다. "알림이
+> 안 왔다"가 "사고가 없었다"인지 "채널이 죽었다"인지 구별하려면 이 파일을 본다.
+> 비어 있으면 실패한 적이 없다는 뜻이다.
 
 ## 리포트
 

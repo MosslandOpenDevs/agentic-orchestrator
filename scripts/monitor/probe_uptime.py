@@ -56,6 +56,13 @@ COLOR_DOWN = 0xE03131
 COLOR_UP = 0x2F9E44
 COLOR_INFO = 0x4C6EF5
 
+# Discord sits behind Cloudflare, which rejects the default Python-urllib
+# User-Agent outright: HTTP 403, body "error code: 1010". Measured on the
+# Lightsail host 2026-08-07 -- byte-identical request, default UA -> 403, this
+# UA -> 204. curl succeeded throughout, which is why the webhook looked fine
+# while every alert this script sent would have been dropped.
+USER_AGENT = "MOSS-AO-Monitor/1.0 (+https://ao.moss.land)"
+
 
 # --------------------------------------------------------------------------
 # config
@@ -162,9 +169,16 @@ def append_sample(data_dir: Path, sample: Sample) -> None:
 
 
 def notify_discord(webhook: str, title: str, description: str, color: int,
-                   fields: Optional[list] = None) -> bool:
-    """Post one embed. Returns False on any failure -- alerting must never
-    raise into the probe loop, or a Discord outage would stop the recording."""
+                   fields: Optional[list] = None,
+                   log_path: Optional[Path] = None) -> bool:
+    """Post one embed. Never raises -- alerting must not stop the recording,
+    since the samples are the part that cannot be reconstructed later.
+
+    A swallowed failure is still written to ``log_path``. An alert channel that
+    fails quietly is indistinguishable from a month with no incidents, which is
+    the exact failure this whole monitor exists to end; the log is what makes
+    "no alerts" checkable.
+    """
     if not webhook:
         return False
     embed = {
@@ -179,14 +193,32 @@ def notify_discord(webhook: str, title: str, description: str, color: int,
     req = urllib.request.Request(
         webhook,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
         method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            return 200 <= resp.status < 300
-    except Exception:  # noqa: BLE001 - see docstring
-        return False
+            if 200 <= resp.status < 300:
+                return True
+        reason = f"HTTP {resp.status}"
+    except urllib.error.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read()[:120].decode("utf-8", "replace").strip()
+        except Exception:  # noqa: BLE001
+            pass
+        reason = f"HTTP {exc.code} {body}"
+    except Exception as exc:  # noqa: BLE001 - see docstring
+        reason = f"{type(exc).__name__}: {exc}"
+
+    if log_path is not None:
+        try:
+            stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            with log_path.open("a", encoding="utf-8") as fh:
+                fh.write(f"{stamp}\t{title}\t{reason}\n")
+        except OSError:
+            pass
+    return False
 
 
 def _kst(ts: str) -> str:
@@ -209,7 +241,8 @@ def _human_duration(seconds: float) -> str:
 # state machine
 
 
-def apply_sample(state: ProbeState, sample: Sample, target: str, webhook: str) -> None:
+def apply_sample(state: ProbeState, sample: Sample, target: str, webhook: str,
+                 log_path: Optional[Path] = None) -> None:
     observed = "up" if sample.ok else "down"
     ts = sample.ts.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -241,6 +274,7 @@ def apply_sample(state: ProbeState, sample: Sample, target: str, webhook: str) -
                 {"name": "최초 실패", "value": _kst(state.down_since), "inline": True},
                 {"name": "응답", "value": f"`{sample.code}`", "inline": True},
             ],
+            log_path=log_path,
         )
     else:
         recovered_at = state.pending_since or ts
@@ -262,6 +296,7 @@ def apply_sample(state: ProbeState, sample: Sample, target: str, webhook: str) -
                     },
                     {"name": "복구", "value": _kst(recovered_at), "inline": True},
                 ],
+                log_path=log_path,
             )
         state.down_since = ""
 
@@ -292,6 +327,7 @@ def main(argv: Optional[list] = None) -> int:
     target = cfg.get("AO_MONITOR_TARGET", DEFAULT_TARGET)
     timeout = float(cfg.get("AO_MONITOR_TIMEOUT", DEFAULT_TIMEOUT))
     webhook = cfg.get("AO_MONITOR_DISCORD_WEBHOOK", "")
+    notify_log = data_dir / "notify.log"
 
     if args.test_notify:
         if not webhook:
@@ -303,8 +339,9 @@ def main(argv: Optional[list] = None) -> int:
             "웹훅이 정상 연결되었습니다. 실제 알림은 상태가 바뀔 때만 옵니다.",
             COLOR_INFO,
             [{"name": "감시 대상", "value": f"`{target}`", "inline": False}],
+            log_path=notify_log,
         )
-        print("sent" if ok else "FAILED -- check the webhook URL")
+        print("sent" if ok else f"FAILED -- reason logged to {notify_log}")
         return 0 if ok else 1
 
     # Overlapping cron invocations would interleave CSV rows and corrupt the
@@ -325,7 +362,7 @@ def main(argv: Optional[list] = None) -> int:
             time.sleep(args.interval)
         sample = probe(target, timeout)
         append_sample(data_dir, sample)
-        apply_sample(state, sample, target, webhook)
+        apply_sample(state, sample, target, webhook, notify_log)
 
     state.save(state_path)
     return 0
