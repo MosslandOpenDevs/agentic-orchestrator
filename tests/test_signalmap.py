@@ -1216,6 +1216,57 @@ class TestFeedReport:
         assert report["status"] == "degraded"
         assert "watermark" in report["reason"]
 
+    def test_a_feed_whose_every_poll_fails_is_degraded_not_unknown(
+        self, cfg, tmp_path, monkeypatch, frozen_now
+    ):
+        """Caught on the first live deploy, 2026-08-06.
+
+        The upstream manifest returned a transient 504. /adapters showed the
+        error; /status said "never synced" — so a feed that is DOWN looked
+        exactly like one whose first tick had not fired yet. A feed with no
+        epoch and a recorded error is not un-run, it is broken.
+        """
+        monkeypatch.setattr(sm, "_report_config", cfg)
+        path = tmp_path / "state.json"
+        FeedState(
+            epoch=None,
+            last_error="HTTPStatusError: Server error '504 Gateway Time-out'",
+        ).save(path)
+
+        report = feed_report(path)
+
+        assert report["status"] == "degraded"
+        assert "never synced" in report["reason"]
+        assert "504" in report["reason"]
+
+    def test_a_failing_poll_outranks_a_stale_watermark(
+        self, cfg, tmp_path, monkeypatch, frozen_now
+    ):
+        """Our poll being broken is more actionable than their collector
+        being quiet, and it is the newer information."""
+        monkeypatch.setattr(sm, "_report_config", cfg)
+        path = tmp_path / "state.json"
+        FeedState(
+            epoch=EPOCH,
+            source_watermark="2026-08-01T06:00:00.000Z",
+            last_error="ConnectError: no route to host",
+        ).save(path)
+
+        assert feed_report(path)["reason"].startswith("last poll failed:")
+
+    def test_the_reason_is_one_bounded_line(self, cfg, tmp_path, monkeypatch, frozen_now):
+        """/status is public and read at a glance; httpx errors are multi-line
+        and carry a documentation URL."""
+        monkeypatch.setattr(sm, "_report_config", cfg)
+        path = tmp_path / "state.json"
+        FeedState(epoch=EPOCH, last_error="line one\nline two\n" + "x" * 400).save(path)
+
+        reason = feed_report(path)["reason"]
+
+        assert "\n" not in reason
+        assert len(reason) < 250
+        assert reason.endswith("…")
+
     def test_disabled_is_not_degraded(self, cfg, tmp_path, monkeypatch):
         cfg.enabled = False
         monkeypatch.setattr(sm, "_report_config", cfg)

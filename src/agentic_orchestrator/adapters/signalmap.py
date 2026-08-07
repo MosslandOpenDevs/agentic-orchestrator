@@ -864,6 +864,17 @@ def reset_report_cache() -> None:
     _report_config = None
 
 
+def _short_error(message: str, limit: int = 180) -> str:
+    """One-line, bounded form of a stored error for a public JSON field.
+
+    httpx errors are multi-line and carry a documentation URL; /status is a
+    public endpoint and its `reason` is meant to be read at a glance. The full
+    text stays in the state file and in /adapters' health block.
+    """
+    collapsed = " ".join(message.split())
+    return collapsed if len(collapsed) <= limit else collapsed[: limit - 1] + "…"
+
+
 def feed_report(state_path: Optional[Path] = None) -> Dict[str, Any]:
     """Config- and state-level view of the SignalMap feed for ``GET /status``.
 
@@ -894,7 +905,25 @@ def feed_report(state_path: Optional[Path] = None) -> Dict[str, Any]:
         "records_emitted": state.records_emitted,
     }
 
-    if state.epoch is None:
+    # Order matters, and it is the operator's order: what is broken RIGHT NOW
+    # before what is merely stale.
+    #
+    # `last_error` is checked FIRST, ahead of the never-synced case, because
+    # the two are not alternatives — a feed whose every poll is failing has no
+    # epoch either. Reporting that as "never synced" makes a feed that is down
+    # look exactly like one whose first tick has not fired yet, which is the
+    # precise failure this module was written to eliminate. It reproduced here
+    # on the first live deploy: the upstream manifest returned a transient 504,
+    # /adapters showed the error, and /status said "never synced".
+    if state.last_error:
+        report["status"] = "degraded"
+        detail = _short_error(state.last_error)
+        report["reason"] = (
+            f"last poll failed: {detail}"
+            if state.epoch
+            else f"never synced; last attempt failed: {detail}"
+        )
+    elif state.epoch is None:
         report["status"] = "unknown"
         report["reason"] = "never synced"
     elif age is not None and age > cfg.watermark_stale_hours:
@@ -903,8 +932,5 @@ def feed_report(state_path: Optional[Path] = None) -> Dict[str, Any]:
             f"source watermark frozen for {age:.0f}h "
             f"(threshold {cfg.watermark_stale_hours}h) — upstream collection may have stopped"
         )
-    elif state.last_error:
-        report["status"] = "degraded"
-        report["reason"] = f"last poll failed: {state.last_error}"
 
     return report
