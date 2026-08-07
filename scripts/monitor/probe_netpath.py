@@ -8,7 +8,7 @@ apart, because only it sits on the near side of every hop.
 
 So this runs on the office VM and walks the path outward, one layer at a time:
 
-    1. gw      -- the LAN default gateway (192.168.1.1). Dead means the
+    1. gw      -- the LAN default gateway (auto-detected). Dead means the
                   problem is the LAN, the switch, or the router itself.
     2. inet    -- 1.1.1.1 by raw IP, no name lookup. Dead while gw is alive
                   means the router is up but its WAN side (or the ISP) is not.
@@ -40,13 +40,16 @@ import fcntl
 import re
 import socket
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-DEFAULT_PEER = "100.107.17.114"  # wooram-lightsail-mossland-website (the nginx host)
+# The tailnet peer (the Lightsail nginx host) is deliberately NOT hardcoded:
+# this repo is public and real addresses live in CLAUDE.local.md and each
+# box's config.env.
 DEFAULT_INTERNET_IP = "1.1.1.1"
 DEFAULT_DNS_NAME = "github.com"
 PING_TIMEOUT_S = 2
@@ -195,7 +198,15 @@ def main(argv: Optional[list] = None) -> int:
     gateway = cfg.get("AO_MONITOR_GATEWAY") or detect_gateway()
     internet_ip = cfg.get("AO_MONITOR_INTERNET_IP", DEFAULT_INTERNET_IP)
     dns_name = cfg.get("AO_MONITOR_DNS_NAME", DEFAULT_DNS_NAME)
-    peer = cfg.get("AO_MONITOR_TS_PEER", DEFAULT_PEER)
+    peer = cfg.get("AO_MONITOR_TS_PEER", "")
+    if not peer:
+        # Refuse rather than record: an unset peer would log tspeer as failed
+        # on every sample, and the report would then blame the tunnel for
+        # every outage.
+        print("AO_MONITOR_TS_PEER is not set in config.env "
+              "(real addresses live in CLAUDE.local.md, not in this repo)",
+              file=sys.stderr)
+        return 2
 
     if args.once:
         row = sample_once(gateway, internet_ip, dns_name, peer)
