@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Outside-in availability probe for the AO app server.
 
-The app server is an office VM (192.168.1.x) reachable only over the tailnet;
+The app server is an office VM reachable only over the tailnet;
 nginx on Lightsail proxies ao.moss.land to it. When the office line drops both
 upstream ports die at once and every request 504s -- but nothing on the failing
 side can report that, and nothing outside was watching. The 2026-08-04 and
@@ -40,7 +40,10 @@ from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-DEFAULT_TARGET = "http://100.109.139.25:3001/health"
+# The probe target (the app server's tailnet address) is deliberately NOT
+# hardcoded: this repo is public and real addresses live in CLAUDE.local.md
+# and each box's config.env. The script refuses to run without it rather than
+# guessing.
 DEFAULT_TIMEOUT = 5.0
 
 # A real outage is minutes long; a lost packet is one sample. Requiring two
@@ -324,7 +327,12 @@ def main(argv: Optional[list] = None) -> int:
     data_dir.mkdir(parents=True, exist_ok=True)
 
     cfg = load_config(base / "config.env")
-    target = cfg.get("AO_MONITOR_TARGET", DEFAULT_TARGET)
+    target = cfg.get("AO_MONITOR_TARGET", "")
+    if not target:
+        print("AO_MONITOR_TARGET is not set in config.env "
+              "(real addresses live in CLAUDE.local.md, not in this repo)",
+              file=sys.stderr)
+        return 2
     timeout = float(cfg.get("AO_MONITOR_TIMEOUT", DEFAULT_TIMEOUT))
     webhook = cfg.get("AO_MONITOR_DISCORD_WEBHOOK", "")
     notify_log = data_dir / "notify.log"

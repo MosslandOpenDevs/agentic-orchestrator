@@ -71,6 +71,9 @@ out/
 *.local.md
 CLAUDE.local.md
 
+# Availability-monitor host addresses (real values in CLAUDE.local.md)
+scripts/monitor/local.env
+
 # Application data (SQLite DB and backups - never commit).
 # The glob matters as much as the exact names: restore-db leaves
 # orchestrator.db.pre-restore-<timestamp> beside the database (a full copy of
