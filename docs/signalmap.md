@@ -306,7 +306,8 @@ cat data/signalmap_state.json
 
 | 증상 | 원인 | 조치 |
 |------|------|------|
-| `signal_feed.status: "unknown"`, `reason: "never synced"` | 아직 한 번도 성공 못 함 | 다음 시그널 틱(30분) 대기, 안 되면 `pm2 logs moss-ao-signals` |
+| `"unknown"` + `"never synced"` | 아직 **한 번도 돌지 않음** (오류도 없음) | 다음 시그널 틱(30분) 대기 |
+| `"degraded"` + `"never synced; last attempt failed: …"` | 돌았고 **실패했음** | `last_error` 확인. 이 둘을 구별하는 것이 요점이다 — 2026-08-06 첫 배포 때 상류 manifest가 일시적 504를 반환했는데, 이 구별이 없던 동안 `/status`는 아직 안 돈 피드와 똑같아 보였다 |
 | `"degraded"` + watermark 문구 | **상류 수집이 멈춤** | SignalMap 팀에 문의. AO 쪽 조치 없음 |
 | `"degraded"` + `last poll failed` | 네트워크/HTTP 오류 | `last_error` 확인. 실패해도 그 회차에 이미 걷은 페이지는 **반환된다**(부분 성공) — 커서가 이미 그 뒤에 있으므로 버리면 영구 유실이다 |
 | `"degraded"` + `aborted mid-walk: cursor_stalled` | 서버가 `hasMore: true`인데 커서가 전진하지 않음 | 발행 측 문제. 같은 커서로 계속 재시도하며 재적재는 멱등이라 피해는 없다 |
