@@ -34,8 +34,8 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta, timezone
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -111,7 +111,7 @@ class ProbeState:
             # A truncated state file must not wedge the probe; the worst case
             # is one spurious transition notification.
             return cls()
-        known = {f for f in cls.__dataclass_fields__}
+        known = set(cls.__dataclass_fields__)
         return cls(**{k: v for k, v in data.items() if k in known})
 
     def save(self, path: Path) -> None:

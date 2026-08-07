@@ -198,7 +198,8 @@ def main(argv: Optional[list] = None) -> int:
     peer = cfg.get("AO_MONITOR_TS_PEER", DEFAULT_PEER)
 
     if args.once:
-        print(dict(zip(CSV_HEADER, sample_once(gateway, internet_ip, dns_name, peer))))
+        row = sample_once(gateway, internet_ip, dns_name, peer)
+        print(dict(zip(CSV_HEADER, row)))  # noqa: B905 - equal length by construction
         return 0
 
     lock_path = base / "netpath.lock"

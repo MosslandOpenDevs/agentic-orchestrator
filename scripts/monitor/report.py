@@ -159,9 +159,10 @@ def median_interval(samples: list) -> float:
     schedule is ever changed."""
     if len(samples) < 3:
         return 30.0
+    # zip(strict=) is 3.10+, and the report is run from laptops still on 3.9.
     deltas = [
         (b.ts - a.ts).total_seconds()
-        for a, b in zip(samples, samples[1:])
+        for a, b in zip(samples, samples[1:])  # noqa: B905
         if 0 < (b.ts - a.ts).total_seconds() <= 600
     ]
     return statistics.median(deltas) if deltas else 30.0
