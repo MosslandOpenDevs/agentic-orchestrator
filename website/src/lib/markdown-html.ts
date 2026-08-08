@@ -88,6 +88,37 @@ marked.use({
 });
 
 /**
+ * Flatten markdown to plain text, for places that render a string as-is.
+ *
+ * Titles come out of the pipeline as prose, but the translator occasionally
+ * keeps the surrounding markdown -- `plan.title_ko` has arrived as
+ * `## 계획: ...` -- and a heading rendered into an `<h3>` shows its own `##`.
+ * Headings, bullets, emphasis and links are decoration in that position, so
+ * strip them rather than teaching every title site to parse markdown.
+ *
+ * This is not a substitute for `renderMarkdown`: the result is plain text for
+ * a JSX text node, never for `dangerouslySetInnerHTML`.
+ */
+export function stripMarkdown(value: string | null | undefined): string {
+  if (!value) return '';
+
+  return (
+    value
+      // Leading block markers, in the order they can stack: `> ## - text`.
+      .replace(/^\s*(?:>\s*)*(?:#{1,6}\s+)?(?:[-*+]\s+)?/, '')
+      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1') // links / images -> label
+      .replace(/\*\*([^*]+)\*\*/g, '$1') // bold before italic, or the
+      .replace(/\*([^*]+)\*/g, '$1') //     inner pair eats the markers
+      .replace(/`([^`]+)`/g, '$1')
+      // `__bold__` only when it wraps the whole run; a bare `_` is left alone
+      // because identifiers (`title_ko`, `idea_id`) legitimately contain it.
+      .replace(/__([^_]+)__/g, '$1')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
+}
+
+/**
  * Render markdown content to a sanitized HTML string.
  */
 export function renderMarkdown(content: string): string {

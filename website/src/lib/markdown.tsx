@@ -2,9 +2,9 @@
 
 import { useMemo } from 'react';
 
-import { renderMarkdown } from './markdown-html';
+import { renderMarkdown, stripMarkdown } from './markdown-html';
 
-export { renderMarkdown };
+export { renderMarkdown, stripMarkdown };
 
 /**
  * Component to render markdown content.

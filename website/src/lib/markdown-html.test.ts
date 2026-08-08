@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { renderMarkdown, safeUrl } from './markdown-html.ts';
+import { renderMarkdown, safeUrl, stripMarkdown } from './markdown-html.ts';
 
 // Debate messages are LLM output built from public feeds and are rendered with
 // dangerouslySetInnerHTML, so anything that survives this function runs on
@@ -153,4 +153,42 @@ test('safeUrl keeps the schemes we allow', () => {
   assert.equal(safeUrl('#anchor'), '#anchor');
   assert.equal(safeUrl('../up'), '../up');
   assert.equal(safeUrl(null), null);
+});
+
+// stripMarkdown feeds JSX text nodes, where markdown is decoration rather
+// than markup: an `## 계획: ...` title rendered into an <h3> shows its `##`.
+
+test('stripMarkdown removes the heading marker a title arrived with', () => {
+  // The exact shape seen in production on plan.title_ko.
+  assert.equal(
+    stripMarkdown('## 계획: x402 기반 마이크로 결제 게이트웨이'),
+    '계획: x402 기반 마이크로 결제 게이트웨이'
+  );
+});
+
+test('stripMarkdown unwraps emphasis, code and links', () => {
+  assert.equal(stripMarkdown('**Bold** and *italic*'), 'Bold and italic');
+  assert.equal(stripMarkdown('__Bold__ run'), 'Bold run');
+  assert.equal(stripMarkdown('use `npm test` here'), 'use npm test here');
+  assert.equal(stripMarkdown('see [the plan](https://x.test)'), 'see the plan');
+  assert.equal(stripMarkdown('![shot](https://x.test/a.png)'), 'shot');
+});
+
+test('stripMarkdown drops stacked leading block markers', () => {
+  assert.equal(stripMarkdown('> ## - Quoted heading'), 'Quoted heading');
+  assert.equal(stripMarkdown('- A bullet title'), 'A bullet title');
+});
+
+test('stripMarkdown leaves plain prose and identifiers alone', () => {
+  assert.equal(stripMarkdown('A normal title'), 'A normal title');
+  // A bare underscore is not emphasis here -- field names contain them.
+  assert.equal(stripMarkdown('plan.title_ko is empty'), 'plan.title_ko is empty');
+  assert.equal(stripMarkdown('2 * 3 = 6'), '2 * 3 = 6');
+});
+
+test('stripMarkdown collapses whitespace and handles empty input', () => {
+  assert.equal(stripMarkdown('two\nlines   here'), 'two lines here');
+  assert.equal(stripMarkdown(''), '');
+  assert.equal(stripMarkdown(null), '');
+  assert.equal(stripMarkdown(undefined), '');
 });

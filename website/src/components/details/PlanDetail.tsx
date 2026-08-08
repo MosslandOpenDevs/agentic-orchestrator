@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { ApiClient, type ApiPlan, type ApiProject } from '@/lib/api';
 import { formatLocalDateTime } from '@/lib/date';
+import { stripMarkdown } from '@/lib/markdown';
 import type { ModalData } from '../modals/ModalProvider';
 import { TerminalBadge } from '../TerminalWindow';
 
@@ -291,7 +292,11 @@ export function PlanDetail({ data }: PlanDetailProps) {
           </TerminalBadge>
           <TerminalBadge variant="purple">v{plan.version}</TerminalBadge>
         </div>
-        <h3 className="text-lg font-bold text-[#c0c0c0]">{getLocalizedText(plan.title, plan.title_ko)}</h3>
+        {/* stripMarkdown: title_ko arrives as `## 계획: ...` often enough that an
+            <h3> would otherwise render the heading marker itself. */}
+        <h3 className="text-lg font-bold text-[#c0c0c0]">
+          {stripMarkdown(getLocalizedText(plan.title, plan.title_ko))}
+        </h3>
       </div>
 
       {/* Tabs */}

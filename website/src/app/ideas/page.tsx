@@ -11,6 +11,7 @@ import { TerminalWindow, TerminalBadge } from '@/components/TerminalWindow';
 import { IdeaComparison } from '@/components/visualization/IdeaComparison';
 import { TrendHeatmap } from '@/components/visualization/TrendHeatmap';
 import { IdeaNetwork } from '@/components/visualization/IdeaNetwork';
+import { stripMarkdown } from '@/lib/markdown';
 
 // Helper function to extract readable text from JSON idea content
 function getIdeaSummaryText(content: string | null | undefined): string {
@@ -543,7 +544,7 @@ export default function IdeasPage() {
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.02 }}
-                      {...clickableProps(() => openModal('plan', { ...plan, title: getLocalizedText(plan.title, plan.title_ko) }), getLocalizedText(plan.title, plan.title_ko))}
+                      {...clickableProps(() => openModal('plan', { ...plan, title: stripMarkdown(getLocalizedText(plan.title, plan.title_ko)) }), stripMarkdown(getLocalizedText(plan.title, plan.title_ko)))}
                       className="p-4 rounded border border-[#21262d] hover:border-[#ff6b35] cursor-pointer transition-colors bg-black/20"
                     >
                       <div className="flex items-center gap-4">
@@ -556,7 +557,8 @@ export default function IdeasPage() {
                               {plan.status}
                             </TerminalBadge>
                           </div>
-                          <h3 className="text-sm font-medium text-[#c0c0c0]">{getLocalizedText(plan.title, plan.title_ko)}</h3>
+                          {/* stripMarkdown: title_ko often arrives as `## 계획: ...`. */}
+                          <h3 className="text-sm font-medium text-[#c0c0c0]">{stripMarkdown(getLocalizedText(plan.title, plan.title_ko))}</h3>
                           {plan.created_at && (
                             <div className="text-[10px] text-[#8b949e] mt-1">
                               {formatLocalDateTime(plan.created_at, locale)}
