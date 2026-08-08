@@ -39,11 +39,11 @@
 
 위치:
 
-- [approve proxy](/Users/m/Downloads/github/agentic-orchestrator/website/src/app/proxy/plans/[id]/approve/route.ts:5)
-- [generate proxy](/Users/m/Downloads/github/agentic-orchestrator/website/src/app/proxy/plans/[id]/generate-project/route.ts:5)
-- [backend key check](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/api/main.py:113)
-- [project generation endpoint](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/api/main.py:1474)
-- [plan approval endpoint](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/api/main.py:1651)
+- [approve proxy](website/src/app/proxy/plans/[id]/approve/route.ts:5)
+- [generate proxy](website/src/app/proxy/plans/[id]/generate-project/route.ts:5)
+- [backend key check](src/agentic_orchestrator/api/main.py:113)
+- [project generation endpoint](src/agentic_orchestrator/api/main.py:1474)
+- [plan approval endpoint](src/agentic_orchestrator/api/main.py:1651)
 
 두 Next.js route는 사용자 인증·권한 확인, CSRF/Origin 확인, rate limit 없이 공개 POST를 받은 뒤 서버의 `MOSS_API_KEY`를 `X-API-Key`로 주입합니다. 백엔드가 API 키로 보호하려던 두 mutation이 웹 프록시를 통해 익명 기능으로 바뀝니다. 공격자는 plan 상태를 변경하고 비용이 큰 LLM 생성, DB 및 파일 쓰기를 반복 실행할 수 있습니다.
 
@@ -53,10 +53,10 @@
 
 위치:
 
-- [markdown renderer](/Users/m/Downloads/github/agentic-orchestrator/website/src/lib/markdown.tsx:15)
-- [DebateConversation](/Users/m/Downloads/github/agentic-orchestrator/website/src/components/visualization/DebateConversation.tsx:112)
-- [LiveDebateViewer](/Users/m/Downloads/github/agentic-orchestrator/website/src/components/visualization/LiveDebateViewer.tsx:225)
-- [LLM response persistence](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/debate/multi_stage.py:848)
+- [markdown renderer](website/src/lib/markdown.tsx:15)
+- [DebateConversation](website/src/components/visualization/DebateConversation.tsx:112)
+- [LiveDebateViewer](website/src/components/visualization/LiveDebateViewer.tsx:225)
+- [LLM response persistence](src/agentic_orchestrator/debate/multi_stage.py:848)
 
 `marked.parse()` 결과를 sanitize 없이 `dangerouslySetInnerHTML`에 넣습니다. `marked`는 raw HTML을 정화하지 않으며 sanitizer 의존성도 없습니다. 외부 signal이나 issue에서 유도된 prompt injection 또는 악성 모델 응답에 HTML event handler 등이 포함되면 토론을 보는 사용자의 `ao.moss.land` origin에서 실행될 수 있습니다.
 
@@ -64,7 +64,7 @@ raw HTML을 비활성화한 Markdown renderer를 쓰거나 DOMPurify 계열 sani
 
 ### 3. 파일 SQLite의 모든 세션이 동일 연결과 트랜잭션을 공유함
 
-위치: [Database._init_engine](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/db/connection.py:54)
+위치: [Database._init_engine](src/agentic_orchestrator/db/connection.py:54)
 
 파일 SQLite에도 `StaticPool`을 적용합니다. 최소 재현에서 두 SQLAlchemy session의 DBAPI connection이 같았고, 두 번째 session이 첫 번째 session의 미커밋 행을 읽은 뒤 rollback하자 첫 번째 session이 commit해도 행이 사라졌습니다.
 
@@ -80,10 +80,10 @@ FastAPI 동시 요청과 장시간 background generation이 겹치면 실제 데
 
 위치:
 
-- [score mutation](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/scheduler/tasks.py:79)
-- [scheduled use](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/scheduler/tasks.py:230)
-- [FeedItem conversion](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/scheduler/tasks.py:253)
-- [commit](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/scheduler/tasks.py:306)
+- [score mutation](src/agentic_orchestrator/scheduler/tasks.py:79)
+- [scheduled use](src/agentic_orchestrator/scheduler/tasks.py:230)
+- [FeedItem conversion](src/agentic_orchestrator/scheduler/tasks.py:253)
+- [commit](src/agentic_orchestrator/scheduler/tasks.py:306)
 
 `Signal.score` 자체에 decay를 곱한 뒤 session을 commit합니다. 반복 실행 시 `1.0 → 0.4 → 0.16 → 0.064`로 비가역적으로 누적됐습니다. 하지만 이후 `FeedItem`에는 score 필드가 없어 이 값이 trend analyzer에 전달되지 않습니다. 분석 가중 효과는 없고 API 정렬과 필터에 쓰는 저장 점수만 손상됩니다.
 
@@ -93,11 +93,11 @@ FastAPI 동시 요청과 장시간 background generation이 겹치면 실제 데
 
 위치:
 
-- [missing implementation passes tests](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/stages/quality.py:183)
-- [missing pytest passes](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/stages/quality.py:235)
-- [no code gets 7/10](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/stages/quality.py:266)
-- [no reviewer gets 7/10](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/stages/quality.py:299)
-- [overall gate](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/stages/quality.py:491)
+- [missing implementation passes tests](src/agentic_orchestrator/stages/quality.py:183)
+- [missing pytest passes](src/agentic_orchestrator/stages/quality.py:235)
+- [no code gets 7/10](src/agentic_orchestrator/stages/quality.py:266)
+- [no reviewer gets 7/10](src/agentic_orchestrator/stages/quality.py:299)
+- [overall gate](src/agentic_orchestrator/stages/quality.py:491)
 
 빈 프로젝트 재현 결과는 `tests=True`, review `7.0`, security issues `0`, overall `True 7.0`이었습니다. 기본 요구 점수도 7점이므로 구현이 없어도 승인됩니다. 최대 반복 횟수에 도달한 실패 결과도 DONE으로 보낼 수 있습니다.
 
@@ -105,7 +105,7 @@ FastAPI 동시 요청과 장시간 background generation이 겹치면 실제 데
 
 ### 6. 외부 입력에서 파생된 LLM 생성 테스트를 운영 호스트에서 직접 실행함
 
-위치: [QualityStage._run_tests](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/stages/quality.py:190)
+위치: [QualityStage._run_tests](src/agentic_orchestrator/stages/quality.py:190)
 
 생성된 `test_*.py`를 운영 process의 cwd, 환경 변수, 파일 권한, 네트워크를 그대로 상속한 `python -m pytest`로 실행합니다. pytest는 collection/import 단계부터 임의 Python 코드를 실행하므로, 외부 signal·plan·LLM 출력이 운영 DB, 저장소, secret, 네트워크에 접근하는 경로가 됩니다.
 
@@ -115,9 +115,9 @@ FastAPI 동시 요청과 장시간 background generation이 겹치면 실제 데
 
 위치:
 
-- [unconditional existing-project early return](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/project/scaffold.py:138)
-- [API retry decision](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/api/main.py:1503)
-- [job completion mapping](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/api/main.py:1461)
+- [unconditional existing-project early return](src/agentic_orchestrator/project/scaffold.py:138)
+- [API retry decision](src/agentic_orchestrator/api/main.py:1503)
+- [job completion mapping](src/agentic_orchestrator/api/main.py:1461)
 
 API는 `error` project를 재시도 대상으로 허용하지만 scaffold는 상태와 무관하게 기존 project를 찾으면 `success=True`로 조기 반환합니다. 재현에서는 `project_path=None`과 “already exists” error를 가진 성공 결과가 나왔고 background job은 `completed`가 됐습니다.
 
@@ -127,10 +127,10 @@ API는 `error` project를 재시도 대상으로 허용하지만 scaffold는 상
 
 위치:
 
-- [session configuration](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/db/connection.py:38)
-- [get_recent](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/signals/storage.py:30)
-- [backup_signals](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/signals/storage.py:117)
-- [export_for_analysis](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/signals/storage.py:202)
+- [session configuration](src/agentic_orchestrator/db/connection.py:38)
+- [get_recent](src/agentic_orchestrator/signals/storage.py:30)
+- [backup_signals](src/agentic_orchestrator/signals/storage.py:117)
+- [export_for_analysis](src/agentic_orchestrator/signals/storage.py:202)
 
 기본 `expire_on_commit=True` session에서 ORM row를 반환한 뒤 context manager가 commit·close합니다. 호출자가 속성이나 `to_dict()`를 읽으면 `DetachedInstanceError`가 발생했습니다. source/category/search 조회와 JSON/CSV backup/export가 모두 같은 구조입니다.
 
@@ -138,7 +138,7 @@ session 안에서 DTO/dict로 직렬화해 반환하거나 읽기 session 수명
 
 ### 9. GitHub check가 없거나 skipped여도 “CI green”으로 운영 배포함
 
-위치: [deploy CI gate](/Users/m/Downloads/github/agentic-orchestrator/scripts/deploy.sh:163)
+위치: [deploy CI gate](scripts/deploy.sh:163)
 
 `check_runs=[]`은 `none`으로 분류한 뒤 195행에서 배포를 계속합니다. `skipped`, `neutral`, `stale`도 실패 집합에 없으므로 success로 처리되며, 필수 job 이름과 GitHub Actions 발행자도 확인하지 않습니다.
 
@@ -155,10 +155,10 @@ DEPLOYED 3be5cb84 -> 5103254a
 
 위치:
 
-- [snapshot fail-open](/Users/m/Downloads/github/agentic-orchestrator/scripts/deploy.sh:269)
-- [deploy health check](/Users/m/Downloads/github/agentic-orchestrator/scripts/deploy.sh:341)
-- [unconditional API health](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/api/main.py:174)
-- [schema create_all](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/db/connection.py:75)
+- [snapshot fail-open](scripts/deploy.sh:269)
+- [deploy health check](scripts/deploy.sh:341)
+- [unconditional API health](src/agentic_orchestrator/api/main.py:174)
+- [schema create_all](src/agentic_orchestrator/db/connection.py:75)
 
 배포 전 DB snapshot 실패 후에도 진행하며 readiness는 DB를 보지 않고 항상 200을 반환하는 `/health`만 호출합니다. schema 관리는 `create_all()`뿐이라 기존 table의 column 변경·삭제·타입 변경을 migration하지 않습니다. 핵심 endpoint가 모두 500이어도 배포기가 `DEPLOYED`를 기록하고 rollback하지 않을 수 있습니다.
 
@@ -168,8 +168,8 @@ snapshot 실패를 fail-closed로 바꾸고 versioned migration과 schema revisi
 
 위치:
 
-- [Next.js lock entry](/Users/m/Downloads/github/agentic-orchestrator/website/package-lock.json:5216)
-- [sharp lock entry](/Users/m/Downloads/github/agentic-orchestrator/website/package-lock.json:5891)
+- [Next.js lock entry](website/package-lock.json:5216)
+- [sharp lock entry](website/package-lock.json:5891)
 
 배포가 사용하는 `npm ci`는 Next.js `16.2.9`와 sharp `0.34.5`를 고정 설치합니다. `npm audit --omit=dev`는 두 package를 high로 판정했습니다. Next.js에는 해당 범위의 middleware/proxy bypass, Server Action DoS/SSRF, cache confusion 등의 advisory가 포함되고 sharp는 libvips 계열 취약점의 영향을 받습니다.
 
@@ -179,12 +179,12 @@ Next.js를 최소 `16.2.11` 이상으로 올리고 sharp가 `0.35.0` 이상으�
 
 대표 위치:
 
-- [backend Dockerfile](/Users/m/Downloads/github/agentic-orchestrator/src/projects/plan-mossland-defi-real-time-market-insights/src/backend/Dockerfile:5)
-- [frontend Dockerfile](/Users/m/Downloads/github/agentic-orchestrator/src/projects/plan-mossland-defi-real-time-market-insights/src/frontend/Dockerfile:5)
-- [frontend next config](/Users/m/Downloads/github/agentic-orchestrator/src/projects/plan-mossland-defi-real-time-market-insights/src/frontend/next.config.js:1)
-- [backend entrypoint](/Users/m/Downloads/github/agentic-orchestrator/src/projects/plan-mossland-defi-real-time-market-insights/src/backend/src/index.ts:34)
-- [contract manifest](/Users/m/Downloads/github/agentic-orchestrator/src/projects/plan-mossland-defi-real-time-market-insights/contracts/package.json:5)
-- [contract deploy script](/Users/m/Downloads/github/agentic-orchestrator/src/projects/plan-mossland-defi-real-time-market-insights/contracts/scripts/deploy.ts:7)
+- [backend Dockerfile](src/projects/plan-mossland-defi-real-time-market-insights/src/backend/Dockerfile:5)
+- [frontend Dockerfile](src/projects/plan-mossland-defi-real-time-market-insights/src/frontend/Dockerfile:5)
+- [frontend next config](src/projects/plan-mossland-defi-real-time-market-insights/src/frontend/next.config.js:1)
+- [backend entrypoint](src/projects/plan-mossland-defi-real-time-market-insights/src/backend/src/index.ts:34)
+- [contract manifest](src/projects/plan-mossland-defi-real-time-market-insights/contracts/package.json:5)
+- [contract deploy script](src/projects/plan-mossland-defi-real-time-market-insights/contracts/scripts/deploy.ts:7)
 
 세 package 모두 lockfile이 없어 Docker의 첫 `npm ci`부터 실패합니다. 추가로:
 
@@ -199,7 +199,7 @@ Next.js를 최소 `16.2.11` 이상으로 올리고 sharp가 `0.35.0` 이상으�
 
 ### 13. 생성 프로젝트의 PostgreSQL superuser가 기본 암호로 모든 host interface에 노출됨
 
-위치: [docker-compose.yml](/Users/m/Downloads/github/agentic-orchestrator/src/projects/plan-mossland-defi-real-time-market-insights/docker-compose.yml:29)
+위치: [docker-compose.yml](src/projects/plan-mossland-defi-real-time-market-insights/docker-compose.yml:29)
 
 `postgres/postgres`를 고정하고 `5432:5432`로 publish합니다. host 5432에 접근 가능한 사용자는 DB 관리자 권한을 얻을 수 있습니다.
 
@@ -211,11 +211,11 @@ DB port publish를 제거하고 내부 network에서만 접근시키며, secret�
 
 위치:
 
-- [trend retention](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/db/repositories.py:228)
-- [debate retention](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/db/repositories.py:454)
-- [Idea foreign keys](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/db/models.py:223)
-- [Plan debate FK](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/db/models.py:367)
-- [scheduled transaction](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/scheduler/tasks.py:1520)
+- [trend retention](src/agentic_orchestrator/db/repositories.py:228)
+- [debate retention](src/agentic_orchestrator/db/repositories.py:454)
+- [Idea foreign keys](src/agentic_orchestrator/db/models.py:223)
+- [Plan debate FK](src/agentic_orchestrator/db/models.py:367)
+- [scheduled transaction](src/agentic_orchestrator/scheduler/tasks.py:1520)
 
 오래된 Trend는 `Idea.source_trend_id`가, DebateSession은 `Idea/Plan.debate_session_id`가 참조하지만 delete policy가 없습니다. SQLite FK 활성화 상태에서 두 경로 모두 `FOREIGN KEY constraint failed`가 재현됐습니다. 두 삭제가 한 transaction이어서 하나가 실패하면 모두 rollback됩니다.
 
@@ -225,9 +225,9 @@ DB port publish를 제거하고 내부 network에서만 접근시키며, secret�
 
 위치:
 
-- [in-place JSON mutation](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/api/main.py:1712)
-- [plain JSON column](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/db/models.py:387)
-- [background session lifecycle](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/api/main.py:1427)
+- [in-place JSON mutation](src/agentic_orchestrator/api/main.py:1712)
+- [plain JSON column](src/agentic_orchestrator/db/models.py:387)
+- [background session lifecycle](src/agentic_orchestrator/api/main.py:1427)
 
 기존 `extra_metadata` dict를 in-place 수정하지만 column은 `MutableDict`가 아닌 일반 JSON이어서 변경이 추적되지 않습니다. 재현에서는 status는 approved가 됐지만 `manually_approved`와 `approved_at`은 사라졌습니다. 새 dict를 재할당해야 합니다.
 
@@ -235,7 +235,7 @@ DB port publish를 제거하고 내부 network에서만 접근시키며, secret�
 
 ### 16. 음수 pagination limit으로 공개 API 상한을 우회할 수 있음
 
-위치: [API pagination declarations](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/api/main.py:350)
+위치: [API pagination declarations](src/agentic_orchestrator/api/main.py:350)
 
 signals, debates, trends, ideas, plans, activity, projects의 `limit`은 `le=`만 있고 `ge=1`이 없습니다. SQLite의 `LIMIT -1`은 제한 없음이므로 `GET /signals?limit=-1`이 200과 `limit=-1`을 반환하고 전체 matching row를 직렬화합니다.
 
@@ -245,9 +245,9 @@ signals, debates, trends, ideas, plans, activity, projects의 `limit`은 `le=`�
 
 위치:
 
-- [throttle](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/providers/ollama.py:199)
-- [health model lookup](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/providers/ollama.py:468)
-- [health response](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/providers/ollama.py:496)
+- [throttle](src/agentic_orchestrator/providers/ollama.py:199)
+- [health model lookup](src/agentic_orchestrator/providers/ollama.py:468)
+- [health response](src/agentic_orchestrator/providers/ollama.py:496)
 
 model 조회의 network/HTTP/JSON 오류를 빈 list로 바꾼 뒤 health는 이를 무조건 `healthy`로 포장합니다. 동시에 throttle은 여러 coroutine이 같은 대기 시간을 계산한 뒤 lock 밖에서 함께 sleep해 거의 동시에 반환하고, `max_concurrent_requests`는 사용되지 않습니다.
 
@@ -255,7 +255,7 @@ model 조회의 network/HTTP/JSON 오류를 빈 list로 바꾼 뒤 health는 이
 
 ### 18. `/adapters` 요청 하나가 11개 외부 서비스 probe를 순차 실행함
 
-위치: [adapters endpoint](/Users/m/Downloads/github/agentic-orchestrator/src/agentic_orchestrator/api/main.py:978)
+위치: [adapters endpoint](src/agentic_orchestrator/api/main.py:978)
 
 인증 없는 GET마다 adapter 11개를 만들고 외부 health check를 순차 await합니다. 각 probe는 최대 약 10초 timeout을 가질 수 있어 public endpoint가 제3자 API 호출 증폭기와 worker 점유 수단이 됩니다.
 
@@ -265,11 +265,11 @@ background job에서 주기적으로 수집한 cache만 반환하거나, 짧은 
 
 대표 위치:
 
-- [idea ID loss](/Users/m/Downloads/github/agentic-orchestrator/website/src/lib/api.ts:686)
-- [backlog detail call](/Users/m/Downloads/github/agentic-orchestrator/website/src/app/backlog/page.tsx:226)
-- [status mapping](/Users/m/Downloads/github/agentic-orchestrator/website/src/components/IdeaCard.tsx:14)
-- [live debate detail](/Users/m/Downloads/github/agentic-orchestrator/website/src/components/details/DebateDetail.tsx:45)
-- [project state machine](/Users/m/Downloads/github/agentic-orchestrator/website/src/components/details/PlanDetail.tsx:77)
+- [idea ID loss](website/src/lib/api.ts:686)
+- [backlog detail call](website/src/app/backlog/page.tsx:226)
+- [status mapping](website/src/components/IdeaCard.tsx:14)
+- [live debate detail](website/src/components/details/DebateDetail.tsx:45)
+- [project state machine](website/src/components/details/PlanDetail.tsx:77)
 
 `ApiIdea.id`를 버리고 `index+1`로 바꿔 UUID 기반 `/ideas/{id}`가 404를 냅니다. frontend status vocabulary는 backend enum과 달라 `in-dev`가 항상 비고 실제 상태가 Backlog로 오표시됩니다. Debate detail은 실제 `active` 대신 `in-progress`를 검사하고 refresh callback을 전달하지 않아 live modal이 멈춥니다. Project UI도 force regenerate에 `false`를 보내고, polling error/빈 job ID/`ready_with_warnings`를 종료 상태로 처리하지 못합니다.
 
@@ -279,8 +279,8 @@ ID와 display index를 분리하고 backend schema에서 공유 type/enum을 생
 
 위치:
 
-- [NpcCityStrip](/Users/m/Downloads/github/agentic-orchestrator/website/src/components/NpcCityStrip.tsx:30)
-- [root layout use](/Users/m/Downloads/github/agentic-orchestrator/website/src/app/layout.tsx:71)
+- [NpcCityStrip](website/src/components/NpcCityStrip.tsx:30)
+- [root layout use](website/src/app/layout.tsx:71)
 
 응답을 type cast만 하고 `headlines`가 array인지, 각 record와 `npc`가 존재하는지 검증하지 않습니다. `{headlines:{}}`나 부분 record에서 catch 밖의 `.length`, `.slice`, field dereference가 throw하며 이 component는 모든 route의 root layout에 있습니다.
 
@@ -290,10 +290,10 @@ runtime schema/`Array.isArray`와 record validation, guarded fallback 또는 err
 
 위치:
 
-- [mock fallback](/Users/m/Downloads/github/agentic-orchestrator/website/src/lib/api.ts:624)
-- [footer status](/Users/m/Downloads/github/agentic-orchestrator/website/src/components/Footer.tsx:195)
-- [random score breakdown](/Users/m/Downloads/github/agentic-orchestrator/website/src/components/visualization/ScoreBreakdown.tsx:30)
-- [random sparkline](/Users/m/Downloads/github/agentic-orchestrator/website/src/components/visualization/TrendSparkline.tsx:20)
+- [mock fallback](website/src/lib/api.ts:624)
+- [footer status](website/src/components/Footer.tsx:195)
+- [random score breakdown](website/src/components/visualization/ScoreBreakdown.tsx:30)
+- [random sparkline](website/src/components/visualization/TrendSparkline.tsx:20)
 
 API 장애뿐 아니라 정상 empty array도 mock stats/activity/trends/ideas/plans로 바꾸고 provenance를 표시하지 않습니다. footer는 항상 `System Online`이며 transparency 화면은 `Math.random()`과 임의 휴리스틱으로 점수·history·consensus를 생성합니다. reload마다 값이 달라지고 운영/분석 데이터처럼 보입니다.
 
@@ -301,7 +301,7 @@ API 장애뿐 아니라 정상 empty array도 mock stats/activity/trends/ideas/p
 
 ### 22. `ecosystem.config.js` 변경이 PM2에 적용되지 않은 채 동기화 완료됨
 
-위치: [deploy change classification](/Users/m/Downloads/github/agentic-orchestrator/scripts/deploy.sh:204)
+위치: [deploy change classification](scripts/deploy.sh:204)
 
 ecosystem 변경은 `ECOSYSTEM_CHANGED`만 세우고 backend/frontend 변경으로 보지 않습니다. HEAD를 target으로 옮긴 뒤 수동 명령을 한 번 안내하고 “docs only”로 종료합니다. 다음 poll은 이미 같은 HEAD이므로 command/env/cron 변경이 무기한 미적용될 수 있습니다.
 
@@ -309,7 +309,7 @@ ecosystem 변경은 `ECOSYSTEM_CHANGED`만 세우고 backend/frontend 변경으�
 
 ### 23. 데이터 migration을 재실행할 때 합성 signal이 계속 중복 삽입됨
 
-위치: [migrate_to_db.py](/Users/m/Downloads/github/agentic-orchestrator/scripts/migrate_to_db.py:171)
+위치: [migrate_to_db.py](scripts/migrate_to_db.py:171)
 
 `create_sample_signals()`는 stable key/upsert 없이 trend마다 합성 signal을 만들고 각 실행에서 commit합니다. 두 번 실행한 최소 재현에서 row 수가 1에서 2로 늘었습니다. 운영 migration에 demo 데이터 생성이 기본 포함된 점도 위험합니다.
 
@@ -319,11 +319,11 @@ demo 생성을 명시적 opt-in으로 분리하고 source trend ID 기반 unique
 
 위치:
 
-- [CI workflow](/Users/m/Downloads/github/agentic-orchestrator/.github/workflows/ci.yml:9)
-- [Python dependencies](/Users/m/Downloads/github/agentic-orchestrator/pyproject.toml:27)
-- [ignored uv.lock](/Users/m/Downloads/github/agentic-orchestrator/.gitignore:90)
-- [website manifest](/Users/m/Downloads/github/agentic-orchestrator/website/package.json:1)
-- [pnpm lock importer](/Users/m/Downloads/github/agentic-orchestrator/website/pnpm-lock.yaml:9)
+- [CI workflow](.github/workflows/ci.yml:9)
+- [Python dependencies](pyproject.toml:27)
+- [ignored uv.lock](.gitignore:90)
+- [website manifest](website/package.json:1)
+- [pnpm lock importer](website/pnpm-lock.yaml:9)
 
 CI는 Python lint/test만 실행하며 website, 생성 backend/frontend, Hardhat, Docker를 검증하지 않습니다. 그 결과 현재 main의 생성 package 세 개가 clean install부터 실패해도 green이 됩니다. root website에도 test script와 test/spec file이 없습니다.
 
@@ -337,9 +337,9 @@ Python은 대부분 `>=`만 지정하고 `uv.lock`이 ignore되어 remote commit
 
 위치:
 
-- [Dune service](/Users/m/Downloads/github/agentic-orchestrator/src/projects/plan-mossland-defi-real-time-market-insights/src/backend/src/services/dune_analytics.ts:62)
-- [Twitter service](/Users/m/Downloads/github/agentic-orchestrator/src/projects/plan-mossland-defi-real-time-market-insights/src/backend/src/services/twitter_x_api.ts:23)
-- [OnChainMonitor](/Users/m/Downloads/github/agentic-orchestrator/src/projects/plan-mossland-defi-real-time-market-insights/contracts/contracts/OnChainMonitor.sol:18)
+- [Dune service](src/projects/plan-mossland-defi-real-time-market-insights/src/backend/src/services/dune_analytics.ts:62)
+- [Twitter service](src/projects/plan-mossland-defi-real-time-market-insights/src/backend/src/services/twitter_x_api.ts:23)
+- [OnChainMonitor](src/projects/plan-mossland-defi-real-time-market-insights/contracts/contracts/OnChainMonitor.sol:18)
 
 Dune module은 import 시 hardcoded query를 실행하고, Twitter token을 Google OAuth client로 처리하며, `.env.example`의 변수 이름도 구현과 다릅니다. `OnChainMonitor`는 transaction proof 없이 owner가 전달한 임의 정수의 홀짝만으로 보안 alert를 만듭니다.
 
@@ -349,13 +349,13 @@ import-time side effect를 제거하고 typed config 및 실제 provider 인증�
 
 ### 26. 선언한 OG image asset이 존재하지 않음
 
-위치: [layout metadata](/Users/m/Downloads/github/agentic-orchestrator/website/src/app/layout.tsx:26)
+위치: [layout metadata](website/src/app/layout.tsx:26)
 
 `/og-image.png`를 선언하지만 `website/public`과 app metadata route에 해당 asset이 없습니다. social preview가 404가 됩니다. 1200×630 asset 또는 `opengraph-image` route를 추가해야 합니다.
 
 ### 27. GitHub Actions가 mutable tag를 사용하고 최소 permissions를 선언하지 않음
 
-위치: [CI actions](/Users/m/Downloads/github/agentic-orchestrator/.github/workflows/ci.yml:19)
+위치: [CI actions](.github/workflows/ci.yml:19)
 
 `actions/checkout@v4`, `actions/setup-python@v5`, `codecov/codecov-action@v3`를 commit SHA가 아닌 이동 가능한 tag로 실행하며 workflow-level `permissions`가 없습니다. 검증한 full SHA로 pin하고 `permissions: contents: read` 등 최소 권한을 선언해야 합니다.
 

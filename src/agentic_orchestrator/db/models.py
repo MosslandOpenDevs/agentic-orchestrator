@@ -24,6 +24,7 @@ from sqlalchemy import (
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
+from ..pathutil import public_project_path
 from ..timeutil import utcnow
 
 Base = declarative_base()
@@ -434,7 +435,10 @@ class Project(Base):
             "id": self.id,
             "plan_id": self.plan_id,
             "name": self.name,
-            "directory_path": self.directory_path,
+            # Repo-relative, not the absolute host path in the column: this
+            # dict is the body of the public /projects endpoints. See
+            # ``public_project_path``.
+            "directory_path": public_project_path(self.directory_path),
             "tech_stack": self.tech_stack or {},
             "status": self.status,
             "files_generated": self.files_generated,
