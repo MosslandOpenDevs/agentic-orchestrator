@@ -97,9 +97,10 @@ agentic-orchestrator/
 │   │   └── storage.py           # 신호 DB 저장
 │   └── trends/                  # 트렌드 분석
 │       ├── feeds.py             # RSS 페치 (config.yaml `feeds`에서 로드)
-│       ├── analyzer.py          # 트렌드 분석 (Ollama)
-│       ├── models.py            # FeedConfig / FeedItem
-│       └── storage.py           # 트렌드 마크다운 저장
+│   │   ├── analyzer.py          # 트렌드 분석 (Ollama)
+│   │   ├── models.py            # FeedConfig / FeedItem
+│   │   └── storage.py           # 트렌드 마크다운 저장
+│   └── pathutil.py              # 공개 응답용 경로 축약 (호스트 접두사 제거)
 ├── website/                     # Next.js 프론트엔드 (포트 3000)
 │   ├── src/app/                 # App Router 페이지
 │   │   ├── page.tsx             # 대시보드 (/)
@@ -114,6 +115,7 @@ agentic-orchestrator/
 │       ├── api.ts               # API 클라이언트
 │       ├── types.ts             # TypeScript 타입
 │       ├── i18n.tsx             # 다국어 지원 (EN/KO)
+│       ├── markdown-html.ts     # renderMarkdown(sanitize) / stripMarkdown(평문)
 │       └── metadata.ts          # 통합 title/공유(OG·Twitter) 규칙 단일 소스
 ├── data/                        # 데이터 디렉토리
 │   ├── orchestrator.db          # SQLite 데이터베이스
@@ -201,6 +203,24 @@ agentic-orchestrator/
 > 라우트는 영구히 도달 불가능해지고 `signal_id="timeline"`으로 바인딩된다.
 > `tests/test_api.py::TestLiteralRouteOrdering::test_no_literal_route_is_shadowed`가
 > 전체 라우트 테이블을 검사해 이 회귀를 차단한다.
+
+> **호스트 경로는 응답에 싣지 않는다.** `Project.directory_path`에는 스캐폴드가 쓴
+> 절대 경로(`/home/<계정>/agentic-orchestrator/projects/<name>`)가 들어가는데,
+> 이 API는 public 저장소 앞의 공개 사이트가 소비한다. `pathutil.public_project_path()`가
+> 저장소 기준 경로(`projects/<name>`)로 좁히고, `Project.to_dict()`와
+> `ProjectGenerationResult.to_dict()`(= `GET /jobs/{id}`가 그대로 반환) 두 곳이 이를
+> 거친다. **컬럼 값은 그대로 둔다** — 스캐폴드·빌드 게이트·git이 실제 경로를 쓴다.
+> 쓰기 시점이 아니라 직렬화 시점에 좁히므로 기존 행도 마이그레이션 없이 덮인다.
+> 새 필드가 경로·호스트명·계정을 담게 되면 같은 처리를 해야 한다
+> (`tests/test_project_path_privacy.py`). 실값은 `CLAUDE.local.md` 참조.
+>
+> **예외 메시지가 뒷문이다.** `str(e)`는 실패한 절대 경로를 그대로 달고 나온다
+> (`[Errno 2] ...: '/home/<계정>/.../main.py'`). 응답에 실리는 자리 —
+> `GET /jobs/{id}`(**인증 없음**), `/adapters`의 오류 필드 — 는 반드시
+> `pathutil.redact_paths()`를 거칠 것. 같은 이유로 httpx의 `HTTPStatusError`를
+> 문자열에 통째로 끼워 넣지 말 것: 메시지가 `for url '<base_url>/...'`로 끝나고
+> 그 `base_url`이 사무실 LAN Ollama 주소다 (`providers/ollama.py`는 상태 코드만
+> 남긴다).
 
 ## 데이터베이스 스키마
 
@@ -675,6 +695,22 @@ const getLocalizedText = (en: string | null, ko: string | null): string => {
 - 한글 원본 → 영어 번역 (main field) + 한글 유지 (`*_ko` field)
 - 영어 원본 → 영어 유지 (main field) + 한글 번역 (`*_ko` field)
 - LLM: `gemma3:4b` (로컬, 무료)
+
+### 마크다운 — 렌더링과 평문화는 서로 다른 함수다
+
+DB에 들어 있는 텍스트는 대부분 LLM이 쓴 **마크다운**이다. 화면에 꽂기 전에 둘 중
+하나를 반드시 거쳐야 한다 (`website/src/lib/markdown-html.ts`).
+
+| 상황 | 함수 | 비고 |
+|------|------|------|
+| 본문 — 요약·플랜·토론 메시지 | `<MarkdownContent content={...} />` | `renderMarkdown` + `dangerouslySetInnerHTML`. **`marked.parse()`를 직접 쓰지 말 것** (sanitize 안 함 — stored XSS 이력) |
+| 제목 — `<h3>` 등 문자열을 그대로 넣는 자리 | `stripMarkdown(...)` | 평문 반환, JSX 텍스트 노드용 |
+
+- 그냥 `{idea.summary}`로 넣으면 `- **핵심 분석**:` 이 별표째 보이고 줄바꿈이
+  뭉개진다.
+- 제목도 안전하지 않다: 번역기가 헤딩 마커를 남겨 `plan.title_ko`가
+  `## 계획: …`으로 들어오는 실제 사례가 있다 (`<h3>`가 `##`까지 그린다).
+  `getLocalizedText(...)` 결과를 그대로 쓰지 말고 `stripMarkdown()`으로 감쌀 것.
 
 ## 자주 발생하는 문제와 해결책
 

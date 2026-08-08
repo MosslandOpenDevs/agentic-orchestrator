@@ -28,6 +28,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from .. import __version__
+from ..pathutil import redact_paths
 from ..timeutil import utcnow
 
 logger = logging.getLogger(__name__)
@@ -1209,7 +1210,7 @@ async def get_adapters():
             except asyncio.TimeoutError:
                 health = {"status": "unknown", "error": "health probe timed out"}
             except Exception as probe_error:
-                health = {"status": "unknown", "error": str(probe_error)}
+                health = {"status": "unknown", "error": redact_paths(str(probe_error))}
 
             # Build detailed info
             info = {
@@ -1256,7 +1257,8 @@ async def get_adapters():
                 "category": adapter_info["category"],
                 "description": adapter_info["description"],
                 "enabled": False,
-                "error": str(e),
+                # A config-read failure here names the file by absolute path.
+                "error": redact_paths(str(e)),
             }
 
     # One lock, one cache: this endpoint needs no authentication, and it used
@@ -1633,7 +1635,9 @@ async def _generate_project_task(
             session.rollback()
         _project_jobs[job_id]["status"] = "failed"
         _project_jobs[job_id]["completed_at"] = utcnow().isoformat()
-        _project_jobs[job_id]["error"] = str(e)
+        # GET /jobs/{id} returns this dict verbatim and is unauthenticated;
+        # an OSError here carries the absolute path it failed on.
+        _project_jobs[job_id]["error"] = redact_paths(str(e))
         _save_jobs()
     finally:
         if session is not None:

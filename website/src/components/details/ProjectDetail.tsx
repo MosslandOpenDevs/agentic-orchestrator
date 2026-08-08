@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { ApiClient, type ApiProject, type ApiPlan, type ApiIdea, type ApiDebate } from '@/lib/api';
 import { formatLocalDateTime } from '@/lib/date';
+import { MarkdownContent, stripMarkdown } from '@/lib/markdown';
 import type { ModalData } from '../modals/ModalProvider';
 import { TerminalBadge } from '../TerminalWindow';
 import { useModal } from '../modals/useModal';
@@ -146,7 +147,9 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
       animate={{ opacity: 1 }}
       className="space-y-6"
     >
-      {/* Header with Status and GitHub Link */}
+      {/* Header with Status and Plan issue link. The only GitHub destination
+          a project has is its Plan's issue -- see the note below the timeline
+          about the code itself. */}
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2 mb-2">
@@ -173,7 +176,9 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.605-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12"/>
             </svg>
-            <span className="text-[#c0c0c0]">View on GitHub</span>
+            <span className="text-[#c0c0c0]">
+              {locale === 'ko' ? 'Plan 이슈' : 'Plan Issue'}
+            </span>
           </a>
         )}
       </div>
@@ -313,12 +318,13 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
             {locale === 'ko' ? '프로젝트 설명' : 'Project Description'}
           </div>
           <h4 className="text-[#c0c0c0] font-medium mb-2">
-            {locale === 'ko' && plan.title_ko ? plan.title_ko : plan.title}
+            {stripMarkdown(locale === 'ko' && plan.title_ko ? plan.title_ko : plan.title)}
           </h4>
           {idea?.summary && (
-            <p className="text-sm text-[#8b949e] leading-relaxed">
-              {locale === 'ko' && idea.summary_ko ? idea.summary_ko : idea.summary}
-            </p>
+            <MarkdownContent
+              className="text-sm text-[#8b949e] leading-relaxed"
+              content={locale === 'ko' && idea.summary_ko ? idea.summary_ko : idea.summary}
+            />
           )}
         </div>
       )}
@@ -413,17 +419,22 @@ ${project.tech_stack?.blockchain ? `├── 📜 contracts/             # ${pr
         </div>
       </div>
 
-      {/* Project Path */}
+      {/* Project Path -- repo-relative; the API strips the host prefix. */}
       {project.directory_path && (
         <div className="card-cli p-4">
           <div className="text-xs text-[#8b949e] uppercase mb-2">
-            {locale === 'ko' ? '프로젝트 경로' : 'Project Path'}
+            {locale === 'ko' ? '프로젝트 경로 (저장소 기준)' : 'Project Path (repo-relative)'}
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[#00ffff]">→</span>
             <code className="text-sm text-[#00ffff] font-mono break-all">
               {project.directory_path}
             </code>
+          </div>
+          <div className="text-xs text-[#8b949e] mt-2">
+            {locale === 'ko'
+              ? '생성된 코드는 앱 서버에만 있습니다 (projects/ 는 저장소에 커밋되지 않음).'
+              : 'Generated code lives on the app server only — projects/ is not committed to the repository.'}
           </div>
         </div>
       )}
@@ -470,44 +481,20 @@ ${project.tech_stack?.blockchain ? `├── 📜 contracts/             # ${pr
         </div>
       </div>
 
-      {/* Quick Links */}
-      <div className="grid grid-cols-2 gap-3">
-        {plan && (
-          <button
-            onClick={() => openModal('plan', { id: plan.id, title: plan.title })}
-            className="btn-cli py-3 text-xs text-center"
-          >
-            📋 {locale === 'ko' ? 'Plan 상세보기' : 'View Plan'}
-          </button>
-        )}
-        {plan?.github_issue_url && (
-          <a
-            href={plan.github_issue_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-cli py-3 text-xs text-center flex items-center justify-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.605-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12"/>
-            </svg>
-            {locale === 'ko' ? 'Issue' : 'Issue'}
-          </a>
-        )}
-      </div>
+      {/* Quick Links. The Plan issue lives in the header rather than here --
+          it used to appear in both places, linking to the same URL.
 
-      {/* View Code on GitHub */}
-      {project.directory_path && project.status === 'ready' && (
-        <a
-          href={`https://github.com/MosslandOpenDevs/agentic-orchestrator/tree/main/projects/${project.directory_path.split('/').pop()}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="btn-cli py-3 text-xs text-center flex items-center justify-center gap-2 w-full border-[#39ff14] hover:bg-[#39ff14]/10"
+          There is deliberately no "View Code on GitHub" button. It used to
+          link to .../tree/main/projects/<name>, which is a permanent 404:
+          `projects/` is in .gitignore and `git.auto_push` is off, so a
+          generated scaffold never reaches the public repo. */}
+      {plan && (
+        <button
+          onClick={() => openModal('plan', { id: plan.id, title: plan.title })}
+          className="btn-cli py-3 text-xs text-center w-full"
         >
-          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.605-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12"/>
-          </svg>
-          <span className="text-[#39ff14]">{locale === 'ko' ? '코드 보기 (GitHub)' : 'View Code on GitHub'}</span>
-        </a>
+          📋 {locale === 'ko' ? 'Plan 상세보기' : 'View Plan'}
+        </button>
       )}
 
       {/* Generating Status */}

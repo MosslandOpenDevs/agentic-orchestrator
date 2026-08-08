@@ -469,6 +469,12 @@ class OllamaProvider:
                             except json.JSONDecodeError:
                                 continue
 
+        except httpx.HTTPStatusError as e:
+            # Status code only, like generate(): httpx's HTTPStatusError
+            # message ends in "for url '<base_url>/api/generate'", and
+            # base_url is the office LAN Ollama host. That string travels
+            # wherever the ProviderError does.
+            raise ProviderError(f"Ollama stream error: HTTP {e.response.status_code}") from e
         except Exception as e:
             raise ProviderError(f"Ollama stream error: {e}") from e
 
@@ -535,6 +541,9 @@ class OllamaProvider:
                     done=data.get("done", True),
                 )
 
+        except httpx.HTTPStatusError as e:
+            # See generate_stream: the default message carries base_url.
+            raise ProviderError(f"Ollama chat error: HTTP {e.response.status_code}") from e
         except Exception as e:
             raise ProviderError(f"Ollama chat error: {e}") from e
 

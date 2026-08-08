@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..db.models import COMPLETED_PROJECT_STATUSES
+from ..pathutil import public_project_path, redact_paths
 from ..timeutil import utcnow
 from .build_gate import run_build_gate
 from .build_gate import summarize as summarize_build_gate
@@ -57,11 +58,17 @@ class ProjectGenerationResult:
         return {
             "success": self.success,
             "project_id": self.project_id,
-            "project_path": self.project_path,
+            # This dict is stored as a job result and served verbatim by the
+            # public GET /jobs/{id}, so the host prefix is dropped here for
+            # the same reason as in Project.to_dict.
+            "project_path": public_project_path(self.project_path),
             "plan_id": self.plan_id,
             "tech_stack": self.tech_stack,
             "files_generated": self.files_generated,
-            "error": self.error,
+            # `error` is usually `str(e)` from somewhere in generation, and
+            # filesystem/subprocess failures stringify with the absolute path
+            # attached -- the same host prefix `project_path` just dropped.
+            "error": redact_paths(self.error),
             "duration_seconds": self.duration_seconds,
         }
 
