@@ -1,3 +1,4 @@
+
 export type SystemHealth = 'operational' | 'degraded' | 'unknown';
 
 export interface SystemStats {
@@ -222,5 +223,27 @@ export interface ProjectJobStatus {
     files_generated?: number;
     error?: string;
   };
-  error?: string;
+}
+
+// EVM / DAO / NFT Fleet idea category types (issue #3161)
+// Represents structured metadata for EVM-driven guild DAO ideas that involve
+// NFT fleet leasing, dynamic rule voting, and on-chain reward economy concepts.
+export type EvmIdeaCategory =
+  | 'nft_fleet_leasing'
+  | 'dao_governance'
+  | 'on_chain_rewards'
+  | 'dynamic_rule_voting'
+  | 'guild_economy';
+
+export interface EvmGuildIdeaMeta {
+  /** EVM chain identifier (e.g. 1 for mainnet, 137 for Polygon). */
+  chainId?: number;
+  /** High-level category within the EVM/DAO/NFT space. */
+  evmCategory?: EvmIdeaCategory;
+  /** Whether the idea involves NFT-based asset leasing mechanics. */
+  hasNftLeasing?: boolean;
+  /** Whether the idea involves on-chain DAO voting for rule changes. */
+  hasRuleVoting?: boolean;
+  /** Whether the idea proposes an on-chain reward/token economy. */
+  hasRewardEconomy?: boolean;
 }
