@@ -608,9 +608,9 @@ feeds:
   # Finance / Macro
   finance:
     - name: "CNBC Business News"
-      url: "https://www.cnbc.com/id/10001147/device/rss/rss.html"
+      url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10001147"
     - name: "CNBC Finance"
-      url: "https://www.cnbc.com/id/10000664/device/rss/rss.html"
+      url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"
     - name: "Bloomberg Tech"
       url: "https://feeds.bloomberg.com/technology/news.rss"
 
