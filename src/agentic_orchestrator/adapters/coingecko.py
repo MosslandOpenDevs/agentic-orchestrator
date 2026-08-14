@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData, recurring_key
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +166,7 @@ class CoingeckoAdapter(BaseAdapter):
                     signal = SignalData(
                         source=self.name,
                         category="crypto",
+                        external_id=recurring_key("trending", coin.get("id") or symbol or name),
                         title=f"Trending: {name} ({symbol}) is trending on Coingecko",
                         summary=f"Market cap rank: #{market_cap_rank}. Price: {price_btc:.8f} BTC. This coin is seeing increased search interest.",
                         url=f"https://www.coingecko.com/en/coins/{coin.get('id', '')}",
@@ -194,6 +195,11 @@ class CoingeckoAdapter(BaseAdapter):
                         signal = SignalData(
                             source=self.name,
                             category="nft",
+                            # The percentage moves every poll; the event is
+                            # "this floor moved this way today".
+                            external_id=recurring_key(
+                                "nft_floor", nft.get("id") or name, direction
+                            ),
                             title=f"NFT Trending: {name} floor price {direction} {abs(floor_change_24h):.1f}%",
                             summary=f"Floor price: {floor_price:.4f} ETH. 24h change: {floor_change_24h:+.1f}%",
                             url=f"https://www.coingecko.com/en/nft/{nft.get('id', '')}",
@@ -260,6 +266,7 @@ class CoingeckoAdapter(BaseAdapter):
                     signal = SignalData(
                         source=self.name,
                         category="crypto",
+                        external_id=recurring_key("mover", coin.get("id") or coin["symbol"], "up"),
                         title=f"Market Mover: {coin['name']} ({coin['symbol'].upper()}) +{change:.1f}% in 24h",
                         summary=f"Price: ${coin.get('current_price', 0):,.4f}. Market cap: ${coin.get('market_cap', 0)/1e9:.2f}B. Rank: #{coin.get('market_cap_rank', 'N/A')}",
                         url=f"https://www.coingecko.com/en/coins/{coin.get('id', '')}",
@@ -282,6 +289,9 @@ class CoingeckoAdapter(BaseAdapter):
                     signal = SignalData(
                         source=self.name,
                         category="crypto",
+                        external_id=recurring_key(
+                            "mover", coin.get("id") or coin["symbol"], "down"
+                        ),
                         title=f"Market Mover: {coin['name']} ({coin['symbol'].upper()}) {change:.1f}% in 24h",
                         summary=f"Price: ${coin.get('current_price', 0):,.4f}. Market cap: ${coin.get('market_cap', 0)/1e9:.2f}B. Rank: #{coin.get('market_cap_rank', 'N/A')}",
                         url=f"https://www.coingecko.com/en/coins/{coin.get('id', '')}",
@@ -313,6 +323,9 @@ class CoingeckoAdapter(BaseAdapter):
                             signal = SignalData(
                                 source=self.name,
                                 category="crypto",
+                                external_id=recurring_key(
+                                    "volume_spike", coin.get("id") or coin["symbol"]
+                                ),
                                 title=f"Volume Spike: {coin['name']} ({coin['symbol'].upper()}) 24h volume is {volume_to_mcap:.0f}% of market cap",
                                 summary=f"24h volume: ${volume/1e6:.1f}M. Market cap: ${market_cap/1e6:.1f}M. This indicates unusually high trading activity.",
                                 url=f"https://www.coingecko.com/en/coins/{coin.get('id', '')}",
@@ -359,6 +372,7 @@ class CoingeckoAdapter(BaseAdapter):
                     signal = SignalData(
                         source=self.name,
                         category="crypto",
+                        external_id=recurring_key("global_market", direction),
                         title=f"Global Market: Total crypto market cap {direction} {abs(market_cap_change_24h):.1f}% to ${total_market_cap/1e12:.2f}T",
                         summary=f"24h volume: ${total_volume/1e9:.0f}B. BTC dominance: {btc_dominance:.1f}%. ETH dominance: {eth_dominance:.1f}%.",
                         url="https://www.coingecko.com/en/global-charts",
@@ -381,6 +395,7 @@ class CoingeckoAdapter(BaseAdapter):
                     signal = SignalData(
                         source=self.name,
                         category="crypto",
+                        external_id=recurring_key("btc_dominance", status),
                         title=f"BTC Dominance Alert: Bitcoin dominance is {status} at {btc_dominance:.1f}%",
                         summary=f"ETH dominance: {eth_dominance:.1f}%. Total market cap: ${total_market_cap/1e12:.2f}T",
                         url="https://www.coingecko.com/en/global-charts",
@@ -432,6 +447,9 @@ class CoingeckoAdapter(BaseAdapter):
                         signal = SignalData(
                             source=self.name,
                             category="crypto",
+                            external_id=recurring_key(
+                                "tracked", coin.get("id") or coin["symbol"], direction
+                            ),
                             title=f"Tracked Coin: {coin['name']} ({coin['symbol'].upper()}) is {direction} {abs(change_24h):.1f}% (24h)",
                             summary=f"Price: ${coin.get('current_price', 0):,.4f}. 7d: {change_7d:+.1f}%. 30d: {change_30d:+.1f}%. Volume: ${coin.get('total_volume', 0)/1e6:.1f}M",
                             url=f"https://www.coingecko.com/en/coins/{coin.get('id', '')}",

@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from ..timeutil import utcnow
-from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData, recurring_key
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +151,9 @@ class GitHubEventsAdapter(BaseAdapter):
                     signal = SignalData(
                         source=self.name,
                         category="dev",
+                        # The star count in the title moves every poll; identity
+                        # must not follow it or each tick re-inserts the repo.
+                        external_id=recurring_key("trending", repo["full_name"]),
                         title=f"Trending: {repo['full_name']} ({repo['stargazers_count']} stars)",
                         summary=repo.get("description", "")[:500],
                         url=repo["html_url"],
@@ -217,6 +220,9 @@ class GitHubEventsAdapter(BaseAdapter):
                     signal = SignalData(
                         source=self.name,
                         category=category,
+                        # A release is a one-time event: repo+tag IS its
+                        # identity, no day bucket.
+                        external_id=f"release:{repo}:{release['tag_name']}",
                         title=f"Release: {repo} {release['tag_name']}",
                         summary=release.get("body", "")[:500] if release.get("body") else None,
                         url=release["html_url"],
@@ -278,6 +284,7 @@ class GitHubEventsAdapter(BaseAdapter):
                             signal = SignalData(
                                 source=self.name,
                                 category=category,
+                                external_id=recurring_key("topic", repo["full_name"], topic),
                                 title=f"Active: {repo['full_name']} (topic: {topic})",
                                 summary=repo.get("description", "")[:500],
                                 url=repo["html_url"],

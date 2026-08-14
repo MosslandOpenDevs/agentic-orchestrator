@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
+from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData, recurring_key
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +179,7 @@ class OnChainAdapter(BaseAdapter):
                         signal = SignalData(
                             source=self.name,
                             category="crypto",
+                            external_id=recurring_key("defi_tvl", name, direction),
                             title=f"DeFi TVL: {protocol.get('name')} {direction} {abs(change_1d or 0):.1f}%",
                             summary=f"TVL: ${tvl/1e9:.2f}B, 24h change: {change_1d:.1f}%, 7d change: {change_7d:.1f}%",
                             url=f"https://defillama.com/protocol/{name}",
@@ -221,6 +222,9 @@ class OnChainAdapter(BaseAdapter):
                     signal = SignalData(
                         source=self.name,
                         category="crypto",
+                        # A daily heartbeat, not an event: the TVL figure in the
+                        # title moves every poll (60 rows/wk for Ethereum alone).
+                        external_id=recurring_key("chain_stats", name),
                         title=f"Chain Stats: {chain.get('name')} TVL ${tvl/1e9:.2f}B",
                         summary=f"Total Value Locked on {chain.get('name')}",
                         url=f"https://defillama.com/chain/{chain.get('name')}",
@@ -313,6 +317,7 @@ class OnChainAdapter(BaseAdapter):
                         signal = SignalData(
                             source=self.name,
                             category="crypto",
+                            external_id=recurring_key("dex_volume", slug, direction),
                             title=f"DEX Volume: {protocol.get('name')} {direction} {abs(change_1d or 0):.1f}% (${volume_24h/1e6:.1f}M)",
                             summary=f"24h volume: ${volume_24h/1e6:.1f}M, 7d volume: ${volume_7d/1e6:.1f}M, 24h change: {change_1d:.1f}%",
                             url=f"https://defillama.com/dex/{slug}",
@@ -371,6 +376,13 @@ class OnChainAdapter(BaseAdapter):
                         signal = SignalData(
                             source=self.name,
                             category="crypto",
+                            # A transaction is a one-time event; its hash is its
+                            # identity (no day bucket).
+                            external_id=(
+                                f"whale:{tx.get('blockchain')}:{tx['hash']}"
+                                if tx.get("hash")
+                                else None
+                            ),
                             title=f"🐋 Whale Alert: {tx.get('amount', 0):,.0f} {symbol} (${amount_usd/1e6:.1f}M) - {flow_type}",
                             summary=f"From: {from_owner} → To: {to_owner}. Hash: {tx.get('hash', '')[:16]}...",
                             url=f"https://whale-alert.io/transaction/{tx.get('blockchain')}/{tx.get('hash')}",
@@ -470,6 +482,7 @@ class OnChainAdapter(BaseAdapter):
                         signal = SignalData(
                             source=self.name,
                             category="crypto",
+                            external_id=recurring_key("stablecoin_depeg", symbol, direction),
                             title=f"⚠️ Stablecoin Alert: {symbol} trading {abs(depeg_pct):.2f}% {direction} peg (${price:.4f})",
                             summary=f"{name} ({symbol}) circulating: ${total_circulating/1e9:.2f}B. Current price: ${price:.4f}",
                             url=f"https://defillama.com/stablecoin/{stable.get('gecko_id', '')}",
@@ -499,6 +512,7 @@ class OnChainAdapter(BaseAdapter):
                             signal = SignalData(
                                 source=self.name,
                                 category="crypto",
+                                external_id=recurring_key("stablecoin_liquidity", chain_name),
                                 title=f"Stablecoin Liquidity: ${total_usd/1e9:.1f}B on {chain_name}",
                                 summary=f"Total stablecoin supply on {chain_name} chain",
                                 url=f"https://defillama.com/stablecoins/{chain_name}",
@@ -548,6 +562,7 @@ class OnChainAdapter(BaseAdapter):
                         signal = SignalData(
                             source=self.name,
                             category="crypto",
+                            external_id=recurring_key("gas", status),
                             title=f"Gas Alert: Ethereum gas is {status} ({fast_gas} gwei)",
                             summary=f"Safe: {safe_gas} gwei, Standard: {propose_gas} gwei, Fast: {fast_gas} gwei",
                             url="https://etherscan.io/gastracker",
