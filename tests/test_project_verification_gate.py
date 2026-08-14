@@ -151,6 +151,18 @@ class TestSummaryHelpers:
         )
         assert "Unresolved: a.py, b.sol" in line
 
+    def test_summarize_includes_build_gate_reason(self):
+        line = _summarize_verification(
+            {
+                "build_gate": {
+                    "status": "skipped",
+                    "reason": "build gate disabled in config",
+                }
+            }
+        )
+        assert "Build gate: skipped" in line
+        assert "disabled in config" in line
+
     async def test_final_status_maps_to_warnings(self, tmp_path):
         """An unresolved failure should drive the ready_with_warnings branch."""
         sc = _scaffold(tmp_path)

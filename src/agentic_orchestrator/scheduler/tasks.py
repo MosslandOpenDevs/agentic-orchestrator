@@ -1332,7 +1332,9 @@ def _load_project_config() -> dict:
     config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
     default_config = {
         "auto_generate": {
-            "enabled": True,
+            # Config parse/read failures must not restart public-feed-driven
+            # project generation with fallback defaults.
+            "enabled": False,
             "min_score": 8.0,
             "max_concurrent": 1,
         },
@@ -1354,9 +1356,17 @@ def _load_project_config() -> dict:
                 if key not in project_config:
                     project_config[key] = value
                 elif isinstance(value, dict):
+                    if not isinstance(project_config[key], dict):
+                        project_config[key] = dict(value)
+                        continue
                     for sub_key, sub_value in value.items():
                         if sub_key not in project_config[key]:
                             project_config[key][sub_key] = sub_value
+            # Only a real YAML/Python boolean may activate public-feed-driven
+            # generation. Strings such as "true"/"false" are both rejected.
+            project_config["auto_generate"]["enabled"] = (
+                project_config["auto_generate"].get("enabled") is True
+            )
             return project_config
     except Exception as e:
         logger.warning(f"Failed to load project config, using defaults: {e}")
@@ -1388,7 +1398,7 @@ async def _auto_generate_project(
     project_config = _load_project_config()
     auto_config = project_config.get("auto_generate", {})
 
-    if not auto_config.get("enabled", True):
+    if not isinstance(auto_config, dict) or auto_config.get("enabled") is not True:
         logger.info("Auto project generation is disabled in config")
         return False
 

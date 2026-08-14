@@ -171,27 +171,33 @@ project:
     architecture: "gemma3:4b"
     fallback: "gemma3:4b"
 
-  # Build gate (v0.6.23). `ready` used to mean "no file FAILED verification"
-  # — but CodeVerifier returns SKIPPED, not FAILED, when a language's
-  # toolchain is missing, and this host has node without tsc, esbuild or
-  # solc. Every TypeScript and Solidity file came back SKIPPED, so every
-  # generated project was marked `ready` having had nothing checked.
+  # SECURITY KILL SWITCH: generated build/test code must never run on the
+  # orchestrator host. Keep this false until a rootless sandbox worker has the
+  # digest-pinned image below pre-pulled plus a trusted immutable offline npm
+  # cache/lockfile. There is no host npm fallback. Missing runtime/image/cache
+  # or any unenforced isolation control produces `ready_with_warnings`.
   #
-  # Now `ready` requires npm install + build + typecheck + test to have
-  # actually run and passed. Anything else — a failure, a missing toolchain,
-  # this gate switched off — is `ready_with_warnings`. Files are still
-  # delivered and the [Plan] issue still closes either way; the difference is
-  # whether we claim it compiles.
-  #
-  # install runs with --ignore-scripts on purpose: a generated package.json
-  # can name any dependency, and install hooks would execute arbitrary
-  # registry code on a box that hosts 37 other projects.
+  # When enabled, build_gate.py enforces network=none, an empty allowlisted
+  # process environment, numeric non-root UID, no capabilities,
+  # no-new-privileges, read-only root/input, bounded tmpfs, and CPU/memory/PID/
+  # file/time limits. npm ci is offline and lifecycle scripts stay off.
   build_gate:
-    enabled: true
+    enabled: false
     install: true
     install_timeout: 300
     step_timeout: 300
+    setup_timeout: 60
+    total_timeout: 1800
     max_output_chars: 4000
+    container_runtime: "docker"
+    container_image: "node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32"
+    memory: "2g"
+    cpus: 1.0
+    pids_limit: 128
+    workspace_size: "2g"
+    tmp_size: "256m"
+    max_source_files: 5000
+    max_source_bytes: 67108864
 
   # Output directory
   output_dir: "projects"

@@ -273,7 +273,7 @@ RSS 피드는 `config.yaml`의 최상위 `feeds:` 섹션에 정의되며, 시그
 | `MOSS_LOCAL_LLM_ONLY` | LLM 라우터를 Ollama 전용으로 고정. 기본값 `true`, `false`로 설정해야 위 클라우드 키 사용 | 아니오 (기본 `true`) |
 | `MOSS_API_KEY` | 변경 API 라우트에 요구되는 공유 비밀 (`X-API-Key`). 미설정이면 해당 라우트는 503 | 쓰기용 |
 | `MOSS_ENABLE_BROWSER_PROJECT_GENERATION` | 공개 대시보드의 생성 버튼이 `MOSS_API_KEY`를 쓰도록 허용. 기본 꺼짐 — 사이트에 사용자 계정이 없으므로 켜면 아무 방문자나 생성을 돌릴 수 있음 | 아니오 (기본 꺼짐) |
-| `MOSS_RUN_GENERATED_TESTS` | QA 단계가 모델이 쓴 테스트를 이 프로세스에서 실행하도록 허용. 기본 꺼짐 — 일회용 컨테이너에서 돌릴 것 | 아니오 (기본 꺼짐) |
+| `MOSS_RUN_GENERATED_TESTS` | 레거시 스위치이며 무시됨. 모델이 쓴 테스트는 더 이상 오케스트레이터 프로세스에서 실행되지 않음 | 효과 없음 |
 
 ## 프로젝트 구조
 

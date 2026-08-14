@@ -279,7 +279,7 @@ Four more crypto feeds (Chainlink, Polygon, Paradigm, a16z Crypto) are kept with
 | `MOSS_LOCAL_LLM_ONLY` | Pin the LLM router to Ollama. Defaults to `true`; set `false` to enable the cloud keys above | No (default `true`) |
 | `MOSS_API_KEY` | Shared secret required on the mutating API routes (`X-API-Key`). Unset means those routes answer 503 | For writes |
 | `MOSS_ENABLE_BROWSER_PROJECT_GENERATION` | Let the public dashboard's generate button spend `MOSS_API_KEY`. Off by default: the site has no user accounts, so on means any visitor can start a generation | No (default off) |
-| `MOSS_RUN_GENERATED_TESTS` | Allow the QA stage to execute model-written tests in this process. Off by default — run them in a disposable container instead | No (default off) |
+| `MOSS_RUN_GENERATED_TESTS` | Legacy switch; ignored. Model-written tests can no longer run in the orchestrator process | No effect |
 
 ## Project Structure
 

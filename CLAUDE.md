@@ -1051,9 +1051,10 @@ Plan (DB) → Deep LLM 파싱 → 엔티티/서비스 추출 → LLM 코드 생�
 - **정책: 차단하지 않음.** 수리 후에도 실패가 남으면 프로젝트를 `ready_with_warnings`로
   표시하고 전달은 계속합니다. 파일별 요약은 `Project.extra_metadata["verification"]`,
   한 줄 요약은 `generation_log`·`.moss-project.json`에 기록되고 Projects UI에 노출됩니다.
-- **CodeVerifier** (graceful degradation): Python은 내장 `compile()`(항상 사용), Solidity는
-  정적 검사(`pragma` 누락, 잘못된 `.length()`, 중괄호 불균형) + import 없는 컨트랙트 한정
-  선택적 `solc`, TS/JS는 선택적 `esbuild`. 툴체인이 없으면 거짓 실패 대신 `SKIPPED`.
+- **CodeVerifier** (graceful degradation): Python은 실행하지 않는 내장 `compile()` 구문
+  검사, Solidity는 정적 검사(`pragma` 누락, 잘못된 `.length()`, 중괄호 불균형)를 사용한다.
+  스캐폴드 경로에서는 생성 bytes를 host native parser에 넘기지 않도록 `solc`/`esbuild`를
+  강제로 끈다. 실제 JS/Solidity compilation은 sandbox build gate에서만 수행한다.
 - **CodeRepairer** (결정적): SPDX/`pragma` 보강, `.length()`→`.length`, `now`→`block.timestamp`,
   OpenZeppelin v5→**v4 핀 고정** 정규화(`utils/`→`security/` import, v5 `Ownable(...)` 베이스 호출
   제거), OZ를 import하면 `contracts/package.json`에 `@openzeppelin/contracts@^4.9.6` 주입.
@@ -1061,6 +1062,31 @@ Plan (DB) → Deep LLM 파싱 → 엔티티/서비스 추출 → LLM 코드 생�
 
 > 참고: LLM 경로의 컨트랙트는 이제 `contracts/package.json`·`hardhat.config.ts`도 함께
 > 내보내므로 `hardhat compile`이 OZ import를 해석할 수 있습니다.
+
+### 생성 코드 실행 샌드박스
+
+모델이 만든 `package.json` 스크립트와 테스트는 **호스트에서 실행하지 않는다**.
+`project.build_gate.enabled`의 코드·설정 기본값은 모두 `false`이며, 설정 파일을 읽지
+못해도 꺼진 상태로 실패한다. `MOSS_RUN_GENERATED_TESTS` 레거시 opt-in도 무시된다.
+
+게이트를 명시적으로 켜면 `project/build_gate.py`가 digest로 고정해 미리 받은 Docker
+이미지만 사용한다(`--pull=never`). 같은 host/VM의 local Unix socket을 쓰는 rootless Docker,
+cgroup v2/systemd, built-in seccomp를 preflight에서 요구한다. SSH/TCP Docker context는
+host-local lease와 bind snapshot을 깨므로 거부한다. 컨테이너는 `network=none`, 빈 allowlist 환경,
+서로 다른 숫자 비루트 supervisor/실행 UID, capability 전체 제거, `no-new-privileges`,
+read-only root와 이번 생성에서 실제 쓴 파일만 담은 비밀 제거 read-only 입력, 크기 제한
+tmpfs, CPU·메모리·swap·PID·파일·전체 시간을 강제한다. inspect뿐 아니라 `/proc`와 cgroup
+실효값이 하나라도 다르면 입력 복사 전에 중단한다. 원본 프로젝트는 rw mount하지 않고,
+TTL·timeout·오류에도 자동 제거와 랜덤 exact name `docker rm -f`를 적용한다. start 전이나
+exec 도중 프로세스가 죽은 orphan도 다음 gate가 전역 lease를 얻은 뒤 label+expiry를
+재검증하고 새 컨테이너를 만들기 전에 정리한다.
+
+네트워크가 없으므로 설치는 lockfile + 이미지에 미리 담긴 신뢰 가능한 npm/Hardhat cache를
+사용하는 `npm ci --offline --ignore-scripts`만 허용한다. 현재 생성물에는 lockfile이 없고
+기본 이미지에는 cache가 없으므로 gate는 계속 꺼 둔다. 준비되지 않은 runtime·이미지·
+lock/cache는 `ready_with_warnings`이며 host/online fallback은 없다.
+현재 runner가 지원하지 않는 Python 등 다른 실행 언어가 한 파일이라도 있으면 전체 gate가
+fail-closed하며, 별도 언어 sandbox가 추가되기 전에는 공개 자동 push도 하지 않는다.
 
 ### 트리거 전략
 

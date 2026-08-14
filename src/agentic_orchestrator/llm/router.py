@@ -323,7 +323,10 @@ class HybridLLMRouter:
 
         if self.claude is None and os.getenv("ANTHROPIC_API_KEY"):
             try:
-                self.claude = ClaudeProvider()
+                # The Claude Code CLI is an agentic host process. Public-feed
+                # prompts must use the API surface, which cannot invoke local
+                # filesystem/shell/MCP tools.
+                self.claude = ClaudeProvider(prefer_cli=False)
             except Exception:
                 pass
 

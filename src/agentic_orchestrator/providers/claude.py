@@ -188,7 +188,7 @@ class ClaudeProvider(BaseProvider):
         model: str | None = None,
         fallback_model: str | None = None,
         api_key: str | None = None,
-        prefer_cli: bool = True,
+        prefer_cli: bool = False,
         working_dir: Path | None = None,
         retry_config: RetryConfig | None = None,
         dry_run: bool = False,
@@ -200,7 +200,8 @@ class ClaudeProvider(BaseProvider):
             model: Model to use (opus, sonnet).
             fallback_model: Fallback model.
             api_key: Anthropic API key for API mode.
-            prefer_cli: Prefer CLI mode if available.
+            prefer_cli: Explicitly opt into CLI mode. Disabled by default because
+                headless agent tools must not receive public-feed-derived prompts.
             working_dir: Working directory for CLI commands.
             retry_config: Retry configuration.
             dry_run: If True, don't make actual API calls.
@@ -570,7 +571,7 @@ class ClaudeProvider(BaseProvider):
 def create_claude_provider(
     model: str | None = None,
     fallback_model: str | None = None,
-    prefer_cli: bool = True,
+    prefer_cli: bool = False,
     dry_run: bool = False,
 ) -> ClaudeProvider:
     """
@@ -579,7 +580,8 @@ def create_claude_provider(
     Args:
         model: Override model.
         fallback_model: Override fallback model.
-        prefer_cli: Prefer CLI mode if available.
+        prefer_cli: Explicitly opt into CLI mode. Disabled by default for
+            untrusted prompt paths.
         dry_run: Enable dry run mode.
 
     Returns:
