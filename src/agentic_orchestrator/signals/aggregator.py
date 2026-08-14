@@ -91,23 +91,19 @@ class SignalAggregator:
             List of collected signals
         """
         all_signals: List[SignalData] = []
-        results: List[AdapterResult] = []
-
         # Fetch from all adapters in parallel
-        tasks = []
-        for adapter in self.adapters:
-            if adapter.is_enabled():
-                tasks.append(adapter.fetch_with_retry())
+        enabled_adapters = [adapter for adapter in self.adapters if adapter.is_enabled()]
+        tasks = [adapter.fetch_with_retry() for adapter in enabled_adapters]
 
         adapter_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for result in adapter_results:
+        for adapter, result in zip(enabled_adapters, adapter_results, strict=True):
             if isinstance(result, AdapterResult):
-                results.append(result)
+                self._log_result(result)
                 if result.success:
                     all_signals.extend(result.signals)
             elif isinstance(result, Exception):
-                logger.error(f"Adapter error: {result}")
+                logger.error(f"Adapter {adapter.name} raised unexpectedly: {result}")
 
         # Deduplicate
         if deduplicate:
@@ -138,6 +134,7 @@ class SignalAggregator:
         for adapter in self.adapters:
             if adapter.name == adapter_name and adapter.is_enabled():
                 result = await adapter.fetch_with_retry()
+                self._log_result(result)
 
                 if result.success:
                     signals = self.scorer.score_batch(result.signals)
@@ -148,6 +145,17 @@ class SignalAggregator:
                     return signals
 
         return []
+
+    @staticmethod
+    def _log_result(result: AdapterResult) -> None:
+        """Surface partial and failed adapter outcomes once at the boundary."""
+        if result.error:
+            state = "partially failed" if result.success else "failed"
+            log = logger.warning if result.success else logger.error
+            log(
+                f"Adapter {result.adapter_name} {state} with "
+                f"{result.count} signal(s): {result.error}"
+            )
 
     def _validate_signal_content(self, signal: SignalData) -> tuple[bool, str]:
         """

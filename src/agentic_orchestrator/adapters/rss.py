@@ -58,6 +58,17 @@ class RSSAdapter(BaseAdapter):
         FeedConfig("https://www.theverge.com/rss/index.xml", "dev", "The Verge"),
     ]
 
+    # Some publishers (notably CNBC) reject httpx's library-default user agent.
+    # A stable, honest application identity also makes our RSS traffic easier
+    # for feed operators to distinguish from generic scraping.
+    REQUEST_HEADERS = {
+        "User-Agent": "Agentic-Orchestrator/1.0 (+https://ao.moss.land)",
+        "Accept": (
+            "application/rss+xml, application/atom+xml, application/xml;q=0.9, "
+            "text/xml;q=0.8, */*;q=0.1"
+        ),
+    }
+
     @classmethod
     def load_configured_feeds(cls) -> List[FeedConfig]:
         """
@@ -153,19 +164,28 @@ class RSSAdapter(BaseAdapter):
         signals: List[SignalData] = []
         errors: List[str] = []
 
-        # Fetch feeds concurrently
-        tasks = []
-        for feed in self.feeds:
-            if feed.enabled:
-                tasks.append(self._fetch_feed(feed))
+        # Fetch feeds concurrently. Keep the feed beside each task so failures
+        # are attributable in AdapterResult instead of becoming anonymous
+        # warnings in the helper.
+        enabled_feeds = [feed for feed in self.feeds if feed.enabled]
+        feed_errors: List[List[str]] = [[] for _ in enabled_feeds]
+        tasks = [
+            self._fetch_feed(feed, source_errors)
+            for feed, source_errors in zip(enabled_feeds, feed_errors, strict=True)
+        ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for result in results:
+        failed_feeds: List[str] = []
+        for feed, source_errors, result in zip(enabled_feeds, feed_errors, results, strict=True):
             if isinstance(result, Exception):
-                errors.append(str(result))
+                message = f"{feed.name}: {type(result).__name__}: {result}"
+                errors.append(message)
             elif isinstance(result, list):
                 signals.extend(result)
+            errors.extend(source_errors)
+            if isinstance(result, Exception) or source_errors:
+                failed_feeds.append(feed.name)
 
         duration_ms = (time.time() - start_time) * 1000
 
@@ -177,24 +197,32 @@ class RSSAdapter(BaseAdapter):
             duration_ms=duration_ms,
             metadata={
                 "feeds_count": len(self.feeds),
-                "enabled_feeds": len([f for f in self.feeds if f.enabled]),
+                "enabled_feeds": len(enabled_feeds),
                 "errors_count": len(errors),
+                "failed_feeds": failed_feeds,
+                "partial": bool(signals and errors),
             },
         )
 
-    async def _fetch_feed(self, feed: FeedConfig) -> List[SignalData]:
+    async def _fetch_feed(
+        self,
+        feed: FeedConfig,
+        errors: Optional[List[str]] = None,
+    ) -> List[SignalData]:
         """Fetch a single RSS feed."""
         signals: List[SignalData] = []
 
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.get(feed.url, follow_redirects=True)
-                response.raise_for_status()
+        # Let request and parsing failures reach fetch(), which can preserve
+        # successful feeds while marking the adapter result as partial.
+        async with httpx.AsyncClient(timeout=30, headers=self.REQUEST_HEADERS) as client:
+            response = await client.get(feed.url, follow_redirects=True)
+            response.raise_for_status()
 
-                # Parse feed
-                parsed = feedparser.parse(response.text)
+            # Parse feed
+            parsed = feedparser.parse(response.text)
 
-                for entry in parsed.entries[:20]:  # Limit to 20 per feed
+            for index, entry in enumerate(parsed.entries[:20]):  # Limit to 20 per feed
+                try:
                     # Extract published date
                     published = None
                     if hasattr(entry, "published_parsed") and entry.published_parsed:
@@ -230,10 +258,12 @@ class RSSAdapter(BaseAdapter):
                         metadata={"feed_name": feed.name},
                     )
                     signals.append(signal)
-
-        except Exception as e:
-            # Log error but don't fail the entire adapter
-            logger.warning(f"Error fetching feed {feed.name}: {e}")
+                except Exception as e:
+                    message = f"{feed.name} entry {index}: {type(e).__name__}: {e}"
+                    if errors is None:
+                        logger.warning(message)
+                    else:
+                        errors.append(message)
 
         return signals
 

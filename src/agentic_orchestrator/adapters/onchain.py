@@ -10,6 +10,7 @@ Collects signals from blockchain data:
 
 import asyncio
 import logging
+import math
 import os
 import time
 from typing import Any, Dict, List, Optional
@@ -104,6 +105,7 @@ class OnChainAdapter(BaseAdapter):
 
         # API endpoints
         self.defillama_api = "https://api.llama.fi"
+        self.defillama_stablecoins_api = "https://stablecoins.llama.fi"
         self.etherscan_api = "https://api.etherscan.io/api"
         self.whale_alert_api = "https://api.whale-alert.io/v1"
 
@@ -117,21 +119,26 @@ class OnChainAdapter(BaseAdapter):
         signals: List[SignalData] = []
         errors: List[str] = []
 
-        # Fetch different types of on-chain data concurrently
-        tasks = [
-            self._fetch_defi_tvl(),
-            self._fetch_chain_stats(),
-            self._fetch_protocol_updates(),
-            self._fetch_dex_volume(),
-            self._fetch_whale_transactions(),
-            self._fetch_stablecoin_flows(),
+        # Keep subsource names with their tasks so a partial failure is visible
+        # without discarding signals returned by the other APIs.
+        jobs = [
+            ("defi_tvl", self._fetch_defi_tvl()),
+            ("chain_stats", self._fetch_chain_stats()),
+            ("dex_volume", self._fetch_dex_volume()),
+            ("whale_transactions", self._fetch_whale_transactions()),
+            ("stablecoin_assets", self._fetch_stablecoin_assets()),
+            ("stablecoin_chains", self._fetch_stablecoin_chains()),
         ]
+        results = await asyncio.gather(
+            *(task for _, task in jobs),
+            return_exceptions=True,
+        )
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        for result in results:
+        failed_subsources: List[str] = []
+        for (subsource, _), result in zip(jobs, results, strict=True):
             if isinstance(result, Exception):
-                errors.append(str(result))
+                errors.append(f"{subsource}: {result}")
+                failed_subsources.append(subsource)
             elif isinstance(result, list):
                 signals.extend(result)
 
@@ -148,6 +155,11 @@ class OnChainAdapter(BaseAdapter):
                 "chains_tracked": len(self.TRACKED_CHAINS),
                 "dexes_tracked": len(self.TRACKED_DEXES),
                 "has_whale_alert": bool(self.whale_alert_api_key),
+                "raises_enabled": False,
+                "raises_disabled_reason": "defillama_pro_only",
+                "failed_subsources": failed_subsources,
+                "errors_count": len(errors),
+                "partial": bool(signals and errors),
             },
         )
 
@@ -244,46 +256,8 @@ class OnChainAdapter(BaseAdapter):
         return signals
 
     async def _fetch_protocol_updates(self) -> List[SignalData]:
-        """Fetch recent protocol updates and raises."""
-        signals: List[SignalData] = []
-
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                # Get recent raises/funding
-                response = await client.get(f"{self.defillama_api}/raises")
-                response.raise_for_status()
-                raises = response.json()
-
-                # Get raises from last 7 days
-                for raise_event in raises.get("raises", [])[:20]:
-                    amount = raise_event.get("amount")
-                    if not amount:
-                        continue
-
-                    signal = SignalData(
-                        source=self.name,
-                        category="crypto",
-                        title=f"Funding: {raise_event.get('name')} raised ${amount}M",
-                        summary=f"Round: {raise_event.get('round', 'Unknown')}. Lead investors: {', '.join(raise_event.get('leadInvestors', [])[:3])}",
-                        url=raise_event.get("source"),
-                        raw_data={
-                            "type": "funding",
-                            "name": raise_event.get("name"),
-                            "amount": amount,
-                            "round": raise_event.get("round"),
-                            "lead_investors": raise_event.get("leadInvestors", []),
-                            "other_investors": raise_event.get("otherInvestors", []),
-                            "chains": raise_event.get("chains", []),
-                            "category": raise_event.get("category"),
-                        },
-                        metadata={"subtype": "funding"},
-                    )
-                    signals.append(signal)
-
-        except Exception as e:
-            logger.warning(f"Error fetching protocol updates: {e}")
-
-        return signals
+        """Raises are Pro-only and intentionally disabled without a subscription."""
+        return []
 
     async def _fetch_dex_volume(self) -> List[SignalData]:
         """Fetch DEX volume data from DefiLlama."""
@@ -452,81 +426,129 @@ class OnChainAdapter(BaseAdapter):
         else:
             return "Whale Transfer"
 
-    async def _fetch_stablecoin_flows(self) -> List[SignalData]:
-        """Fetch stablecoin supply and flow data."""
+    @staticmethod
+    def _finite_number(value: Any) -> Optional[float]:
+        """Return a finite JSON number, excluding booleans and nulls."""
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            number = float(value)
+            if math.isfinite(number):
+                return number
+        return None
+
+    async def _fetch_stablecoin_assets(self) -> List[SignalData]:
+        """Fetch USD-pegged asset supply and price data."""
         signals: List[SignalData] = []
 
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                # Get stablecoin market cap data
-                response = await client.get(f"{self.defillama_api}/stablecoins")
-                response.raise_for_status()
-                data = response.json()
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(
+                f"{self.defillama_stablecoins_api}/stablecoins",
+                params={"includePrices": "true"},
+            )
+            response.raise_for_status()
+            data = response.json()
 
-                stablecoins = data.get("peggedAssets", [])[:10]  # Top 10
+        eligible = []
+        for stable in data.get("peggedAssets", []):
+            if stable.get("pegType") != "peggedUSD":
+                continue
+            if stable.get("yieldBearing") is True or stable.get("pegMechanism") == "yield-bearing":
+                continue
+            circulating = self._finite_number((stable.get("circulating") or {}).get("peggedUSD"))
+            if circulating is not None:
+                eligible.append((circulating, stable))
 
-                for stable in stablecoins:
-                    name = stable.get("name", "")
-                    symbol = stable.get("symbol", "")
-                    circulating = stable.get("circulating", {})
-                    total_circulating = circulating.get("peggedUSD", 0)
+        for total_circulating, stable in sorted(eligible, key=lambda item: item[0], reverse=True)[
+            :10
+        ]:
+            price = self._finite_number(stable.get("price"))
+            if price is None or abs(price - 1.0) <= 0.01:
+                continue
 
-                    # Get price data to detect depegs
-                    price = stable.get("price", 1.0)
+            name = stable.get("name", "")
+            symbol = stable.get("symbol", "")
+            depeg_pct = (price - 1.0) * 100
+            direction = "above" if depeg_pct > 0 else "below"
 
-                    # Alert on significant depeg (>1%)
-                    if abs(price - 1.0) > 0.01:
-                        depeg_pct = (price - 1.0) * 100
-                        direction = "above" if depeg_pct > 0 else "below"
+            signal = SignalData(
+                source=self.name,
+                category="crypto",
+                external_id=recurring_key("stablecoin_depeg", symbol, direction),
+                title=f"⚠️ Stablecoin Alert: {symbol} trading {abs(depeg_pct):.2f}% {direction} peg (${price:.4f})",
+                summary=f"{name} ({symbol}) circulating: ${total_circulating/1e9:.2f}B. Current price: ${price:.4f}",
+                url=f"https://defillama.com/stablecoin/{stable.get('gecko_id', '')}",
+                raw_data={
+                    "type": "stablecoin_depeg",
+                    "name": name,
+                    "symbol": symbol,
+                    "price": price,
+                    "depeg_pct": depeg_pct,
+                    "circulating": total_circulating,
+                },
+                metadata={"subtype": "stablecoin_alert"},
+            )
+            signals.append(signal)
 
-                        signal = SignalData(
-                            source=self.name,
-                            category="crypto",
-                            external_id=recurring_key("stablecoin_depeg", symbol, direction),
-                            title=f"⚠️ Stablecoin Alert: {symbol} trading {abs(depeg_pct):.2f}% {direction} peg (${price:.4f})",
-                            summary=f"{name} ({symbol}) circulating: ${total_circulating/1e9:.2f}B. Current price: ${price:.4f}",
-                            url=f"https://defillama.com/stablecoin/{stable.get('gecko_id', '')}",
-                            raw_data={
-                                "type": "stablecoin_depeg",
-                                "name": name,
-                                "symbol": symbol,
-                                "price": price,
-                                "depeg_pct": depeg_pct,
-                                "circulating": total_circulating,
-                            },
-                            metadata={"subtype": "stablecoin_alert"},
-                        )
-                        signals.append(signal)
+        return signals
 
-                # Get stablecoin chain distribution for significant changes
-                chains_response = await client.get(f"{self.defillama_api}/stablecoins/chains")
-                if chains_response.status_code == 200:
-                    chains_data = chains_response.json()
+    async def _fetch_stablecoin_chains(self) -> List[SignalData]:
+        """Fetch the largest stablecoin supplies by chain."""
+        signals: List[SignalData] = []
 
-                    for chain_data in chains_data[:5]:  # Top 5 chains
-                        chain_name = chain_data.get("name", "")
-                        total_usd = chain_data.get("totalCirculatingUSD", {}).get("peggedUSD", 0)
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(f"{self.defillama_stablecoins_api}/stablecoinchains")
+            response.raise_for_status()
+            chains_data = response.json()
 
-                        # Report major stablecoin concentrations
-                        if total_usd > 10_000_000_000:  # >$10B
-                            signal = SignalData(
-                                source=self.name,
-                                category="crypto",
-                                external_id=recurring_key("stablecoin_liquidity", chain_name),
-                                title=f"Stablecoin Liquidity: ${total_usd/1e9:.1f}B on {chain_name}",
-                                summary=f"Total stablecoin supply on {chain_name} chain",
-                                url=f"https://defillama.com/stablecoins/{chain_name}",
-                                raw_data={
-                                    "type": "stablecoin_chain",
-                                    "chain": chain_name,
-                                    "total_usd": total_usd,
-                                },
-                                metadata={"subtype": "stablecoin_liquidity"},
-                            )
-                            signals.append(signal)
+        eligible = []
+        for chain_data in chains_data:
+            totals = (
+                chain_data.get("totalCirculatingUSD") or chain_data.get("totalCirculating") or {}
+            )
+            total_usd = self._finite_number(totals.get("peggedUSD"))
+            if total_usd is not None:
+                eligible.append((total_usd, chain_data))
 
-        except Exception as e:
-            logger.warning(f"Error fetching stablecoin data: {e}")
+        for total_usd, chain_data in sorted(eligible, key=lambda item: item[0], reverse=True)[:5]:
+            if total_usd <= 10_000_000_000:
+                continue
+
+            chain_name = chain_data.get("name", "")
+            signal = SignalData(
+                source=self.name,
+                category="crypto",
+                external_id=recurring_key("stablecoin_liquidity", chain_name),
+                title=f"Stablecoin Liquidity: ${total_usd/1e9:.1f}B on {chain_name}",
+                summary=f"Total stablecoin supply on {chain_name} chain",
+                url=f"https://defillama.com/stablecoins/{chain_name}",
+                raw_data={
+                    "type": "stablecoin_chain",
+                    "chain": chain_name,
+                    "total_usd": total_usd,
+                },
+                metadata={"subtype": "stablecoin_liquidity"},
+            )
+            signals.append(signal)
+
+        return signals
+
+    async def _fetch_stablecoin_flows(self) -> List[SignalData]:
+        """Compatibility wrapper that keeps asset and chain failures isolated."""
+        signals: List[SignalData] = []
+        jobs = [
+            ("assets", self._fetch_stablecoin_assets()),
+            ("chains", self._fetch_stablecoin_chains()),
+        ]
+        results = await asyncio.gather(
+            *(task for _, task in jobs),
+            return_exceptions=True,
+        )
+        for (subsource, _), result in zip(jobs, results, strict=True):
+            if isinstance(result, Exception):
+                logger.warning(
+                    f"Error fetching stablecoin {subsource}: " f"{type(result).__name__}: {result}"
+                )
+            elif isinstance(result, list):
+                signals.extend(result)
 
         return signals
 
