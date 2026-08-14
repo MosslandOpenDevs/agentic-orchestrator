@@ -28,6 +28,15 @@ SignalMap
 계층을 읽으며**, canonical entity·topic·event ID를 함께 가져온다 — AO는 그 ID를
 소비할 뿐 새로 만들지 않는다 (`docs/signalmap.md`).
 
+> **시그널 정체성 규칙: 변동 수치를 제목에 넣으면 반드시 `external_id`도 줄 것.**
+> 시그널 id는 `external_id`가 없으면 `source:title:url`의 콘텐츠 해시다. 별 개수·
+> 퍼센트·가격처럼 폴링마다 움직이는 값이 제목에 있으면 매 30분 틱이 "새" 시그널이
+> 되어 `_save_to_db`의 크로스-런 dedup이 무력화된다 (2026-08-14 실측: coingecko
+> 88%, onchain 95%, github 24%의 행이 같은 대상의 반복이었다). 반복 상태 보고형
+> (트렌딩·무버·TVL)은 `adapters/base.py`의 `recurring_key(대상, [방향])`로 대상+
+> UTC 날짜 버킷 정체성을, 일회성 이벤트(릴리스·트랜잭션)는 날짜 없는 자연 키
+> (`release:{repo}:{tag}`, tx 해시)를 쓴다. `tests/test_signal_identity.py`가 고정.
+
 ### 2. 멀티에이전트 1차 (발산 단계)
 
 **목적:** 뻔하지 않고, 다양한 시선으로 → 신선하고 창의적인 다양한 아이디어 도출

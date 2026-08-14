@@ -12,6 +12,28 @@ from typing import Any, Dict, List, Optional
 from ..timeutil import utcnow
 
 
+def recurring_key(*parts: str) -> str:
+    """Synthesized identity for a recurring status-report signal.
+
+    Sources like GitHub trending or Coingecko movers have no publisher record
+    id, and their titles embed values that move every poll (star counts,
+    percentages, prices). Hashing such a title makes every 30-minute tick a
+    "new" signal, so the cross-run dedup in ``_save_to_db`` never matches and
+    the same subject lands dozens of times a day (measured 2026-08-14:
+    coingecko 88%, onchain 95%, github 24% of a week's rows were repeats).
+
+    The event these signals actually report is "subject X was in state S
+    *today*" — so that is the identity: the caller's parts plus a UTC day
+    bucket. One row per subject per state per day; the volatile numbers stay
+    in the title and raw_data where they are information, not identity.
+
+    Do NOT use this for one-time events (a release, a funding round, a
+    transaction) — those already have stable natural keys without a date.
+    """
+    day = utcnow().strftime("%Y-%m-%d")
+    return ":".join([*parts, day])
+
+
 @dataclass
 class AdapterConfig:
     """Configuration for adapters."""
