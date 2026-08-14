@@ -69,9 +69,9 @@ class TestScaffoldAutoPushGate:
         from agentic_orchestrator.project import scaffold as mod
 
         source = inspect.getsource(mod.ProjectScaffold.generate_project)
-        assert "if self.auto_push:" in source
+        assert "if self.auto_push and gate.passed:" in source
         call_at = source.find("await self._git_commit_and_push")
-        gate_at = source.find("if self.auto_push:")
+        gate_at = source.find("if self.auto_push and gate.passed:")
         assert call_at != -1 and gate_at != -1 and gate_at < call_at
 
 

@@ -10,16 +10,14 @@ how a gate becomes decoration:
   files, an absent pytest and no reachable reviewer used to all report success,
   so an empty project scored 7.0/10 and was sent to DONE. Each of those is now
   a distinct outcome and none of them satisfies the gate.
-* The tests being run are LLM output derived from public feeds. Executing them
-  in this process's environment hands that content the orchestrator's
-  filesystem, credentials and network -- and pytest runs arbitrary code at
-  import time, before a single assertion. Execution is therefore opt-in and
-  off by default; see RUN_GENERATED_TESTS_ENV.
+* The tests are LLM output derived from public feeds. Executing them in this
+  process would hand that content the orchestrator's filesystem, credentials
+  and network -- and pytest runs arbitrary code at import time, before a
+  single assertion. Host execution is therefore impossible, including when
+  the legacy opt-in environment variable is present.
 """
 
-import os
 import re
-import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -34,10 +32,9 @@ from .base import BaseStage, StageRegistry, StageResult
 
 logger = get_logger(__name__)
 
-# Executing model-written tests in this process is opt-in. pytest runs
-# arbitrary code during collection, before any assertion, so a generated
-# conftest or import is enough to reach the orchestrator's database,
-# .env and network.
+# Backward-compatible name for diagnostics only. This switch is intentionally
+# ignored: model-written pytest must use a hardened sandbox runner, never an
+# operator opt-in that executes it in the orchestrator process.
 RUN_GENERATED_TESTS_ENV = "MOSS_RUN_GENERATED_TESTS"
 
 # Outcomes another DEV iteration cannot change: they are about the
@@ -72,11 +69,7 @@ class QualityStage(BaseStage):
 
     @staticmethod
     def _generated_tests_may_run() -> bool:
-        return os.getenv(RUN_GENERATED_TESTS_ENV, "").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-        }
+        return False
 
     @property
     def openai(self):
@@ -261,79 +254,20 @@ class QualityStage(BaseStage):
                 "details": "No test files detected",
             }
 
-        if not self._generated_tests_may_run():
-            return {
-                "passed": False,
-                "outcome": "execution_disabled",
-                "report": (
-                    "# Test Results\n\n"
-                    f"{len(test_files)} test file(s) were generated but not executed.\n\n"
-                    "These tests are model-written code derived from public feeds, and "
-                    "pytest executes arbitrary code at collection time. Running them "
-                    "here would give that code this process's filesystem, environment "
-                    "and network. Run them in a disposable, network-isolated container "
-                    f"instead, or set {RUN_GENERATED_TESTS_ENV}=1 to accept the risk.\n"
-                ),
-                "details": "generated test execution disabled",
-            }
-
-        # Try to run pytest
-        try:
-            result = subprocess.run(
-                ["python", "-m", "pytest", str(impl_dir), "-v", "--tb=short"],
-                capture_output=True,
-                text=True,
-                timeout=300,
-                cwd=self.base_path,
-            )
-
-            passed = result.returncode == 0
-            output = result.stdout + result.stderr
-
-            report = f"""# Test Results
-
-## Summary
-- **Status**: {"PASSED" if passed else "FAILED"}
-- **Exit Code**: {result.returncode}
-
-## Test Output
-```
-{output[:5000]}
-```
-
-## Test Files Found
-"""
-            for tf in test_files:
-                report += f"- {tf.relative_to(self.base_path)}\n"
-
-            return {
-                "passed": passed,
-                "outcome": "passed" if passed else "failed",
-                "report": report,
-                "details": output,
-            }
-
-        except FileNotFoundError:
-            return {
-                "passed": False,
-                "outcome": "tool_unavailable",
-                "report": "# Test Results\n\npytest is not installed; nothing was verified.\n",
-                "details": "pytest not installed",
-            }
-        except subprocess.TimeoutExpired:
-            return {
-                "passed": False,
-                "outcome": "timeout",
-                "report": "# Test Results\n\nTests timed out after 5 minutes.\n",
-                "details": "timeout",
-            }
-        except Exception as e:
-            return {
-                "passed": False,
-                "outcome": "error",
-                "report": f"# Test Results\n\nError running tests: {e}\n",
-                "details": str(e),
-            }
+        return {
+            "passed": False,
+            "outcome": "execution_disabled",
+            "report": (
+                "# Test Results\n\n"
+                f"{len(test_files)} test file(s) were generated but not executed.\n\n"
+                "These tests are model-written code derived from public feeds, and "
+                "pytest executes arbitrary code at collection time. Host execution "
+                "has been removed; the legacy "
+                f"{RUN_GENERATED_TESTS_ENV} switch is ignored. Run generated tests "
+                "only through a disposable, network-isolated sandbox.\n"
+            ),
+            "details": "generated test host execution permanently disabled",
+        }
 
     def _perform_code_review(self) -> dict[str, Any]:
         """Perform code review using external models."""

@@ -185,6 +185,7 @@ class TestClaudeProvider:
         provider = ClaudeProvider(dry_run=True)
         assert provider.model == ClaudeProvider.DEFAULT_MODEL
         assert provider.fallback_model == ClaudeProvider.DEFAULT_FALLBACK
+        assert provider.prefer_cli is False
 
     def test_api_model_mapping(self):
         """Test API model name mapping."""

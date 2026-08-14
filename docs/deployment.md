@@ -131,6 +131,56 @@ cd ~/agentic-orchestrator   # 실제 체크아웃 경로
 git checkout main && git pull
 ```
 
+### 생성 코드 sandbox kill switch
+
+`project.build_gate.enabled`는 기본적으로 `false`다. 설정을 읽지 못할 때도 코드 기본값이
+`false`라서, 모델이 만든 build/test가 운영 호스트에서 실행되는 fallback은 없다. 새 코드는
+gate 실행 직전에 설정을 다시 읽는다. 다만 배포 전에 시작된 구버전 API/PM2 프로세스와
+진행 중인 job에는 새 코드가 없으므로 배포 후 관련 프로세스를 재시작하고 잔여 job을 확인한다.
+
+다시 켜려면 먼저 전용 rootless Docker worker(또는 별도 일회용 VM)에서 다음을 준비한다.
+
+> 현재 생성기는 `package-lock.json`을 내보내지 않고 기본 Node 이미지에도 offline npm/Hardhat
+> cache가 없다. 일부 Next 템플릿은 Google font를 build 중 내려받으려 한다. 따라서 지금
+> `enabled: true`로 바꾸면 안전하게 `ready_with_warnings`가 될 뿐이며, 아래 준비 파이프라인과
+> 실제 worker smoke test가 끝나기 전에는 켜지 않는다.
+
+1. `config.yaml`의 digest 고정 이미지를 명시적으로 pre-pull한다. 실행 시에는
+   `--pull=never`라서 누락 시 안전하게 실패한다.
+2. 신뢰된 별도 dependency pipeline이 생성 시점에 각 workspace의 integrity-bearing
+   `package-lock.json`을 함께 산출하고, 그 artifact의 npm cache와 Hardhat solc 0.8.20 cache를
+   이미지에 넣는다. remote font import는 local asset으로 바꾼다. sandbox 안에서는
+   `npm ci --offline`만 실행한다.
+   현재 runner는 Node/Solidity workspace만 다루므로 Python 등 다른 실행 언어가 섞인
+   생성물은 해당 언어용 sandbox가 추가될 때까지 `ready_with_warnings`로 실패한다.
+3. worker는 orchestrator와 같은 host/VM의 local Unix socket을 쓰는 rootless Docker +
+   cgroup v2/systemd + built-in seccomp를 제공해야 한다. 코드는 Docker endpoint,
+   `docker info`, container inspect, 실제 exec 프로세스의
+   `/proc/self/status`, cgroup 파일을
+   모두 검사해 실제 memory/swap/CPU/PID 제한이 다르면 입력 복사 전에 중단한다.
+4. `tests/test_build_gate.py`의 Docker argv/inspect 회귀 테스트와 별도 sandbox worker의
+   실제 smoke test를 통과시킨 뒤에만 `enabled: true`로 바꾼다.
+
+```bash
+SANDBOX_IMAGE='node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32'
+docker pull "$SANDBOX_IMAGE"
+docker image inspect "$SANDBOX_IMAGE" >/dev/null
+docker info --format '{{json .SecurityOptions}}'
+```
+
+컨테이너는 항상 network none에서 동작한다. 프로세스 간 파일 lease와 프로세스 내부 semaphore가
+worker 전체에서 동시에 하나만 실행되도록 제한한다. 서로 다른 숫자 비루트 계정이 TTL supervisor와
+생성 코드를 실행하고, capability 없음, no-new-privileges, built-in seccomp,
+read-only root/input, bounded tmpfs와 자원 제한을 적용한다. 생성 시 실제 쓴 파일 allowlist만
+비밀 제거 snapshot에 복사하며 재사용 디렉터리의 잔여 파일은 넣지 않는다. runtime 검증이
+하나라도 실패하면 실행 전 중단한다. Docker socket, 원본 프로젝트 rw mount, host `.env`나
+npm cache mount는 금지한다. 전체 deadline이 지나면 비루트 supervisor가 종료되어 `--rm`이
+동작하고, 정상·timeout·오류 경로도 exact random name으로 `rm -f`한다. 프로세스가
+create/start 사이 또는 exec 도중 host 프로세스가 죽은 경우도 다음 gate가 전역 lease를 얻은 뒤
+label+expiry와 정확한 64자리 container ID를 재검증하고 남은 컨테이너를 먼저 정리한다.
+SSH/TCP Docker context는 host-local lease와 bind snapshot을 우회하므로 거부한다. 별도 VM을
+사용할 때는 Docker만 원격 연결하지 말고 orchestrator sandbox worker 자체를 그 VM 안에서 실행한다.
+
 `.env`에 아래 한 줄을 추가합니다. 이 플래그가 없으면 `moss-ao-deploy` 프로세스는 아예
 등록되지 않으므로, 랩톱이나 다른 체크아웃이 실수로 자기 자신을 배포하는 일이 없습니다.
 

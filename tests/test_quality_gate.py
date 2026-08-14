@@ -158,11 +158,11 @@ class TestExecuteRouting:
         assert result.next_stage is Stage.DONE
 
 
-class TestGeneratedTestsAreNotRunByDefault:
+class TestGeneratedTestsNeverRunOnHost:
     """pytest executes arbitrary code at collection time, and these test files
     are model output derived from public feeds."""
 
-    def test_generated_tests_are_not_executed_without_opt_in(self, stage, tmp_path):
+    def test_generated_tests_are_not_executed_on_host(self, stage, tmp_path):
         impl = _impl_dir(tmp_path, stage.project_id)
         # If this ever ran, the marker file would exist.
         marker = tmp_path / "executed.marker"
@@ -177,11 +177,11 @@ class TestGeneratedTestsAreNotRunByDefault:
         assert result["outcome"] == "execution_disabled"
         assert RUN_GENERATED_TESTS_ENV in result["report"]
 
-    def test_opt_in_env_enables_execution(self, stage, monkeypatch):
+    def test_legacy_opt_in_env_is_ignored(self, stage, monkeypatch):
         monkeypatch.setenv(RUN_GENERATED_TESTS_ENV, "1")
-        assert stage._generated_tests_may_run() is True
+        assert stage._generated_tests_may_run() is False
 
-    @pytest.mark.parametrize("value", ["", "0", "false", "no"])
-    def test_other_values_keep_execution_off(self, stage, monkeypatch, value):
+    @pytest.mark.parametrize("value", ["", "0", "false", "no", "true", "yes"])
+    def test_every_legacy_value_keeps_host_execution_off(self, stage, monkeypatch, value):
         monkeypatch.setenv(RUN_GENERATED_TESTS_ENV, value)
         assert stage._generated_tests_may_run() is False

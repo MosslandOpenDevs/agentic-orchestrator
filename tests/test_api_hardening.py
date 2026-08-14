@@ -16,6 +16,8 @@ from sqlalchemy.pool import StaticPool
 
 from agentic_orchestrator.api.main import app, get_session
 from agentic_orchestrator.db.models import Base, Idea, Plan, Project, Signal
+from agentic_orchestrator.project import scaffold as scaffold_mod
+from agentic_orchestrator.project.build_gate import BuildGateResult
 from agentic_orchestrator.project.scaffold import ProjectScaffold
 from agentic_orchestrator.timeutil import utcnow
 
@@ -176,6 +178,54 @@ class TestFailedGenerationRetry:
         # Real work happened rather than an early "already exists" return.
         assert result.project_path
         assert result.error != "Project already exists. Use force_regenerate=True to regenerate."
+
+    @pytest.mark.asyncio
+    async def test_build_gate_kill_switch_is_reloaded_at_execution_boundary(
+        self, tmp_path, scaffold_session, monkeypatch
+    ):
+        scaffold_session.add(
+            Idea(id="idea-kill", title="Kill switch", summary="seed", source_type="debate")
+        )
+        scaffold_session.add(
+            Plan(
+                id="plan-kill",
+                idea_id="idea-kill",
+                title="Kill switch",
+                final_plan="# Plan\n",
+            )
+        )
+        scaffold_session.commit()
+
+        state = {"enabled": True}
+        observed = []
+        monkeypatch.setattr(
+            scaffold_mod,
+            "_load_build_gate_config",
+            lambda: dict(state),
+        )
+
+        scaffold = ProjectScaffold(
+            router=None,
+            projects_dir=str(tmp_path / "projects"),
+            db_session=scaffold_session,
+            auto_push=True,
+        )
+        state["enabled"] = False
+
+        async def forbidden_push(*_args, **_kwargs):
+            pytest.fail("an unverified generated project was auto-pushed")
+
+        monkeypatch.setattr(scaffold, "_git_commit_and_push", forbidden_push)
+
+        def fake_gate(_path, config, _allowed_files):
+            observed.append(config)
+            return BuildGateResult(reason="build gate disabled in config")
+
+        monkeypatch.setattr(scaffold_mod, "run_build_gate", fake_gate)
+        result = await scaffold.generate_project(plan_id="plan-kill")
+
+        assert result.success, result.error
+        assert observed == [{"enabled": False}]
 
     @pytest.mark.asyncio
     async def test_in_flight_generation_is_not_restarted(self, tmp_path, scaffold_session):
