@@ -811,9 +811,8 @@ async def get_plans(
     repo = PlanRepository(session)
 
     if status:
-        plans = repo.get_by_status(status, limit=limit + offset)
+        paginated = repo.get_by_status(status, limit=limit, offset=offset)
         total = repo.count_by_status(status)
-        paginated = plans[offset : offset + limit]
     else:
         plans = repo.get_all(limit=limit, offset=offset)
         total = repo.count_all()
@@ -830,6 +829,7 @@ async def get_plans(
 @app.get("/plans/pending-approval")
 async def get_pending_approval_plans(
     limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     session: Session = Depends(get_session),
 ):
     """
@@ -841,7 +841,7 @@ async def get_pending_approval_plans(
     plan_repo = PlanRepository(session)
 
     # Get draft plans
-    plans = plan_repo.get_by_status("draft", limit=limit)
+    plans = plan_repo.get_by_status("draft", limit=limit, offset=offset)
 
     # Get idea scores for context
     idea_repo = IdeaRepository(session)
@@ -865,7 +865,13 @@ async def get_pending_approval_plans(
 
     return {
         "plans": result,
-        "total": len(result),
+        # The size of the queue, not the size of this page. `len(result)` meant
+        # `?limit=5` reported five plans pending when there were 39, and with no
+        # `offset` the queue was unreadable past the first page -- on the one
+        # endpoint whose whole purpose is telling a human how much is waiting.
+        "total": plan_repo.count_by_status("draft"),
+        "limit": limit,
+        "offset": offset,
         "message": "These plans are pending approval. Use POST /plans/{plan_id}/approve to approve.",
     }
 
@@ -933,6 +939,17 @@ async def get_usage(
         logger.exception("/usage could not read paid-tier configuration")
         llm_routing = {"status": "unknown"}
 
+    # Same class of blind spot as the empty ledger above, one stage further on.
+    # The second-pass reviewer is what actually promotes an idea, and its
+    # verdicts had no reader anywhere: promotion sat at zero for twelve days
+    # while every surface still said healthy, because "rejects everything" and
+    # "is merely strict" produce identical output everywhere else.
+    try:
+        promotion_review = IdeaRepository(session).second_pass_verdict_counts(days=days)
+    except Exception:
+        logger.exception("/usage could not read second-pass review stats")
+        promotion_review = {"status": "unknown"}
+
     return {
         "today": today_usage,
         "today_by_provider": today_by_provider,
@@ -940,6 +957,7 @@ async def get_usage(
         "history": history,
         "days": days,
         "llm_routing": llm_routing,
+        "promotion_review": promotion_review,
     }
 
 
