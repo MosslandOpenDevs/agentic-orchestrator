@@ -86,6 +86,17 @@ def load_config(path: Path) -> dict:
             continue
         key, _, value = line.partition("=")
         cfg[key.strip()] = value.strip().strip("'\"")
+    # Historical prefix. These keys were AO_MONITOR_* when this tool watched
+    # only ao.moss.land; it now backs one instance per service (--dir), and a
+    # per-service config.env reading MONITOR_TARGET invites exactly the
+    # misreading it sounds like. Old files keep working: updating the script
+    # must not require editing every box's config by hand.
+    #
+    # Applied after the whole file is parsed, not inline, so an explicit
+    # MONITOR_* always wins over an AO_MONITOR_* regardless of line order.
+    for key, value in list(cfg.items()):
+        if key.startswith("AO_MONITOR_"):
+            cfg.setdefault("MONITOR_" + key[len("AO_MONITOR_"):], value)
     return cfg
 
 
@@ -327,25 +338,25 @@ def main(argv: Optional[list] = None) -> int:
     data_dir.mkdir(parents=True, exist_ok=True)
 
     cfg = load_config(base / "config.env")
-    target = cfg.get("AO_MONITOR_TARGET", "")
+    target = cfg.get("MONITOR_TARGET", "")
     if not target:
-        print("AO_MONITOR_TARGET is not set in config.env "
+        print("MONITOR_TARGET is not set in config.env "
               "(real addresses live in CLAUDE.local.md, not in this repo)",
               file=sys.stderr)
         return 2
-    timeout = float(cfg.get("AO_MONITOR_TIMEOUT", DEFAULT_TIMEOUT))
+    timeout = float(cfg.get("MONITOR_TIMEOUT", DEFAULT_TIMEOUT))
     # Which service this instance watches. One script now backs several
     # instances (--dir), and a hardcoded name puts "AO" on an alpha
     # outage in the alpha channel — the reader has to know which cron
     # wrote it to tell what is down. Defaults to AO, so an existing
     # config.env keeps its current behaviour untouched.
-    label = cfg.get("AO_MONITOR_LABEL", "AO")
-    webhook = cfg.get("AO_MONITOR_DISCORD_WEBHOOK", "")
+    label = cfg.get("MONITOR_LABEL", "AO")
+    webhook = cfg.get("MONITOR_DISCORD_WEBHOOK", "")
     notify_log = data_dir / "notify.log"
 
     if args.test_notify:
         if not webhook:
-            print("AO_MONITOR_DISCORD_WEBHOOK is not set in config.env", file=sys.stderr)
+            print("MONITOR_DISCORD_WEBHOOK is not set in config.env", file=sys.stderr)
             return 2
         ok = notify_discord(
             webhook,

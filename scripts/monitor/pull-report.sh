@@ -10,9 +10,12 @@
 # Host addresses are deliberately not in this public repo. Put them in
 # scripts/monitor/local.env (gitignored; real values in CLAUDE.local.md):
 #
-#   AO_MONITOR_UPTIME_HOST=<ssh host/alias of the Lightsail nginx box>
-#   AO_MONITOR_NETPATH_HOST=<user@tailnet-ip of the office VM>
-#   AO_MONITOR_SSH_KEY=<identity file, optional if ssh config covers it>
+#   MONITOR_UPTIME_HOST=<ssh host/alias of the Lightsail nginx box>
+#   MONITOR_NETPATH_HOST=<user@tailnet-ip of the office VM>
+#   MONITOR_SSH_KEY=<identity file, optional if ssh config covers it>
+#
+# The AO_MONITOR_* spellings still work; the prefix was renamed when this
+# tool started backing more than one service.
 #
 #   scripts/monitor/pull-report.sh              # whole history
 #   scripts/monitor/pull-report.sh --since 2026-08-01
@@ -24,13 +27,15 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 [ -f "$HERE/local.env" ] && . "$HERE/local.env"
 
-UPTIME_HOST="${AO_MONITOR_UPTIME_HOST:-}"
-NETPATH_HOST="${AO_MONITOR_NETPATH_HOST:-}"
-SSH_KEY="${AO_MONITOR_SSH_KEY:-}"
-WORK="${AO_MONITOR_WORKDIR:-$HOME/.ao-monitor-report}"
+UPTIME_HOST="${MONITOR_UPTIME_HOST:-${AO_MONITOR_UPTIME_HOST:-}}"
+NETPATH_HOST="${MONITOR_NETPATH_HOST:-${AO_MONITOR_NETPATH_HOST:-}}"
+SSH_KEY="${MONITOR_SSH_KEY:-${AO_MONITOR_SSH_KEY:-}}"
+# Default path unchanged on purpose: renaming it would silently relocate an
+# existing operator's working directory and orphan whatever is in it.
+WORK="${MONITOR_WORKDIR:-${AO_MONITOR_WORKDIR:-$HOME/.ao-monitor-report}}"
 
 if [ -z "$UPTIME_HOST" ] || [ -z "$NETPATH_HOST" ]; then
-    echo "AO_MONITOR_UPTIME_HOST / AO_MONITOR_NETPATH_HOST are not set." >&2
+    echo "MONITOR_UPTIME_HOST / MONITOR_NETPATH_HOST are not set." >&2
     echo "Create $HERE/local.env (gitignored) -- real values in CLAUDE.local.md." >&2
     exit 2
 fi
