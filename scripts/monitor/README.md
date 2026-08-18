@@ -108,13 +108,13 @@ ssh $LIGHTSAIL 'mkdir -p ~/ao-monitor/data'
 scp scripts/monitor/probe_uptime.py $LIGHTSAIL:ao-monitor/
 scp scripts/monitor/config.env.example $LIGHTSAIL:ao-monitor/config.env
 ssh $LIGHTSAIL 'chmod 600 ~/ao-monitor/config.env'
-# config.env의 AO_MONITOR_TARGET 플레이스홀더를 실값으로 교체할 것 (필수)
+# config.env의 MONITOR_TARGET 플레이스홀더를 실값으로 교체할 것 (필수)
 
 # 2) 사무실 VM (안쪽 프로버)
 ssh $OFFICE_VM 'mkdir -p ~/ao-monitor/data'
 scp scripts/monitor/probe_netpath.py $OFFICE_VM:ao-monitor/
 scp scripts/monitor/config.env.example $OFFICE_VM:ao-monitor/config.env
-# config.env의 AO_MONITOR_TS_PEER 플레이스홀더를 실값으로 교체할 것 (필수)
+# config.env의 MONITOR_TS_PEER 플레이스홀더를 실값으로 교체할 것 (필수)
 
 # 3) crontab에 한 줄씩 추가 (기존 항목 보존!)
 #    Lightsail:  * * * * * /usr/bin/python3 $HOME/ao-monitor/probe_uptime.py >/dev/null 2>&1
@@ -126,7 +126,7 @@ scp scripts/monitor/config.env.example $OFFICE_VM:ao-monitor/config.env
 
 ### Discord 웹훅
 
-`~/ao-monitor/config.env`의 `AO_MONITOR_DISCORD_WEBHOOK=`에 URL을 채운다
+`~/ao-monitor/config.env`의 `MONITOR_DISCORD_WEBHOOK=`에 URL을 채운다
 (Discord 서버 설정 → 연동 → 웹후크 → 새 웹후크 → URL 복사). 비워두면 기록만
 하고 알림은 보내지 않는다.
 
