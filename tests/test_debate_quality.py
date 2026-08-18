@@ -7,6 +7,7 @@ to produce. Nothing in the pipeline can notice that on its own, so it has to be
 pinned by tests.
 """
 
+import asyncio
 import re
 from pathlib import Path
 
@@ -14,8 +15,10 @@ from agentic_orchestrator.debate import protocol as protocol_module
 from agentic_orchestrator.debate.multi_stage import Idea, MultiStageDebate
 from agentic_orchestrator.debate.protocol import (
     IDEA_SUMMARY_CHARS,
+    PLAN_REQUIRED_SECTIONS,
     DebateProtocol,
     DebateProtocolConfig,
+    plan_completeness,
 )
 from agentic_orchestrator.scheduler.tasks import _debate_config_from_dict, _load_debate_config
 
@@ -321,6 +324,146 @@ Idea 2 is also worth considering, I would give it a 9 as well.
         # 0/10 is the sentinel `Idea.total_score` uses for "unscored", so it is
         # dropped rather than stored; Idea 9 was never on the ballot.
         assert scores == {}
+
+
+def plan_text(sections: int = 6, filler: str = "") -> str:
+    """A plan carrying the first ``sections`` required headings."""
+    body = "\n".join(f"## {name}\ndetail\n" for name in PLAN_REQUIRED_SECTIONS[:sections])
+    return body + filler
+
+
+class FakeResponse:
+    def __init__(self, content):
+        self.content = content
+        self.model = "test-model"
+        self.provider = "test"
+        self.input_tokens = 10
+        self.output_tokens = 20
+        self.cost = 0.0
+
+
+class FakeRouter:
+    """Answers by task type, and tells a revision prompt apart from a draft."""
+
+    def __init__(self, draft, review, revision=None, fail_revision=False):
+        self.draft = draft
+        self.review = review
+        self.revision = revision
+        self.fail_revision = fail_revision
+        self.revision_calls = 0
+
+    async def route(self, *, prompt, task_type, **kwargs):
+        if task_type == "quality_check":
+            return FakeResponse(self.review)
+        if "Reviewer Feedback" in prompt:
+            self.revision_calls += 1
+            if self.fail_revision:
+                raise RuntimeError("provider is down")
+            return FakeResponse(self.revision)
+        return FakeResponse(self.draft)
+
+
+def run_planning(router, rounds=2, agents_per_round=2):
+    config = DebateProtocolConfig(planning_rounds=rounds, planning_agents_per_round=agents_per_round)
+    debate = MultiStageDebate(router=router, protocol=DebateProtocol(config))
+    debate.ideas = [make_idea(scores={"a": 8.0})]
+    return asyncio.run(debate._run_planning_phase("Wallet UX"))
+
+
+class TestPlanCompleteness:
+    def test_counts_the_required_sections(self):
+        assert plan_completeness(plan_text(6)) == 6
+        assert plan_completeness(plan_text(2)) == 2
+
+    def test_absent_or_empty_plans_score_zero(self):
+        assert plan_completeness(None) == 0
+        assert plan_completeness("") == 0
+        assert plan_completeness("Here is a nice paragraph about wallets.") == 0
+
+    def test_a_long_shapeless_draft_loses_to_a_short_structured_one(self):
+        """The selection rule that shipped was `max(drafts, key=len)`, which is
+        why verbosity won: across 54 debates the longest draft was not the first
+        one 63% of the time, and nothing checked structure at all."""
+        rambling = "words " * 5000
+        structured = plan_text(6)
+
+        winner = max([rambling, structured], key=lambda d: (plan_completeness(d), len(d)))
+
+        assert winner == structured
+
+
+class TestPlanningRevision:
+    """The review round has to change the plan, or it is decorative.
+
+    In production it was decorative: 141 of 162 reviews said "[Needs Revision]",
+    none said approved, and `final_plan` was byte-identical to the longest draft
+    in all 54 debates -- the `feedback` value was unpacked and never read.
+    """
+
+    def test_reviewer_objections_produce_a_revised_plan(self):
+        router = FakeRouter(
+            draft=plan_text(6, filler="original"),
+            review="The 20-40% figure is unsupported. [Needs Revision]",
+            revision=plan_text(6, filler="revised against the reviewers"),
+        )
+
+        result = run_planning(router)
+
+        assert "revised against the reviewers" in result.output["final_plan"]
+        assert router.revision_calls == 1
+
+    def test_an_approved_plan_is_not_rewritten(self):
+        router = FakeRouter(
+            draft=plan_text(6, filler="original"),
+            review="Solid, ship it. [Approved]",
+            revision=plan_text(6, filler="should never be used"),
+        )
+
+        result = run_planning(router)
+
+        assert "original" in result.output["final_plan"]
+        assert router.revision_calls == 0
+
+    def test_a_revision_that_drops_sections_is_refused(self):
+        """A model that answers a review with a changelog, or that rewrites one
+        section and forgets the rest, must not be able to make the output worse
+        than leaving the draft alone."""
+        router = FakeRouter(
+            draft=plan_text(6, filler="original"),
+            review="Needs work. [Needs Revision]",
+            revision="I have updated the KPI section as requested.",
+        )
+
+        result = run_planning(router)
+
+        assert "original" in result.output["final_plan"]
+
+    def test_a_failed_revision_leaves_the_reviewed_draft_in_place(self):
+        router = FakeRouter(
+            draft=plan_text(6, filler="original"),
+            review="Needs work. [Needs Revision]",
+            fail_revision=True,
+        )
+
+        result = run_planning(router)
+
+        assert "original" in result.output["final_plan"]
+
+    def test_the_revision_prompt_carries_the_reviewers_words(self):
+        protocol = DebateProtocol(DebateProtocolConfig())
+
+        prompt = protocol.create_plan_revision_prompt(
+            topic="Wallet UX",
+            draft_plan=plan_text(6),
+            reviews=[("Tech Lead", "The 20-40% token reduction figure looks invented.")],
+            agent_expertise="engineering",
+            round_num=2,
+        )
+
+        assert "Tech Lead" in prompt
+        assert "looks invented" in prompt
+        # It must ask for the whole plan back: the return value replaces it.
+        assert "complete revised plan" in prompt
 
 
 class TestIdeaSummaryExtraction:

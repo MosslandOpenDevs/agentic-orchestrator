@@ -17,6 +17,32 @@ from ..timeutil import utcnow
 # opening brace.
 IDEA_SUMMARY_CHARS = 1200
 
+# The sections `create_planning_prompt` requires a plan to carry. Kept beside
+# the prompt so that renaming a section renames it in both places at once.
+PLAN_REQUIRED_SECTIONS = (
+    "Project Overview",
+    "Technical Architecture",
+    "Detailed Execution Plan",
+    "Risk Management",
+    "Key Performance Indicators",
+    "Future Expansion",
+)
+
+
+def plan_completeness(plan: Optional[str]) -> int:
+    """How many required sections a plan actually carries.
+
+    Used to choose between competing drafts. The previous rule was
+    ``max(drafts, key=len)`` under a comment claiming it took "the first
+    comprehensive one" -- it did neither, and across 54 debates the longest
+    draft was not the first one 63% of the time. Length rewards verbosity;
+    section coverage rewards the thing the prompt actually asked for.
+    """
+    if not plan:
+        return 0
+    lowered = plan.lower()
+    return sum(1 for section in PLAN_REQUIRED_SECTIONS if section.lower() in lowered)
+
 
 class DebatePhase(Enum):
     """Debate phase types."""
@@ -679,6 +705,48 @@ Final Score = (Feasibility × 0.25) + (Relevance × 0.20) + (Novelty × 0.30) + 
 This is Round {round_num} evaluation. Please evaluate novelty as the most important criterion.
 **IMPORTANT**: All content must be written in English.
 """
+
+    def create_plan_revision_prompt(
+        self,
+        topic: str,
+        draft_plan: str,
+        reviews: List[tuple],
+        agent_expertise: str,
+        round_num: int,
+    ) -> str:
+        """Ask one planner to rewrite the draft against the reviewers' feedback.
+
+        Without this the review round was decorative: reviewers returned
+        "[Needs Revision]" 141 times out of 162 and approved nothing, while the
+        plan that shipped stayed byte-identical to the draft in all 54 debates.
+        """
+        review_section = "\n\n".join(
+            f"### Review by {reviewer}\n{feedback}" for reviewer, feedback in reviews
+        )
+
+        return f"""You are an expert in {agent_expertise}.
+
+## Discussion Topic
+{topic}
+
+## Current Plan
+{draft_plan}
+
+## Reviewer Feedback
+{review_section}
+
+## Instructions
+Rewrite the plan so that it answers the reviewers' objections.
+
+- Output the **complete revised plan**, not a diff, a changelog, or a summary of
+  your edits. What you return replaces the plan.
+- Keep every section the original had: {", ".join(PLAN_REQUIRED_SECTIONS)}.
+- Where a reviewer challenged a number as unsupported, either justify it with a
+  stated basis or replace it with one you can defend.
+- Where reviewers disagree, choose and say why in the relevant section.
+
+This is Round {round_num} revision.
+**IMPORTANT**: All content must be written in English."""
 
     def create_planning_prompt(
         self,

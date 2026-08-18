@@ -36,6 +36,7 @@ from .protocol import (
     DebateRound,
     MessageType,
     PhaseResult,
+    plan_completeness,
 )
 
 logger = logging.getLogger(__name__)
@@ -507,9 +508,9 @@ class MultiStageDebate:
                     if self.on_message:
                         self.on_message(message)
 
-                # Merge drafts (simple: use first comprehensive one)
+                # Most complete draft wins; length only breaks ties.
                 if drafts:
-                    draft_plan = max(drafts, key=len)
+                    draft_plan = max(drafts, key=lambda d: (plan_completeness(d), len(d)))
 
             else:
                 # Subsequent rounds: Review and vote
@@ -525,6 +526,7 @@ class MultiStageDebate:
 
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
+                objections: List[tuple] = []
                 for result in results:
                     if isinstance(result, Exception):
                         logger.error(f"Planning review error: {result}")
@@ -535,11 +537,31 @@ class MultiStageDebate:
                     total_votes += 1
                     if is_approved:
                         approvals += 1
+                    elif feedback:
+                        objections.append((message.agent_name, feedback))
                     phase_tokens += tokens
                     phase_cost += cost
 
                     if self.on_message:
                         self.on_message(message)
+
+                # Fold the objections back into the plan. Until this existed the
+                # review round produced nothing: `feedback` was unpacked and
+                # never read again, so a plan that every reviewer marked
+                # "[Needs Revision]" shipped exactly as drafted.
+                if draft_plan and objections and round_agents:
+                    revised, tokens, cost = await self._run_plan_revision(
+                        agent=round_agents[0],
+                        topic=topic,
+                        draft_plan=draft_plan,
+                        reviews=objections,
+                        round_num=round_num,
+                        round_data=round_data,
+                    )
+                    phase_tokens += tokens
+                    phase_cost += cost
+                    if revised:
+                        draft_plan = revised
 
             rounds.append(round_data)
 
@@ -1080,6 +1102,86 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         except Exception as e:
             logger.error(f"Planning review agent {agent.id} failed: {e}")
             raise
+
+    async def _run_plan_revision(
+        self,
+        agent: AgentPersona,
+        topic: str,
+        draft_plan: str,
+        reviews: List[tuple],
+        round_num: int,
+        round_data: DebateRound,
+    ) -> tuple[Optional[str], int, float]:
+        """Rewrite the draft against the reviewers' objections.
+
+        Returns ``(revised_plan_or_None, tokens, cost)``. The revision is only
+        accepted if it still carries at least as many required sections as the
+        draft did -- a model that answers with a changelog, or that drops half
+        the plan while addressing one comment, must not be able to make the
+        output worse than doing nothing.
+        """
+        prompt = self.protocol.create_plan_revision_prompt(
+            topic=topic,
+            draft_plan=draft_plan,
+            reviews=reviews,
+            agent_expertise=agent.expertise,
+            round_num=round_num,
+        )
+
+        system_prompt = f"""You are {agent.name}.
+Role: {agent.role}
+Expertise: {agent.expertise}
+
+Your task is to rewrite an implementation plan so that it answers the reviewers.
+Return the complete revised plan.
+**IMPORTANT**: All content must be written in English."""
+
+        try:
+            response = await self.router.route(
+                prompt=prompt,
+                task_type="final_plan",
+                paid_tier="debate",
+                system=system_prompt,
+                quality="high",
+                temperature=self.protocol.get_temperature(DebatePhase.PLANNING),
+                max_tokens=self.protocol.config.max_tokens_per_response * 2,
+            )
+        except Exception as e:
+            # A failed revision leaves the reviewed draft in place; it must not
+            # take the whole planning phase down with it.
+            logger.error(f"Plan revision by {agent.id} failed, keeping draft: {e}")
+            return None, 0, 0.0
+
+        revised = response.content or ""
+        tokens = response.input_tokens + response.output_tokens
+
+        if plan_completeness(revised) < plan_completeness(draft_plan):
+            logger.warning(
+                f"Plan revision dropped sections "
+                f"({plan_completeness(draft_plan)} -> {plan_completeness(revised)}); keeping draft"
+            )
+            return None, tokens, response.cost
+
+        message = DebateMessage(
+            id=f"revise-{self.session_id}-{round_num}-{agent.id}",
+            phase=DebatePhase.PLANNING,
+            round=round_num,
+            agent_id=agent.id,
+            agent_name=agent.name,
+            message_type=MessageType.FINAL_PLAN,
+            content=revised,
+            metadata={
+                "model": response.model,
+                "provider": response.provider,
+                "revised_from_reviews": [reviewer for reviewer, _ in reviews],
+            },
+        )
+        round_data.add_message(message)
+        if self.on_message:
+            self.on_message(message)
+
+        logger.info(f"Plan revised against {len(reviews)} review(s) by {agent.name}")
+        return revised, tokens, response.cost
 
     def _validate_idea_content(self, content: str) -> tuple[bool, list[str]]:
         """
