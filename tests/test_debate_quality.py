@@ -230,7 +230,9 @@ def evaluation_block(number: int, title: str, feasibility: int, total: str) -> s
 
 
 def ballot(count: int) -> list:
-    return [make_idea(id=f"idea-{n}", title=f"Idea number {n}").to_dict() for n in range(1, count + 1)]
+    return [
+        make_idea(id=f"idea-{n}", title=f"Idea number {n}").to_dict() for n in range(1, count + 1)
+    ]
 
 
 class TestConvergenceScoreExtraction:
@@ -267,10 +269,9 @@ class TestConvergenceScoreExtraction:
         """The ghost-score defect: 51.5% of stored (idea, evaluator) pairs were
         a number scraped from a different idea's block. An idea the evaluator
         never reached must come back absent, not inherit Idea 1's score."""
-        content = (
-            evaluation_block(1, "Idea number 1", feasibility=8, total="8/10")
-            + evaluation_block(2, "Idea number 2", feasibility=6, total="6/10")
-        )
+        content = evaluation_block(
+            1, "Idea number 1", feasibility=8, total="8/10"
+        ) + evaluation_block(2, "Idea number 2", feasibility=6, total="6/10")
 
         scores = self.debate._extract_scores_from_response(content, ballot(5))
 
@@ -314,10 +315,9 @@ Idea 2 is also worth considering, I would give it a 9 as well.
         assert scores == {"idea-1": 9.0}, "a sentence starting 'Idea 2' must not open a block"
 
     def test_out_of_range_and_off_ballot_numbers_are_dropped(self):
-        content = (
-            evaluation_block(1, "Idea number 1", feasibility=8, total="0/10")
-            + evaluation_block(9, "Hallucinated idea", feasibility=8, total="8/10")
-        )
+        content = evaluation_block(
+            1, "Idea number 1", feasibility=8, total="0/10"
+        ) + evaluation_block(9, "Hallucinated idea", feasibility=8, total="8/10")
 
         scores = self.debate._extract_scores_from_response(content, ballot(2))
 
@@ -364,7 +364,9 @@ class FakeRouter:
 
 
 def run_planning(router, rounds=2, agents_per_round=2):
-    config = DebateProtocolConfig(planning_rounds=rounds, planning_agents_per_round=agents_per_round)
+    config = DebateProtocolConfig(
+        planning_rounds=rounds, planning_agents_per_round=agents_per_round
+    )
     debate = MultiStageDebate(router=router, protocol=DebateProtocol(config))
     debate.ideas = [make_idea(scores={"a": 8.0})]
     return asyncio.run(debate._run_planning_phase("Wallet UX"))
@@ -496,3 +498,72 @@ class TestIdeaSummaryExtraction:
             MultiStageDebate._summarize_idea_json({"proposal": "Ship a budget guard."})
             == "Ship a budget guard."
         )
+
+
+class TestDivergenceRoundOneDifferentiation:
+    """Round 1 had no differentiation channel at all.
+
+    Both of them key off `previous_ideas`, which is empty on the first round: the
+    prompt's "be clearly different from these" block and the similarity feedback
+    go quiet together, and all eight agents anchor on the same seed. Measured
+    across 54 debates, round 1 titles sit at 0.300 pairwise Jaccard against
+    0.177/0.178 later (p < 0.00005), and 65.8% of round 1 output is discarded as
+    duplicate — after being generated on the paid tier.
+    """
+
+    def setup_method(self):
+        self.protocol = DebateProtocol(DebateProtocolConfig())
+
+    def _prompt(self, agent_index, previous=None):
+        return self.protocol.create_divergence_prompt(
+            topic="Wallet UX",
+            context="Trend: account abstraction adoption",
+            agent_personality=PERSONALITY,
+            round_num=1 if previous is None else 2,
+            previous_ideas=previous or [],
+            agent_index=agent_index,
+        )
+
+    def test_each_agent_gets_a_different_vantage_point(self):
+        angles = {
+            self._prompt(i).split("approaching this from **")[1].split("**")[0] for i in range(8)
+        }
+
+        assert len(angles) == 8, f"agents shared a vantage point: {angles}"
+
+    def test_the_vantage_point_is_orthogonal_to_the_creativity_technique(self):
+        """Two axes, not one: the technique says how to think, the angle says
+        what to look at. Sharing an index must not collapse them."""
+        first, second = self._prompt(0), self._prompt(1)
+
+        assert "end-user experience" in first
+        assert "protocol and infrastructure" in second
+        # The SCAMPER block is still there and still differs between them.
+        assert "Creativity Technique" in first
+        assert (
+            first.split("Creativity Technique")[1][:60]
+            != second.split("Creativity Technique")[1][:60]
+        )
+
+    def test_later_rounds_keep_the_stronger_channel_instead(self):
+        """Round 3 is the most diverse output a debate produces; do not
+        constrain it with a fixed angle it never needed."""
+        prompt = self._prompt(0, previous=["An ERC-4337 paymaster budget guard"])
+
+        assert "Your Vantage Point" not in prompt
+        assert "clearly different" in prompt
+        assert "ERC-4337 paymaster budget guard" in prompt
+
+    def test_a_caller_without_an_agent_index_is_unaffected(self):
+        prompt = self.protocol.create_divergence_prompt(
+            topic="Wallet UX",
+            context="ctx",
+            agent_personality=PERSONALITY,
+            round_num=1,
+            previous_ideas=[],
+        )
+
+        assert "Your Vantage Point" not in prompt
+
+    def test_more_agents_than_angles_wraps_without_failing(self):
+        assert "Your Vantage Point" in self._prompt(11)

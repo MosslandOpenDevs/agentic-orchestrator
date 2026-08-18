@@ -751,6 +751,20 @@ DB에 들어 있는 텍스트는 대부분 LLM이 쓴 **마크다운**이다. �
   같은 버그를 54줄 아래에서 고쳐놓고 위에는 적용하지 않은 것이다.
   `localizedTitle` 은 두 단계를 한 호출로 합쳐 잊을 두 번째 단계를 없앤다.
 
+> **이미 저장된 값은 별도 백필이다.** 쓰기 쪽 수정은 새 행만 깨끗하게 한다.
+
+```bash
+python -m agentic_orchestrator.scheduler clean-titles            # 무엇이 바뀔지 보고만
+python -m agentic_orchestrator.scheduler clean-titles --apply    # DB 반영
+python -m agentic_orchestrator.scheduler clean-titles --apply --issues  # + 공개 이슈 제목
+```
+>
+> 기본이 dry run 이고 멱등하며(중간에 죽어도 재실행 안전), **필드를 비우지
+> 않는다** — 정리하면 빈 문자열이 되는 제목(마크업만으로 된 제목)은 건드리지
+> 않고 skip 으로 센다. 보이는 `## Idea:` 가 깨끗한 제목보다 나쁘지만 제목 없음
+> 보다는 낫다. `--issues` 를 따로 둔 이유는 이슈 제목 변경이 public 저장소를
+> 향한 바깥 방향 동작이기 때문이다.
+
 > **쓰기 쪽 짝은 `agentic_orchestrator/textutil.py` 의 `clean_title()` 이다.**
 > `stripMarkdown` 은 이미 저장된 값을 화면에서 정리하고, `clean_title` 은
 > 애초에 더러운 값이 DB 에 들어가지 않게 한다. 제목을 쓰는 writer 는 전부 이걸

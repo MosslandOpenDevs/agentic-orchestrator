@@ -17,6 +17,53 @@ from ..timeutil import utcnow
 # opening brace.
 IDEA_SUMMARY_CHARS = 1200
 
+# Vantage points handed out in divergence round 1, one per agent. Orthogonal to
+# the SCAMPER technique assigned by the same index: the technique is a method,
+# this is a subject. Ordered so that the first few are the most different from
+# each other, because a round smaller than this list only uses the head of it.
+DIVERGENCE_ANGLES = (
+    {
+        "name": "end-user experience",
+        "prompt": "Start from a specific person on a specific day. What do they "
+        "actually touch, what breaks, and what would make them tell someone else?",
+    },
+    {
+        "name": "protocol and infrastructure",
+        "prompt": "Start from what has to exist underneath. Which contract, index, "
+        "or standard is missing, and what becomes possible once it exists?",
+    },
+    {
+        "name": "business model and incentives",
+        "prompt": "Start from who pays and who earns. Which flow of value is "
+        "currently leaking, and what keeps this running after the grant ends?",
+    },
+    {
+        "name": "adversarial and security",
+        "prompt": "Start from how this gets abused. Who profits from breaking it, "
+        "and what design removes the payoff rather than patching the exploit?",
+    },
+    {
+        "name": "data and measurement",
+        "prompt": "Start from what nobody can currently measure. What becomes "
+        "knowable, who would change a decision because of it, and how?",
+    },
+    {
+        "name": "ecosystem integration",
+        "prompt": "Start from two things that are separate today and should not be. "
+        "What connects them, and what does the join make possible that neither half does?",
+    },
+    {
+        "name": "operations and cost",
+        "prompt": "Start from what it takes to run this at scale for a year. Where "
+        "does the cost actually go, and what design makes it cheap instead of clever?",
+    },
+    {
+        "name": "the underserved",
+        "prompt": "Start from who is excluded today — by cost, language, device, or "
+        "expertise. What would reach them, and what assumption has to be dropped?",
+    },
+)
+
 # The sections `create_planning_prompt` requires a plan to carry. Kept beside
 # the prompt so that renaming a section renames it in both places at once.
 PLAN_REQUIRED_SECTIONS = (
@@ -515,6 +562,31 @@ Ideas proposed in previous rounds:
 ⚠️ Please present a **clearly different** new perspective from the ideas above.
 - Similar ideas will receive lower scores
 - Try completely new approaches
+"""
+        elif agent_index is not None:
+            # Round 1 has nothing to point at, so BOTH differentiation channels
+            # go quiet at once -- this block and the similarity feedback -- and
+            # all eight agents anchor on the same seed in the background
+            # section. Measured across 54 debates: round 1 titles sit at 0.300
+            # pairwise Jaccard against 0.177/0.178 in rounds 2 and 3
+            # (permutation test p < 0.00005), and 65.8% of round 1 output is
+            # discarded as duplicate after being generated on the paid tier.
+            #
+            # A distinct vantage point per agent costs nothing -- no extra call,
+            # no added latency -- and is orthogonal to the SCAMPER technique
+            # already assigned by index: the technique says *how* to think, this
+            # says *what to look at*. Only round 1 gets it; later rounds already
+            # have the stronger channel above, and round 3 is the most diverse
+            # output a debate produces, so there is nothing there to fix.
+            angle = DIVERGENCE_ANGLES[agent_index % len(DIVERGENCE_ANGLES)]
+            previous_section = f"""
+## Your Vantage Point
+You are the only participant approaching this from **{angle["name"]}**.
+
+{angle["prompt"]}
+
+⚠️ Other participants are covering other angles. Do not write the idea any of
+them would write — write the one only your vantage point makes visible.
 """
 
         return f"""You are an expert with the following characteristics:
