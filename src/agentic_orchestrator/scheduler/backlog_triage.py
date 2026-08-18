@@ -34,6 +34,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from ..scoring.second_pass import UNAVAILABLE
+from ..textutil import clean_title
 from ..timeutil import utcnow
 from ..utils.logging import get_logger
 
@@ -421,8 +422,11 @@ def _promote(idea_repo, plan_repo, idea, score, record: Dict) -> None:
     [Idea] issue links to it by plan id.
     """
     plan_id = str(uuid.uuid4())[:8]
-    title = f"Plan: {(idea.title or '')[:200]}"
-    title_ko = f"Plan: {(idea.title_ko or idea.title or '')[:200]}"
+    # Clean the idea title before the prefix wraps it: an idea title carrying a
+    # heading produced `Plan: ## Mossland ...`, which the frontend's anchored
+    # strip could not match either, so the hashes reached the page.
+    title = f"Plan: {clean_title(idea.title)[:200]}"
+    title_ko = f"Plan: {clean_title(idea.title_ko or idea.title)[:200]}"
     seed = idea.description or idea.summary or ""
     plan_repo.create(
         {

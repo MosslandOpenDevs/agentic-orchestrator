@@ -26,6 +26,7 @@ from ..personas import (
 from ..personas.personalities import (
     CommunicationStyle,
 )
+from ..textutil import clean_title
 from ..timeutil import utcnow
 from .protocol import (
     IDEA_SUMMARY_CHARS,
@@ -1474,7 +1475,11 @@ Return the complete revised plan.
         # which is what produced thousands of malformed '"week1": ...' titles.
         idea_json = self._parse_idea_json(content)
         if idea_json is not None:
-            title = str(idea_json.get("idea_title") or "").strip()
+            # Clean at the boundary. The prompt no longer asks for a `## Idea:`
+            # heading, but models still produce markdown in a JSON string value
+            # often enough that the title must not be trusted raw -- it goes
+            # straight into an `<h3>` and into a GitHub issue title.
+            title = clean_title(idea_json.get("idea_title"))
             if title:
                 # Validate JSON-based idea
                 is_valid, errors = self._validate_idea_content(content)

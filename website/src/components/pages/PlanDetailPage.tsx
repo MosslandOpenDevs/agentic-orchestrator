@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { ApiClient, type ApiPlan } from '@/lib/api';
-import { stripMarkdown } from '@/lib/markdown';
+import { localizedTitle } from '@/lib/markdown';
 import { DetailPageLayout } from '../DetailPageLayout';
 import { PlanDetail } from '../details/PlanDetail';
 
@@ -39,13 +39,8 @@ export function PlanDetailPage({ id }: PlanDetailPageProps) {
     fetchPlan();
   }, [id, locale]);
 
-  const getLocalizedText = (en: string | null | undefined, ko: string | null | undefined): string => {
-    if (locale === 'ko' && ko) return ko;
-    return en || '';
-  };
-
   const title = plan
-    ? stripMarkdown(getLocalizedText(plan.title, plan.title_ko))
+    ? localizedTitle(plan.title, plan.title_ko, locale)
     : (locale === 'ko' ? '플랜 상세' : 'Plan Detail');
 
   return (

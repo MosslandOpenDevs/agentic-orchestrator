@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { ApiClient, type ApiIdea } from '@/lib/api';
+import { localizedTitle } from '@/lib/markdown';
 import { DetailPageLayout } from '../DetailPageLayout';
 import { IdeaDetail } from '../details/IdeaDetail';
 
@@ -38,13 +39,8 @@ export function IdeaDetailPage({ id }: IdeaDetailPageProps) {
     fetchIdea();
   }, [id, locale]);
 
-  const getLocalizedText = (en: string | null | undefined, ko: string | null | undefined): string => {
-    if (locale === 'ko' && ko) return ko;
-    return en || '';
-  };
-
   const title = idea
-    ? getLocalizedText(idea.title, idea.title_ko)
+    ? localizedTitle(idea.title, idea.title_ko, locale)
     : (locale === 'ko' ? '아이디어 상세' : 'Idea Detail');
 
   return (

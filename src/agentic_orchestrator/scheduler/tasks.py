@@ -10,6 +10,7 @@ import sys
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+from ..textutil import clean_issue_title, clean_title
 from ..timeutil import utcnow
 
 # Configure logging
@@ -99,6 +100,22 @@ def _apply_time_decay_to_signals(signals: List, now: datetime = None) -> List:
         )
 
     return signals
+
+
+def _clean_title_pair(english: str, korean: Optional[str]) -> tuple[str, Optional[str]]:
+    """Return both halves of a translated title as plain text.
+
+    The translator is an independent source of leaked markup, separate from the
+    model: 57 ideas had a clean English title and a ``## 아이디어: ...`` Korean
+    one. Cleaning only what the model wrote would leave ``title_ko`` dirty, and
+    ``title_ko`` is what every Korean reader actually sees.
+    """
+    return clean_title(english), (clean_title(korean) or None)
+
+
+async def _ensure_bilingual_title(text: str) -> tuple[str, Optional[str]]:
+    """``_ensure_bilingual`` for a title: plain text on both sides."""
+    return _clean_title_pair(*await _ensure_bilingual(text))
 
 
 async def _ensure_bilingual(text: str) -> tuple[str, Optional[str]]:
@@ -285,7 +302,7 @@ async def _analyze_trends_async():
         for trend in analysis.trends:
             try:
                 # Ensure bilingual content (English main field, Korean *_ko field)
-                name_en, name_ko = await _ensure_bilingual(trend.topic)
+                name_en, name_ko = await _ensure_bilingual_title(trend.topic)
                 desc_en, description_ko = await _ensure_bilingual(trend.summary)
 
                 trend_repo.create(
@@ -566,18 +583,12 @@ def _idea_title_fingerprint(title: str, prefix_tokens: int = 6) -> str:
 
 
 def _clean_issue_title(title: str) -> str:
-    """Strip markdown emphasis from a title before it becomes an issue title.
+    """Strip markdown from a title before it becomes a GitHub issue title.
 
-    GitHub does not render markdown in issue titles, so ``**Foo**`` shows up
-    with the literal asterisks. Titles already only had ``#`` stripped, which
-    is why 27 open issues still read ``[IDEA] **...**``.
+    Delegates to the shared cleaner. Removing ``#`` here but not the word that
+    followed it is how 431 public issues came to read ``[Idea] Idea: ...``.
     """
-    import re
-
-    text = (title or "").replace("#", "")
-    text = re.sub(r"\*{1,3}", "", text)
-    text = re.sub(r"[`_]{1,2}", "", text)
-    return re.sub(r"\s+", " ", text).strip()
+    return clean_issue_title(title)
 
 
 def _render_json_idea(data: dict) -> str:
@@ -1064,7 +1075,9 @@ async def _auto_score_and_save_ideas(
             try:
                 logger.info(f"Processing bilingual translation for idea: {idea_title[:50]}...")
                 # ensure_bilingual returns (english, korean) tuple
-                title_en, title_ko = await translator.ensure_bilingual(idea_title[:500])
+                title_en, title_ko = _clean_title_pair(
+                    *await translator.ensure_bilingual(idea_title[:500])
+                )
                 summary_en, summary_ko = await translator.ensure_bilingual(idea_summary)
                 if idea_content:
                     desc_en, desc_ko = await translator.ensure_bilingual(idea_content)
@@ -1196,10 +1209,10 @@ async def _auto_score_and_save_ideas(
 
                 try:
                     # Translate plan title (bilingual)
-                    plan_title_original = f"Plan: {idea_title[:200]}"
+                    plan_title_original = f"Plan: {clean_title(idea_title)[:200]}"
                     try:
-                        plan_title_en, plan_title_ko = await translator.ensure_bilingual(
-                            plan_title_original
+                        plan_title_en, plan_title_ko = _clean_title_pair(
+                            *await translator.ensure_bilingual(plan_title_original)
                         )
                     except Exception as e:
                         logger.warning(f"Plan title translation failed: {e}")

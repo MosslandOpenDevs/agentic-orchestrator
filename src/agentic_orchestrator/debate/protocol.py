@@ -537,7 +537,7 @@ Use the creativity techniques above to derive novel ideas that differ from exist
 ### Idea Writing Rules (Must Follow)
 
 **Title Rules:**
-- Must start with `## Idea: [Title]` format
+- `idea_title` must be PLAIN TEXT: no markdown, no leading `#`, no `Idea:` prefix
 - Title must be at least 30 characters, specific and descriptive
 - Bad examples: "AI-based Service", "Token Economy Improvement"
 - A good title names the specific technology or protocol used, the concrete mechanism or action, and the target user or asset (pattern: [specific tech/protocol] + [what it does] + [for whom])

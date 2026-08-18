@@ -11,7 +11,7 @@ import { TerminalWindow, TerminalBadge } from '@/components/TerminalWindow';
 import { IdeaComparison } from '@/components/visualization/IdeaComparison';
 import { TrendHeatmap } from '@/components/visualization/TrendHeatmap';
 import { IdeaNetwork } from '@/components/visualization/IdeaNetwork';
-import { stripMarkdown } from '@/lib/markdown';
+import { localizedTitle } from '@/lib/markdown';
 
 // Helper function to extract readable text from JSON idea content
 function getIdeaSummaryText(content: string | null | undefined): string {
@@ -335,11 +335,11 @@ export default function IdeasPage() {
                       {trends.slice(0, 5).map((trend) => (
                         <div
                           key={trend.id}
-                          {...clickableProps(() => openModal('trend', { ...trend, title: getLocalizedText(trend.name, trend.name_ko) }), getLocalizedText(trend.name, trend.name_ko))}
+                          {...clickableProps(() => openModal('trend', { ...trend, title: localizedTitle(trend.name, trend.name_ko, locale) }), localizedTitle(trend.name, trend.name_ko, locale))}
                           className="p-3 rounded bg-black/20 border border-[#21262d] hover:border-[#bd93f9] cursor-pointer transition-colors"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-sm text-[#c0c0c0] truncate">{getLocalizedText(trend.name, trend.name_ko)}</span>
+                            <span className="text-sm text-[#c0c0c0] truncate">{localizedTitle(trend.name, trend.name_ko, locale)}</span>
                             <span className="text-xs text-[#bd93f9]">{trend.score.toFixed(1)}</span>
                           </div>
                           <div className="text-[10px] text-[#8b949e] mt-1">
@@ -364,11 +364,11 @@ export default function IdeasPage() {
                       {ideas.slice(0, 5).map((idea) => (
                         <div
                           key={idea.id}
-                          {...clickableProps(() => openModal('idea', { ...idea, title: getLocalizedText(idea.title, idea.title_ko) }), getLocalizedText(idea.title, idea.title_ko))}
+                          {...clickableProps(() => openModal('idea', { ...idea, title: localizedTitle(idea.title, idea.title_ko, locale) }), localizedTitle(idea.title, idea.title_ko, locale))}
                           className="p-3 rounded bg-black/20 border border-[#21262d] hover:border-[#39ff14] cursor-pointer transition-colors"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-sm text-[#c0c0c0] truncate flex-1">{getLocalizedText(idea.title, idea.title_ko)}</span>
+                            <span className="text-sm text-[#c0c0c0] truncate flex-1">{localizedTitle(idea.title, idea.title_ko, locale)}</span>
                             <span className={`text-xs ml-2 ${statusColors[idea.status] || 'text-[#8b949e]'}`}>
                               {idea.status}
                             </span>
@@ -415,7 +415,7 @@ export default function IdeasPage() {
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.02 }}
-                      {...clickableProps(() => openModal('trend', { ...trend, title: getLocalizedText(trend.name, trend.name_ko) }), getLocalizedText(trend.name, trend.name_ko))}
+                      {...clickableProps(() => openModal('trend', { ...trend, title: localizedTitle(trend.name, trend.name_ko, locale) }), localizedTitle(trend.name, trend.name_ko, locale))}
                       className="p-4 rounded border border-[#21262d] hover:border-[#bd93f9] cursor-pointer transition-colors bg-black/20"
                     >
                       <div className="flex items-start gap-4">
@@ -423,7 +423,7 @@ export default function IdeasPage() {
                           {trend.score.toFixed(1)}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <h3 className="text-sm font-medium text-[#c0c0c0]">{getLocalizedText(trend.name, trend.name_ko)}</h3>
+                          <h3 className="text-sm font-medium text-[#c0c0c0]">{localizedTitle(trend.name, trend.name_ko, locale)}</h3>
                           {(trend.description || trend.description_ko) && (
                             <p className="text-xs text-[#8b949e] mt-1 line-clamp-2">{getLocalizedText(trend.description, trend.description_ko)}</p>
                           )}
@@ -463,7 +463,7 @@ export default function IdeasPage() {
                       ideas={ideas}
                       onSelect={(id) => {
                         const idea = ideas.find(i => i.id === id);
-                        if (idea) openModal('idea', { ...idea, title: getLocalizedText(idea.title, idea.title_ko) });
+                        if (idea) openModal('idea', { ...idea, title: localizedTitle(idea.title, idea.title_ko, locale) });
                       }}
                       maxCompare={3}
                     />
@@ -477,7 +477,7 @@ export default function IdeasPage() {
                       ideas={ideas.slice(0, 20)}
                       onIdeaClick={(id) => {
                         const idea = ideas.find(i => i.id === id);
-                        if (idea) openModal('idea', { ...idea, title: getLocalizedText(idea.title, idea.title_ko) });
+                        if (idea) openModal('idea', { ...idea, title: localizedTitle(idea.title, idea.title_ko, locale) });
                       }}
                       showLabels={true}
                     />
@@ -492,7 +492,7 @@ export default function IdeasPage() {
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.02 }}
-                      {...clickableProps(() => openModal('idea', { ...idea, title: getLocalizedText(idea.title, idea.title_ko) }), getLocalizedText(idea.title, idea.title_ko))}
+                      {...clickableProps(() => openModal('idea', { ...idea, title: localizedTitle(idea.title, idea.title_ko, locale) }), localizedTitle(idea.title, idea.title_ko, locale))}
                       className="p-4 rounded border border-[#21262d] hover:border-[#39ff14] cursor-pointer transition-colors bg-black/20"
                     >
                       <div className="flex items-start gap-4">
@@ -504,7 +504,7 @@ export default function IdeasPage() {
                             <TerminalBadge variant="green">{idea.status}</TerminalBadge>
                             <TerminalBadge variant="cyan">{idea.source_type}</TerminalBadge>
                           </div>
-                          <h3 className="text-sm font-medium text-[#c0c0c0]">{getLocalizedText(idea.title, idea.title_ko)}</h3>
+                          <h3 className="text-sm font-medium text-[#c0c0c0]">{localizedTitle(idea.title, idea.title_ko, locale)}</h3>
                           <p className="text-xs text-[#8b949e] mt-1 line-clamp-2">{getIdeaSummaryText(getLocalizedText(idea.summary, idea.summary_ko))}</p>
                           {idea.created_at && (
                             <div className="text-[10px] text-[#8b949e] mt-2">
@@ -544,7 +544,7 @@ export default function IdeasPage() {
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.02 }}
-                      {...clickableProps(() => openModal('plan', { ...plan, title: stripMarkdown(getLocalizedText(plan.title, plan.title_ko)) }), stripMarkdown(getLocalizedText(plan.title, plan.title_ko)))}
+                      {...clickableProps(() => openModal('plan', { ...plan, title: localizedTitle(plan.title, plan.title_ko, locale) }), localizedTitle(plan.title, plan.title_ko, locale))}
                       className="p-4 rounded border border-[#21262d] hover:border-[#ff6b35] cursor-pointer transition-colors bg-black/20"
                     >
                       <div className="flex items-center gap-4">
@@ -557,8 +557,7 @@ export default function IdeasPage() {
                               {plan.status}
                             </TerminalBadge>
                           </div>
-                          {/* stripMarkdown: title_ko often arrives as `## 계획: ...`. */}
-                          <h3 className="text-sm font-medium text-[#c0c0c0]">{stripMarkdown(getLocalizedText(plan.title, plan.title_ko))}</h3>
+                                                    <h3 className="text-sm font-medium text-[#c0c0c0]">{localizedTitle(plan.title, plan.title_ko, locale)}</h3>
                           {plan.created_at && (
                             <div className="text-[10px] text-[#8b949e] mt-1">
                               {formatLocalDateTime(plan.created_at, locale)}
