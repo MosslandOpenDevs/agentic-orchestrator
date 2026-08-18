@@ -271,8 +271,17 @@ async def _analyze_trends_async():
         logger.info("Analyzing 24h trends...")
         analysis = await analyzer.analyze_trends(feed_items, "24h", max_trends=10)
 
-        # Save trends to database with bilingual content
+        # Save trends to database with bilingual content.
+        #
+        # One timestamp for the whole batch, not utcnow() per row. `analysis.trends`
+        # arrives score-descending and each `_ensure_bilingual` pair costs a couple
+        # of seconds, so a per-row stamp handed the *highest*-scoring trend the
+        # *oldest* `analyzed_at`. `TrendRepository.get_latest` orders by
+        # (analyzed_at DESC, score DESC), and with every stamp distinct the score
+        # tiebreak was unreachable — so consumers read the batch in reverse quality
+        # order and the debate opened on the worst trend of the batch, every time.
         saved_count = 0
+        analyzed_at = utcnow()
         for trend in analysis.trends:
             try:
                 # Ensure bilingual content (English main field, Korean *_ko field)
@@ -297,7 +306,7 @@ async def _analyze_trends_async():
                             "sources": trend.sources,
                             "sample_headlines": trend.sample_headlines,
                         },
-                        "analyzed_at": utcnow(),
+                        "analyzed_at": analyzed_at,
                     }
                 )
                 saved_count += 1
@@ -1457,6 +1466,22 @@ async def _auto_generate_project(
         return False
 
 
+def _select_debate_trend(trends):
+    """Pick the trend a debate should open on: the highest-scoring one.
+
+    Taking ``trends[0]`` looked equivalent, because `get_latest` sorts by
+    (analyzed_at DESC, score DESC) and the writer emits trends score-descending.
+    It was not: the writer used to stamp `analyzed_at` per row, which made every
+    stamp distinct, left the score tiebreak unreachable, and inverted the batch —
+    so the debate opened on the *lowest*-scoring trend of the batch every time.
+
+    The writer now stamps one timestamp per batch, but rows written before that
+    keep their drifted stamps, so state the intent here instead of trusting the
+    ordering to express it.
+    """
+    return max(trends, key=lambda t: t.score or 0.0, default=None)
+
+
 def _generate_debate_topic_from_trend(trend) -> tuple[str, str]:
     """Generate debate topic and context from a trend.
 
@@ -1595,8 +1620,7 @@ async def _run_debate_async(topic: Optional[str] = None):
             recent_trends = trend_repo.get_latest(period="24h", limit=5)
 
             if recent_trends:
-                # Use the top trend
-                top_trend = recent_trends[0]
+                top_trend = _select_debate_trend(recent_trends)
                 topic, trend_context = _generate_debate_topic_from_trend(top_trend)
                 logger.info(f"Using trend-based topic: {topic}")
             else:
