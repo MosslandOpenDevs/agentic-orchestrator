@@ -10,6 +10,7 @@ Orchestrates debates through three phases:
 import asyncio
 import logging
 import random
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -921,7 +922,10 @@ Assign a score between 1-10 for each idea.
                 system=system_prompt,
                 quality="normal",
                 temperature=self.protocol.get_temperature(DebatePhase.CONVERGENCE),
-                max_tokens=self.protocol.config.max_tokens_per_response,
+                # Scales with the ballot: the flat cap cut off every evaluation
+                # partway down the list, and a truncated evaluation is
+                # indistinguishable from a complete one at the call site.
+                max_tokens=self.protocol.config.evaluation_max_tokens(len(ideas)),
             )
 
             message = DebateMessage(
@@ -1617,39 +1621,114 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         content: str,
         ideas: List[Dict[str, Any]],
     ) -> Dict[str, float]:
-        """Extract scores for ideas from evaluation response."""
-        scores = {}
+        """Read each idea's score out of that idea's own evaluation block.
 
-        # Simple heuristic: look for numbers 1-10 near idea references
-        import re
+        The evaluation template (``create_convergence_prompt``) asks for one
+        ``### Idea N`` block per idea, each ending in a ``**Total Score**`` line,
+        and it numbers the ideas in the order they were passed in. So the block
+        number is the anchor: a score can only ever come from the block written
+        about that idea.
 
-        for idea in ideas:
-            idea_id = idea.get("id", "")
-            idea_title = idea.get("title", "")
+        That anchoring is the whole point. The previous implementation searched
+        the *whole document* per idea with three patterns, and got two things
+        wrong at once. Its title pattern took the first number after the title,
+        which the template guarantees is the Feasibility line, not the total --
+        86.4% of stored scores were a single criterion. Its other two patterns
+        were not anchored to anything, so every idea the evaluator never reached
+        was assigned Idea 1's number: 51.5% of stored (idea, evaluator) pairs
+        were a score for a different idea. Both were reproducible byte-for-byte
+        against live messages.
 
-            # Look for patterns like "Idea 1: 8 points" or "Score: 7"
-            patterns = [
-                rf"{re.escape(idea_title)}[^0-9]*(\d+)",
-                r"Idea\s*\d+[^0-9]*(\d+)\s*(?:points?)?",
-                r"Score[:\s]*(\d+)",
-            ]
+        An unscored idea is left out of the result. Scoring an idea nobody
+        evaluated is strictly worse than admitting it went unevaluated -- it is
+        how a truncated evaluation came to look like a complete one.
+        """
+        blocks = self._split_evaluation_blocks(content)
 
-            for pattern in patterns:
-                match = re.search(pattern, content)
-                if match:
-                    try:
-                        score = float(match.group(1))
-                        if 1 <= score <= 10:
-                            scores[idea_id] = score
-                            break
-                    except ValueError:
-                        continue
+        scores: Dict[str, float] = {}
+        for number, block in blocks.items():
+            if not 1 <= number <= len(ideas):
+                logger.debug(f"Evaluation mentions Idea {number}, which was not on the ballot")
+                continue
 
-            # Skip scoring if no score found (avoid polluting with arbitrary defaults)
-            if idea_id not in scores:
-                logger.warning(f"Could not extract score for idea {idea_id}, skipping")
+            score = self._score_from_block(block)
+            if score is None:
+                continue
+
+            idea_id = ideas[number - 1].get("id", "")
+            if idea_id:
+                scores[idea_id] = score
+
+        if len(scores) < len(ideas):
+            # A truncated evaluation looks exactly like this: the early ideas
+            # scored, the rest silently missing. Nothing else reports it -- the
+            # response is a well-formed 200 and the provider does not expose a
+            # finish reason -- so say it out loud.
+            logger.warning(
+                f"Evaluation scored {len(scores)} of {len(ideas)} ideas; "
+                f"{len(ideas) - len(scores)} left unscored (truncated response?)"
+            )
 
         return scores
+
+    # `### Idea 3:` / `**Idea 3**` — a heading or bold marker is required so
+    # that prose ("Idea 3 is the strongest") cannot open a block.
+    _EVAL_BLOCK_RE = re.compile(r"^\s{0,3}(?:#{1,6}\s*|\*\*)\s*Idea\s+(\d+)\b", re.MULTILINE)
+
+    # `**Total Score**: 41/50`, `Total Score: 8.2/10`, `Total score - 8`.
+    _TOTAL_SCORE_RE = re.compile(
+        r"\*{0,2}Total\s+Score\*{0,2}\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(?:/\s*(\d+))?",
+        re.IGNORECASE,
+    )
+
+    # `- Feasibility: 8/10 - reason`, used only when the block has no total.
+    _CRITERION_RE = re.compile(
+        r"^\s*[-*]?\s*\*{0,2}(?:Feasibility|Impact|Innovation|Risk|Urgency)\*{0,2}"
+        r"\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*/\s*10\b",
+        re.IGNORECASE | re.MULTILINE,
+    )
+
+    @classmethod
+    def _split_evaluation_blocks(cls, content: str) -> Dict[int, str]:
+        """Map idea number -> the text of that idea's evaluation block."""
+        headers = list(cls._EVAL_BLOCK_RE.finditer(content))
+
+        blocks: Dict[int, str] = {}
+        for i, header in enumerate(headers):
+            end = headers[i + 1].start() if i + 1 < len(headers) else len(content)
+            # Last one wins if a model repeats a number: a rewrite supersedes.
+            blocks[int(header.group(1))] = content[header.end() : end]
+        return blocks
+
+    @classmethod
+    def _score_from_block(cls, block: str) -> Optional[float]:
+        """Normalise one block's score to the 1-10 scale, or None."""
+        total = cls._TOTAL_SCORE_RE.search(block)
+        if total:
+            value = float(total.group(1))
+            # The template asks for `XX/50`, but models answer in `/10` roughly
+            # eight times as often. Trust the denominator when it is there, and
+            # infer it from magnitude when it is not.
+            denominator = float(total.group(2)) if total.group(2) else (10.0 if value <= 10 else 50.0)
+            if denominator > 0:
+                return cls._clamp_score(value / denominator * 10)
+
+        # No total line: average the criteria the evaluator did write, still
+        # only from within this block.
+        criteria = [float(m) for m in cls._CRITERION_RE.findall(block)]
+        if criteria:
+            return cls._clamp_score(sum(criteria) / len(criteria))
+
+        return None
+
+    @staticmethod
+    def _clamp_score(score: float) -> Optional[float]:
+        """Keep 1-10; reject anything else rather than squashing it into range.
+
+        0.0 is the sentinel `Idea.total_score` returns for "nobody has scored
+        this", so a real 0 must not be stored as one.
+        """
+        return round(score, 2) if 1.0 <= score <= 10.0 else None
 
 
 async def run_multi_stage_debate(

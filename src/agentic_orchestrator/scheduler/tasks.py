@@ -8,7 +8,7 @@ import asyncio
 import logging
 import sys
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from ..timeutil import utcnow
 
@@ -1514,6 +1514,46 @@ def _generate_debate_topic_from_trend(trend) -> tuple[str, str]:
     return topic, context
 
 
+def _debate_config_from_dict(debate_config: Dict[str, Any]):
+    """Build a ``DebateProtocolConfig`` from the ``debate:`` block of config.yaml.
+
+    Split out from the file read so the mapping itself is testable. It needed to
+    be: ``max_tokens_per_response`` existed on the dataclass and was used on
+    every call, but nothing here ever read it, so the flat 2000-token cap was
+    unreachable from config while every convergence evaluation ran into it.
+    """
+    from ..debate.protocol import DebateProtocolConfig
+
+    test_mode = debate_config.get("test_mode", False)
+    if test_mode:
+        logger.info("Using TEST MODE debate configuration (reduced agents)")
+        settings = debate_config.get("test") or {}
+    else:
+        logger.info("Using NORMAL debate configuration")
+        settings = debate_config.get("normal") or {}
+
+    defaults = DebateProtocolConfig()
+
+    def tunable(name: str, fallback):
+        """Per-mode value, else the shared `debate:` value, else the default."""
+        return settings.get(name, debate_config.get(name, fallback))
+
+    return DebateProtocolConfig(
+        divergence_rounds=settings.get("divergence_rounds", 3),
+        divergence_agents_per_round=settings.get("divergence_agents_per_round", 8),
+        convergence_rounds=settings.get("convergence_rounds", 2),
+        convergence_agents_per_round=settings.get("convergence_agents_per_round", 4),
+        planning_rounds=settings.get("planning_rounds", 2),
+        planning_agents_per_round=settings.get("planning_agents_per_round", 5),
+        max_tokens_per_response=tunable(
+            "max_tokens_per_response", defaults.max_tokens_per_response
+        ),
+        evaluation_tokens_per_idea=tunable(
+            "evaluation_tokens_per_idea", defaults.evaluation_tokens_per_idea
+        ),
+    )
+
+
 def _load_debate_config():
     """Load debate configuration from config.yaml."""
     from pathlib import Path
@@ -1525,25 +1565,8 @@ def _load_debate_config():
     config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
     try:
         with open(config_path) as f:
-            config = yaml.safe_load(f)
-            debate_config = config.get("debate", {})
-            test_mode = debate_config.get("test_mode", False)
-
-            if test_mode:
-                logger.info("Using TEST MODE debate configuration (reduced agents)")
-                settings = debate_config.get("test", {})
-            else:
-                logger.info("Using NORMAL debate configuration")
-                settings = debate_config.get("normal", {})
-
-            return DebateProtocolConfig(
-                divergence_rounds=settings.get("divergence_rounds", 3),
-                divergence_agents_per_round=settings.get("divergence_agents_per_round", 8),
-                convergence_rounds=settings.get("convergence_rounds", 2),
-                convergence_agents_per_round=settings.get("convergence_agents_per_round", 4),
-                planning_rounds=settings.get("planning_rounds", 2),
-                planning_agents_per_round=settings.get("planning_agents_per_round", 5),
-            )
+            config = yaml.safe_load(f) or {}
+        return _debate_config_from_dict(config.get("debate") or {})
     except Exception as e:
         logger.warning(f"Failed to load debate config, using defaults: {e}")
         return DebateProtocolConfig()

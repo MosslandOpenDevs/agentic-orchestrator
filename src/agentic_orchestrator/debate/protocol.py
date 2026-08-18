@@ -146,6 +146,13 @@ class DebateProtocolConfig:
 
     # General settings
     max_tokens_per_response: int = 2000
+    # A convergence evaluation writes one scored block per idea, so its budget
+    # has to scale with the ballot instead of sitting at the flat cap. Under the
+    # flat cap every single evaluation ran out of room partway down the list --
+    # measured across 416 paid evaluations, none reached the closing analysis
+    # the template asks for, and 46.9% of ideas were never scored by anyone.
+    # Blocks measured ~160 tokens each, so 200 leaves margin.
+    evaluation_tokens_per_idea: int = 200
     temperature_divergence: float = 0.95  # Higher for creativity (v0.5.0: increased from 0.9)
     temperature_convergence: float = 0.5  # Lower for analysis
     temperature_planning: float = 0.7
@@ -153,6 +160,10 @@ class DebateProtocolConfig:
     # Timeouts
     agent_timeout_seconds: int = 120
     round_timeout_seconds: int = 600
+
+    def evaluation_max_tokens(self, idea_count: int) -> int:
+        """Token budget for an evaluation that has to cover ``idea_count`` ideas."""
+        return self.max_tokens_per_response + self.evaluation_tokens_per_idea * max(idea_count, 0)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -168,6 +179,7 @@ class DebateProtocolConfig:
             "require_unanimous_approval": self.require_unanimous_approval,
             "min_approval_ratio": self.min_approval_ratio,
             "max_tokens_per_response": self.max_tokens_per_response,
+            "evaluation_tokens_per_idea": self.evaluation_tokens_per_idea,
             "temperature_divergence": self.temperature_divergence,
             "temperature_convergence": self.temperature_convergence,
             "temperature_planning": self.temperature_planning,

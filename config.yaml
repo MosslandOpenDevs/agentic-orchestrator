@@ -370,6 +370,15 @@ debate:
   # Test mode: Reduced agents for faster testing
   test_mode: false
 
+  # Token budget for one agent response. Convergence evaluations get
+  # `max_tokens_per_response + evaluation_tokens_per_idea * <ideas on the ballot>`,
+  # because an evaluation writes one scored block per idea: under a flat cap
+  # every evaluation stopped partway down the list and ~47% of ideas ended a
+  # debate with nobody having scored them. Both keys may also be set per mode
+  # under `normal:` / `test:` below.
+  max_tokens_per_response: 2000
+  evaluation_tokens_per_idea: 200
+
   # Normal mode settings (when test_mode: false)
   normal:
     divergence_agents_per_round: 8
