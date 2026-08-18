@@ -54,6 +54,15 @@ SignalMap
 - **상세 기획안 필수 섹션**: 프로젝트 개요, 기술 아키텍처, 실행 계획, 리스크, KPI
 - **자동 점수화**: score ≥ 7.0 → 플랜 자동 생성, score < 4.0 → 아카이브
 
+> **점수는 두 종류이고 서로 다른 것이다.** 위의 5차원 가중치는 **convergence
+> 평가 프롬프트**가 토론 에이전트에게 요구하는 기준이고(`debate/protocol.py`),
+> 이 점수는 planning 단계에 올릴 top-5 를 고르는 데만 쓴다. `ideas.score` 컬럼과
+> promote/archive 판정을 움직이는 것은 전혀 다른 `scoring/__init__.py`의
+> `IdeaScore.total` — **4차원 비가중 평균**이며 urgency 차원 자체가 없다.
+> 둘 다 10점 만점 숫자라 혼동하기 쉽다. 실측상 후자는 변별력이 거의 없어
+> (아이디어 683개에서 distinct 9개, 3개월간 6.0 미만 0건) v0.6.24부터 유료
+> second-pass reviewer 가 실질 게이트다.
+
 ## 프로젝트 구조
 
 ```
@@ -473,6 +482,24 @@ pm2 save
 
 - **예상 시간**: ~30분+
 - Planning은 단일 GPU Ollama 타임아웃 방지를 위해 라운드당 5→3으로 하향
+- Planning 라운드 2 이후에는 리뷰 의견을 draft 에 되먹이는 **revision 호출이
+  라운드당 1회** 추가된다 (리뷰가 전부 "[Needs Revision]" 인데 계획서는 그대로
+  나가던 문제). 즉 debate 1회의 LLM 호출은 38 + revision 수다
+
+**토큰 예산** (`config.yaml`의 `debate.max_tokens_per_response` /
+`evaluation_tokens_per_idea`, 최상위 또는 모드별):
+
+| 호출 | 예산 |
+|------|------|
+| divergence / plan review | `max_tokens_per_response` (기본 2000) |
+| planning draft / revision | `× 2` |
+| **convergence 평가** | `max_tokens_per_response + evaluation_tokens_per_idea × ballot 크기` |
+
+> convergence 만 ballot 에 비례하는 이유: 평가는 아이디어 하나당 채점 블록을
+> 하나씩 쓰므로 고정 상한이면 반드시 잘린다. 실제로 유료 평가 416건이 **전부**
+> 잘렸고(길이 변동계수 0.031 — 하드 캡의 서명), 아이디어의 46.9%를 아무도
+> 채점하지 않았다. 응답은 정상 200 이고 provider 가 `finish_reason` 을 노출하지
+> 않으므로, 채점 수가 ballot 보다 적을 때 남기는 WARNING 이 유일한 신호다.
 
 > **풀 정원 vs 라운드당 참여 인원은 서로 다른 숫자다.**
 > 정원(16/8/10)은 `personas/catalog.py`의 `DIVERGENCE_AGENTS`/`CONVERGENCE_AGENTS`/
@@ -713,13 +740,26 @@ DB에 들어 있는 텍스트는 대부분 LLM이 쓴 **마크다운**이다. �
 | 상황 | 함수 | 비고 |
 |------|------|------|
 | 본문 — 요약·플랜·토론 메시지 | `<MarkdownContent content={...} />` | `renderMarkdown` + `dangerouslySetInnerHTML`. **`marked.parse()`를 직접 쓰지 말 것** (sanitize 안 함 — stored XSS 이력) |
-| 제목 — `<h3>` 등 문자열을 그대로 넣는 자리 | `stripMarkdown(...)` | 평문 반환, JSX 텍스트 노드용 |
+| 제목 — `<h3>` 등 문자열을 그대로 넣는 자리 | `localizedTitle(en, ko, locale)` | 언어 선택 + 평문화를 한 번에. 제목 자리에서는 이것만 쓸 것 |
+| 제목 (locale 이 이미 정해진 자리) | `stripMarkdown(...)` | `localizedTitle` 의 하위 함수 |
 
 - 그냥 `{idea.summary}`로 넣으면 `- **핵심 분석**:` 이 별표째 보이고 줄바꿈이
   뭉개진다.
-- 제목도 안전하지 않다: 번역기가 헤딩 마커를 남겨 `plan.title_ko`가
-  `## 계획: …`으로 들어오는 실제 사례가 있다 (`<h3>`가 `##`까지 그린다).
-  `getLocalizedText(...)` 결과를 그대로 쓰지 말고 `stripMarkdown()`으로 감쌀 것.
+- **제목에 `getLocalizedText(...)` 를 직접 쓰지 말 것.** 예전에는 언어 선택과
+  `stripMarkdown` 이 별개 단계라 둘을 같이 기억해야 했고, 실제로 따로 기억됐다 —
+  `ideas/page.tsx` 는 plan 제목(561줄)만 감싸고 idea 제목(507줄)은 안 감쌌다.
+  같은 버그를 54줄 아래에서 고쳐놓고 위에는 적용하지 않은 것이다.
+  `localizedTitle` 은 두 단계를 한 호출로 합쳐 잊을 두 번째 단계를 없앤다.
+
+> **쓰기 쪽 짝은 `agentic_orchestrator/textutil.py` 의 `clean_title()` 이다.**
+> `stripMarkdown` 은 이미 저장된 값을 화면에서 정리하고, `clean_title` 은
+> 애초에 더러운 값이 DB 에 들어가지 않게 한다. 제목을 쓰는 writer 는 전부 이걸
+> 거쳐야 한다 — 소스가 하나가 아니기 때문이다: 모델(프롬프트), translator
+> (영어는 깨끗한데 한글만 오염되는 경우 57건), 그리고 정리 없는 f-string.
+> GitHub 이슈 제목은 `clean_issue_title()` (GitHub 은 제목에 마크다운을 렌더하지
+> 않으므로 문자열 *안쪽* 강조까지 제거).
+> `Plan:` · `계획:` 접두사는 **남긴다** — 플랜을 원본 아이디어와 구별하려고
+> 파이프라인이 의도적으로 붙이는 것이다.
 
 ## 자주 발생하는 문제와 해결책
 
@@ -899,6 +939,19 @@ Signals (30분) → Trends (2시간) → Debate (6시간) → Ideas → Auto-Sco
 - **score 7.0-8.0**: `promoted` → 플랜 자동 생성 (프로젝트는 수동 버튼)
 - **score 4.0-7.0**: `scored` → 백로그 대기 → **트리아지가 재평가** (아래)
 - **score < 4.0**: `archived` → 아카이브 (**GitHub 이슈 생성 안 함**, v0.6.15)
+
+> **로컬 점수는 제안이고 판정은 second-pass reviewer 가 한다.** 위 임계값을
+> 넘겨도 유료 reviewer 가 CONFIRM 을 주지 않으면 승격되지 않는다. 이 게이트는
+> 조용히 실패할 수 있다 — 2026-08-06~18에 confirm rate 가 정확히 0% 로 12일간
+> 유지되면서 승격·플랜 생성이 완전히 멈췄는데, verdict 를 읽는 코드가 없어서
+> `/status` 는 내내 `operational` 이었다. **전부 거부하는 게이트와 그냥 엄격한
+> 게이트는 집계 없이는 구별되지 않는다.**
+>
+> 그래서 `GET /usage`에 `promotion_review` 가 있다 — 최근 verdict 집계와
+> confirm rate, 그리고 `status`(`healthy` / `no_confirmations` /
+> `insufficient_data`). **프롬프트나 임계값을 만지기 전에 여기부터 볼 것.**
+> `unavailable`(= reviewer 에 못 닿음)은 verdict 가 아니므로 confirm rate 에서
+> 제외된다 — 포함하면 프로바이더 장애가 "거부하는 게이트"로 보고된다.
 
 ### 백로그 트리아지 — 생산·소비 균형 (v0.6.16)
 
