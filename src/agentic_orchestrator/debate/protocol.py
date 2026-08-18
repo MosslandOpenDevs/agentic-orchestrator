@@ -11,6 +11,12 @@ from typing import Any, Dict, List, Optional
 
 from ..timeutil import utcnow
 
+# How much of each idea the planning prompt shows when it lists the selected
+# ideas. Ideas run ~4,500 characters, so the whole set will not fit; the old
+# limit of 200 was small enough that a JSON idea contributed nothing but its
+# opening brace.
+IDEA_SUMMARY_CHARS = 1200
+
 
 class DebatePhase(Enum):
     """Debate phase types."""
@@ -573,11 +579,18 @@ This is Round {round_num} statement.
 
         ideas_section = ""
         for i, idea in enumerate(ideas, 1):
+            # These dicts come from ``Idea.to_dict()``, which emits 'agent_name'
+            # and 'total_score'. Reading 'agent'/'score' -- keys that never
+            # existed -- rendered every evaluation prompt as
+            # "Proposer: Unknown / Score: N/A", so the second convergence round
+            # re-scored the ideas blind to what the first round had decided.
+            score = idea.get("total_score") or 0.0
+            score_text = f"{score:.1f}/10" if score > 0 else "not yet scored"
             ideas_section += f"""
-### Idea {i}: {idea.get('title', 'Untitled')}
-Proposer: {idea.get('agent', 'Unknown')}
-Content: {idea.get('content', '')}
-Score: {idea.get('score', 'N/A')}
+### Idea {i}: {idea.get("title", "Untitled")}
+Proposer: {idea.get("agent_name", "Unknown")}
+Content: {idea.get("content", "")}
+Score: {score_text}
 """
 
         return f"""You are an evaluation expert with the following characteristics:
@@ -668,7 +681,8 @@ This is Round {round_num} evaluation. Please evaluate novelty as the most import
         personality_desc = "\n".join(f"- {k}: {v}" for k, v in agent_personality.items())
 
         ideas_section = "\n".join(
-            f"- {idea.get('title', 'Untitled')}: {idea.get('summary', idea.get('content', '')[:200])}"
+            f"- {idea.get('title', 'Untitled')}: "
+            f"{(idea.get('summary') or idea.get('content', ''))[:IDEA_SUMMARY_CHARS]}"
             for idea in selected_ideas
         )
 
@@ -803,8 +817,10 @@ This is Round {round_num} planning.
                     selected = result.output.get("selected_ideas", [])
                     summary_parts.append(f"### Selected Ideas: {len(selected)}")
                     for idea in selected:
+                        score = idea.get("total_score") or 0.0
+                        score_text = f"{score:.1f}/10" if score > 0 else "unscored"
                         summary_parts.append(
-                            f"- {idea.get('title', 'Untitled')} (Score: {idea.get('score', 'N/A')})"
+                            f"- {idea.get('title', 'Untitled')} (Score: {score_text})"
                         )
 
                 elif result.phase == DebatePhase.PLANNING:

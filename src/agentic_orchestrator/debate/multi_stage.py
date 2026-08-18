@@ -27,6 +27,7 @@ from ..personas.personalities import (
 )
 from ..timeutil import utcnow
 from .protocol import (
+    IDEA_SUMMARY_CHARS,
     DebateMessage,
     DebatePhase,
     DebateProtocol,
@@ -49,6 +50,10 @@ class Idea:
     agent_id: str
     agent_name: str
     round_num: int
+    # Prose gist, for prompts that list many ideas at once. ``content`` is the
+    # raw model response -- a fenced JSON blob for most ideas -- so slicing it
+    # to fit a list yields an opening brace and half a title, not a summary.
+    summary: str = ""
     scores: Dict[str, float] = field(default_factory=dict)
     merged_from: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -60,10 +65,16 @@ class Idea:
         return sum(self.scores.values()) / len(self.scores)
 
     def to_dict(self) -> Dict[str, Any]:
+        # Every key a prompt builder reads must appear here. Prompts used to ask
+        # for 'agent', 'score' and 'summary' -- none of which were ever emitted --
+        # so evaluations rendered "Proposer: Unknown / Score: N/A" and the
+        # planning phase wrote its plan from ``content[:200]``.
+        # ``tests/test_debate_quality.py`` pins the two sides together.
         return {
             "id": self.id,
             "title": self.title,
             "content": self.content,
+            "summary": self.summary,
             "agent_id": self.agent_id,
             "agent_name": self.agent_name,
             "round_num": self.round_num,
@@ -1283,6 +1294,25 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         return None
 
     @staticmethod
+    def _summarize_idea_json(idea_json: Dict[str, Any]) -> str:
+        """Prose gist of a JSON idea, for prompts that list several ideas.
+
+        The planning prompt asks each idea for a ``summary``. Nothing ever
+        supplied one, so it fell back to ``content[:200]`` -- on a JSON idea
+        that is the opening brace and part of ``idea_title``, which is what the
+        planning agents were actually given to write the final plan from.
+        """
+        parts = [str(idea_json.get("core_analysis") or "").strip()]
+
+        proposal = idea_json.get("proposal")
+        if isinstance(proposal, dict):
+            parts.append(str(proposal.get("description") or "").strip())
+        elif isinstance(proposal, str):
+            parts.append(proposal.strip())
+
+        return " ".join(part for part in parts if part)[:IDEA_SUMMARY_CHARS]
+
+    @staticmethod
     def _is_json_noise_line(line: str) -> bool:
         """True for lines that are raw JSON structure (keys, braces, brackets).
 
@@ -1357,6 +1387,7 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
                         id=f"idea-{self.session_id}-{round_num}-{agent.id}",
                         title=title[:200],
                         content=content,
+                        summary=self._summarize_idea_json(idea_json),
                         agent_id=agent.id,
                         agent_name=agent.name,
                         round_num=round_num,
