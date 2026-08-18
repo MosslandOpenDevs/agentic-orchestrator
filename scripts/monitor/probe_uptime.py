@@ -245,7 +245,7 @@ def _human_duration(seconds: float) -> str:
 
 
 def apply_sample(state: ProbeState, sample: Sample, target: str, webhook: str,
-                 log_path: Optional[Path] = None) -> None:
+                 log_path: Optional[Path] = None, label: str = "AO") -> None:
     observed = "up" if sample.ok else "down"
     ts = sample.ts.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -270,7 +270,7 @@ def apply_sample(state: ProbeState, sample: Sample, target: str, webhook: str,
         state.outages += 1
         notify_discord(
             webhook,
-            "🔴 AO 앱 서버 DOWN",
+            f"🔴 {label} 앱 서버 DOWN",
             f"`{target}` 에 연속 {threshold}회 도달 실패",
             COLOR_DOWN,
             [
@@ -287,7 +287,7 @@ def apply_sample(state: ProbeState, sample: Sample, target: str, webhook: str,
             up = datetime.strptime(recovered_at, "%Y-%m-%dT%H:%M:%SZ")
             notify_discord(
                 webhook,
-                "🟢 AO 앱 서버 복구",
+                f"🟢 {label} 앱 서버 복구",
                 f"`{target}` 정상 응답",
                 COLOR_UP,
                 [
@@ -334,6 +334,12 @@ def main(argv: Optional[list] = None) -> int:
               file=sys.stderr)
         return 2
     timeout = float(cfg.get("AO_MONITOR_TIMEOUT", DEFAULT_TIMEOUT))
+    # Which service this instance watches. One script now backs several
+    # instances (--dir), and a hardcoded name puts "AO" on an alpha
+    # outage in the alpha channel — the reader has to know which cron
+    # wrote it to tell what is down. Defaults to AO, so an existing
+    # config.env keeps its current behaviour untouched.
+    label = cfg.get("AO_MONITOR_LABEL", "AO")
     webhook = cfg.get("AO_MONITOR_DISCORD_WEBHOOK", "")
     notify_log = data_dir / "notify.log"
 
@@ -343,7 +349,7 @@ def main(argv: Optional[list] = None) -> int:
             return 2
         ok = notify_discord(
             webhook,
-            "🔵 AO 모니터 테스트",
+            f"🔵 {label} 모니터 테스트",
             "웹훅이 정상 연결되었습니다. 실제 알림은 상태가 바뀔 때만 옵니다.",
             COLOR_INFO,
             [{"name": "감시 대상", "value": f"`{target}`", "inline": False}],
@@ -370,7 +376,7 @@ def main(argv: Optional[list] = None) -> int:
             time.sleep(args.interval)
         sample = probe(target, timeout)
         append_sample(data_dir, sample)
-        apply_sample(state, sample, target, webhook, notify_log)
+        apply_sample(state, sample, target, webhook, notify_log, label)
 
     state.save(state_path)
     return 0
