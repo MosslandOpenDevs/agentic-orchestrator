@@ -178,6 +178,17 @@ def load_config(path: Path) -> dict:
             continue
         key, _, value = line.partition("=")
         cfg[key.strip()] = value.strip().strip("'\"")
+    # Historical prefix. These keys were AO_MONITOR_* when this tool watched
+    # only ao.moss.land; it now backs one instance per service (--dir), and a
+    # per-service config.env reading MONITOR_TARGET invites exactly the
+    # misreading it sounds like. Old files keep working: updating the script
+    # must not require editing every box's config by hand.
+    #
+    # Applied after the whole file is parsed, not inline, so an explicit
+    # MONITOR_* always wins over an AO_MONITOR_* regardless of line order.
+    for key, value in list(cfg.items()):
+        if key.startswith("AO_MONITOR_"):
+            cfg.setdefault("MONITOR_" + key[len("AO_MONITOR_"):], value)
     return cfg
 
 
@@ -195,15 +206,15 @@ def main(argv: Optional[list] = None) -> int:
     data_dir.mkdir(parents=True, exist_ok=True)
 
     cfg = load_config(base / "config.env")
-    gateway = cfg.get("AO_MONITOR_GATEWAY") or detect_gateway()
-    internet_ip = cfg.get("AO_MONITOR_INTERNET_IP", DEFAULT_INTERNET_IP)
-    dns_name = cfg.get("AO_MONITOR_DNS_NAME", DEFAULT_DNS_NAME)
-    peer = cfg.get("AO_MONITOR_TS_PEER", "")
+    gateway = cfg.get("MONITOR_GATEWAY") or detect_gateway()
+    internet_ip = cfg.get("MONITOR_INTERNET_IP", DEFAULT_INTERNET_IP)
+    dns_name = cfg.get("MONITOR_DNS_NAME", DEFAULT_DNS_NAME)
+    peer = cfg.get("MONITOR_TS_PEER", "")
     if not peer:
         # Refuse rather than record: an unset peer would log tspeer as failed
         # on every sample, and the report would then blame the tunnel for
         # every outage.
-        print("AO_MONITOR_TS_PEER is not set in config.env "
+        print("MONITOR_TS_PEER is not set in config.env "
               "(real addresses live in CLAUDE.local.md, not in this repo)",
               file=sys.stderr)
         return 2
