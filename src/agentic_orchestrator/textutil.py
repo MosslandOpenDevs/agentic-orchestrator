@@ -75,6 +75,41 @@ def clean_title(value: object) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+# A closing quote immediately followed by a comma. In prose that is unusual; in
+# a generated name it is reliably where a serialized object or list started
+# leaking into a field that should hold a phrase. Both straight and typographic
+# quotes, because the models emit the curly ones:
+#
+#   ...Growing Demand for Supply Chain Tracking in Web3”, “keywords”: [“Provenance”, …
+#   ...Sparks Innovation in Synthetic Media”, 2608.06411v1, “MLLM Attention Pruning”, …
+#
+# so a straight-quote-only pattern would have matched neither. Live example ran
+# to 1,050 characters in a column meant for a headline.
+_SERIALIZED_TAIL = re.compile(r"""["'“”‘’]\s*,""")
+
+
+def clean_name(value: object, limit: int = 200) -> str:
+    """``clean_title`` plus the two ways a *generated* name fails.
+
+    Applied to trend names rather than to titles generally: trend names come
+    straight from the analyzer's own prose field, while idea and plan titles are
+    read out of a parsed JSON value and cannot pick up a sibling key this way.
+    """
+    text = clean_title(value)
+
+    tail = _SERIALIZED_TAIL.search(text)
+    if tail:
+        text = text[: tail.start()].rstrip()
+
+    if len(text) > limit:
+        # Cut on a word boundary; a name sliced mid-word reads as corruption.
+        cut = text[:limit]
+        space = cut.rfind(" ")
+        text = (cut[:space] if space > limit // 2 else cut).rstrip()
+
+    return text.rstrip(" ,;:-–—")
+
+
 def clean_issue_title(value: object) -> str:
     """Plain-text title for a GitHub issue.
 

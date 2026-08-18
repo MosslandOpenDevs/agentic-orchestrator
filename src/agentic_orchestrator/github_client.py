@@ -375,6 +375,24 @@ class GitHubClient:
         )
         return response
 
+    def list_comments(self, issue_number: int, per_page: int = 30) -> list[dict]:
+        """Comments on an issue, newest page first.
+
+        Only the fields the lifecycle needs are used: ``user.login`` and
+        ``author_association``. Returns ``[]`` rather than raising, because
+        every caller treats "cannot tell" as "leave the issue alone".
+        """
+        try:
+            response = self._request(
+                "GET",
+                f"/repos/{self.repo_path}/issues/{issue_number}/comments",
+                params={"per_page": per_page},
+            )
+            return response if isinstance(response, list) else []
+        except Exception as e:
+            logger.warning(f"Could not list comments on #{issue_number}: {e}")
+            return []
+
     def list_issues(
         self,
         labels: list[str] | None = None,

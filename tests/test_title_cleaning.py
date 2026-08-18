@@ -6,7 +6,7 @@ a prompt rule left over from a pre-JSON era, the translator, and a bare f-string
 in backlog triage — so the cleaning lives in one place and every writer calls it.
 """
 
-from agentic_orchestrator.textutil import clean_issue_title, clean_title
+from agentic_orchestrator.textutil import clean_issue_title, clean_name, clean_title
 
 
 class TestCleanTitle:
@@ -20,10 +20,16 @@ class TestCleanTitle:
         )
 
     def test_strips_the_korean_label(self):
-        assert clean_title("## 아이디어: 브라우저 지갑 가스비 상한 설정") == "브라우저 지갑 가스비 상한 설정"
+        assert (
+            clean_title("## 아이디어: 브라우저 지갑 가스비 상한 설정")
+            == "브라우저 지갑 가스비 상한 설정"
+        )
 
     def test_unwraps_emphasis_around_the_whole_title(self):
-        assert clean_title("**제네시스: 분산형 위협 인텔리전스**") == "제네시스: 분산형 위협 인텔리전스"
+        assert (
+            clean_title("**제네시스: 분산형 위협 인텔리전스**")
+            == "제네시스: 분산형 위협 인텔리전스"
+        )
 
     def test_handles_stacked_markers(self):
         assert clean_title("> ### **Idea: Session-Key Budget Vault**") == "Session-Key Budget Vault"
@@ -67,7 +73,9 @@ class TestCleanTitle:
 
 class TestCleanIssueTitle:
     def test_removes_emphasis_github_will_not_render(self):
-        assert clean_issue_title("Deploy **wstETH** vaults on Base") == "Deploy wstETH vaults on Base"
+        assert (
+            clean_issue_title("Deploy **wstETH** vaults on Base") == "Deploy wstETH vaults on Base"
+        )
 
     def test_removes_the_duplicated_idea_label(self):
         """``[Idea] Idea: ...`` appeared on 431 public issues: the issue builder
@@ -76,3 +84,58 @@ class TestCleanIssueTitle:
 
     def test_keeps_underscores_that_belong_to_identifiers(self):
         assert "title_ko" in clean_issue_title("Fix title_ko rendering in the ideas list")
+
+
+class TestCleanName:
+    """Trend names come from the analyzer's own prose field, and the serialized
+    object it was parsed out of sometimes comes along."""
+
+    # Verbatim from production (trend list, 2026-08-18). Note the typographic
+    # quotes: a straight-quote pattern matches none of this.
+    LEAKED = (
+        "Provenance Blockchain’s Token Surge Signals Growing Demand for Enhanced "
+        "Supply Chain Tracking in Web3”,  “keywords”: "
+        "[“Provenance”, “HASH token”, “supply chain”], "
+        "“score”: 8.7"
+    )
+    LEAKED_LIST = (
+        "OpenAI’s Sora AI Image Generation Tool Sparks Innovation in Content "
+        "Creation & Synthetic Media”, 2608.06411v1, “MLLM Attention Pruning”, "
+        "95.5 ARC-AGI-3 Score"
+    )
+
+    def test_cuts_the_serialized_object_off_a_name(self):
+        cleaned = clean_name(self.LEAKED)
+
+        assert cleaned.endswith("in Web3")
+        assert "keywords" not in cleaned
+        assert "8.7" not in cleaned
+
+    def test_cuts_a_leaked_list_too(self):
+        """Not every leak is a keyed object — this one is a bare list tail, so
+        a rule keyed on `"keywords":` would miss it. The reliable signal is a
+        closing quote followed by a comma."""
+        cleaned = clean_name(self.LEAKED_LIST)
+
+        assert cleaned.endswith("Synthetic Media")
+        assert "2608.06411v1" not in cleaned
+
+    def test_bounds_the_length_on_a_word_boundary(self):
+        name = " ".join(["Mossland"] * 80)  # ~720 chars
+
+        cleaned = clean_name(name, limit=200)
+
+        assert len(cleaned) <= 200
+        assert not cleaned.endswith("Mossla"), "a name cut mid-word reads as corruption"
+
+    def test_leaves_an_ordinary_name_alone(self):
+        name = "Firelock-AI/kin & Trinity: Triune Architecture for AGI Long-Term Memory"
+
+        assert clean_name(name) == name
+
+    def test_still_strips_markdown_like_clean_title(self):
+        assert clean_name("## 아이디어: 지갑 가스비 상한") == "지갑 가스비 상한"
+
+    def test_empty_input(self):
+        assert clean_name(None) == ""
+        assert clean_name("") == ""
