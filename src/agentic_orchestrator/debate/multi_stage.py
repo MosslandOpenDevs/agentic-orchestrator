@@ -42,6 +42,12 @@ from .protocol import (
 
 logger = logging.getLogger(__name__)
 
+# A revision may tighten a plan, but not replace it with an outline. Measured
+# against real drafts: a genuine rewrite lands within a few percent of the
+# original length, while the failure shapes (a changelog, a heading skeleton)
+# come in under a fifth of it.
+REVISION_MIN_LENGTH_RATIO = 0.6
+
 
 @dataclass
 class Idea:
@@ -1163,6 +1169,17 @@ Return the complete revised plan.
             )
             return None, tokens, response.cost
 
+        # Section coverage alone is not enough: a skeleton of six headings over
+        # "TBD" carries all of them in 165 characters. Require the revision to
+        # be substantially as long as what it replaces, so answering a review
+        # with an outline cannot throw away a finished plan.
+        if len(revised) < REVISION_MIN_LENGTH_RATIO * len(draft_plan):
+            logger.warning(
+                f"Plan revision is {len(revised)} chars against a {len(draft_plan)}-char "
+                f"draft; keeping draft"
+            )
+            return None, tokens, response.cost
+
         message = DebateMessage(
             id=f"revise-{self.session_id}-{round_num}-{agent.id}",
             phase=DebatePhase.PLANNING,
@@ -1778,26 +1795,60 @@ Return the complete revised plan.
 
         return scores
 
-    # `### Idea 3:` / `**Idea 3**` — a heading or bold marker is required so
-    # that prose ("Idea 3 is the strongest") cannot open a block.
-    _EVAL_BLOCK_RE = re.compile(r"^\s{0,3}(?:#{1,6}\s*|\*\*)\s*Idea\s+(\d+)\b", re.MULTILINE)
+    # `### Idea 3: Title` / `**Idea 3**: Title` / `**Idea 3**` alone on a line.
+    #
+    # The trailing separator is load-bearing, not decoration. A heading-or-bold
+    # marker alone is not enough, because the template REQUIRES a closing
+    # "Final Analysis" whose "Top 3 Ideas" lines open with exactly that shape:
+    # `**Idea 3** is the strongest...`. Treated as a block header, that
+    # sentence became the last block for idea 3 -- and it carries no score, so
+    # last-one-wins erased the real one. The highest-scoring idea in a debate
+    # is the one most likely to be named there, so the erasure was biased
+    # against exactly the ideas planning most needed.
+    _EVAL_BLOCK_RE = re.compile(
+        r"^\s{0,3}(?:#{1,6}\s*|\*\*)\s*Idea\s+(\d+)\s*\*{0,2}\s*[:：\-–—]",
+        re.MULTILINE,
+    )
 
-    # `**Total Score**: 41/50`, `Total Score: 8.2/10`, `Total score - 8`.
+    # Everything from here on is commentary about the ideas, not an evaluation
+    # of them. Cutting first means a stray `**Idea 4** and **Idea 6** overlap;
+    # combined Total Score: 35/50` in the consolidation notes cannot overwrite
+    # a real score either.
+    _FINAL_ANALYSIS_RE = re.compile(
+        r"^\s{0,3}(?:#{1,6}\s*|\*\*)\s*Final\s+Analysis", re.MULTILINE | re.IGNORECASE
+    )
+
+    # `**Total Score**: 41/50`, `**Total Score:** 41/50`, `***Total Score***: 8.2/10`,
+    # `Total Score = 41/50`, `| Total Score | 41/50 |`. The colon lands inside the
+    # emphasis about as often as outside it, so the separator has to be allowed
+    # on either side of the closing markers -- requiring it outside missed a
+    # very ordinary shape and silently left the idea unscored.
     _TOTAL_SCORE_RE = re.compile(
-        r"\*{0,2}Total\s+Score\*{0,2}\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(?:/\s*(\d+))?",
+        r"\*{0,3}Total\s+Score\s*[:：]?\*{0,3}\s*[:：=\-–—|]?\s*(\d+(?:\.\d+)?)\s*(?:/\s*(\d+))?",
         re.IGNORECASE,
     )
 
     # `- Feasibility: 8/10 - reason`, used only when the block has no total.
+    #
+    # Both naming schemes, because the prompt itself uses two: the weighted
+    # rubric names the criteria "Mossland Relevance" and "Novelty", while the
+    # output template two sections later asks for "Innovation" and "Risk".
+    # Knowing only the template's names produced a partial mean -- and the one
+    # it dropped, Novelty, carries the largest weight in the rubric.
     _CRITERION_RE = re.compile(
-        r"^\s*[-*]?\s*\*{0,2}(?:Feasibility|Impact|Innovation|Risk|Urgency)\*{0,2}"
-        r"\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*/\s*10\b",
+        r"^\s*[-*|]?\s*\*{0,2}(?:Feasibility|Impact|Innovation|Risk|Urgency"
+        r"|Novelty|Relevance|Mossland\s+Relevance)\s*[:：]?\*{0,2}"
+        r"\s*[:：\-|]?\s*(\d+(?:\.\d+)?)\s*/\s*10\b",
         re.IGNORECASE | re.MULTILINE,
     )
 
     @classmethod
     def _split_evaluation_blocks(cls, content: str) -> Dict[int, str]:
         """Map idea number -> the text of that idea's evaluation block."""
+        cutoff = cls._FINAL_ANALYSIS_RE.search(content)
+        if cutoff:
+            content = content[: cutoff.start()]
+
         headers = list(cls._EVAL_BLOCK_RE.finditer(content))
 
         blocks: Dict[int, str] = {}

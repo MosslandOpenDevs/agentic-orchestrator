@@ -567,3 +567,126 @@ class TestDivergenceRoundOneDifferentiation:
 
     def test_more_agents_than_angles_wraps_without_failing(self):
         assert "Your Vantage Point" in self._prompt(11)
+
+
+class TestTheRequiredClosingSectionIsNotMinedForScores:
+    """The evaluation template REQUIRES a "Final Analysis" whose "Top 3 Ideas"
+    lines open as ``**Idea 3** is the strongest...``. Read as a block header,
+    that sentence became the last block for idea 3 — and it carries no score, so
+    last-one-wins erased the real one. The bias is the worst part: the ideas
+    named in "Top 3" are the highest-scoring ones, so the erasure hit exactly
+    the ideas planning most needed.
+    """
+
+    def setup_method(self):
+        self.debate = MultiStageDebate(router=None)
+        self.ballot = [{"id": f"idea-{n}", "title": f"Idea {n}"} for n in range(1, 6)]
+        self.blocks = "".join(
+            f"### Idea {n}: Idea {n}\n- Feasibility: 8/10 - r\n- **Total Score**: {s}/10\n\n"
+            for n, s in [(1, 7.4), (2, 5.0), (3, 9.2), (4, 6.0), (5, 4.0)]
+        )
+        self.expected = {
+            "idea-1": 7.4, "idea-2": 5.0, "idea-3": 9.2, "idea-4": 6.0, "idea-5": 4.0
+        }
+
+    def test_top_three_prose_does_not_erase_the_top_scores(self):
+        final = (
+            "### Final Analysis\n"
+            "**Idea 3** is the strongest: novel and shippable this quarter.\n"
+            "**Idea 1** follows closely on feasibility grounds.\n"
+        )
+
+        assert self.debate._extract_scores_from_response(self.blocks + final, self.ballot) == self.expected
+
+    def test_consolidation_notes_cannot_overwrite_a_real_score(self):
+        """The nastier variant: this one *does* carry a number, so it would have
+        silently replaced idea 4's 6.0 with 7.0 and logged nothing."""
+        notes = (
+            "### Final Analysis\n"
+            "**Idea 4** and **Idea 6** overlap; combined Total Score: 35/50.\n"
+        )
+
+        assert self.debate._extract_scores_from_response(self.blocks + notes, self.ballot) == self.expected
+
+    def test_a_sentence_is_not_a_block_header_even_in_bold(self):
+        prose = "**Idea 2** deserves a mention here.\n- **Total Score**: 10/10\n"
+
+        scores = self.debate._extract_scores_from_response(self.blocks + prose, self.ballot)
+
+        assert scores["idea-2"] == 5.0, "prose overwrote a real evaluation block"
+
+    def test_real_header_shapes_still_open_a_block(self):
+        for header in ("### Idea 1: Title", "**Idea 1**: Title", "## Idea 1 - Title"):
+            body = f"{header}\n- **Total Score**: 9/10\n"
+            scores = self.debate._extract_scores_from_response(body, self.ballot[:1])
+            assert scores == {"idea-1": 9.0}, f"{header!r} stopped being a header"
+
+
+class TestTotalScoreShapesModelsActuallyWrite:
+    """Every miss here is an idea that ends the debate at ``total_score == 0.0``."""
+
+    def test_the_colon_may_sit_inside_the_emphasis(self):
+        assert MultiStageDebate._score_from_block("**Total Score:** 41/50") == 8.2
+        assert MultiStageDebate._score_from_block("***Total Score***: 41/50") == 8.2
+
+    def test_other_separators(self):
+        assert MultiStageDebate._score_from_block("Total Score = 41/50") == 8.2
+        assert MultiStageDebate._score_from_block("| Total Score | 41/50 |") == 8.2
+
+    def test_the_criteria_fallback_knows_the_rubrics_own_names(self):
+        """The prompt uses two naming schemes: the weighted rubric says
+        "Novelty" and "Mossland Relevance", the output template two sections
+        later says "Innovation" and "Risk". Knowing only one produced a partial
+        mean — and it dropped Novelty, which carries the largest weight."""
+        block = (
+            "- Feasibility: 8/10 - r\n"
+            "- Mossland Relevance: 9/10 - r\n"
+            "- Novelty: 7/10 - r\n"
+            "- Impact: 9/10 - r\n"
+        )
+
+        assert MultiStageDebate._score_from_block(block) == 8.25
+
+
+class TestARevisionCannotReplaceAPlanWithAnOutline:
+    """The revision guard has to stop two different non-answers.
+
+    Section coverage alone let both through: a one-line reply that merely NAMES
+    the six sections scored a perfect 6/6 — and ``create_plan_revision_prompt``
+    hands the model that exact list, so the cheapest possible non-answer scored
+    as well as a full rewrite. A skeleton of six headings over "TBD" carries all
+    six for real, in 165 characters against a 14,000-character plan.
+    """
+
+    def test_naming_the_sections_is_not_carrying_them(self):
+        changelog = (
+            "I updated the " + ", ".join(PLAN_REQUIRED_SECTIONS) + " sections as requested."
+        )
+
+        assert plan_completeness(changelog) == 0
+
+    def test_a_real_heading_still_counts_in_its_usual_shapes(self):
+        for shape in ("## Project Overview", "**Project Overview**", "### 1. Project Overview"):
+            assert plan_completeness(shape) == 1, shape
+
+    def test_a_heading_skeleton_is_refused_by_the_length_floor(self):
+        router = FakeRouter(
+            draft=plan_text(6, filler="original " * 500),
+            review="Needs work. [Needs Revision]",
+            revision="\n".join(f"## {s}\nTBD" for s in PLAN_REQUIRED_SECTIONS),
+        )
+
+        result = run_planning(router)
+
+        assert "original" in result.output["final_plan"]
+
+    def test_a_genuine_rewrite_of_similar_length_is_accepted(self):
+        router = FakeRouter(
+            draft=plan_text(6, filler="original " * 500),
+            review="The 20-40% figure is unsupported. [Needs Revision]",
+            revision=plan_text(6, filler="revised with a stated baseline " * 300),
+        )
+
+        result = run_planning(router)
+
+        assert "revised with a stated baseline" in result.output["final_plan"]

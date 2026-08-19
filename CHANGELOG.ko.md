@@ -9,6 +9,18 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 
 ## [Unreleased]
 
+### 수정 — 위 수정들을 리뷰하다 나온 결함
+
+병합 전 브랜치를 반증 리뷰에 걸어 잡은 이 브랜치 자신의 버그다. 여섯 건 모두 추론이 아니라 직접 재현했다.
+
+- **평가 템플릿이 필수로 요구하는 마감 섹션이 상위 점수를 지웠다.** 템플릿은 `### Final Analysis` 를 요구하고 그 "Top 3 Ideas" 줄은 `**Idea 3** is the strongest...` 로 시작한다. 새 파서가 이걸 블록 헤더로 읽으면 그게 idea 3의 마지막 블록이 되는데 점수 줄이 없으므로 last-one-wins 가 진짜 점수를 지운다. 재현: 5개 ballot 이 마감 섹션 없이는 `{1: 7.4, 2: 5.0, 3: 9.2, 4: 6.0, 5: 4.0}`, 있으면 `{2: 5.0, 4: 6.0, 5: 4.0}` — **9.2가 사라진다.** 점수 없는 아이디어는 `total_score == 0.0` sentinel 로 떨어져 planning 에서 탈락한다. 편향이 특히 나쁘다: "Top 3" 에 이름이 오르는 건 최고점 아이디어이므로, 지워지는 것이 정확히 planning 이 가장 필요로 하는 것들이다. 이제 블록 헤더는 실제 구분자(`### Idea 3: …`, `**Idea 3**: …`)를 요구하고 — 문장에는 없다 — 마감 섹션은 블록 분할 전에 잘라낸다. 덕분에 `**Idea 4** and **Idea 6** overlap; combined Total Score: 35/50` 같은 통합 노트가 idea 4의 점수를 조용히 덮어쓰는 것도 함께 막힌다.
+- **흔한 `Total Score` 표기를 파싱하지 못했다.** 놓칠 때마다 아이디어 하나가 미채점으로 토론을 끝낸다. `**Total Score:** 41/50`(콜론이 강조 안쪽), `Total Score = 41/50` 둘 다 `None` 이었다. 별개로 기준값 폴백이 출력 템플릿 명칭(`Innovation`, `Risk`)만 알고 **같은 프롬프트가 두 섹션 앞에서 쓰는** 가중 루브릭 명칭(`Novelty`, `Mossland Relevance`)을 몰라서, 루브릭 이름으로 쓴 블록은 가중치가 가장 큰 기준을 빠뜨린 부분 평균을 냈다.
+- **메인테이너의 "Quote reply" 가 봇의 혼잣말로 읽혔다.** GitHub 인용 답글은 원문을 그대로 복사하므로, 오너가 lifecycle 판정에 답하면 그 서명이 본인 본문 안에 들어온다. substring 테스트가 이걸 보고 이슈를 닫았다. DB row 는 안 바뀌므로 재오픈해도 4시간 뒤 다시 닫힌다. 이제 인용 줄을 걷어낸 뒤, **사람이 실제로 쓴 것**에 대해서만 서명을 확인한다.
+- **trend 이름 정리기가 평범한 산문을 잘랐다.** 규칙이 "닫는 따옴표 + 쉼표" 였고 그 뒤를 아무것도 검사하지 않았다. 그래서 `"Proof of Play", a Verifiable Session Attestation Layer for Mossland Quests` 가 `"Proof of Play` 로, `The rise of “AI agents”, DePIN, and RWA tokenization` 이 `The rise of “AI agents` 로 잘렸다. 이 값은 분석 주기마다 `trends.name` 에 그대로 쓰이고 원본 사본은 어디에도 없다. 이제 쉼표 뒤에 **또 다른 직렬화 값의 시작**(따옴표나 숫자)이 와야 하고, 프로젝트 자체 하한인 30자보다 짧게 남기는 절단은 거부한다.
+- **새 승격 게이트 리포트가 verdict 의 절반을 못 봤다.** 백로그 트리아지는 verdict 를 `triage` 아래 중첩해 쓰고, debate 경로는 최상위에 쓴다. 트리아지 모양만 읽으면 **게이트를 보이게 하려고 만든 유일한 리포트가 debate 시점 리뷰를 전부 놓친다.** 혼재 모집단에서는 눈먼 것보다 나쁘다 — 트리아지 demote 옆에 보이지 않는 debate confirm 이 있으면 "아무것도 승인하지 않는 게이트" 로 읽힌다. 이제 두 모양을 모두 읽는다.
+- **revision 이 완성된 계획서를 개요로 바꿔치기할 수 있었다.** 섹션 커버리지가 부분문자열 매칭이라, 여섯 섹션명을 **나열만 한** 한 줄 답변이 6/6 만점을 받았다 — 그리고 revision 프롬프트가 모델에게 그 명단을 그대로 건네준다. 이제 섹션은 줄머리를 열어야 하고, revision 은 대체 대상과 비슷한 분량이어야 한다. 헤딩 6개에 "TBD" 만 붙인 skeleton 은 14,000자 계획서에 맞서 165자다.
+- **백필의 `--limit 0` 이 무제한이었다** — 사람이 칠 수 있는 가장 조심스러운 입력이 테이블 전체를 쓸고, `--issues` 와 함께면 열린 봇 이슈를 전부 rename 했을 것이다. 함께 정정: `clean_issue_title` 이 고정점이 아니었고(`**Idea:** X` 가 두 번 돌아야 했다 — `[Idea] Idea:` 를 고치려고 만든 명령이 한 패스 모자랐고 재실행하면 같은 공개 이슈를 또 rename 한다), `list_comments` 는 docstring 주장과 달리 **오래된 것부터** 반환한다.
+
 ### 수정 — 화면이 조용히 틀린 것을 말하던 것들
 
 - **plans 테이블의 79.5%가 아이디어 텍스트였고, 사람이 승인하는 큐는 raw JSON 이었다.** 백로그 트리아지에는 planning 단계가 없어 계획서를 만들 수 없는데 `idea.description` 을 `final_plan` 에 복사했다. 그 필드는 모델의 raw 응답 — fenced JSON — 이라 44개 plan 중 35개가 아이디어와 byte-identical 이고, `GET /plans/pending-approval` 의 20개 행이 전부 `{"idea_title": ...` 로 시작한 채 **사람에게 승인 대상으로 제시됐다.** 행을 그냥 안 만들 수는 없다 — `run_issue_lifecycle` 은 plan 이 존재해야 승격된 아이디어의 이슈를 닫는다. 그래서 지어내는 대신 정직한 자리표시자를 쓴다: 이미 있는 `_format_idea_summary` 로 JSON 을 읽을 수 있는 마크다운으로 바꾸고, 아직 아무것도 작성되지 않았음을 맨 위에 명시하고, `extra_metadata.plan_authored` 로 큐가 어떤 행이 seed 인지 말하게 한다. 플래그 이전 행은 `true` 가 아니라 `null` 이다 — 모름과 작성됨은 다른 답이고, 44개 중 35개가 실제로 seed 다.

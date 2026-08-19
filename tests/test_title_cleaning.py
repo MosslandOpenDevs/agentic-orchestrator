@@ -139,3 +139,63 @@ class TestCleanName:
     def test_empty_input(self):
         assert clean_name(None) == ""
         assert clean_name("") == ""
+
+
+class TestCleanNameDoesNotCutOrdinaryProse:
+    """The cut rule writes straight to ``trends.name`` on every analysis cycle,
+    with no copy of the original kept — so a false positive is unrecoverable
+    data loss, not a cosmetic slip. Both of these were truncated before the
+    lookahead was added."""
+
+    def test_a_quoted_phrase_followed_by_prose_survives(self):
+        name = '"Proof of Play", a Verifiable Session Attestation Layer for Mossland Quests'
+
+        assert clean_name(name) == name
+
+    def test_a_quoted_term_in_a_list_of_words_survives(self):
+        name = "The rise of “AI agents”, DePIN, and RWA tokenization in Q3 2026"
+
+        assert clean_name(name) == name
+
+    def test_an_apostrophe_before_a_comma_survives(self):
+        name = "Mossland's Treasury, Rebalanced: An On-Chain Allocation Engine for MOC"
+
+        assert clean_name(name) == name
+
+    def test_the_real_leak_is_still_cut(self):
+        leaked = (
+            "Provenance Blockchain Token Surge Signals Demand for Supply Chain "
+            "Tracking in Web3”, “keywords”: [“Provenance”], “score”: 8.7"
+        )
+
+        cleaned = clean_name(leaked)
+
+        assert cleaned.endswith("in Web3")
+        assert "keywords" not in cleaned
+
+    def test_a_cut_that_would_leave_a_stub_is_refused(self):
+        """Below the project's own 30-character floor a cut is likelier to be a
+        false positive than a rescue, so the name is left whole."""
+        name = '"AI”, “x”: 1'
+
+        assert clean_name(name) == name
+
+
+class TestCleanIssueTitleIsAFixedPoint:
+    """This one renames real issues on a public repository. Not being a fixed
+    point means the command that exists to fix 431 ``[Idea] Idea:`` titles left
+    them one pass short, and a second run renamed the same issue again."""
+
+    def test_a_label_hidden_inside_emphasis_is_removed_in_one_pass(self):
+        assert clean_issue_title("**Idea:** Gas-Guard Copilot") == "Gas-Guard Copilot"
+
+    def test_running_it_twice_changes_nothing(self):
+        for title in [
+            "**Idea:** Gas-Guard Copilot",
+            "## Idea: ERC-6551 Spend Passport",
+            "Deploy **wstETH** vaults on Base",
+            "Plan: Mossland Quest Rewards",
+            "*__Idea:__* Session-Key Budget Vault",
+        ]:
+            once = clean_issue_title(title)
+            assert clean_issue_title(once) == once, f"not a fixed point: {title!r} -> {once!r}"

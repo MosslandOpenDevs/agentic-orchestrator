@@ -4,6 +4,7 @@ Debate protocol for agent interactions.
 Defines the rules and flow for multi-stage debates with diverse agent personas.
 """
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -76,6 +77,17 @@ PLAN_REQUIRED_SECTIONS = (
 )
 
 
+# A section counts when it OPENS a line -- after heading marks, emphasis or a
+# list number -- not merely when the words appear. Substring matching handed a
+# perfect 6/6 to a one-line reply that just named the sections, and the prompt
+# hands the model that exact list (`create_plan_revision_prompt`), so the
+# cheapest possible non-answer scored as well as a complete rewrite.
+_SECTION_HEADINGS = tuple(
+    re.compile(r"^[\s>*_#\d.)\-]*" + re.escape(section), re.MULTILINE | re.IGNORECASE)
+    for section in PLAN_REQUIRED_SECTIONS
+)
+
+
 def plan_completeness(plan: Optional[str]) -> int:
     """How many required sections a plan actually carries.
 
@@ -87,8 +99,7 @@ def plan_completeness(plan: Optional[str]) -> int:
     """
     if not plan:
         return 0
-    lowered = plan.lower()
-    return sum(1 for section in PLAN_REQUIRED_SECTIONS if section.lower() in lowered)
+    return sum(1 for pattern in _SECTION_HEADINGS if pattern.search(plan))
 
 
 class DebatePhase(Enum):

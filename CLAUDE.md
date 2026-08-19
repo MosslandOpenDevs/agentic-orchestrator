@@ -763,7 +763,9 @@ python -m agentic_orchestrator.scheduler clean-titles --apply --issues  # + 공�
 > 않는다** — 정리하면 빈 문자열이 되는 제목(마크업만으로 된 제목)은 건드리지
 > 않고 skip 으로 센다. 보이는 `## Idea:` 가 깨끗한 제목보다 나쁘지만 제목 없음
 > 보다는 낫다. `--issues` 를 따로 둔 이유는 이슈 제목 변경이 public 저장소를
-> 향한 바깥 방향 동작이기 때문이다.
+> 향한 바깥 방향 동작이기 때문이다. **열린 이슈만 바꾼다** — `[Idea] Idea:` 인
+> 431건 중 열린 것은 11건이고 420건은 닫혀 있다. 닫힌 이슈 제목은 이미 정리된
+> 기록이라, 다시 읽힐 일 없는 420건을 고치자고 트래커를 흔들 이유가 없다.
 
 > **쓰기 쪽 짝은 `agentic_orchestrator/textutil.py` 의 `clean_title()` 이다.**
 > `stripMarkdown` 은 이미 저장된 값을 화면에서 정리하고, `clean_title` 은

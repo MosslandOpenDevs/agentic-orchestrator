@@ -402,3 +402,59 @@ class TestActivityFeedTimestamps:
 
         assert plan_rows, "the feed should carry the plan row"
         assert stale.strftime("%m-%d") in plan_rows[0]["time"]
+
+
+class TestBothWritersOfTheVerdictAreCounted:
+    """Two writers, two shapes. Backlog triage nests the verdict under
+    ``triage``; the debate path writes it at the top level. Reading only the
+    triage shape made this report — the one thing that exists to make the gate
+    visible — blind to every debate-time review. In a mixed population that is
+    worse than blind: triage demotes alongside unseen debate confirmations read
+    as a gate confirming nothing at all, which is a false alarm on the exact
+    signal an operator is meant to trust.
+    """
+
+    @staticmethod
+    def _debate_reviewed(repo, idea_id, verdict):
+        """An idea as the DEBATE path writes it: second_pass at the top level."""
+        idea = repo.create(
+            {
+                "id": idea_id,
+                "title": f"Idea {idea_id}",
+                "summary": "s",
+                "source_type": "debate",
+                "status": "promoted",
+                "score": 8.0,
+                "extra_metadata": {
+                    "auto_score": {"total": 8.0},
+                    "debate_topic": "Wallet UX",
+                    "second_pass": {"verdict": verdict, "reason": "r", "score": 8.0},
+                },
+            }
+        )
+        idea.updated_at = utcnow()
+        repo.session.flush()
+
+    def test_debate_path_verdicts_are_counted(self, session):
+        repo = IdeaRepository(session)
+        for n in range(30):
+            self._debate_reviewed(repo, f"d{n}", "confirm")
+
+        stats = repo.second_pass_verdict_counts(days=7)
+
+        assert stats["reviewed"] == 30
+        assert stats["confirm_rate"] == 1.0
+        assert stats["status"] == "healthy"
+
+    def test_mixed_writers_are_summed_not_shadowed(self, session):
+        repo = IdeaRepository(session)
+        for n in range(30):
+            self._debate_reviewed(repo, f"d{n}", "confirm")
+        for n in range(30):
+            add_reviewed_idea(repo, f"t{n}", "demote")
+
+        stats = repo.second_pass_verdict_counts(days=7)
+
+        assert stats["verdicts"] == {"confirm": 30, "demote": 30, "reject": 0, "unavailable": 0}
+        assert stats["confirm_rate"] == 0.5
+        assert stats["status"] == "healthy", "a working gate was reported as confirming nothing"

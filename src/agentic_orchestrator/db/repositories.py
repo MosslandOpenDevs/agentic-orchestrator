@@ -372,7 +372,17 @@ class IdeaRepository(BaseRepository):
 
         counts = {"confirm": 0, "demote": 0, "reject": 0, "unavailable": 0}
         for (metadata,) in rows:
-            second_pass = ((metadata or {}).get("triage") or {}).get("second_pass") or {}
+            metadata = metadata or {}
+            # Two writers, two shapes. Backlog triage nests the verdict under
+            # `triage`; the debate path writes it at the top level
+            # (`tasks.py`, at idea creation). Reading only the triage shape made
+            # this report blind to every debate-time review -- and in a mixed
+            # population that is worse than blind, because a run of triage
+            # demotes alongside unseen debate confirmations reads as a gate
+            # confirming nothing at all.
+            second_pass = (metadata.get("triage") or {}).get("second_pass") or metadata.get(
+                "second_pass"
+            ) or {}
             verdict = second_pass.get("verdict")
             if verdict in counts:
                 counts[verdict] += 1

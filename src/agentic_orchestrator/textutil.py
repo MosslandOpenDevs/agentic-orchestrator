@@ -75,17 +75,27 @@ def clean_title(value: object) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-# A closing quote immediately followed by a comma. In prose that is unusual; in
-# a generated name it is reliably where a serialized object or list started
-# leaking into a field that should hold a phrase. Both straight and typographic
-# quotes, because the models emit the curly ones:
+# Where a serialized object or list starts leaking into a field that should hold
+# a phrase. Two production names, verbatim:
 #
 #   ...Growing Demand for Supply Chain Tracking in Web3”, “keywords”: [“Provenance”, …
 #   ...Sparks Innovation in Synthetic Media”, 2608.06411v1, “MLLM Attention Pruning”, …
 #
-# so a straight-quote-only pattern would have matched neither. Live example ran
-# to 1,050 characters in a column meant for a headline.
-_SERIALIZED_TAIL = re.compile(r"""["'“”‘’]\s*,""")
+# Note the typographic quotes -- a straight-quote-only pattern matches neither --
+# and that the second leak is a bare list, not a keyed object, so a rule written
+# around `"keywords":` would miss it. What both share is a closing quote, a
+# comma, and then the start of ANOTHER serialized value.
+#
+# That lookahead is the whole guard. Without it the rule cut ordinary prose:
+# `"Proof of Play", a Verifiable Session Attestation Layer` became
+# `"Proof of Play`, and `The rise of “AI agents”, DePIN, and RWA` became
+# `The rise of “AI agents`. Both go straight to `trends.name` on every analysis
+# cycle, with no copy of the original kept anywhere.
+_SERIALIZED_TAIL = re.compile(r"""["'“”‘’]\s*,\s*(?=["'“”‘’]|\d)""")
+
+# A cut that leaves less than this is far likelier to be a false positive than
+# a real rescue: the project's own floor for a title is 30 characters.
+_MIN_NAME_AFTER_CUT = 30
 
 
 def clean_name(value: object, limit: int = 200) -> str:
@@ -98,7 +108,7 @@ def clean_name(value: object, limit: int = 200) -> str:
     text = clean_title(value)
 
     tail = _SERIALIZED_TAIL.search(text)
-    if tail:
+    if tail and tail.start() >= _MIN_NAME_AFTER_CUT:
         text = text[: tail.start()].rstrip()
 
     if len(text) > limit:
@@ -124,4 +134,9 @@ def clean_issue_title(value: object) -> str:
     # identifiers (`title_ko`, `idea_id`) legitimately contain one, and this
     # matches the frontend's `stripMarkdown` so both sides agree.
     text = re.sub(r"__([^_]+)__", r"\1", text)
-    return re.sub(r"\s+", " ", text).strip()
+    # Removing the emphasis can expose a label that was hidden inside it --
+    # `[Idea] **Idea:** X` only becomes `[Idea] Idea: X` on the first pass -- so
+    # run the leading-marker rules again over the result. Without this the
+    # command whose entire purpose is fixing 431 `[Idea] Idea:` titles left them
+    # one pass short, and a second run would rename the same public issue again.
+    return clean_title(re.sub(r"\s+", " ", text).strip())

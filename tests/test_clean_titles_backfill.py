@@ -82,12 +82,18 @@ class TestPlanningTheChanges:
         assert skipped == 1
 
     def test_trend_names_also_lose_a_serialized_tail(self, session):
+        # Length matters here: `clean_name` refuses a cut that would leave less
+        # than a usable title, so the fixture has to be as long as the real
+        # leaked names (~100 chars before the tail), not a toy.
         session.add(
             Trend(
                 id="t1",
                 period="24h",
                 score=8.7,
-                name='Supply Chain Tracking in Web3", "keywords": ["Provenance"], "score": 8.7',
+                name=(
+                    "Provenance Blockchain Token Surge Signals Growing Demand for "
+                    'Supply Chain Tracking in Web3", "keywords": ["Provenance"], "score": 8.7'
+                ),
             )
         )
         session.flush()
@@ -95,7 +101,10 @@ class TestPlanningTheChanges:
         planned, _ = _sweep(session, Trend, TREND_FIELDS, limit=None)
         _, changes = planned[0]
 
-        assert changes["name"] == "Supply Chain Tracking in Web3"
+        assert changes["name"] == (
+            "Provenance Blockchain Token Surge Signals Growing Demand for "
+            "Supply Chain Tracking in Web3"
+        )
 
     def test_limit_bounds_a_trial_run(self, session):
         for n in range(5):
@@ -145,3 +154,33 @@ class TestNeverMakesARowWorse:
         changes = _plan_row_changes(row, IDEA_FIELDS)
 
         assert "title_ko" not in changes
+
+
+class TestLimitZeroMeansZero:
+    """`if limit:` made `--limit 0` mean NO limit — the most cautious-looking
+    input a person could type would have swept the whole table and, with
+    `--issues`, renamed every open bot issue on a public repository."""
+
+    def test_limit_zero_selects_nothing(self, session):
+        for n in range(5):
+            add_idea(session, f"z{n}", f"## Idea: Candidate number {n}")
+
+        planned, _ = _sweep(session, Idea, IDEA_FIELDS, limit=0)
+
+        assert planned == []
+
+    def test_a_negative_limit_selects_nothing_rather_than_everything(self, session):
+        for n in range(5):
+            add_idea(session, f"n{n}", f"## Idea: Candidate number {n}")
+
+        planned, _ = _sweep(session, Idea, IDEA_FIELDS, limit=-1)
+
+        assert planned == []
+
+    def test_none_still_means_no_limit(self, session):
+        for n in range(5):
+            add_idea(session, f"a{n}", f"## Idea: Candidate number {n}")
+
+        planned, _ = _sweep(session, Idea, IDEA_FIELDS, limit=None)
+
+        assert len(planned) == 5

@@ -468,6 +468,37 @@ class TestArchivedReconciliation:
 
         assert client.closed == {}
 
+    def test_a_quote_reply_is_the_person_talking_not_the_bot(self, repos):
+        """GitHub's "Quote reply" copies the quoted comment verbatim, so a
+        maintainer answering the bot's verdict carries the lifecycle signature
+        inside their own body. A substring test read that as the bot talking to
+        itself and closed the issue — and since the DB row never changes,
+        reopening it just got it closed again four hours later."""
+        from agentic_orchestrator.scheduler.issue_lifecycle import LIFECYCLE_SIGNATURE
+
+        idea_repo, plan_repo, project_repo, session = repos
+        self._archived_idea(idea_repo, 30)
+        issue = make_issue(30, created_at="2026-08-05T00:00:00Z", comments=1)
+        client = FakeClient(
+            [issue],
+            existing_comments={
+                30: [
+                    {
+                        "author_association": "OWNER",
+                        "body": (
+                            f"> Backlog triage re-scored this idea at 8.0/10 — archived. "
+                            f"{LIFECYCLE_SIGNATURE}\n\n"
+                            "No — keep this open, we are shipping it next sprint."
+                        ),
+                    }
+                ]
+            },
+        )
+
+        run_issue_lifecycle(client, idea_repo, plan_repo, project_repo, now=NOW)
+
+        assert client.closed == {}, "a maintainer's reply was mistaken for the bot's own comment"
+
     def test_archived_idea_with_closed_or_missing_issue_is_skipped(self, repos):
         idea_repo, plan_repo, project_repo, session = repos
         self._archived_idea(idea_repo, 99)  # issue not in the open list

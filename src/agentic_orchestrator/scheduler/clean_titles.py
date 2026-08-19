@@ -16,7 +16,10 @@ Design notes, because a backfill that rewrites rows deserves them:
   ``## Idea:`` is worse than a clean title and better than no title at all.
 - **GitHub is opt-in separately** (``--issues``), because renaming issues is an
   outward-facing action against a public repository, while the database rewrite
-  is not.
+  is not. It touches **open issues only**: of the 431 that read
+  ``[Idea] Idea: ...``, 11 are open and 420 are closed. Closed issues are
+  settled history — rewriting 420 of them would churn the tracker for readers
+  who will never see those titles again anyway.
 
 Usage::
 
@@ -57,8 +60,10 @@ def _plan_row_changes(row, fields) -> Dict[str, str]:
 def _sweep(session, model, fields, limit: Optional[int]) -> Tuple[List[Tuple], int]:
     """Return ``([(row, {field: cleaned}), ...], skipped_count)`` for one table."""
     query = session.query(model)
-    if limit:
-        query = query.limit(limit)
+    if limit is not None:
+        # `if limit:` made `--limit 0` mean NO limit -- the most cautious-looking
+        # input a person could type would have swept the whole table.
+        query = query.limit(max(limit, 0))
 
     planned: List[Tuple] = []
     skipped = 0
@@ -127,7 +132,11 @@ def clean_titles(
 
 
 def _clean_issue_titles(apply: bool, limit: Optional[int]) -> Tuple[int, int]:
-    """Rename open bot issues whose titles carry markup. Best-effort."""
+    """Rename OPEN bot issues whose titles carry markup. Best-effort.
+
+    Open only, deliberately: 420 of the 431 affected issues are closed, and a
+    closed issue's title is settled history that nobody is going to read again.
+    """
     from ..github_client import GitHubClient, Labels
 
     changed = 0
@@ -144,7 +153,8 @@ def _clean_issue_titles(apply: bool, limit: Optional[int]) -> Tuple[int, int]:
         logger.warning(f"Could not list issues: {e}")
         return 0, 1
 
-    for issue in open_issues[: limit or len(open_issues)]:
+    bounded = open_issues if limit is None else open_issues[: max(limit, 0)]
+    for issue in bounded:
         # `[Idea] ` / `[Plan] ` is the tracker's own prefix, not model output:
         # clean what follows it and put it back.
         prefix, _, rest = issue.title.partition("] ")

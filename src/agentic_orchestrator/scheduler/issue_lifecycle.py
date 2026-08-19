@@ -84,13 +84,25 @@ def has_human_engagement(client, issue) -> bool:
     for comment in comments:
         association = (comment.get("author_association") or "").upper()
         if association in ENGAGED_ASSOCIATIONS:
-            body = comment.get("body") or ""
             # Our own lifecycle comments carry the bot's association, so they
             # would otherwise exempt every issue the bot has ever commented on.
-            if LIFECYCLE_SIGNATURE not in body:
+            # Test what the person WROTE, not what they quoted: GitHub's "Quote
+            # reply" copies the quoted comment verbatim, so a maintainer
+            # answering the bot's verdict carries the signature inside their own
+            # body. A bare `in` read that as the bot talking to itself and closed
+            # the issue -- and since the DB row never changes, reopening it just
+            # got it closed again on the next four-hour cycle.
+            if LIFECYCLE_SIGNATURE not in _without_quotes(comment.get("body") or ""):
                 return True
 
     return False
+
+
+def _without_quotes(body: str) -> str:
+    """Comment body with GitHub quote-reply blocks removed."""
+    return "\n".join(
+        line for line in body.splitlines() if not line.lstrip().startswith(">")
+    ).strip()
 
 
 def _parse_github_timestamp(value: str) -> datetime:
