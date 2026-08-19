@@ -28,8 +28,15 @@ _BLOCK_MARKER = re.compile(r"^\s*(?:>+\s*|#{1,6}\s+|[-*+]\s+)")
 # plan from the idea it came from, and stripping them would erase real meaning.
 _NOISE_LABEL = re.compile(r"^\s*(?:Idea|아이디어)\s*[:：]\s*", re.IGNORECASE)
 
-# `**bold**`, `__bold__`, `*italic*`, `` `code` `` wrapping the entire title.
-_WRAPPED = re.compile(r"^\s*(\*{1,3}|_{2}|`)(.+?)\1\s*$", re.DOTALL)
+# `**bold**`, `__bold__`, `*italic*`, `` `code` `` wrapping the ENTIRE title.
+#
+# The body may not contain the marker again, or two separate emphasis runs get
+# read as one pair and the markers move to the middle of the title:
+# `**Real-Time** MOC Treasury Dashboard for **DAO Voters**` came out as
+# `Real-Time** MOC Treasury Dashboard for **DAO Voters`. That is worse than not
+# cleaning at all -- it is a fixed point, so the damage is permanent, and the
+# frontend can only re-pair it when the markers happen to match.
+_WRAPPED = re.compile(r"^\s*(\*{1,3}|_{2}|`)((?:(?!\1).)+)\1\s*$", re.DOTALL)
 
 # Markers can stack -- `## Idea: **X**` needs three passes -- but the loop must
 # terminate on adversarial input, so bound it.

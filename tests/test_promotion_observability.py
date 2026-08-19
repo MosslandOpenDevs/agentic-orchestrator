@@ -370,7 +370,9 @@ class TestActivityFeedTimestamps:
         assert rendered != stale.strftime("%H:%M:%S")
 
     def test_a_row_from_another_year_says_which_year(self):
-        old = utcnow().replace(year=utcnow().year - 1)
+        # timedelta, not `.replace(year=...)`: on 29 February the latter raises
+        # ValueError, so the suite would go red once every four years in CI.
+        old = utcnow() - timedelta(days=400)
 
         assert str(old.year) in self._render(old)
 

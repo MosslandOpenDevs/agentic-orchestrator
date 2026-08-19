@@ -184,3 +184,145 @@ class TestLimitZeroMeansZero:
         planned, _ = _sweep(session, Idea, IDEA_FIELDS, limit=None)
 
         assert len(planned) == 5
+
+
+class TestRenamingPublicIssues:
+    """The only code in this repo that renames issues on a public tracker.
+
+    It had no test at all. Every assertion here is about not doing damage: the
+    rename is outward-facing, it hits a repository anyone can read, and a bad
+    title cannot be un-published.
+    """
+
+    class FakeClient:
+        def __init__(self, issues):
+            self._issues = issues
+            self.renamed = {}
+
+        def list_issues(self, labels=None, state="open", **kw):
+            return self._issues
+
+        def update_issue(self, number, title=None, **kw):
+            self.renamed[number] = title
+
+    @staticmethod
+    def _issue(number, title):
+        from agentic_orchestrator.github_client import GitHubIssue, Labels
+
+        return GitHubIssue(
+            number=number,
+            title=title,
+            body="",
+            state="open",
+            labels=[Labels.GENERATED_BY_ORCHESTRATOR],
+            created_at="2026-08-01T00:00:00Z",
+            updated_at="2026-08-01T00:00:00Z",
+            html_url="",
+            comments=0,
+        )
+
+    def _run(self, monkeypatch, titles, apply=True, limit=None):
+        from agentic_orchestrator.scheduler import clean_titles as mod
+
+        client = self.FakeClient([self._issue(n, t) for n, t in titles.items()])
+        monkeypatch.setattr(mod, "GitHubClient", lambda: client, raising=False)
+        import agentic_orchestrator.github_client as gh
+
+        monkeypatch.setattr(gh, "GitHubClient", lambda: client)
+        changed, errors = mod._clean_issue_titles(apply=apply, limit=limit)
+        return client, changed, errors
+
+    def test_the_tracker_prefix_is_preserved(self, monkeypatch):
+        """`[Idea] ` is the tracker's own marker, not model output — losing it
+        would break every label-and-prefix convention the repo reads by."""
+        client, changed, _ = self._run(monkeypatch, {1: "[Idea] Idea: Gas-Guard Copilot"})
+
+        assert client.renamed == {1: "[Idea] Gas-Guard Copilot"}
+        assert changed == 1
+
+    def test_a_dry_run_writes_nothing(self, monkeypatch):
+        client, changed, _ = self._run(
+            monkeypatch, {1: "[Idea] Idea: Gas-Guard Copilot"}, apply=False
+        )
+
+        assert client.renamed == {}
+        assert changed == 1, "a dry run still has to report what it would do"
+
+    def test_a_clean_title_is_not_rewritten(self, monkeypatch):
+        client, changed, _ = self._run(
+            monkeypatch, {1: "[Idea] ERC-6551 Token-Bound Spend Passport"}
+        )
+
+        assert client.renamed == {}
+        assert changed == 0
+
+    def test_a_title_without_the_prefix_is_still_handled(self, monkeypatch):
+        client, _, _ = self._run(monkeypatch, {1: "Idea: Bare title with no prefix"})
+
+        assert client.renamed == {1: "Bare title with no prefix"}
+
+    def test_a_bracket_later_in_the_title_does_not_confuse_the_split(self, monkeypatch):
+        client, _, _ = self._run(monkeypatch, {1: "[Idea] Idea: Fix [bug] parsing in the relayer"})
+
+        assert client.renamed == {1: "[Idea] Fix [bug] parsing in the relayer"}
+
+    def test_a_title_that_would_clean_to_nothing_is_left_alone(self, monkeypatch):
+        client, changed, _ = self._run(monkeypatch, {1: "[Idea] **"})
+
+        assert client.renamed == {}
+        assert changed == 0
+
+    def test_renaming_is_idempotent(self, monkeypatch):
+        """A second run must be a no-op. Otherwise the command churns the public
+        tracker every time an operator repeats it."""
+        client, _, _ = self._run(monkeypatch, {1: "[Idea] **Idea:** Session-Key Budget Vault"})
+        once = client.renamed[1]
+
+        client2, changed2, _ = self._run(monkeypatch, {1: once})
+
+        assert changed2 == 0, f"{once!r} was renamed twice"
+
+    def test_limit_bounds_how_many_public_issues_are_touched(self, monkeypatch):
+        client, changed, _ = self._run(
+            monkeypatch, {n: f"[Idea] Idea: Candidate {n}" for n in range(1, 6)}, limit=2
+        )
+
+        assert len(client.renamed) == 2
+
+    def test_limit_zero_touches_nothing(self, monkeypatch):
+        client, changed, _ = self._run(
+            monkeypatch, {n: f"[Idea] Idea: Candidate {n}" for n in range(1, 6)}, limit=0
+        )
+
+        assert client.renamed == {}
+        assert changed == 0
+
+    def test_a_failed_rename_is_counted_not_raised(self, monkeypatch):
+        import agentic_orchestrator.github_client as gh
+        from agentic_orchestrator.scheduler import clean_titles as mod
+
+        class Failing(self.FakeClient):
+            def update_issue(self, number, title=None, **kw):
+                raise RuntimeError("422 from GitHub")
+
+        client = Failing([self._issue(1, "[Idea] Idea: X marks a specific spot")])
+        monkeypatch.setattr(gh, "GitHubClient", lambda: client)
+        monkeypatch.setattr(mod, "GitHubClient", lambda: client, raising=False)
+
+        changed, errors = mod._clean_issue_titles(apply=True, limit=None)
+
+        assert errors == 1
+
+    def test_github_being_unavailable_is_an_error_not_a_crash(self, monkeypatch):
+        import agentic_orchestrator.github_client as gh
+        from agentic_orchestrator.scheduler import clean_titles as mod
+
+        def boom():
+            raise RuntimeError("GITHUB_TOKEN not set")
+
+        monkeypatch.setattr(gh, "GitHubClient", boom)
+        monkeypatch.setattr(mod, "GitHubClient", boom, raising=False)
+
+        changed, errors = mod._clean_issue_titles(apply=True, limit=None)
+
+        assert (changed, errors) == (0, 1)

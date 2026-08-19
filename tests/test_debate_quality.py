@@ -211,9 +211,30 @@ class TestDebateConfigWiring:
 
     def test_the_shipped_config_file_is_wired_through(self):
         """End-to-end against the real config.yaml, so a key renamed in one place
-        and not the other fails here rather than in a debate at 06:25."""
+        and not the other fails here rather than in a debate at 06:25.
+
+        Compared against the YAML directly, not against the dataclass: the
+        shipped values happen to equal the defaults, so `_load_debate_config`
+        returns the right numbers even when it reads nothing at all -- and it
+        swallows every exception, so deleting the file also "passed".
+        """
+        import yaml
+
+        from agentic_orchestrator.scheduler import tasks
+
+        # Same path `_load_debate_config` resolves, derived the same way, so the
+        # test cannot pass by reading a different file than production does.
+        config_path = Path(tasks.__file__).parent.parent.parent.parent / "config.yaml"
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        shipped = raw["debate"]
+
+        assert "max_tokens_per_response" in shipped, "config.yaml stopped declaring the budget"
+        assert "evaluation_tokens_per_idea" in shipped
+
         config = _load_debate_config()
 
+        assert config.max_tokens_per_response == shipped["max_tokens_per_response"]
+        assert config.evaluation_tokens_per_idea == shipped["evaluation_tokens_per_idea"]
         assert config.evaluation_max_tokens(24) > config.max_tokens_per_response
 
 
@@ -585,9 +606,7 @@ class TestTheRequiredClosingSectionIsNotMinedForScores:
             f"### Idea {n}: Idea {n}\n- Feasibility: 8/10 - r\n- **Total Score**: {s}/10\n\n"
             for n, s in [(1, 7.4), (2, 5.0), (3, 9.2), (4, 6.0), (5, 4.0)]
         )
-        self.expected = {
-            "idea-1": 7.4, "idea-2": 5.0, "idea-3": 9.2, "idea-4": 6.0, "idea-5": 4.0
-        }
+        self.expected = {"idea-1": 7.4, "idea-2": 5.0, "idea-3": 9.2, "idea-4": 6.0, "idea-5": 4.0}
 
     def test_top_three_prose_does_not_erase_the_top_scores(self):
         final = (
@@ -596,17 +615,22 @@ class TestTheRequiredClosingSectionIsNotMinedForScores:
             "**Idea 1** follows closely on feasibility grounds.\n"
         )
 
-        assert self.debate._extract_scores_from_response(self.blocks + final, self.ballot) == self.expected
+        assert (
+            self.debate._extract_scores_from_response(self.blocks + final, self.ballot)
+            == self.expected
+        )
 
     def test_consolidation_notes_cannot_overwrite_a_real_score(self):
         """The nastier variant: this one *does* carry a number, so it would have
         silently replaced idea 4's 6.0 with 7.0 and logged nothing."""
         notes = (
-            "### Final Analysis\n"
-            "**Idea 4** and **Idea 6** overlap; combined Total Score: 35/50.\n"
+            "### Final Analysis\n**Idea 4** and **Idea 6** overlap; combined Total Score: 35/50.\n"
         )
 
-        assert self.debate._extract_scores_from_response(self.blocks + notes, self.ballot) == self.expected
+        assert (
+            self.debate._extract_scores_from_response(self.blocks + notes, self.ballot)
+            == self.expected
+        )
 
     def test_a_sentence_is_not_a_block_header_even_in_bold(self):
         prose = "**Idea 2** deserves a mention here.\n- **Total Score**: 10/10\n"
@@ -659,9 +683,7 @@ class TestARevisionCannotReplaceAPlanWithAnOutline:
     """
 
     def test_naming_the_sections_is_not_carrying_them(self):
-        changelog = (
-            "I updated the " + ", ".join(PLAN_REQUIRED_SECTIONS) + " sections as requested."
-        )
+        changelog = "I updated the " + ", ".join(PLAN_REQUIRED_SECTIONS) + " sections as requested."
 
         assert plan_completeness(changelog) == 0
 
@@ -690,3 +712,85 @@ class TestARevisionCannotReplaceAPlanWithAnOutline:
         result = run_planning(router)
 
         assert "revised with a stated baseline" in result.output["final_plan"]
+
+
+class RecordingRouter:
+    """Captures the kwargs each call site actually passes to the router.
+
+    The unit tests above prove ``evaluation_max_tokens`` computes the right
+    number. They do not prove anyone calls it — reverting the call site to the
+    flat cap left the whole suite green and turned the function into dead code
+    that its own tests still passed. Assertions have to reach the call site.
+    """
+
+    def __init__(self, reply=""):
+        self.reply = reply
+        self.calls = []
+
+    async def route(self, **kwargs):
+        self.calls.append(kwargs)
+        return FakeResponse(self.reply)
+
+    def kwargs_for(self, task_type):
+        return [c for c in self.calls if c.get("task_type") == task_type]
+
+
+class TestTheCallSitesUseTheBudgetsAndRulesWeAddedThem:
+    def test_convergence_asks_for_a_ballot_sized_budget(self):
+        config = DebateProtocolConfig()
+        router = RecordingRouter()
+        debate = MultiStageDebate(router=router, protocol=DebateProtocol(config))
+        ballot = [make_idea(id=f"i{n}").to_dict() for n in range(24)]
+
+        asyncio.run(
+            debate._run_convergence_agent(
+                agent=debate.convergence_agents[0], topic="t", ideas=ballot, round_num=1
+            )
+        )
+
+        (call,) = router.kwargs_for("evaluation")
+        assert call["max_tokens"] == config.evaluation_max_tokens(24)
+        assert call["max_tokens"] > config.max_tokens_per_response, (
+            "the evaluation is back on the flat cap that truncated all 416 of them"
+        )
+
+    def test_the_budget_tracks_the_ballot_rather_than_being_a_constant(self):
+        config = DebateProtocolConfig()
+        router = RecordingRouter()
+        debate = MultiStageDebate(router=router, protocol=DebateProtocol(config))
+
+        for size in (5, 24):
+            asyncio.run(
+                debate._run_convergence_agent(
+                    agent=debate.convergence_agents[0],
+                    topic="t",
+                    ideas=[make_idea(id=f"i{n}").to_dict() for n in range(size)],
+                    round_num=1,
+                )
+            )
+
+        budgets = [c["max_tokens"] for c in router.kwargs_for("evaluation")]
+        assert budgets[0] < budgets[1], "a bigger ballot did not buy more room"
+
+    def test_planning_picks_the_structured_draft_over_the_longest_one(self):
+        """Drives the real phase, so it fails if the selection expression is
+        reverted. The earlier test retyped that expression inside the test,
+        which meant it asserted nothing about production."""
+        structured = plan_text(6, filler="the structured one")
+        rambling = "words " * 5000
+
+        class TwoDrafts(FakeRouter):
+            def __init__(self):
+                super().__init__(draft=None, review="Fine. [Approved]")
+                self._n = 0
+
+            async def route(self, *, prompt, task_type, **kwargs):
+                if task_type == "quality_check":
+                    return FakeResponse(self.review)
+                self._n += 1
+                return FakeResponse(rambling if self._n == 1 else structured)
+
+        result = run_planning(TwoDrafts(), agents_per_round=2)
+
+        assert "the structured one" in result.output["final_plan"]
+        assert "words words" not in result.output["final_plan"]
