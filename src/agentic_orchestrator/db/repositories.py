@@ -380,9 +380,11 @@ class IdeaRepository(BaseRepository):
             # population that is worse than blind, because a run of triage
             # demotes alongside unseen debate confirmations reads as a gate
             # confirming nothing at all.
-            second_pass = (metadata.get("triage") or {}).get("second_pass") or metadata.get(
-                "second_pass"
-            ) or {}
+            second_pass = (
+                (metadata.get("triage") or {}).get("second_pass")
+                or metadata.get("second_pass")
+                or {}
+            )
             verdict = second_pass.get("verdict")
             if verdict in counts:
                 counts[verdict] += 1

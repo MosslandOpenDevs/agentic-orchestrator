@@ -1867,7 +1867,9 @@ Return the complete revised plan.
             # The template asks for `XX/50`, but models answer in `/10` roughly
             # eight times as often. Trust the denominator when it is there, and
             # infer it from magnitude when it is not.
-            denominator = float(total.group(2)) if total.group(2) else (10.0 if value <= 10 else 50.0)
+            denominator = (
+                float(total.group(2)) if total.group(2) else (10.0 if value <= 10 else 50.0)
+            )
             if denominator > 0:
                 return cls._clamp_score(value / denominator * 10)
 

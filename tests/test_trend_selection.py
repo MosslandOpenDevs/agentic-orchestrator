@@ -165,9 +165,9 @@ class TestTheDebatePicksByScore:
         source = Path(tasks.__file__).read_text(encoding="utf-8")
 
         assert "_select_debate_trend(recent_trends)" in source
-        assert "top_trend = recent_trends[0]" not in source, (
-            "position-based selection is what picked the batch's worst trend 59/59 times"
-        )
+        assert (
+            "top_trend = recent_trends[0]" not in source
+        ), "position-based selection is what picked the batch's worst trend 59/59 times"
 
     def test_the_helper_and_the_repository_agree_on_a_real_batch(self, trend_repo):
         """End to end over the two pieces that actually compose in production."""

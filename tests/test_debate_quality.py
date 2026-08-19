@@ -750,9 +750,9 @@ class TestTheCallSitesUseTheBudgetsAndRulesWeAddedThem:
 
         (call,) = router.kwargs_for("evaluation")
         assert call["max_tokens"] == config.evaluation_max_tokens(24)
-        assert call["max_tokens"] > config.max_tokens_per_response, (
-            "the evaluation is back on the flat cap that truncated all 416 of them"
-        )
+        assert (
+            call["max_tokens"] > config.max_tokens_per_response
+        ), "the evaluation is back on the flat cap that truncated all 416 of them"
 
     def test_the_budget_tracks_the_ballot_rather_than_being_a_constant(self):
         config = DebateProtocolConfig()
