@@ -127,18 +127,31 @@ budget:
   #
   # TWO tiers now draw on this pot, not one. The second-pass promotion
   # reviewer (llm.paid_tiers.review) adds only ~$0.03 per debate — the funnel
-  # is narrow — so ~$1.90/day total, still comfortably inside $3.00. But it
+  # is narrow — so ~$1.90/day at the time. (Superseded by the 2026-08-19 note
+  # below, which measures the post-audit steady state.) But it
   # raises the STAKES of exhausting the cap: the debate tier degrades to local
   # (worse ideas), while the reviewer HOLDS every candidate at `scored` rather
   # than promote it unvetted. Crossing this limit therefore stalls promotion
   # outright, not just quality. Check `/usage` -> `llm_routing` before
   # assuming a quiet pipeline is a quiet day.
+  #
+  # 2026-08-19 — the audit fixes narrowed the margin, deliberately. Convergence
+  # evaluations used to hit a flat 2000-token cap on EVERY call (that was the
+  # bug: 46.9% of ideas went unscored), so lifting it means those calls now run
+  # to their natural length, and the planning revision pass adds one call per
+  # debate. Measured against 2026-08-17 actuals ($2.01/day, 1.24M in / 227k out):
+  # output +38%, input +3.4%, landing at $2.38-2.56/day depending on the model's
+  # in:out price ratio — 79-85% of this cap, $74-79/month.
+  #
+  # So it still fits, but headroom went from ~33% to ~15-20%. Before adding
+  # another paid call, redo that arithmetic rather than assuming room exists.
   daily_limit_usd: 3.0
   # Monthly spending limit in USD. Must exceed daily x 31 or the month dies
   # before the day does: at $45 the cap bit around day 25 and every later
   # debate degraded to local gemma. $100 still clears the new daily ceiling
-  # (31 x $3 = $93) and covers the measured ~$54/month of scheduled debates
-  # with room for extra manual ones.
+  # (31 x $3 = $93). Scheduled debates measured ~$54/month before the audit
+  # fixes and are projected at $74-79/month after them (see the daily note),
+  # which still leaves room for extra manual runs.
   monthly_limit_usd: 100.0
   # Warn when usage reaches this percentage
   warning_threshold: 0.7
@@ -369,6 +382,15 @@ backlog:
 debate:
   # Test mode: Reduced agents for faster testing
   test_mode: false
+
+  # Token budget for one agent response. Convergence evaluations get
+  # `max_tokens_per_response + evaluation_tokens_per_idea * <ideas on the ballot>`,
+  # because an evaluation writes one scored block per idea: under a flat cap
+  # every evaluation stopped partway down the list and ~47% of ideas ended a
+  # debate with nobody having scored them. Both keys may also be set per mode
+  # under `normal:` / `test:` below.
+  max_tokens_per_response: 2000
+  evaluation_tokens_per_idea: 200
 
   # Normal mode settings (when test_mode: false)
   normal:

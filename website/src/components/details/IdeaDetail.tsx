@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { ApiClient, type ApiIdea, type ApiDebate, type ApiPlan, type ApiDebateMessage, type IdeaLineageResponse } from '@/lib/api';
+import { localizedTitle } from '@/lib/markdown';
 import type { ModalData } from '../modals/ModalProvider';
 import { IdeaJourney } from '../visualization/IdeaJourney';
 import { ScoreGauge } from '../visualization/ScoreGauge';
@@ -83,12 +84,6 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
 
   const { idea, debates, plans } = ideaData;
 
-  // Helper function for localized text display
-  const getLocalizedText = (en: string | null | undefined, ko: string | null | undefined): string => {
-    if (locale === 'ko' && ko) return ko;
-    return en || '';
-  };
-
   const statusColors: Record<string, 'green' | 'cyan' | 'orange' | 'purple'> = {
     backlog: 'cyan',
     planned: 'purple',
@@ -110,7 +105,7 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
           </TerminalBadge>
           <TerminalBadge variant="purple">{idea.source_type}</TerminalBadge>
         </div>
-        <h3 className="text-lg font-bold text-[#c0c0c0]">{getLocalizedText(idea.title, idea.title_ko)}</h3>
+        <h3 className="text-lg font-bold text-[#c0c0c0]">{localizedTitle(idea.title, idea.title_ko, locale)}</h3>
       </div>
 
       {/* Score Breakdown */}

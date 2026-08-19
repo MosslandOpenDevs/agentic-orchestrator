@@ -18,8 +18,11 @@ so the mirror must FOLLOW the pipeline:
   the issue can always be reopened).
 
 Aging never touches issues labeled ``curated:keep`` or ``source:trend``, nor
-any issue with at least one comment — the orchestrator never comments on open
-issues, so a nonzero comment count means a human showed interest.
+any issue a person with standing in this repo has commented on. That test used
+to be a bare comment count, which handed the exemption to anyone on the
+internet: four archived ideas are open permanently because a stranger left
+sales spam on them. It is now ``author_association``, and it fails toward
+leaving the issue open.
 
 Everything here is best-effort: a GitHub failure logs a warning and moves on;
 it must never break the backlog cycle that hosts it.
@@ -41,6 +44,66 @@ AGING_EXEMPT_LABELS = (Labels.CURATED_KEEP, Labels.SOURCE_TREND)
 
 LIFECYCLE_SIGNATURE = "_(automated issue lifecycle)_"
 
+# `author_association` values that mean the commenter has a real relationship
+# with this repository. A drive-by account gets NONE, and that is the whole
+# distinction: the exemption exists to protect a maintainer's discussion, not to
+# let any stranger pin a bot issue open forever.
+ENGAGED_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR"})
+
+
+def has_human_engagement(client, issue) -> bool:
+    """True if a person with standing in this repo has commented.
+
+    ``issue.comments > 0`` was the test, and it handed the exemption to anyone
+    on the internet. Four archived ideas (#3309, #3311, #3312, #3529) are open
+    on GitHub permanently because a stranger dropped sales spam or a `/claim`
+    bot reply on them — two of those comments were byte-identical, posted 32
+    seconds apart, by the same account.
+
+    Fails toward leaving the issue open: if the comments cannot be read, or the
+    API answers with something unexpected, the issue is treated as engaged. A
+    missed close costs one stale issue; a wrong close buries a real
+    conversation under a bot's verdict.
+    """
+    if issue.comments <= 0:
+        return False
+
+    try:
+        comments = client.list_comments(issue.number)
+    except Exception as e:
+        # Includes a client that has no `list_comments` at all. Everything in
+        # this module is best-effort, and "cannot tell" must mean "leave it".
+        logger.warning(f"Could not read comments on #{issue.number}, sparing it: {e}")
+        return True
+
+    if not comments:
+        # `comments > 0` but nothing came back: an error, or a permission
+        # problem. Do not close on a blank answer.
+        return True
+
+    for comment in comments:
+        association = (comment.get("author_association") or "").upper()
+        if association in ENGAGED_ASSOCIATIONS:
+            # Our own lifecycle comments carry the bot's association, so they
+            # would otherwise exempt every issue the bot has ever commented on.
+            # Test what the person WROTE, not what they quoted: GitHub's "Quote
+            # reply" copies the quoted comment verbatim, so a maintainer
+            # answering the bot's verdict carries the signature inside their own
+            # body. A bare `in` read that as the bot talking to itself and closed
+            # the issue -- and since the DB row never changes, reopening it just
+            # got it closed again on the next four-hour cycle.
+            if LIFECYCLE_SIGNATURE not in _without_quotes(comment.get("body") or ""):
+                return True
+
+    return False
+
+
+def _without_quotes(body: str) -> str:
+    """Comment body with GitHub quote-reply blocks removed."""
+    return "\n".join(
+        line for line in body.splitlines() if not line.lstrip().startswith(">")
+    ).strip()
+
 
 def _parse_github_timestamp(value: str) -> datetime:
     """GitHub ISO-8601 (``2026-08-05T02:34:59Z``) → naive UTC.
@@ -56,10 +119,15 @@ def should_age_out(
     issue: GitHubIssue,
     now: datetime,
     max_age_days: int,
+    client=None,
 ) -> Tuple[bool, str]:
     """Decide whether the aging sweep may close this issue.
 
     Returns ``(decision, reason)``; the reason is for logs and tests.
+
+    ``client`` is optional so the pure age/label rules stay unit-testable
+    without one; when it is absent any comment counts as engagement, which is
+    the old, safe-but-too-broad behaviour.
     """
     if issue.state != "open":
         return False, "not open"
@@ -67,7 +135,10 @@ def should_age_out(
         return False, "not bot-generated"
     if issue.has_any_label(list(AGING_EXEMPT_LABELS)):
         return False, "exempt label"
-    if issue.comments > 0:
+    if client is not None:
+        if has_human_engagement(client, issue):
+            return False, "has discussion"
+    elif issue.comments > 0:
         return False, "has discussion"
     age_days = (now - _parse_github_timestamp(issue.created_at)).days
     if age_days < max_age_days:
@@ -255,7 +326,7 @@ def run_issue_lifecycle(
         if not number or number not in open_issues:
             continue
         issue = open_issues[number]
-        if issue.has_any_label(list(AGING_EXEMPT_LABELS)) or issue.comments > 0:
+        if issue.has_any_label(list(AGING_EXEMPT_LABELS)) or has_human_engagement(client, issue):
             continue
         triage = (getattr(idea, "extra_metadata", None) or {}).get("triage") or {}
         if triage.get("last_score") is not None:
@@ -285,7 +356,7 @@ def run_issue_lifecycle(
     for issue in sorted(open_issues.values(), key=lambda i: i.created_at):
         if budget <= 0:
             break
-        decision, reason = should_age_out(issue, now, max_age_days)
+        decision, reason = should_age_out(issue, now, max_age_days, client=client)
         if not decision:
             continue
         if _close_issue(client, issue, "not_planned"):

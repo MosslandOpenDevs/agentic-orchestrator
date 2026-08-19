@@ -67,6 +67,33 @@ def main():
         help="Snapshot the SQLite database into data/backup/ (manual/on-demand)",
     )
 
+    # clean-titles command
+    clean_parser = subparsers.add_parser(
+        "clean-titles",
+        help="Strip leaked markdown from titles already stored (dry run by default)",
+        description=(
+            "The write path no longer stores markup in titles; this cleans what is "
+            "already there. Reports and exits unless --apply is given."
+        ),
+    )
+    clean_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="write the changes (without this, only report what would change)",
+    )
+    clean_parser.add_argument(
+        "--issues",
+        action="store_true",
+        help="also rename affected open GitHub issues (outward-facing; opt in separately)",
+    )
+    clean_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="only consider the first N rows per table (for a trial run)",
+    )
+
     # restore-db command
     restore_parser = subparsers.add_parser(
         "restore-db",
@@ -122,6 +149,16 @@ def main():
         process_backlog()
     elif args.command == "health-check":
         health_check()
+    elif args.command == "clean-titles":
+        from .clean_titles import clean_titles
+
+        stats = clean_titles(apply=args.apply, issues=args.issues, limit=args.limit)
+        print(
+            f"ideas={stats['ideas']} plans={stats['plans']} trends={stats['trends']} "
+            f"issues={stats['issues']} skipped={stats['skipped']} errors={stats['errors']}"
+            + ("" if args.apply else "  (dry run — re-run with --apply to write)")
+        )
+        sys.exit(1 if stats["errors"] else 0)
     elif args.command == "backup-db":
         # Exit codes are a contract with scripts/deploy.sh, which refuses to
         # deploy without a restore point:

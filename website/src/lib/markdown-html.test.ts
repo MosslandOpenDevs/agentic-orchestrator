@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { renderMarkdown, safeUrl, stripMarkdown } from './markdown-html.ts';
+import { localizedTitle, renderMarkdown, safeUrl, stripMarkdown } from './markdown-html.ts';
 
 // Debate messages are LLM output built from public feeds and are rendered with
 // dangerouslySetInnerHTML, so anything that survives this function runs on
@@ -177,6 +177,31 @@ test('stripMarkdown unwraps emphasis, code and links', () => {
 test('stripMarkdown drops stacked leading block markers', () => {
   assert.equal(stripMarkdown('> ## - Quoted heading'), 'Quoted heading');
   assert.equal(stripMarkdown('- A bullet title'), 'A bullet title');
+});
+
+test('stripMarkdown drops an Idea label that carries no information', () => {
+  // `[Idea] Idea: ...` reached 431 public issues: the prompt asked models to
+  // start the title with `## Idea:` and the marker survived into the field.
+  assert.equal(stripMarkdown('## Idea: Gas-Guard Copilot'), 'Gas-Guard Copilot');
+  assert.equal(stripMarkdown('## 아이디어: 지갑 가스비 상한'), '지갑 가스비 상한');
+});
+
+test('stripMarkdown reaches a heading behind the Plan prefix, and keeps the prefix', () => {
+  // Backlog triage builds `Plan: {idea.title}`, so a dirty idea title produced
+  // `Plan: ## ...` -- which the anchored strip could not match at all.
+  assert.equal(stripMarkdown('Plan: ## Mossland Wallet Guard'), 'Plan: Mossland Wallet Guard');
+  // The prefix itself stays: it is what tells a plan apart from its idea.
+  assert.equal(stripMarkdown('## 계획: 지갑 상한'), '계획: 지갑 상한');
+});
+
+test('localizedTitle picks the language and flattens in one call', () => {
+  // Two steps that had to be remembered together were remembered separately:
+  // plan titles were stripped and idea titles, 54 lines above, were not.
+  assert.equal(localizedTitle('## Idea: Gas Guard', '## 아이디어: 가스 가드', 'ko'), '가스 가드');
+  assert.equal(localizedTitle('## Idea: Gas Guard', '## 아이디어: 가스 가드', 'en'), 'Gas Guard');
+  // Falls back to English when the translation is missing.
+  assert.equal(localizedTitle('Gas Guard', null, 'ko'), 'Gas Guard');
+  assert.equal(localizedTitle(null, null, 'ko'), '');
 });
 
 test('stripMarkdown leaves plain prose and identifiers alone', () => {

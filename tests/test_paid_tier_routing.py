@@ -412,14 +412,21 @@ class TestOpenAIProviderParams:
 
 class TestDebateCallSitesCarryTheTier:
     def test_every_debate_route_call_is_tier_tagged(self):
-        # Source invariant: the four debate LLM calls (divergence,
-        # convergence, planning, quality gate) must all name the tier —
-        # an untagged call silently runs the debate on gemma3:4b again.
+        # Source invariant: every debate LLM call must name the tier — an
+        # untagged one silently runs that stage on gemma3:4b again.
+        #
+        # The invariant is the equality, not the number. Adding a stage is
+        # allowed; adding an *untagged* stage is what must fail here, so the
+        # count is asserted only to keep the scan from going vacuous.
         source = Path("src/agentic_orchestrator/debate/multi_stage.py").read_text()
         route_calls = len(re.findall(r"\.route\(", source))
         tier_tags = source.count('paid_tier="debate"')
-        assert route_calls == 4
-        assert tier_tags == 4
+        assert route_calls == tier_tags, (
+            f"{route_calls} route() calls but {tier_tags} tier tags — "
+            "an untagged debate call falls back to the local model"
+        )
+        # divergence, convergence, planning draft, planning revision, quality gate
+        assert route_calls == 5
 
 
 class TestDegradationIsVisible:

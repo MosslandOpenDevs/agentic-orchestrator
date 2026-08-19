@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { ApiClient, type ApiTrend, type ApiSignal } from '@/lib/api';
 import { formatLocalDateTime } from '@/lib/date';
+import { localizedTitle } from '@/lib/markdown';
 import type { ModalData } from '../modals/ModalProvider';
 import { ScoreGauge } from '../visualization/ScoreGauge';
 import { TrendSparkline } from '../visualization/TrendSparkline';
@@ -108,7 +109,7 @@ export function TrendDetail({ data }: TrendDetailProps) {
           )}
         </div>
         <h3 className="text-lg font-bold text-[#c0c0c0]">
-          {getLocalizedText(trend.name, trend.name_ko)}
+          {localizedTitle(trend.name, trend.name_ko, locale)}
         </h3>
       </div>
 
@@ -244,7 +245,7 @@ export function TrendDetail({ data }: TrendDetailProps) {
               >
                 <span className="text-[#00ffff]">→</span>
                 <span className="text-sm text-[#c0c0c0] flex-1 truncate">
-                  {getLocalizedText(signal.title, signal.title_ko)}
+                  {localizedTitle(signal.title, signal.title_ko, locale)}
                 </span>
                 <span className="text-xs text-[#bd93f9]">{signal.score.toFixed(1)}</span>
               </motion.div>

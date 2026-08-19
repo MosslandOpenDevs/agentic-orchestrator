@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { ApiClient, type ApiProject, type ApiPlan, type ApiIdea, type ApiDebate } from '@/lib/api';
 import { formatLocalDateTime } from '@/lib/date';
-import { MarkdownContent, stripMarkdown } from '@/lib/markdown';
+import { MarkdownContent, localizedTitle } from '@/lib/markdown';
 import type { ModalData } from '../modals/ModalProvider';
 import { TerminalBadge } from '../TerminalWindow';
 import { useModal } from '../modals/useModal';
@@ -318,7 +318,7 @@ export function ProjectDetail({ data }: ProjectDetailProps) {
             {locale === 'ko' ? '프로젝트 설명' : 'Project Description'}
           </div>
           <h4 className="text-[#c0c0c0] font-medium mb-2">
-            {stripMarkdown(locale === 'ko' && plan.title_ko ? plan.title_ko : plan.title)}
+            {localizedTitle(plan.title, plan.title_ko, locale)}
           </h4>
           {idea?.summary && (
             <MarkdownContent

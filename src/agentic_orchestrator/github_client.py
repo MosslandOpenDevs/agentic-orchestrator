@@ -375,6 +375,30 @@ class GitHubClient:
         )
         return response
 
+    def list_comments(self, issue_number: int, per_page: int = 30) -> list[dict]:
+        """First page of comments on an issue, OLDEST first.
+
+        This endpoint returns ascending order and ignores ``direction``, so a
+        single page is the oldest ``per_page`` comments, not the newest. That is
+        fine for the one caller today — it asks "did anyone with standing say
+        anything", and the busiest issue in this repository has six comments —
+        but a thread longer than ``per_page`` would need real pagination before
+        any caller could reason about recency.
+
+        Only ``author_association`` and ``body`` are read. Returns ``[]`` rather
+        than raising; the caller treats "cannot tell" as "leave the issue alone".
+        """
+        try:
+            response = self._request(
+                "GET",
+                f"/repos/{self.repo_path}/issues/{issue_number}/comments",
+                params={"per_page": per_page},
+            )
+            return response if isinstance(response, list) else []
+        except Exception as e:
+            logger.warning(f"Could not list comments on #{issue_number}: {e}")
+            return []
+
     def list_issues(
         self,
         labels: list[str] | None = None,

@@ -56,7 +56,13 @@ class FakeClient:
     could land on an issue that then stays open.
     """
 
-    def __init__(self, open_issues=None, fail_numbers=(), fail_close_numbers=()):
+    def __init__(
+        self,
+        open_issues=None,
+        fail_numbers=(),
+        fail_close_numbers=(),
+        existing_comments=None,
+    ):
         self.open_issues = {i.number: i for i in (open_issues or [])}
         self.fail_numbers = set(fail_numbers)
         self.fail_close_numbers = set(fail_close_numbers)
@@ -64,6 +70,16 @@ class FakeClient:
         self.comments = {}  # number -> [bodies]
         self.label_updates = {}  # number -> labels
         self.marked_planned = []
+        # number -> [{"author_association": ..., "body": ...}]. Defaults to a
+        # maintainer comment so an issue carrying `comments=N` behaves the way
+        # every pre-existing test means it to: engaged, therefore spared.
+        self.existing_comments = existing_comments or {}
+
+    def list_comments(self, number, per_page=30):
+        if number in self.existing_comments:
+            return self.existing_comments[number]
+        count = self.open_issues[number].comments if number in self.open_issues else 0
+        return [{"author_association": "OWNER", "body": "looks useful"} for _ in range(count)]
 
     def list_issues(self, labels=None, state="open", per_page=100, max_pages=10):
         return list(self.open_issues.values())
@@ -372,6 +388,116 @@ class TestArchivedReconciliation:
 
         assert stats["reconciled_archived"] == 0
         assert client.closed == {}
+
+    def test_a_strangers_comment_does_not_pin_the_issue_open(self, repos):
+        """The exemption protects a maintainer's discussion, not any comment.
+
+        Four archived ideas (#3309, #3311, #3312, #3529) are open on GitHub
+        permanently because a passer-by dropped sales spam or a `/claim` bot
+        reply on them — two of those comments byte-identical, 32 seconds apart,
+        same account. A bare comment count handed the veto to the internet.
+        """
+        idea_repo, plan_repo, project_repo, session = repos
+        self._archived_idea(idea_repo, 20)
+        spammed = make_issue(20, created_at="2026-08-05T00:00:00Z", comments=2)
+        client = FakeClient(
+            [spammed],
+            existing_comments={
+                20: [
+                    {"author_association": "NONE", "body": "Great project! DM me for growth."},
+                    {"author_association": "NONE", "body": "Great project! DM me for growth."},
+                ]
+            },
+        )
+
+        stats = run_issue_lifecycle(client, idea_repo, plan_repo, project_repo, now=NOW)
+
+        assert stats["reconciled_archived"] == 1
+        assert client.closed == {20: "not_planned"}
+
+    def test_a_maintainers_comment_still_spares_the_issue(self, repos):
+        idea_repo, plan_repo, project_repo, session = repos
+        self._archived_idea(idea_repo, 21)
+        discussed = make_issue(21, created_at="2026-08-05T00:00:00Z", comments=1)
+        client = FakeClient(
+            [discussed],
+            existing_comments={
+                21: [{"author_association": "COLLABORATOR", "body": "Worth keeping, see #12."}]
+            },
+        )
+
+        run_issue_lifecycle(client, idea_repo, plan_repo, project_repo, now=NOW)
+
+        assert client.closed == {}
+
+    def test_the_bots_own_comment_is_not_human_engagement(self, repos):
+        """The lifecycle comments as an account with standing in this repo, so
+        without this check every issue it ever touched would exempt itself —
+        which is the deadlock the close-before-comment ordering exists to
+        avoid, arriving by a different road."""
+        from agentic_orchestrator.scheduler.issue_lifecycle import LIFECYCLE_SIGNATURE
+
+        idea_repo, plan_repo, project_repo, session = repos
+        self._archived_idea(idea_repo, 22)
+        touched = make_issue(22, created_at="2026-08-05T00:00:00Z", comments=1)
+        client = FakeClient(
+            [touched],
+            existing_comments={
+                22: [{"author_association": "OWNER", "body": f"Closing. {LIFECYCLE_SIGNATURE}"}]
+            },
+        )
+
+        stats = run_issue_lifecycle(client, idea_repo, plan_repo, project_repo, now=NOW)
+
+        assert stats["reconciled_archived"] == 1
+
+    def test_unreadable_comments_spare_the_issue(self, repos):
+        """A missed close costs one stale issue; a wrong close buries a real
+        conversation under a bot's verdict. Fail toward leaving it open."""
+        idea_repo, plan_repo, project_repo, session = repos
+        self._archived_idea(idea_repo, 23)
+        issue = make_issue(23, created_at="2026-08-05T00:00:00Z", comments=1)
+
+        class Blind(FakeClient):
+            def list_comments(self, number, per_page=30):
+                raise RuntimeError("403 from GitHub")
+
+        client = Blind([issue])
+
+        run_issue_lifecycle(client, idea_repo, plan_repo, project_repo, now=NOW)
+
+        assert client.closed == {}
+
+    def test_a_quote_reply_is_the_person_talking_not_the_bot(self, repos):
+        """GitHub's "Quote reply" copies the quoted comment verbatim, so a
+        maintainer answering the bot's verdict carries the lifecycle signature
+        inside their own body. A substring test read that as the bot talking to
+        itself and closed the issue — and since the DB row never changes,
+        reopening it just got it closed again four hours later."""
+        from agentic_orchestrator.scheduler.issue_lifecycle import LIFECYCLE_SIGNATURE
+
+        idea_repo, plan_repo, project_repo, session = repos
+        self._archived_idea(idea_repo, 30)
+        issue = make_issue(30, created_at="2026-08-05T00:00:00Z", comments=1)
+        client = FakeClient(
+            [issue],
+            existing_comments={
+                30: [
+                    {
+                        "author_association": "OWNER",
+                        "body": (
+                            f"> Backlog triage re-scored this idea at 8.0/10 — archived. "
+                            f"{LIFECYCLE_SIGNATURE}\n\n"
+                            "No — keep this open, we are shipping it next sprint."
+                        ),
+                    }
+                ]
+            },
+        )
+
+        run_issue_lifecycle(client, idea_repo, plan_repo, project_repo, now=NOW)
+
+        assert client.closed == {}, "a maintainer's reply was mistaken for the bot's own comment"
 
     def test_archived_idea_with_closed_or_missing_issue_is_skipped(self, repos):
         idea_repo, plan_repo, project_repo, session = repos

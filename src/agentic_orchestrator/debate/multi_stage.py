@@ -10,6 +10,7 @@ Orchestrates debates through three phases:
 import asyncio
 import logging
 import random
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -25,8 +26,10 @@ from ..personas import (
 from ..personas.personalities import (
     CommunicationStyle,
 )
+from ..textutil import clean_title
 from ..timeutil import utcnow
 from .protocol import (
+    IDEA_SUMMARY_CHARS,
     DebateMessage,
     DebatePhase,
     DebateProtocol,
@@ -34,9 +37,16 @@ from .protocol import (
     DebateRound,
     MessageType,
     PhaseResult,
+    plan_completeness,
 )
 
 logger = logging.getLogger(__name__)
+
+# A revision may tighten a plan, but not replace it with an outline. Measured
+# against real drafts: a genuine rewrite lands within a few percent of the
+# original length, while the failure shapes (a changelog, a heading skeleton)
+# come in under a fifth of it.
+REVISION_MIN_LENGTH_RATIO = 0.6
 
 
 @dataclass
@@ -49,6 +59,10 @@ class Idea:
     agent_id: str
     agent_name: str
     round_num: int
+    # Prose gist, for prompts that list many ideas at once. ``content`` is the
+    # raw model response -- a fenced JSON blob for most ideas -- so slicing it
+    # to fit a list yields an opening brace and half a title, not a summary.
+    summary: str = ""
     scores: Dict[str, float] = field(default_factory=dict)
     merged_from: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -60,10 +74,16 @@ class Idea:
         return sum(self.scores.values()) / len(self.scores)
 
     def to_dict(self) -> Dict[str, Any]:
+        # Every key a prompt builder reads must appear here. Prompts used to ask
+        # for 'agent', 'score' and 'summary' -- none of which were ever emitted --
+        # so evaluations rendered "Proposer: Unknown / Score: N/A" and the
+        # planning phase wrote its plan from ``content[:200]``.
+        # ``tests/test_debate_quality.py`` pins the two sides together.
         return {
             "id": self.id,
             "title": self.title,
             "content": self.content,
+            "summary": self.summary,
             "agent_id": self.agent_id,
             "agent_name": self.agent_name,
             "round_num": self.round_num,
@@ -495,9 +515,9 @@ class MultiStageDebate:
                     if self.on_message:
                         self.on_message(message)
 
-                # Merge drafts (simple: use first comprehensive one)
+                # Most complete draft wins; length only breaks ties.
                 if drafts:
-                    draft_plan = max(drafts, key=len)
+                    draft_plan = max(drafts, key=lambda d: (plan_completeness(d), len(d)))
 
             else:
                 # Subsequent rounds: Review and vote
@@ -513,6 +533,7 @@ class MultiStageDebate:
 
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
+                objections: List[tuple] = []
                 for result in results:
                     if isinstance(result, Exception):
                         logger.error(f"Planning review error: {result}")
@@ -523,11 +544,31 @@ class MultiStageDebate:
                     total_votes += 1
                     if is_approved:
                         approvals += 1
+                    elif feedback:
+                        objections.append((message.agent_name, feedback))
                     phase_tokens += tokens
                     phase_cost += cost
 
                     if self.on_message:
                         self.on_message(message)
+
+                # Fold the objections back into the plan. Until this existed the
+                # review round produced nothing: `feedback` was unpacked and
+                # never read again, so a plan that every reviewer marked
+                # "[Needs Revision]" shipped exactly as drafted.
+                if draft_plan and objections and round_agents:
+                    revised, tokens, cost = await self._run_plan_revision(
+                        agent=round_agents[0],
+                        topic=topic,
+                        draft_plan=draft_plan,
+                        reviews=objections,
+                        round_num=round_num,
+                        round_data=round_data,
+                    )
+                    phase_tokens += tokens
+                    phase_cost += cost
+                    if revised:
+                        draft_plan = revised
 
             rounds.append(round_data)
 
@@ -910,7 +951,10 @@ Assign a score between 1-10 for each idea.
                 system=system_prompt,
                 quality="normal",
                 temperature=self.protocol.get_temperature(DebatePhase.CONVERGENCE),
-                max_tokens=self.protocol.config.max_tokens_per_response,
+                # Scales with the ballot: the flat cap cut off every evaluation
+                # partway down the list, and a truncated evaluation is
+                # indistinguishable from a complete one at the call site.
+                max_tokens=self.protocol.config.evaluation_max_tokens(len(ideas)),
             )
 
             message = DebateMessage(
@@ -1065,6 +1109,97 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         except Exception as e:
             logger.error(f"Planning review agent {agent.id} failed: {e}")
             raise
+
+    async def _run_plan_revision(
+        self,
+        agent: AgentPersona,
+        topic: str,
+        draft_plan: str,
+        reviews: List[tuple],
+        round_num: int,
+        round_data: DebateRound,
+    ) -> tuple[Optional[str], int, float]:
+        """Rewrite the draft against the reviewers' objections.
+
+        Returns ``(revised_plan_or_None, tokens, cost)``. The revision is only
+        accepted if it still carries at least as many required sections as the
+        draft did -- a model that answers with a changelog, or that drops half
+        the plan while addressing one comment, must not be able to make the
+        output worse than doing nothing.
+        """
+        prompt = self.protocol.create_plan_revision_prompt(
+            topic=topic,
+            draft_plan=draft_plan,
+            reviews=reviews,
+            agent_expertise=agent.expertise,
+            round_num=round_num,
+        )
+
+        system_prompt = f"""You are {agent.name}.
+Role: {agent.role}
+Expertise: {agent.expertise}
+
+Your task is to rewrite an implementation plan so that it answers the reviewers.
+Return the complete revised plan.
+**IMPORTANT**: All content must be written in English."""
+
+        try:
+            response = await self.router.route(
+                prompt=prompt,
+                task_type="final_plan",
+                paid_tier="debate",
+                system=system_prompt,
+                quality="high",
+                temperature=self.protocol.get_temperature(DebatePhase.PLANNING),
+                max_tokens=self.protocol.config.max_tokens_per_response * 2,
+            )
+        except Exception as e:
+            # A failed revision leaves the reviewed draft in place; it must not
+            # take the whole planning phase down with it.
+            logger.error(f"Plan revision by {agent.id} failed, keeping draft: {e}")
+            return None, 0, 0.0
+
+        revised = response.content or ""
+        tokens = response.input_tokens + response.output_tokens
+
+        if plan_completeness(revised) < plan_completeness(draft_plan):
+            logger.warning(
+                f"Plan revision dropped sections "
+                f"({plan_completeness(draft_plan)} -> {plan_completeness(revised)}); keeping draft"
+            )
+            return None, tokens, response.cost
+
+        # Section coverage alone is not enough: a skeleton of six headings over
+        # "TBD" carries all of them in 165 characters. Require the revision to
+        # be substantially as long as what it replaces, so answering a review
+        # with an outline cannot throw away a finished plan.
+        if len(revised) < REVISION_MIN_LENGTH_RATIO * len(draft_plan):
+            logger.warning(
+                f"Plan revision is {len(revised)} chars against a {len(draft_plan)}-char "
+                f"draft; keeping draft"
+            )
+            return None, tokens, response.cost
+
+        message = DebateMessage(
+            id=f"revise-{self.session_id}-{round_num}-{agent.id}",
+            phase=DebatePhase.PLANNING,
+            round=round_num,
+            agent_id=agent.id,
+            agent_name=agent.name,
+            message_type=MessageType.FINAL_PLAN,
+            content=revised,
+            metadata={
+                "model": response.model,
+                "provider": response.provider,
+                "revised_from_reviews": [reviewer for reviewer, _ in reviews],
+            },
+        )
+        round_data.add_message(message)
+        if self.on_message:
+            self.on_message(message)
+
+        logger.info(f"Plan revised against {len(reviews)} review(s) by {agent.name}")
+        return revised, tokens, response.cost
 
     def _validate_idea_content(self, content: str) -> tuple[bool, list[str]]:
         """
@@ -1283,6 +1418,25 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         return None
 
     @staticmethod
+    def _summarize_idea_json(idea_json: Dict[str, Any]) -> str:
+        """Prose gist of a JSON idea, for prompts that list several ideas.
+
+        The planning prompt asks each idea for a ``summary``. Nothing ever
+        supplied one, so it fell back to ``content[:200]`` -- on a JSON idea
+        that is the opening brace and part of ``idea_title``, which is what the
+        planning agents were actually given to write the final plan from.
+        """
+        parts = [str(idea_json.get("core_analysis") or "").strip()]
+
+        proposal = idea_json.get("proposal")
+        if isinstance(proposal, dict):
+            parts.append(str(proposal.get("description") or "").strip())
+        elif isinstance(proposal, str):
+            parts.append(proposal.strip())
+
+        return " ".join(part for part in parts if part)[:IDEA_SUMMARY_CHARS]
+
+    @staticmethod
     def _is_json_noise_line(line: str) -> bool:
         """True for lines that are raw JSON structure (keys, braces, brackets).
 
@@ -1338,7 +1492,11 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         # which is what produced thousands of malformed '"week1": ...' titles.
         idea_json = self._parse_idea_json(content)
         if idea_json is not None:
-            title = str(idea_json.get("idea_title") or "").strip()
+            # Clean at the boundary. The prompt no longer asks for a `## Idea:`
+            # heading, but models still produce markdown in a JSON string value
+            # often enough that the title must not be trusted raw -- it goes
+            # straight into an `<h3>` and into a GitHub issue title.
+            title = clean_title(idea_json.get("idea_title"))
             if title:
                 # Validate JSON-based idea
                 is_valid, errors = self._validate_idea_content(content)
@@ -1357,6 +1515,7 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
                         id=f"idea-{self.session_id}-{round_num}-{agent.id}",
                         title=title[:200],
                         content=content,
+                        summary=self._summarize_idea_json(idea_json),
                         agent_id=agent.id,
                         agent_name=agent.name,
                         round_num=round_num,
@@ -1586,39 +1745,150 @@ At the end, specify [Approved], [Needs Revision], or [Rejected].
         content: str,
         ideas: List[Dict[str, Any]],
     ) -> Dict[str, float]:
-        """Extract scores for ideas from evaluation response."""
-        scores = {}
+        """Read each idea's score out of that idea's own evaluation block.
 
-        # Simple heuristic: look for numbers 1-10 near idea references
-        import re
+        The evaluation template (``create_convergence_prompt``) asks for one
+        ``### Idea N`` block per idea, each ending in a ``**Total Score**`` line,
+        and it numbers the ideas in the order they were passed in. So the block
+        number is the anchor: a score can only ever come from the block written
+        about that idea.
 
-        for idea in ideas:
-            idea_id = idea.get("id", "")
-            idea_title = idea.get("title", "")
+        That anchoring is the whole point. The previous implementation searched
+        the *whole document* per idea with three patterns, and got two things
+        wrong at once. Its title pattern took the first number after the title,
+        which the template guarantees is the Feasibility line, not the total --
+        86.4% of stored scores were a single criterion. Its other two patterns
+        were not anchored to anything, so every idea the evaluator never reached
+        was assigned Idea 1's number: 51.5% of stored (idea, evaluator) pairs
+        were a score for a different idea. Both were reproducible byte-for-byte
+        against live messages.
 
-            # Look for patterns like "Idea 1: 8 points" or "Score: 7"
-            patterns = [
-                rf"{re.escape(idea_title)}[^0-9]*(\d+)",
-                r"Idea\s*\d+[^0-9]*(\d+)\s*(?:points?)?",
-                r"Score[:\s]*(\d+)",
-            ]
+        An unscored idea is left out of the result. Scoring an idea nobody
+        evaluated is strictly worse than admitting it went unevaluated -- it is
+        how a truncated evaluation came to look like a complete one.
+        """
+        blocks = self._split_evaluation_blocks(content)
 
-            for pattern in patterns:
-                match = re.search(pattern, content)
-                if match:
-                    try:
-                        score = float(match.group(1))
-                        if 1 <= score <= 10:
-                            scores[idea_id] = score
-                            break
-                    except ValueError:
-                        continue
+        scores: Dict[str, float] = {}
+        for number, block in blocks.items():
+            if not 1 <= number <= len(ideas):
+                logger.debug(f"Evaluation mentions Idea {number}, which was not on the ballot")
+                continue
 
-            # Skip scoring if no score found (avoid polluting with arbitrary defaults)
-            if idea_id not in scores:
-                logger.warning(f"Could not extract score for idea {idea_id}, skipping")
+            score = self._score_from_block(block)
+            if score is None:
+                continue
+
+            idea_id = ideas[number - 1].get("id", "")
+            if idea_id:
+                scores[idea_id] = score
+
+        if len(scores) < len(ideas):
+            # A truncated evaluation looks exactly like this: the early ideas
+            # scored, the rest silently missing. Nothing else reports it -- the
+            # response is a well-formed 200 and the provider does not expose a
+            # finish reason -- so say it out loud.
+            logger.warning(
+                f"Evaluation scored {len(scores)} of {len(ideas)} ideas; "
+                f"{len(ideas) - len(scores)} left unscored (truncated response?)"
+            )
 
         return scores
+
+    # `### Idea 3: Title` / `**Idea 3**: Title` / `**Idea 3**` alone on a line.
+    #
+    # The trailing separator is load-bearing, not decoration. A heading-or-bold
+    # marker alone is not enough, because the template REQUIRES a closing
+    # "Final Analysis" whose "Top 3 Ideas" lines open with exactly that shape:
+    # `**Idea 3** is the strongest...`. Treated as a block header, that
+    # sentence became the last block for idea 3 -- and it carries no score, so
+    # last-one-wins erased the real one. The highest-scoring idea in a debate
+    # is the one most likely to be named there, so the erasure was biased
+    # against exactly the ideas planning most needed.
+    _EVAL_BLOCK_RE = re.compile(
+        r"^\s{0,3}(?:#{1,6}\s*|\*\*)\s*Idea\s+(\d+)\s*\*{0,2}\s*[:：\-–—]",
+        re.MULTILINE,
+    )
+
+    # Everything from here on is commentary about the ideas, not an evaluation
+    # of them. Cutting first means a stray `**Idea 4** and **Idea 6** overlap;
+    # combined Total Score: 35/50` in the consolidation notes cannot overwrite
+    # a real score either.
+    _FINAL_ANALYSIS_RE = re.compile(
+        r"^\s{0,3}(?:#{1,6}\s*|\*\*)\s*Final\s+Analysis", re.MULTILINE | re.IGNORECASE
+    )
+
+    # `**Total Score**: 41/50`, `**Total Score:** 41/50`, `***Total Score***: 8.2/10`,
+    # `Total Score = 41/50`, `| Total Score | 41/50 |`. The colon lands inside the
+    # emphasis about as often as outside it, so the separator has to be allowed
+    # on either side of the closing markers -- requiring it outside missed a
+    # very ordinary shape and silently left the idea unscored.
+    _TOTAL_SCORE_RE = re.compile(
+        r"\*{0,3}Total\s+Score\s*[:：]?\*{0,3}\s*[:：=\-–—|]?\s*(\d+(?:\.\d+)?)\s*(?:/\s*(\d+))?",
+        re.IGNORECASE,
+    )
+
+    # `- Feasibility: 8/10 - reason`, used only when the block has no total.
+    #
+    # Both naming schemes, because the prompt itself uses two: the weighted
+    # rubric names the criteria "Mossland Relevance" and "Novelty", while the
+    # output template two sections later asks for "Innovation" and "Risk".
+    # Knowing only the template's names produced a partial mean -- and the one
+    # it dropped, Novelty, carries the largest weight in the rubric.
+    _CRITERION_RE = re.compile(
+        r"^\s*[-*|]?\s*\*{0,2}(?:Feasibility|Impact|Innovation|Risk|Urgency"
+        r"|Novelty|Relevance|Mossland\s+Relevance)\s*[:：]?\*{0,2}"
+        r"\s*[:：\-|]?\s*(\d+(?:\.\d+)?)\s*/\s*10\b",
+        re.IGNORECASE | re.MULTILINE,
+    )
+
+    @classmethod
+    def _split_evaluation_blocks(cls, content: str) -> Dict[int, str]:
+        """Map idea number -> the text of that idea's evaluation block."""
+        cutoff = cls._FINAL_ANALYSIS_RE.search(content)
+        if cutoff:
+            content = content[: cutoff.start()]
+
+        headers = list(cls._EVAL_BLOCK_RE.finditer(content))
+
+        blocks: Dict[int, str] = {}
+        for i, header in enumerate(headers):
+            end = headers[i + 1].start() if i + 1 < len(headers) else len(content)
+            # Last one wins if a model repeats a number: a rewrite supersedes.
+            blocks[int(header.group(1))] = content[header.end() : end]
+        return blocks
+
+    @classmethod
+    def _score_from_block(cls, block: str) -> Optional[float]:
+        """Normalise one block's score to the 1-10 scale, or None."""
+        total = cls._TOTAL_SCORE_RE.search(block)
+        if total:
+            value = float(total.group(1))
+            # The template asks for `XX/50`, but models answer in `/10` roughly
+            # eight times as often. Trust the denominator when it is there, and
+            # infer it from magnitude when it is not.
+            denominator = (
+                float(total.group(2)) if total.group(2) else (10.0 if value <= 10 else 50.0)
+            )
+            if denominator > 0:
+                return cls._clamp_score(value / denominator * 10)
+
+        # No total line: average the criteria the evaluator did write, still
+        # only from within this block.
+        criteria = [float(m) for m in cls._CRITERION_RE.findall(block)]
+        if criteria:
+            return cls._clamp_score(sum(criteria) / len(criteria))
+
+        return None
+
+    @staticmethod
+    def _clamp_score(score: float) -> Optional[float]:
+        """Keep 1-10; reject anything else rather than squashing it into range.
+
+        0.0 is the sentinel `Idea.total_score` returns for "nobody has scored
+        this", so a real 0 must not be stored as one.
+        """
+        return round(score, 2) if 1.0 <= score <= 10.0 else None
 
 
 async def run_multi_stage_debate(

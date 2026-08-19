@@ -105,7 +105,17 @@ export function stripMarkdown(value: string | null | undefined): string {
   return (
     value
       // Leading block markers, in the order they can stack: `> ## - text`.
-      .replace(/^\s*(?:>\s*)*(?:#{1,6}\s+)?(?:[-*+]\s+)?/, '')
+      // A `Plan: ` / `계획: ` prefix may sit in front of them, because backlog
+      // triage builds its plan titles as `f"Plan: {idea.title}"` -- when the
+      // idea title itself carried a heading the result was `Plan: ## Mossland
+      // ...`, which an anchored strip could not match, so the hashes reached
+      // the page. That prefix is kept: it is what distinguishes a plan from
+      // the idea it came from.
+      .replace(/^(\s*(?:Plan|계획)\s*:\s*)?\s*(?:>\s*)*(?:#{1,6}\s+)?(?:[-*+]\s+)?/, '$1')
+      // `Idea:` / `아이디어:` carries no information in a position that already
+      // says it is showing an idea, and it is what made 431 public issues read
+      // `[Idea] Idea: ...`.
+      .replace(/^\s*(?:Idea|아이디어)\s*[:：]\s*/i, '')
       .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1') // links / images -> label
       .replace(/\*\*([^*]+)\*\*/g, '$1') // bold before italic, or the
       .replace(/\*([^*]+)\*/g, '$1') //     inner pair eats the markers
@@ -116,6 +126,26 @@ export function stripMarkdown(value: string | null | undefined): string {
       .replace(/\s+/g, ' ')
       .trim()
   );
+}
+
+/**
+ * Pick the reader's language for a title, and hand back plain text.
+ *
+ * Titles are localized and stripped at the same 17 places, and the two steps
+ * were separate: `plan.title` was wrapped in `stripMarkdown` while `idea.title`
+ * 54 lines above it was not, so ideas rendered their `## Idea:` prefix for
+ * months after the identical bug was fixed for plans. One call does both, so
+ * there is no second step to forget.
+ *
+ * Body text keeps using the local `getLocalizedText` -- summaries and
+ * descriptions go through `MarkdownContent`, which needs the markup intact.
+ */
+export function localizedTitle(
+  en: string | null | undefined,
+  ko: string | null | undefined,
+  locale: string,
+): string {
+  return stripMarkdown(locale === 'ko' && ko ? ko : en);
 }
 
 /**

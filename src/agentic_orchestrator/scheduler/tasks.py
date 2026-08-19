@@ -8,8 +8,9 @@ import asyncio
 import logging
 import sys
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
+from ..textutil import clean_issue_title, clean_name, clean_title
 from ..timeutil import utcnow
 
 # Configure logging
@@ -99,6 +100,28 @@ def _apply_time_decay_to_signals(signals: List, now: datetime = None) -> List:
         )
 
     return signals
+
+
+def _clean_title_pair(english: str, korean: Optional[str]) -> tuple[str, Optional[str]]:
+    """Return both halves of a translated title as plain text.
+
+    The translator is an independent source of leaked markup, separate from the
+    model: 57 ideas had a clean English title and a ``## 아이디어: ...`` Korean
+    one. Cleaning only what the model wrote would leave ``title_ko`` dirty, and
+    ``title_ko`` is what every Korean reader actually sees.
+    """
+    return clean_title(english), (clean_title(korean) or None)
+
+
+async def _ensure_bilingual_title(text: str) -> tuple[str, Optional[str]]:
+    """``_ensure_bilingual`` for a title: plain text on both sides."""
+    return _clean_title_pair(*await _ensure_bilingual(text))
+
+
+async def _ensure_bilingual_name(text: str) -> tuple[str, Optional[str]]:
+    """``_ensure_bilingual`` for a generated name: bounded, no serialized tail."""
+    english, korean = await _ensure_bilingual(text)
+    return clean_name(english), (clean_name(korean) or None)
 
 
 async def _ensure_bilingual(text: str) -> tuple[str, Optional[str]]:
@@ -271,12 +294,21 @@ async def _analyze_trends_async():
         logger.info("Analyzing 24h trends...")
         analysis = await analyzer.analyze_trends(feed_items, "24h", max_trends=10)
 
-        # Save trends to database with bilingual content
+        # Save trends to database with bilingual content.
+        #
+        # One timestamp for the whole batch, not utcnow() per row. `analysis.trends`
+        # arrives score-descending and each `_ensure_bilingual` pair costs a couple
+        # of seconds, so a per-row stamp handed the *highest*-scoring trend the
+        # *oldest* `analyzed_at`. `TrendRepository.get_latest` orders by
+        # (analyzed_at DESC, score DESC), and with every stamp distinct the score
+        # tiebreak was unreachable — so consumers read the batch in reverse quality
+        # order and the debate opened on the worst trend of the batch, every time.
         saved_count = 0
+        analyzed_at = utcnow()
         for trend in analysis.trends:
             try:
                 # Ensure bilingual content (English main field, Korean *_ko field)
-                name_en, name_ko = await _ensure_bilingual(trend.topic)
+                name_en, name_ko = await _ensure_bilingual_name(trend.topic)
                 desc_en, description_ko = await _ensure_bilingual(trend.summary)
 
                 trend_repo.create(
@@ -297,7 +329,7 @@ async def _analyze_trends_async():
                             "sources": trend.sources,
                             "sample_headlines": trend.sample_headlines,
                         },
-                        "analyzed_at": utcnow(),
+                        "analyzed_at": analyzed_at,
                     }
                 )
                 saved_count += 1
@@ -557,18 +589,12 @@ def _idea_title_fingerprint(title: str, prefix_tokens: int = 6) -> str:
 
 
 def _clean_issue_title(title: str) -> str:
-    """Strip markdown emphasis from a title before it becomes an issue title.
+    """Strip markdown from a title before it becomes a GitHub issue title.
 
-    GitHub does not render markdown in issue titles, so ``**Foo**`` shows up
-    with the literal asterisks. Titles already only had ``#`` stripped, which
-    is why 27 open issues still read ``[IDEA] **...**``.
+    Delegates to the shared cleaner. Removing ``#`` here but not the word that
+    followed it is how 431 public issues came to read ``[Idea] Idea: ...``.
     """
-    import re
-
-    text = (title or "").replace("#", "")
-    text = re.sub(r"\*{1,3}", "", text)
-    text = re.sub(r"[`_]{1,2}", "", text)
-    return re.sub(r"\s+", " ", text).strip()
+    return clean_issue_title(title)
 
 
 def _render_json_idea(data: dict) -> str:
@@ -1055,7 +1081,9 @@ async def _auto_score_and_save_ideas(
             try:
                 logger.info(f"Processing bilingual translation for idea: {idea_title[:50]}...")
                 # ensure_bilingual returns (english, korean) tuple
-                title_en, title_ko = await translator.ensure_bilingual(idea_title[:500])
+                title_en, title_ko = _clean_title_pair(
+                    *await translator.ensure_bilingual(idea_title[:500])
+                )
                 summary_en, summary_ko = await translator.ensure_bilingual(idea_summary)
                 if idea_content:
                     desc_en, desc_ko = await translator.ensure_bilingual(idea_content)
@@ -1164,7 +1192,7 @@ async def _auto_score_and_save_ideas(
 - **Auto-promoted**: Yes (score >= {promote_threshold})
 
 ### Idea Issue
-{f'Related to #{github_issue_id}' if github_issue_id else 'No linked issue'}
+{f"Related to #{github_issue_id}" if github_issue_id else "No linked issue"}
 
 ---
 *Auto-generated by MOSS.AO Orchestrator*
@@ -1187,10 +1215,10 @@ async def _auto_score_and_save_ideas(
 
                 try:
                     # Translate plan title (bilingual)
-                    plan_title_original = f"Plan: {idea_title[:200]}"
+                    plan_title_original = f"Plan: {clean_title(idea_title)[:200]}"
                     try:
-                        plan_title_en, plan_title_ko = await translator.ensure_bilingual(
-                            plan_title_original
+                        plan_title_en, plan_title_ko = _clean_title_pair(
+                            *await translator.ensure_bilingual(plan_title_original)
                         )
                     except Exception as e:
                         logger.warning(f"Plan title translation failed: {e}")
@@ -1218,9 +1246,10 @@ async def _auto_score_and_save_ideas(
                     plan_final_content_ko = None
                     if plan_final_source:
                         try:
-                            plan_final_content_en, plan_final_content_ko = (
-                                await translator.ensure_bilingual(plan_final_source)
-                            )
+                            (
+                                plan_final_content_en,
+                                plan_final_content_ko,
+                            ) = await translator.ensure_bilingual(plan_final_source)
                         except Exception as e:
                             logger.warning(f"Final plan translation failed: {e}")
                             plan_final_content_en = plan_final_source
@@ -1457,6 +1486,22 @@ async def _auto_generate_project(
         return False
 
 
+def _select_debate_trend(trends):
+    """Pick the trend a debate should open on: the highest-scoring one.
+
+    Taking ``trends[0]`` looked equivalent, because `get_latest` sorts by
+    (analyzed_at DESC, score DESC) and the writer emits trends score-descending.
+    It was not: the writer used to stamp `analyzed_at` per row, which made every
+    stamp distinct, left the score tiebreak unreachable, and inverted the batch —
+    so the debate opened on the *lowest*-scoring trend of the batch every time.
+
+    The writer now stamps one timestamp per batch, but rows written before that
+    keep their drifted stamps, so state the intent here instead of trusting the
+    ordering to express it.
+    """
+    return max(trends, key=lambda t: t.score or 0.0, default=None)
+
+
 def _generate_debate_topic_from_trend(trend) -> tuple[str, str]:
     """Generate debate topic and context from a trend.
 
@@ -1489,6 +1534,46 @@ def _generate_debate_topic_from_trend(trend) -> tuple[str, str]:
     return topic, context
 
 
+def _debate_config_from_dict(debate_config: Dict[str, Any]):
+    """Build a ``DebateProtocolConfig`` from the ``debate:`` block of config.yaml.
+
+    Split out from the file read so the mapping itself is testable. It needed to
+    be: ``max_tokens_per_response`` existed on the dataclass and was used on
+    every call, but nothing here ever read it, so the flat 2000-token cap was
+    unreachable from config while every convergence evaluation ran into it.
+    """
+    from ..debate.protocol import DebateProtocolConfig
+
+    test_mode = debate_config.get("test_mode", False)
+    if test_mode:
+        logger.info("Using TEST MODE debate configuration (reduced agents)")
+        settings = debate_config.get("test") or {}
+    else:
+        logger.info("Using NORMAL debate configuration")
+        settings = debate_config.get("normal") or {}
+
+    defaults = DebateProtocolConfig()
+
+    def tunable(name: str, fallback):
+        """Per-mode value, else the shared `debate:` value, else the default."""
+        return settings.get(name, debate_config.get(name, fallback))
+
+    return DebateProtocolConfig(
+        divergence_rounds=settings.get("divergence_rounds", 3),
+        divergence_agents_per_round=settings.get("divergence_agents_per_round", 8),
+        convergence_rounds=settings.get("convergence_rounds", 2),
+        convergence_agents_per_round=settings.get("convergence_agents_per_round", 4),
+        planning_rounds=settings.get("planning_rounds", 2),
+        planning_agents_per_round=settings.get("planning_agents_per_round", 5),
+        max_tokens_per_response=tunable(
+            "max_tokens_per_response", defaults.max_tokens_per_response
+        ),
+        evaluation_tokens_per_idea=tunable(
+            "evaluation_tokens_per_idea", defaults.evaluation_tokens_per_idea
+        ),
+    )
+
+
 def _load_debate_config():
     """Load debate configuration from config.yaml."""
     from pathlib import Path
@@ -1500,25 +1585,8 @@ def _load_debate_config():
     config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
     try:
         with open(config_path) as f:
-            config = yaml.safe_load(f)
-            debate_config = config.get("debate", {})
-            test_mode = debate_config.get("test_mode", False)
-
-            if test_mode:
-                logger.info("Using TEST MODE debate configuration (reduced agents)")
-                settings = debate_config.get("test", {})
-            else:
-                logger.info("Using NORMAL debate configuration")
-                settings = debate_config.get("normal", {})
-
-            return DebateProtocolConfig(
-                divergence_rounds=settings.get("divergence_rounds", 3),
-                divergence_agents_per_round=settings.get("divergence_agents_per_round", 8),
-                convergence_rounds=settings.get("convergence_rounds", 2),
-                convergence_agents_per_round=settings.get("convergence_agents_per_round", 4),
-                planning_rounds=settings.get("planning_rounds", 2),
-                planning_agents_per_round=settings.get("planning_agents_per_round", 5),
-            )
+            config = yaml.safe_load(f) or {}
+        return _debate_config_from_dict(config.get("debate") or {})
     except Exception as e:
         logger.warning(f"Failed to load debate config, using defaults: {e}")
         return DebateProtocolConfig()
@@ -1595,8 +1663,7 @@ async def _run_debate_async(topic: Optional[str] = None):
             recent_trends = trend_repo.get_latest(period="24h", limit=5)
 
             if recent_trends:
-                # Use the top trend
-                top_trend = recent_trends[0]
+                top_trend = _select_debate_trend(recent_trends)
                 topic, trend_context = _generate_debate_topic_from_trend(top_trend)
                 logger.info(f"Using trend-based topic: {topic}")
             else:

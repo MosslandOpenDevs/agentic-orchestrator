@@ -31,7 +31,20 @@ class IdeaScore:
 
     @property
     def total(self) -> float:
-        """Calculate weighted average score."""
+        """Unweighted mean of the four criteria.
+
+        Not a weighted average, whatever this docstring used to say, and not
+        the five weighted criteria the convergence *evaluation prompt* asks a
+        debate agent for — there is no urgency dimension here at all. The two
+        are easy to conflate because both end up as a number out of ten; this
+        one is what writes ``ideas.score`` and drives promote/archive.
+
+        The division by four also quantises the result to 0.25 steps, which is
+        part of why this scorer discriminates so poorly in practice (measured:
+        nine distinct values across 683 ideas, nothing below 6.0 in three
+        months). The second-pass reviewer exists because of that; see
+        ``scoring/second_pass.py``.
+        """
         return (self.feasibility + self.relevance + self.novelty + self.impact) / 4
 
     def should_promote(self, threshold: float = 7.0) -> bool:

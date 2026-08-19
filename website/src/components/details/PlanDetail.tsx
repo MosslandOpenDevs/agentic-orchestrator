@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { ApiClient, type ApiPlan, type ApiProject } from '@/lib/api';
 import { formatLocalDateTime } from '@/lib/date';
-import { stripMarkdown } from '@/lib/markdown';
+import { localizedTitle } from '@/lib/markdown';
 import type { ModalData } from '../modals/ModalProvider';
 import { TerminalBadge } from '../TerminalWindow';
 
@@ -57,12 +57,6 @@ export function PlanDetail({ data }: PlanDetailProps) {
     generating: false,
     error: null,
   });
-
-  // Helper function for localized text display
-  const getLocalizedText = (en: string | null | undefined, ko: string | null | undefined): string => {
-    if (locale === 'ko' && ko) return ko;
-    return en || '';
-  };
 
   // Fetch project status
   const fetchProjectStatus = useCallback(async (planId: string) => {
@@ -292,10 +286,8 @@ export function PlanDetail({ data }: PlanDetailProps) {
           </TerminalBadge>
           <TerminalBadge variant="purple">v{plan.version}</TerminalBadge>
         </div>
-        {/* stripMarkdown: title_ko arrives as `## 계획: ...` often enough that an
-            <h3> would otherwise render the heading marker itself. */}
         <h3 className="text-lg font-bold text-[#c0c0c0]">
-          {stripMarkdown(getLocalizedText(plan.title, plan.title_ko))}
+          {localizedTitle(plan.title, plan.title_ko, locale)}
         </h3>
       </div>
 

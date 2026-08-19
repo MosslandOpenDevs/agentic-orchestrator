@@ -34,6 +34,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from ..scoring.second_pass import UNAVAILABLE
+from ..textutil import clean_title
 from ..timeutil import utcnow
 from ..utils.logging import get_logger
 
@@ -412,6 +413,41 @@ def _archive(idea_repo, idea, score, record: Dict) -> None:
     )
 
 
+# Header on a triage-promoted plan. Triage has no planning phase, so it cannot
+# produce a plan -- it can only carry the idea forward and say so. Saying so is
+# the point: 35 of 44 plans held text byte-identical to their idea, and every
+# one of the 20 rows in the human approval queue was a raw JSON blob presented
+# as a plan to approve.
+PLAN_SEED_NOTICE_EN = (
+    "> **Not an authored plan yet.** Backlog triage promoted the idea below on a "
+    "re-score and seeded this draft from it. The six required sections still have "
+    "to be written before there is anything here to approve."
+)
+PLAN_SEED_NOTICE_KO = (
+    "> **아직 작성된 기획안이 아닙니다.** 백로그 트리아지가 재평가에서 아래 아이디어를 "
+    "승격시키며 이 draft 를 씨앗으로 만들었습니다. 승인할 것이 생기려면 필수 6개 섹션이 "
+    "아직 작성되어야 합니다."
+)
+
+# Generous next to the 1,500 an issue body gets: this is the whole of what a
+# human has to judge, and ideas run ~4,600 characters.
+PLAN_SEED_CHARS = 8000
+
+
+def _seed_plan_body(text: Optional[str], notice: str) -> str:
+    """Readable markdown stand-in for a plan nobody has written yet.
+
+    An idea's ``description`` is the raw model response -- a fenced JSON blob --
+    so copying it into ``final_plan`` put ``{"idea_title": ...`` on the approval
+    screen. ``_format_idea_summary`` already parses that blob into markdown for
+    issue bodies; reuse it rather than teaching this module about the shape.
+    """
+    from .tasks import _format_idea_summary  # lazy: tasks imports this module
+
+    body = _format_idea_summary(text or "", limit=PLAN_SEED_CHARS)
+    return f"{notice}\n\n## Source idea\n\n{body}" if body else notice
+
+
 def _promote(idea_repo, plan_repo, idea, score, record: Dict) -> None:
     """Terminal accept: promoted + a DRAFT plan for human approval.
 
@@ -419,11 +455,17 @@ def _promote(idea_repo, plan_repo, idea, score, record: Dict) -> None:
     [Plan] GitHub issue — the plan shows up in the pending-approval queue
     (``GET /plans/pending-approval``) and the existing lifecycle close of the
     [Idea] issue links to it by plan id.
+
+    The plan row is required, not optional: ``run_issue_lifecycle`` closes a
+    promoted idea's issue only once a plan exists for it. So this writes an
+    honest placeholder rather than skipping the row or fabricating a plan.
     """
     plan_id = str(uuid.uuid4())[:8]
-    title = f"Plan: {(idea.title or '')[:200]}"
-    title_ko = f"Plan: {(idea.title_ko or idea.title or '')[:200]}"
-    seed = idea.description or idea.summary or ""
+    # Clean the idea title before the prefix wraps it: an idea title carrying a
+    # heading produced `Plan: ## Mossland ...`, which the frontend's anchored
+    # strip could not match either, so the hashes reached the page.
+    title = f"Plan: {clean_title(idea.title)[:200]}"
+    title_ko = f"Plan: {clean_title(idea.title_ko or idea.title)[:200]}"
     plan_repo.create(
         {
             "id": plan_id,
@@ -433,13 +475,18 @@ def _promote(idea_repo, plan_repo, idea, score, record: Dict) -> None:
             "title_ko": title_ko,
             "version": 1,
             "status": "draft",
-            "final_plan": seed,
-            "final_plan_ko": idea.description_ko or idea.summary_ko,
+            "final_plan": _seed_plan_body(idea.description or idea.summary, PLAN_SEED_NOTICE_EN),
+            "final_plan_ko": _seed_plan_body(
+                idea.description_ko or idea.summary_ko, PLAN_SEED_NOTICE_KO
+            ),
             "extra_metadata": {
                 "auto_promoted": False,
                 "promoted_by": "backlog_triage",
                 "promotion_score": score.total,
                 "auto_approved": False,
+                # Consumed by GET /plans/pending-approval so the queue can say
+                # which rows are seeds rather than presenting them as plans.
+                "plan_authored": False,
             },
         }
     )

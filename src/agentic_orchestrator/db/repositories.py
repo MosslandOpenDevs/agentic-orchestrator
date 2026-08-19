@@ -342,6 +342,71 @@ class IdeaRepository(BaseRepository):
         results = self.session.query(Idea.status, func.count(Idea.id)).group_by(Idea.status).all()
         return dict(results)
 
+    # Below this many reviews, a run of non-confirmations is ordinary variance
+    # rather than a signal about the gate.
+    STUCK_GATE_MIN_REVIEWS = 20
+
+    def second_pass_verdict_counts(self, days: int = 7, limit: int = 5000) -> Dict[str, Any]:
+        """Tally second-pass reviewer verdicts over the last ``days``.
+
+        The reviewer is the real promotion gate — the local scorer proposes and
+        this verdict disposes. Its verdict was written to
+        ``extra_metadata.triage.second_pass`` and read by nothing, so a confirm
+        rate of exactly 0% across 613 consecutive reviews ran for twelve days
+        with no signal at all: promotion stopped, plan creation stopped, and
+        ``/status`` reported ``operational`` throughout, because a gate that
+        rejects everything looks exactly like a gate that is merely strict.
+
+        Reads ``updated_at`` rather than ``created_at``: triage re-scores the
+        *oldest* backlog ideas, so a review that happened today is usually
+        attached to an idea created weeks ago.
+        """
+        since = utcnow() - timedelta(days=days)
+        rows = (
+            self.session.query(Idea.extra_metadata)
+            .filter(Idea.updated_at >= since)
+            .order_by(desc(Idea.updated_at))
+            .limit(limit)
+            .all()
+        )
+
+        counts = {"confirm": 0, "demote": 0, "reject": 0, "unavailable": 0}
+        for (metadata,) in rows:
+            metadata = metadata or {}
+            # Two writers, two shapes. Backlog triage nests the verdict under
+            # `triage`; the debate path writes it at the top level
+            # (`tasks.py`, at idea creation). Reading only the triage shape made
+            # this report blind to every debate-time review -- and in a mixed
+            # population that is worse than blind, because a run of triage
+            # demotes alongside unseen debate confirmations reads as a gate
+            # confirming nothing at all.
+            second_pass = (
+                (metadata.get("triage") or {}).get("second_pass")
+                or metadata.get("second_pass")
+                or {}
+            )
+            verdict = second_pass.get("verdict")
+            if verdict in counts:
+                counts[verdict] += 1
+
+        reviewed = sum(counts.values())
+        decisive = reviewed - counts["unavailable"]
+
+        if decisive < self.STUCK_GATE_MIN_REVIEWS:
+            status = "insufficient_data"
+        elif counts["confirm"] == 0:
+            status = "no_confirmations"
+        else:
+            status = "healthy"
+
+        return {
+            "days": days,
+            "reviewed": reviewed,
+            "verdicts": counts,
+            "confirm_rate": round(counts["confirm"] / decisive, 4) if decisive else None,
+            "status": status,
+        }
+
     def get_recent(self, days: int = 7, limit: int = 50) -> List[Idea]:
         """Get recent ideas."""
         since = utcnow() - timedelta(days=days)
@@ -598,12 +663,13 @@ class PlanRepository(BaseRepository):
             .first()
         )
 
-    def get_by_status(self, status: str, limit: int = 50) -> List[Plan]:
+    def get_by_status(self, status: str, limit: int = 50, offset: int = 0) -> List[Plan]:
         """Get plans by status."""
         return (
             self.session.query(Plan)
             .filter(Plan.status == status)
             .order_by(desc(Plan.created_at))
+            .offset(offset)
             .limit(limit)
             .all()
         )

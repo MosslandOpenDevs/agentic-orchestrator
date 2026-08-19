@@ -4,12 +4,102 @@ Debate protocol for agent interactions.
 Defines the rules and flow for multi-stage debates with diverse agent personas.
 """
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from ..timeutil import utcnow
+
+# How much of each idea the planning prompt shows when it lists the selected
+# ideas. Ideas run ~4,500 characters, so the whole set will not fit; the old
+# limit of 200 was small enough that a JSON idea contributed nothing but its
+# opening brace.
+IDEA_SUMMARY_CHARS = 1200
+
+# Vantage points handed out in divergence round 1, one per agent. Orthogonal to
+# the SCAMPER technique assigned by the same index: the technique is a method,
+# this is a subject. Ordered so that the first few are the most different from
+# each other, because a round smaller than this list only uses the head of it.
+DIVERGENCE_ANGLES = (
+    {
+        "name": "end-user experience",
+        "prompt": "Start from a specific person on a specific day. What do they "
+        "actually touch, what breaks, and what would make them tell someone else?",
+    },
+    {
+        "name": "protocol and infrastructure",
+        "prompt": "Start from what has to exist underneath. Which contract, index, "
+        "or standard is missing, and what becomes possible once it exists?",
+    },
+    {
+        "name": "business model and incentives",
+        "prompt": "Start from who pays and who earns. Which flow of value is "
+        "currently leaking, and what keeps this running after the grant ends?",
+    },
+    {
+        "name": "adversarial and security",
+        "prompt": "Start from how this gets abused. Who profits from breaking it, "
+        "and what design removes the payoff rather than patching the exploit?",
+    },
+    {
+        "name": "data and measurement",
+        "prompt": "Start from what nobody can currently measure. What becomes "
+        "knowable, who would change a decision because of it, and how?",
+    },
+    {
+        "name": "ecosystem integration",
+        "prompt": "Start from two things that are separate today and should not be. "
+        "What connects them, and what does the join make possible that neither half does?",
+    },
+    {
+        "name": "operations and cost",
+        "prompt": "Start from what it takes to run this at scale for a year. Where "
+        "does the cost actually go, and what design makes it cheap instead of clever?",
+    },
+    {
+        "name": "the underserved",
+        "prompt": "Start from who is excluded today — by cost, language, device, or "
+        "expertise. What would reach them, and what assumption has to be dropped?",
+    },
+)
+
+# The sections `create_planning_prompt` requires a plan to carry. Kept beside
+# the prompt so that renaming a section renames it in both places at once.
+PLAN_REQUIRED_SECTIONS = (
+    "Project Overview",
+    "Technical Architecture",
+    "Detailed Execution Plan",
+    "Risk Management",
+    "Key Performance Indicators",
+    "Future Expansion",
+)
+
+
+# A section counts when it OPENS a line -- after heading marks, emphasis or a
+# list number -- not merely when the words appear. Substring matching handed a
+# perfect 6/6 to a one-line reply that just named the sections, and the prompt
+# hands the model that exact list (`create_plan_revision_prompt`), so the
+# cheapest possible non-answer scored as well as a complete rewrite.
+_SECTION_HEADINGS = tuple(
+    re.compile(r"^[\s>*_#\d.)\-]*" + re.escape(section), re.MULTILINE | re.IGNORECASE)
+    for section in PLAN_REQUIRED_SECTIONS
+)
+
+
+def plan_completeness(plan: Optional[str]) -> int:
+    """How many required sections a plan actually carries.
+
+    Used to choose between competing drafts. The previous rule was
+    ``max(drafts, key=len)`` under a comment claiming it took "the first
+    comprehensive one" -- it did neither, and across 54 debates the longest
+    draft was not the first one 63% of the time. Length rewards verbosity;
+    section coverage rewards the thing the prompt actually asked for.
+    """
+    if not plan:
+        return 0
+    return sum(1 for pattern in _SECTION_HEADINGS if pattern.search(plan))
 
 
 class DebatePhase(Enum):
@@ -140,6 +230,13 @@ class DebateProtocolConfig:
 
     # General settings
     max_tokens_per_response: int = 2000
+    # A convergence evaluation writes one scored block per idea, so its budget
+    # has to scale with the ballot instead of sitting at the flat cap. Under the
+    # flat cap every single evaluation ran out of room partway down the list --
+    # measured across 416 paid evaluations, none reached the closing analysis
+    # the template asks for, and 46.9% of ideas were never scored by anyone.
+    # Blocks measured ~160 tokens each, so 200 leaves margin.
+    evaluation_tokens_per_idea: int = 200
     temperature_divergence: float = 0.95  # Higher for creativity (v0.5.0: increased from 0.9)
     temperature_convergence: float = 0.5  # Lower for analysis
     temperature_planning: float = 0.7
@@ -147,6 +244,10 @@ class DebateProtocolConfig:
     # Timeouts
     agent_timeout_seconds: int = 120
     round_timeout_seconds: int = 600
+
+    def evaluation_max_tokens(self, idea_count: int) -> int:
+        """Token budget for an evaluation that has to cover ``idea_count`` ideas."""
+        return self.max_tokens_per_response + self.evaluation_tokens_per_idea * max(idea_count, 0)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -162,6 +263,7 @@ class DebateProtocolConfig:
             "require_unanimous_approval": self.require_unanimous_approval,
             "min_approval_ratio": self.min_approval_ratio,
             "max_tokens_per_response": self.max_tokens_per_response,
+            "evaluation_tokens_per_idea": self.evaluation_tokens_per_idea,
             "temperature_divergence": self.temperature_divergence,
             "temperature_convergence": self.temperature_convergence,
             "temperature_planning": self.temperature_planning,
@@ -472,6 +574,31 @@ Ideas proposed in previous rounds:
 - Similar ideas will receive lower scores
 - Try completely new approaches
 """
+        elif agent_index is not None:
+            # Round 1 has nothing to point at, so BOTH differentiation channels
+            # go quiet at once -- this block and the similarity feedback -- and
+            # all eight agents anchor on the same seed in the background
+            # section. Measured across 54 debates: round 1 titles sit at 0.300
+            # pairwise Jaccard against 0.177/0.178 in rounds 2 and 3
+            # (permutation test p < 0.00005), and 65.8% of round 1 output is
+            # discarded as duplicate after being generated on the paid tier.
+            #
+            # A distinct vantage point per agent costs nothing -- no extra call,
+            # no added latency -- and is orthogonal to the SCAMPER technique
+            # already assigned by index: the technique says *how* to think, this
+            # says *what to look at*. Only round 1 gets it; later rounds already
+            # have the stronger channel above, and round 3 is the most diverse
+            # output a debate produces, so there is nothing there to fix.
+            angle = DIVERGENCE_ANGLES[agent_index % len(DIVERGENCE_ANGLES)]
+            previous_section = f"""
+## Your Vantage Point
+You are the only participant approaching this from **{angle["name"]}**.
+
+{angle["prompt"]}
+
+⚠️ Other participants are covering other angles. Do not write the idea any of
+them would write — write the one only your vantage point makes visible.
+"""
 
         return f"""You are an expert with the following characteristics:
 {personality_desc}
@@ -493,7 +620,7 @@ Use the creativity techniques above to derive novel ideas that differ from exist
 ### Idea Writing Rules (Must Follow)
 
 **Title Rules:**
-- Must start with `## Idea: [Title]` format
+- `idea_title` must be PLAIN TEXT: no markdown, no leading `#`, no `Idea:` prefix
 - Title must be at least 30 characters, specific and descriptive
 - Bad examples: "AI-based Service", "Token Economy Improvement"
 - A good title names the specific technology or protocol used, the concrete mechanism or action, and the target user or asset (pattern: [specific tech/protocol] + [what it does] + [for whom])
@@ -573,11 +700,18 @@ This is Round {round_num} statement.
 
         ideas_section = ""
         for i, idea in enumerate(ideas, 1):
+            # These dicts come from ``Idea.to_dict()``, which emits 'agent_name'
+            # and 'total_score'. Reading 'agent'/'score' -- keys that never
+            # existed -- rendered every evaluation prompt as
+            # "Proposer: Unknown / Score: N/A", so the second convergence round
+            # re-scored the ideas blind to what the first round had decided.
+            score = idea.get("total_score") or 0.0
+            score_text = f"{score:.1f}/10" if score > 0 else "not yet scored"
             ideas_section += f"""
-### Idea {i}: {idea.get('title', 'Untitled')}
-Proposer: {idea.get('agent', 'Unknown')}
-Content: {idea.get('content', '')}
-Score: {idea.get('score', 'N/A')}
+### Idea {i}: {idea.get("title", "Untitled")}
+Proposer: {idea.get("agent_name", "Unknown")}
+Content: {idea.get("content", "")}
+Score: {score_text}
 """
 
         return f"""You are an evaluation expert with the following characteristics:
@@ -655,6 +789,48 @@ This is Round {round_num} evaluation. Please evaluate novelty as the most import
 **IMPORTANT**: All content must be written in English.
 """
 
+    def create_plan_revision_prompt(
+        self,
+        topic: str,
+        draft_plan: str,
+        reviews: List[tuple],
+        agent_expertise: str,
+        round_num: int,
+    ) -> str:
+        """Ask one planner to rewrite the draft against the reviewers' feedback.
+
+        Without this the review round was decorative: reviewers returned
+        "[Needs Revision]" 141 times out of 162 and approved nothing, while the
+        plan that shipped stayed byte-identical to the draft in all 54 debates.
+        """
+        review_section = "\n\n".join(
+            f"### Review by {reviewer}\n{feedback}" for reviewer, feedback in reviews
+        )
+
+        return f"""You are an expert in {agent_expertise}.
+
+## Discussion Topic
+{topic}
+
+## Current Plan
+{draft_plan}
+
+## Reviewer Feedback
+{review_section}
+
+## Instructions
+Rewrite the plan so that it answers the reviewers' objections.
+
+- Output the **complete revised plan**, not a diff, a changelog, or a summary of
+  your edits. What you return replaces the plan.
+- Keep every section the original had: {", ".join(PLAN_REQUIRED_SECTIONS)}.
+- Where a reviewer challenged a number as unsupported, either justify it with a
+  stated basis or replace it with one you can defend.
+- Where reviewers disagree, choose and say why in the relevant section.
+
+This is Round {round_num} revision.
+**IMPORTANT**: All content must be written in English."""
+
     def create_planning_prompt(
         self,
         topic: str,
@@ -668,7 +844,8 @@ This is Round {round_num} evaluation. Please evaluate novelty as the most import
         personality_desc = "\n".join(f"- {k}: {v}" for k, v in agent_personality.items())
 
         ideas_section = "\n".join(
-            f"- {idea.get('title', 'Untitled')}: {idea.get('summary', idea.get('content', '')[:200])}"
+            f"- {idea.get('title', 'Untitled')}: "
+            f"{(idea.get('summary') or idea.get('content', ''))[:IDEA_SUMMARY_CHARS]}"
             for idea in selected_ideas
         )
 
@@ -803,8 +980,10 @@ This is Round {round_num} planning.
                     selected = result.output.get("selected_ideas", [])
                     summary_parts.append(f"### Selected Ideas: {len(selected)}")
                     for idea in selected:
+                        score = idea.get("total_score") or 0.0
+                        score_text = f"{score:.1f}/10" if score > 0 else "unscored"
                         summary_parts.append(
-                            f"- {idea.get('title', 'Untitled')} (Score: {idea.get('score', 'N/A')})"
+                            f"- {idea.get('title', 'Untitled')} (Score: {score_text})"
                         )
 
                 elif result.phase == DebatePhase.PLANNING:

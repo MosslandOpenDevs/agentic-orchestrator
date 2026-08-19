@@ -811,9 +811,8 @@ async def get_plans(
     repo = PlanRepository(session)
 
     if status:
-        plans = repo.get_by_status(status, limit=limit + offset)
+        paginated = repo.get_by_status(status, limit=limit, offset=offset)
         total = repo.count_by_status(status)
-        paginated = plans[offset : offset + limit]
     else:
         plans = repo.get_all(limit=limit, offset=offset)
         total = repo.count_all()
@@ -830,6 +829,7 @@ async def get_plans(
 @app.get("/plans/pending-approval")
 async def get_pending_approval_plans(
     limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     session: Session = Depends(get_session),
 ):
     """
@@ -841,7 +841,7 @@ async def get_pending_approval_plans(
     plan_repo = PlanRepository(session)
 
     # Get draft plans
-    plans = plan_repo.get_by_status("draft", limit=limit)
+    plans = plan_repo.get_by_status("draft", limit=limit, offset=offset)
 
     # Get idea scores for context
     idea_repo = IdeaRepository(session)
@@ -857,15 +857,30 @@ async def get_pending_approval_plans(
                 plan_dict["idea_score"] = idea.score
                 plan_dict["idea_title"] = idea.title
 
+        metadata = plan.extra_metadata or {}
+
         # Check if auto-approval threshold info is available
-        if plan.extra_metadata:
-            plan_dict["promotion_score"] = plan.extra_metadata.get("promotion_score")
+        if metadata:
+            plan_dict["promotion_score"] = metadata.get("promotion_score")
+
+        # Triage-promoted rows are seeds, not plans: triage has no planning
+        # phase. Always emitted, so a consumer can rely on the key -- and `None`
+        # rather than `True` when it is missing, because rows written before the
+        # flag existed are unknown, not authored, and 35 of the 44 in production
+        # are in fact seeds.
+        plan_dict["plan_authored"] = metadata.get("plan_authored")
 
         result.append(plan_dict)
 
     return {
         "plans": result,
-        "total": len(result),
+        # The size of the queue, not the size of this page. `len(result)` meant
+        # `?limit=5` reported five plans pending when there were 39, and with no
+        # `offset` the queue was unreadable past the first page -- on the one
+        # endpoint whose whole purpose is telling a human how much is waiting.
+        "total": plan_repo.count_by_status("draft"),
+        "limit": limit,
+        "offset": offset,
         "message": "These plans are pending approval. Use POST /plans/{plan_id}/approve to approve.",
     }
 
@@ -933,6 +948,17 @@ async def get_usage(
         logger.exception("/usage could not read paid-tier configuration")
         llm_routing = {"status": "unknown"}
 
+    # Same class of blind spot as the empty ledger above, one stage further on.
+    # The second-pass reviewer is what actually promotes an idea, and its
+    # verdicts had no reader anywhere: promotion sat at zero for twelve days
+    # while every surface still said healthy, because "rejects everything" and
+    # "is merely strict" produce identical output everywhere else.
+    try:
+        promotion_review = IdeaRepository(session).second_pass_verdict_counts(days=days)
+    except Exception:
+        logger.exception("/usage could not read second-pass review stats")
+        promotion_review = {"status": "unknown"}
+
     return {
         "today": today_usage,
         "today_by_provider": today_by_provider,
@@ -940,7 +966,29 @@ async def get_usage(
         "history": history,
         "days": days,
         "llm_routing": llm_routing,
+        "promotion_review": promotion_review,
     }
+
+
+def _activity_time(moment) -> str:
+    """Clock time for today; date-qualified for anything older.
+
+    The activity feed renders this string verbatim (`[{activity.time}]`) and it
+    was `%H:%M:%S` on every row. `/activity` is not a 24-hour window — it takes
+    the most recent rows of each table, so it stretches as far back as whatever
+    stopped moving. During the 2026-08 promotion stall the newest plan was
+    twelve days old and the feed showed it as "08:45:09", which reads as this
+    morning. A dashboard built to show whether the pipeline is moving was
+    stating the opposite of the truth, in the one place someone would look.
+    """
+    if not moment:
+        return ""
+    now = utcnow()
+    if moment.date() == now.date():
+        return moment.strftime("%H:%M:%S")
+    if moment.year == now.year:
+        return moment.strftime("%m-%d %H:%M")
+    return moment.strftime("%Y-%m-%d %H:%M")
 
 
 @app.get("/activity")
@@ -971,7 +1019,7 @@ async def get_activity(
         activities.append(
             {
                 "timestamp": signal.collected_at,
-                "time": signal.collected_at.strftime("%H:%M:%S") if signal.collected_at else "",
+                "time": _activity_time(signal.collected_at),
                 "type": "trend",  # signals show as 'trend' type for SIGNAL prefix
                 "message": (
                     f"Signal collected: {signal.title[:80]}..."
@@ -994,7 +1042,7 @@ async def get_activity(
         activities.append(
             {
                 "timestamp": trend.analyzed_at,
-                "time": trend.analyzed_at.strftime("%H:%M:%S") if trend.analyzed_at else "",
+                "time": _activity_time(trend.analyzed_at),
                 "type": "trend",
                 "message": (
                     f"Trend analyzed: {trend.name[:60]}... (score: {trend.score:.1f})"
@@ -1018,7 +1066,7 @@ async def get_activity(
         activities.append(
             {
                 "timestamp": idea.created_at,
-                "time": idea.created_at.strftime("%H:%M:%S") if idea.created_at else "",
+                "time": _activity_time(idea.created_at),
                 "type": "idea",
                 "message": (
                     f"Idea generated [{idea.status}]: {idea.title[:50]}..."
@@ -1043,7 +1091,7 @@ async def get_activity(
             activities.append(
                 {
                     "timestamp": debate.started_at,
-                    "time": debate.started_at.strftime("%H:%M:%S"),
+                    "time": _activity_time(debate.started_at),
                     "type": "debate",
                     "message": f"Debate started: {topic_short}",
                     "phase": debate.phase,
@@ -1053,7 +1101,7 @@ async def get_activity(
             activities.append(
                 {
                     "timestamp": debate.completed_at,
-                    "time": debate.completed_at.strftime("%H:%M:%S"),
+                    "time": _activity_time(debate.completed_at),
                     "type": "debate",
                     "message": f"Debate completed: {debate.status} - {len(debate.ideas_generated or [])} ideas generated",
                     "status": debate.status,
@@ -1072,7 +1120,7 @@ async def get_activity(
         activities.append(
             {
                 "timestamp": plan.created_at,
-                "time": plan.created_at.strftime("%H:%M:%S") if plan.created_at else "",
+                "time": _activity_time(plan.created_at),
                 "type": "plan",
                 "message": (
                     f"Plan created [{plan.status}]: {plan.title[:50]}..."
