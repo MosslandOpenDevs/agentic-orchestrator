@@ -1,7 +1,8 @@
 """Backlog triage: the consumer that matches idea production with decisions.
 
-Debates produce ~40 ideas a day but only auto-promoted ones (score >= 7 at
-debate time) ever left the backlog; the other ~85% sat in ``scored`` forever
+Debates produce ~96 ideas a day, about half of them deduplicated at birth,
+but before this module only auto-promoted ones (score >= 7 at debate time)
+ever left the backlog; the other ~85% sat in ``scored`` forever
 and their GitHub issues waited for the 30-day aging timer. Production had no
 matching consumer, so the open-issue count could only climb.
 
@@ -28,10 +29,16 @@ promotion for very nearly everything it sees (measured: every one of 25
 candidates in a full cycle). Once that allowance is spent the run stops
 rather than scoring ideas it could only hold; the untouched tail keeps its
 place at the old end of the oldest-first feed and is examined first next
-cycle. Measured 2026-08: ~96 ideas created per day of which about half are
-deduplicated at birth, so ~50/day reach triage, against 20 x 6 = 120
-decisions/day. The margin is real but it is half of what counting `per_run`
-alone would suggest.
+cycle.
+
+**A review is not a decision, and the difference is the whole margin.** A
+CONFIRM or a REJECT is terminal on one review, but a DEMOTE — the dominant
+verdict by far — is only a strike, so an idea costs ``max_strikes`` reviews
+before it reaches ``archived``. Measured 2026-08: ~96 ideas created per day
+of which about half are deduplicated at birth, so ~50/day reach triage,
+against 20 x 6 = 120 *reviews*/day, which at ``max_strikes: 2`` is a floor of
+~60 terminal decisions/day. A 1.2x margin, not the 2.4x the review count
+alone suggests — raising ``max_strikes``, or a higher demote rate, spends it.
 
 Triage writes ONLY to the DB — SQLite is the source of truth. Closing the
 mirrored GitHub issues is the issue lifecycle's job (it runs right after
