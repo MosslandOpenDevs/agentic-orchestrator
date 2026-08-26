@@ -102,11 +102,16 @@ RSS 피드 → 트렌드 분석 → Claude로 아이디어 생성 → GitHub Iss
 **파일**: `src/agentic_orchestrator/debate/multi_stage.py`
 
 ```
-토픽 입력 → 3단계 토론 → 아이디어 리스트 생성
-          │
-          ├─ Divergence: 다양한 아이디어 생성
-          ├─ Convergence: 평가/병합/필터링
-          └─ Planning: 실행 계획 작성
+토픽 선택 → 3단계 토론 → 아이디어 리스트 생성
+   │      │
+   │      ├─ Divergence: 다양한 아이디어 생성
+   │      ├─ Convergence: 평가/병합/필터링
+   │      └─ Planning: 실행 계획 작성
+   │
+   └─ 최근 8세션에 다룬 주제와 유사한 트렌드는 건너뛰고 차순위를 고른다
+      (`_select_debate_trend`). 트렌드는 2시간마다 재분석되므로 이 기억이
+      없으면 시끄러운 헤드라인 하나가 하루치 토론을 전부 가져간다 —
+      2026-08-22에는 네 슬롯 전부가 같은 뉴스였다.
 ```
 
 - **스케줄**: PM2 (TEST: 1시간마다, PROD: 6시간마다)
@@ -133,12 +138,19 @@ RSS 피드 → 트렌드 분석 → Claude로 아이디어 생성 → GitHub Iss
 **파일**: `src/agentic_orchestrator/scheduler/tasks.py:207-426`
 
 ```
-토론 결과 → 자동 점수화 → DB 저장 + GitHub Issue 생성
-                │
-                ├─ score >= 7.0 → promoted (플랜 자동 생성)
-                ├─ score < 4.0  → archived (이슈 생성 안 함)
-                └─ 중간 점수    → scored (백로그 → 4h마다 트리아지가 재평가)
+토론 결과 → 클러스터링 → 자동 점수화 → 2차 심사 → DB 저장 + GitHub Issue
+                              │
+                              ├─ score >= 7.0 → 유료 reviewer 에게 제출
+                              │                  └─ CONFIRM 만 promoted
+                              │                     (DEMOTE·REJECT·불가 → 보류)
+                              ├─ score < 4.0  → archived (이슈 생성 안 함)
+                              └─ 중간 점수    → scored (백로그 → 4h마다 트리아지)
 ```
+
+> **로컬 점수 7.0은 승격이 아니라 심사 자격이다.** 2차 심사(`scoring/second_pass.py`)
+> 의 명시적 CONFIRM 없이는 어느 경로에서도 `promoted` 가 되지 않는다. 이 게이트가
+> 21일간 CONFIRM 을 한 번도 내지 않아 승격·플랜 생성이 통째로 멈춘 적이 있다
+> (2026-08-05~26). 파이프라인이 조용하면 `GET /usage` 의 `promotion_review` 부터 볼 것.
 
 - **트리거**: 토론 완료 후 자동 실행
 - **LLM**: Ollama (로컬)
