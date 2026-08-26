@@ -329,6 +329,14 @@ backlog:
     # and were held unreviewed. A review costs $0.00049 (8 reviews added
     # $0.0039 to a $0.4459 debate), so covering a whole batch costs under a
     # cent. 20 leaves headroom above the 16 that debate produced.
+    # NOTE this is also the decisive quota of backlog triage, not just a cost
+    # cap. The local scorer proposes promotion for very nearly everything it
+    # sees, so almost every triage candidate needs a verdict — measured, all
+    # 25 candidates of a full cycle did while only 20 could have one. Triage
+    # therefore stops when this allowance is spent rather than scoring ideas
+    # it could only hold (it used to discard exactly `per_run` minus this
+    # number of local scorings, six times a day). Raise this before raising
+    # `backlog.triage.per_run`, or the extra quota buys nothing.
     max_reviews_per_cycle: 20
     max_tokens: 700
 
@@ -366,19 +374,27 @@ backlog:
     # window agrees the gate has stopped confirming altogether.
     starvation_min_reviews: 5
 
-  # Backlog triage — the consumer that matches idea production (~40/day from
-  # debates) with terminal decisions. Every backlog cycle (4h in production)
+  # Backlog triage — the consumer that matches idea production (~96/day from
+  # debates, about half deduplicated at birth, so ~50/day arrive here) with
+  # terminal decisions. Every backlog cycle (4h in production)
   # re-scores the OLDEST 'scored' ideas against today's trends:
   #   score >= 7 -> promoted + draft plan (human approves via
   #                 POST /plans/{id}/approve); [Idea] issue closes `completed`
   #   score < 4  -> archived; [Idea] issue closes `not_planned` with verdict
   #   middle     -> one strike; archived anyway after max_strikes touches
-  # Every idea reaches promoted|archived within max_strikes touches, so the
-  # open backlog is bounded by production_rate x days_to_decision instead of
-  # growing forever. Sizing: per_run x 6 runs/day must exceed daily idea
-  # production (25 x 6 = 150 touches/day >= 75 decisions/day at max_strikes=2,
-  # vs ~40 ideas/day produced). Triage writes only to the DB; the issue
-  # lifecycle below closes the mirrored issues.
+  # Every idea reaches promoted|archived within max_strikes decisive touches,
+  # so the open backlog is bounded by production_rate x days_to_decision
+  # instead of growing forever.
+  #
+  # SIZING: the divisor is NOT per_run. Promotion needs a second-pass verdict
+  # and almost every candidate wants one, so the run stops when
+  # second_pass.max_reviews_per_cycle is spent: 20 x 6 = 120 reviews/day. And
+  # a review is not a decision — a DEMOTE is only a strike, so an idea costs
+  # max_strikes reviews to reach archived. Floor at max_strikes=2 is ~60
+  # terminal decisions/day against ~50 arriving: a 1.2x margin, thin enough
+  # that raising max_strikes or per_run without raising the review allowance
+  # buys nothing. Triage writes only to the DB; the issue lifecycle below
+  # closes the mirrored issues.
   # Tuned 2026-08-05 (v0.6.17) for a lower open-issue steady state: the
   # original min_age_hours: 24 meant a whole day's ideas sat untouchable —
   # the first live day consumed exactly zero. At 6h an idea still gets a

@@ -570,3 +570,129 @@ class TestSecondPassGatesTriagePromotion:
             triage(idea_repo, plan_repo, trend_repo, FakeScorer())
 
         assert any("WITHOUT a second-pass reviewer" in r.message for r in caplog.records)
+
+
+class TestTheReviewAllowanceIsTheRealQuota:
+    """`per_run` is an upper bound; the decisive quota is the review allowance.
+
+    Promotion needs a second-pass verdict, and the local scorer proposes
+    promotion for very nearly everything it sees — measured on production, all
+    25 candidates of a full cycle wanted review while only 20 could have one.
+    The loop used to discover that one idea at a time, paying a local scoring
+    call for each and discarding the result: exactly `per_run -
+    max_reviews_per_cycle` wasted scorings per full cycle, six times a day, on
+    a GPU shared with two other services. The pattern was deterministic in the
+    logs — `examined=25` always produced `held=5`.
+
+    Stopping early is safe because the feed is oldest-first: the untouched
+    tail keeps its place and is examined first next cycle. Measured over 269
+    held ideas, only three were ever held in a second cycle.
+    """
+
+    @staticmethod
+    def _reviewer(allowance):
+        """A reviewer that always demotes, so only the allowance limits it."""
+        from agentic_orchestrator.scoring import second_pass as sp
+
+        class Demoter(sp.SecondPassReviewer):
+            def __init__(self):
+                super().__init__(router=None, config={"max_reviews_per_cycle": allowance})
+
+            async def review(self, title, content, local_score, context="", siblings=None):
+                self.reviews_used += 1
+                return sp.ReviewVerdict(sp.DEMOTE, reason="stub", score=6.0)
+
+        return Demoter()
+
+    @staticmethod
+    def _six_candidates(idea_repo, session):
+        for n in range(6):
+            make_idea(idea_repo, session, f"i{n}", f"idea {n}", age_days=10 - n)
+
+    def test_the_run_stops_once_the_allowance_is_spent(self, repos):
+        idea_repo, plan_repo, trend_repo, session = repos
+        self._six_candidates(idea_repo, session)
+        scorer = FakeScorer({"idea": (FakeScore(total=8.0), "promote")})
+        reviewer = self._reviewer(allowance=2)
+
+        stats = triage(
+            idea_repo,
+            plan_repo,
+            trend_repo,
+            scorer,
+            config={"per_run": 6, "min_age_hours": 0},
+            reviewer=reviewer,
+        )
+
+        assert reviewer.reviews_used == 2
+        assert stats["examined"] == 2
+        assert stats["deferred"] == 4
+        assert len(scorer.calls) == 2, "the local scorer was paid for work that was discarded"
+
+    def test_the_deferred_tail_is_examined_first_next_cycle(self, repos):
+        """Why stopping does not strand anything: the feed is oldest-first, so
+        what was skipped is still the oldest thing there is."""
+        idea_repo, plan_repo, trend_repo, session = repos
+        self._six_candidates(idea_repo, session)
+        scorer = FakeScorer({"idea": (FakeScore(total=8.0), "promote")})
+
+        first = triage(
+            idea_repo,
+            plan_repo,
+            trend_repo,
+            scorer,
+            config={"per_run": 6, "min_age_hours": 0, "max_strikes": 1},
+            reviewer=self._reviewer(allowance=2),
+        )
+        seen_first = list(scorer.calls)
+        scorer.calls.clear()
+        second = triage(
+            idea_repo,
+            plan_repo,
+            trend_repo,
+            scorer,
+            config={"per_run": 6, "min_age_hours": 0, "max_strikes": 1},
+            reviewer=self._reviewer(allowance=2),
+        )
+
+        assert first["deferred"] == 4
+        # Cycle 1 struck out its two (max_strikes=1 -> archived), so cycle 2
+        # opens on what cycle 1 never reached.
+        assert "idea 2" in scorer.calls[0]
+        assert all("idea 2" not in c for c in seen_first)
+        assert second["examined"] == 2
+
+    def test_a_generous_allowance_lets_the_whole_quota_through(self, repos):
+        """The stop is a consequence of the two knobs, not a new cap."""
+        idea_repo, plan_repo, trend_repo, session = repos
+        self._six_candidates(idea_repo, session)
+        scorer = FakeScorer({"idea": (FakeScore(total=8.0), "promote")})
+
+        stats = triage(
+            idea_repo,
+            plan_repo,
+            trend_repo,
+            scorer,
+            config={"per_run": 6, "min_age_hours": 0},
+            reviewer=self._reviewer(allowance=50),
+        )
+
+        assert stats["examined"] == 6
+        assert stats["deferred"] == 0
+
+    def test_without_a_reviewer_nothing_stops_early(self, repos):
+        """No reviewer means no allowance to spend; the old behaviour stands."""
+        idea_repo, plan_repo, trend_repo, session = repos
+        self._six_candidates(idea_repo, session)
+
+        stats = triage(
+            idea_repo,
+            plan_repo,
+            trend_repo,
+            FakeScorer({"idea": (FakeScore(total=8.0), "promote")}),
+            config={"per_run": 6, "min_age_hours": 0},
+            reviewer=None,
+        )
+
+        assert stats["examined"] == 6
+        assert stats["deferred"] == 0
