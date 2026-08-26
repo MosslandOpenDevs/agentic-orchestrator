@@ -6,6 +6,7 @@ These tasks are executed by PM2 on a schedule.
 
 import asyncio
 import logging
+import re
 import sys
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -934,7 +935,12 @@ async def _auto_score_and_save_ideas(
     from ..scoring.second_pass import SecondPassReviewer
 
     reviewer = SecondPassReviewer(router, backlog_config.get("second_pass") or {})
-    review_stats = {"confirmed": 0, "demoted": 0, "rejected": 0, "unavailable": 0}
+    # Verdicts are tallied by the reviewer itself. Counted here is only the
+    # other thing — candidates that never reached it, because the per-cycle
+    # review cap was spent or the local score was below the review floor.
+    # Folding those into "unavailable", as this used to, made a cycle that
+    # asked no questions read the same as one whose reviewer was down.
+    unreviewed_count = 0
 
     for idea in representatives:
         try:
@@ -988,19 +994,12 @@ async def _auto_score_and_save_ideas(
                         context=score_context,
                         siblings=theme.get("siblings") or [],
                     )
-                    review_stats[
-                        {
-                            "confirm": "confirmed",
-                            "demote": "demoted",
-                            "reject": "rejected",
-                        }.get(review.verdict, "unavailable")
-                    ] += 1
                     if review.rejects:
                         decision = "archive"
                     elif not review.promotes:
                         decision = "pending"
                 else:
-                    review_stats["unavailable"] += 1
+                    unreviewed_count += 1
                     logger.info(
                         f"Holding '{idea_title[:50]}' — no second-pass review available "
                         f"this cycle (budget spent or below review threshold)"
@@ -1341,12 +1340,12 @@ async def _auto_score_and_save_ideas(
         except Exception:
             pass
 
+    reviewer.log_cycle_summary("debate cycle")
     logger.info(
         f"Auto-scoring complete: {promoted_count} promoted, {archived_count} archived, "
         f"{pending_count} pending, {dedup_skipped} duplicates skipped, "
         f"{duplicate_saved} clustered near-duplicates stored, "
-        f"second pass {review_stats['confirmed']}✓/{review_stats['demoted']}↓/"
-        f"{review_stats['rejected']}✗/{review_stats['unavailable']}?"
+        f"{unreviewed_count} never reached the reviewer"
     )
     if github_client:
         logger.info("GitHub Issues created for all processed ideas")
@@ -1486,20 +1485,101 @@ async def _auto_generate_project(
         return False
 
 
-def _select_debate_trend(trends):
-    """Pick the trend a debate should open on: the highest-scoring one.
+# How close a candidate headline may come to one already debated before it
+# counts as a rerun.
+#
+# TUNE TOWARDS OVER-FLAGGING, which is the opposite of `backlog.clustering`
+# next door, and for a concrete reason: a wrong merge there DELETES an idea,
+# while a wrong flag here only means the debate opens on the second-best
+# trend of ~45 available that day. A missed rerun costs a whole paid debate
+# cycle restating the previous one. Cheap mistake, expensive miss.
+#
+# Measured by replaying the 32 debate topics of 2026-08-18..26 against the
+# eight before each: 0.15 flags 16 of 31: every GPT-5-SDK repeat (0.18-1.00),
+# the Anthropic-revenue and Faraday runs (0.21-0.33), and two that look like
+# false positives (DeepSeek 0.158, Claude Code Marketplace 0.166). Genuinely
+# new subjects sit at 0.000-0.147. Set to 0 to disable the check.
+DEBATE_TOPIC_REPEAT_THRESHOLD = 0.15
 
-    Taking ``trends[0]`` looked equivalent, because `get_latest` sorts by
-    (analyzed_at DESC, score DESC) and the writer emits trends score-descending.
-    It was not: the writer used to stamp `analyzed_at` per row, which made every
-    stamp distinct, left the score tiebreak unreachable, and inverted the batch —
-    so the debate opened on the *lowest*-scoring trend of the batch every time.
+# How many previous debates a candidate is compared against. Four debates a
+# day, so eight is two days — long enough to break a story's news cycle,
+# short enough that a subject may legitimately come back.
+DEBATE_TOPIC_HISTORY = 8
 
-    The writer now stamps one timestamp per batch, but rows written before that
-    keep their drifted stamps, so state the intent here instead of trusting the
-    ordering to express it.
+
+def _debate_topic_subject(topic: str) -> str:
+    """The trend headline inside a stored debate topic.
+
+    Topics are written as ``[CATEGORY] <trend name> - Mossland 전략적 대응 방안``
+    by ``_generate_debate_topic_from_trend``. Comparing that whole string
+    against a bare trend name would match on decoration every candidate
+    shares, so strip it back to the part that carries the subject. The
+    Korean suffix is split off at the LAST separator because trend names
+    contain " - " themselves.
     """
-    return max(trends, key=lambda t: t.score or 0.0, default=None)
+    subject = re.sub(r"^\s*\[[^\]]*\]\s*", "", topic or "")
+    head, sep, _ = subject.rpartition(" - ")
+    return (head if sep else subject).strip()
+
+
+def _select_debate_trend(trends, recent_topics=(), repeat_threshold=None):
+    """Pick the trend a debate should open on: the best one not just debated.
+
+    Highest score first. Taking ``trends[0]`` looked equivalent, because
+    `get_latest` sorts by (analyzed_at DESC, score DESC) and the writer emits
+    trends score-descending. It was not: the writer used to stamp
+    `analyzed_at` per row, which made every stamp distinct, left the score
+    tiebreak unreachable, and inverted the batch — so the debate opened on the
+    *lowest*-scoring trend of the batch every time. The writer now stamps one
+    timestamp per batch, but rows written before that keep their drifted
+    stamps, so state the intent here instead of trusting the ordering.
+
+    Score alone was still not enough, because it has no memory. Trends are
+    re-analysed every two hours and a loud story keeps re-entering the batch
+    at the top, so the same headline seeded four consecutive debates on
+    2026-08-22 (Nvidia AVO), three on 08-23 (Faraday) and eight across a week
+    (GPT-5 Agent SDK) — while ~45 distinct trends were available each day.
+    Every one of those debates then spent a paid tier restating the previous
+    one, and the promotion reviewer, correctly, called the results
+    re-expressions of a single axis.
+
+    So a candidate too close to a recently debated topic is skipped in favour
+    of the next best. If every candidate is a rerun, the highest scorer still
+    wins: a repeated debate is a waste, but no debate at all is a hole in the
+    day's output.
+    """
+    ranked = sorted(trends, key=lambda t: t.score or 0.0, reverse=True)
+    if not ranked:
+        return None
+
+    threshold = (
+        DEBATE_TOPIC_REPEAT_THRESHOLD if repeat_threshold is None else float(repeat_threshold)
+    )
+    subjects = [_debate_topic_subject(t) for t in recent_topics or ()]
+    subjects = [s for s in subjects if s]
+    if threshold <= 0 or not subjects:
+        return ranked[0]
+
+    from .idea_clustering import nearest_matches
+
+    # One pass over the whole batch: the candidates are part of the corpus the
+    # term weights are learned from, so a two-item comparison cannot go
+    # degenerate on us (see ``nearest_matches``).
+    similarities = nearest_matches([t.name or "" for t in ranked], subjects)
+
+    for trend, similarity in zip(ranked, similarities, strict=True):
+        if similarity < threshold:
+            return trend
+        logger.info(
+            f"Skipping trend '{(trend.name or '')[:60]}' — {similarity:.2f} similar to a "
+            f"topic debated in the last {len(subjects)} sessions"
+        )
+
+    logger.warning(
+        f"Every one of the {len(ranked)} candidate trends reruns a recent debate topic; "
+        f"opening on the highest scorer anyway"
+    )
+    return ranked[0]
 
 
 def _generate_debate_topic_from_trend(trend) -> tuple[str, str]:
@@ -1660,10 +1740,18 @@ async def _run_debate_async(topic: Optional[str] = None):
         if not topic:
             # Try to use recent trends first
             logger.info("Checking for recent trends...")
-            recent_trends = trend_repo.get_latest(period="24h", limit=5)
+            # Deep enough that skipping reruns has somewhere to go. At five
+            # the pool was one analysis batch, so when a loud story held the
+            # top of every batch there was no alternative to fall back to;
+            # ~45 distinct trends land per day, and an older one is a better
+            # debate than the fourth run of the same headline.
+            recent_trends = trend_repo.get_latest(period="24h", limit=25)
 
             if recent_trends:
-                top_trend = _select_debate_trend(recent_trends)
+                top_trend = _select_debate_trend(
+                    recent_trends,
+                    recent_topics=debate_repo.get_recent_topics(DEBATE_TOPIC_HISTORY),
+                )
                 topic, trend_context = _generate_debate_topic_from_trend(top_trend)
                 logger.info(f"Using trend-based topic: {topic}")
             else:

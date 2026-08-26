@@ -22,7 +22,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Iterable, Sequence
 
-__all__ = ["IdeaDoc", "Cluster", "ClusterConfig", "cluster_ideas"]
+__all__ = ["IdeaDoc", "Cluster", "ClusterConfig", "cluster_ideas", "nearest_matches"]
 
 # --------------------------------------------------------------------------
 # Tokenisation
@@ -372,6 +372,54 @@ def cluster_ideas(
     # free to pass the same IdeaDoc object twice.
     clusters.sort(key=lambda pair: (-pair[1].size, pair[0]))
     return [c for _, c in clusters]
+
+
+def nearest_matches(
+    queries: Sequence[str],
+    references: Sequence[str],
+    *,
+    max_df_ratio: float = DEFAULT_MAX_DF_RATIO,
+    min_shared_terms: int = DEFAULT_MIN_SHARED_TERMS,
+) -> list[float]:
+    """For each query, how close it comes to its nearest reference (0.0-1.0).
+
+    Same vector space as :func:`cluster_ideas`, so the down-weighting of
+    whatever vocabulary these strings happen to share is learned from them
+    rather than hard-coded. That is exactly what the caller needs: asked
+    whether a trend headline reruns one already debated, the words to ignore
+    are the ones every tech headline carries ("ai", "agent", "launch",
+    "drives") and the words that decide are the rare ones ("avo", "faraday",
+    "zcash"). Which words those are changes weekly.
+
+    All queries are scored in ONE pass over ONE corpus (queries + references),
+    which is not just an optimisation. IDF is degenerate on tiny corpora --
+    with two documents every term is either df=1 or df=2, so the terms the two
+    share collapse to the floor weight and the cosine is carried by the terms
+    they do *not* share, which is backwards. Scoring one query against one
+    reference in isolation therefore reports ~0.0 for a pair of obvious
+    reruns. Pooling the whole batch keeps the corpus above
+    ``_MIN_DOCS_FOR_DF_STOPWORDING`` even when the reference list is short.
+    """
+    if not queries or not references:
+        return [0.0] * len(queries)
+
+    query_tokens = [tokenize(q) for q in queries]
+    reference_tokens = [tokenize(r) for r in references]
+    idf = _idf_table(query_tokens + reference_tokens, max_df_ratio)
+
+    query_vectors = [_weighted_unit_vector(t, idf) for t in query_tokens]
+    reference_vectors = [v for v in (_weighted_unit_vector(t, idf) for t in reference_tokens) if v]
+
+    out: list[float] = []
+    for vector in query_vectors:
+        best = 0.0
+        if vector:
+            for other in reference_vectors:
+                if len(vector.keys() & other.keys()) < min_shared_terms:
+                    continue
+                best = max(best, _cosine(vector, other))
+        out.append(best)
+    return out
 
 
 def _top_terms(tokens: Sequence[str], idf: dict[str, float], k: int = 5) -> list[str]:

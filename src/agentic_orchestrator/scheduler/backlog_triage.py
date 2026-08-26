@@ -206,7 +206,6 @@ async def run_backlog_triage(
         "probe_cleared": 0,
         "review_unavailable": 0,
     }
-    review_stats = {"confirmed": 0, "demoted": 0, "rejected": 0, "unavailable": 0}
     if reviewer is None:
         # Not fatal — a caller may deliberately want the old behavior — but it
         # must never be silent. Triage promotes 25 ideas every 4 hours, and
@@ -318,11 +317,6 @@ async def run_backlog_triage(
                         context=context,
                     )
                     record["second_pass"] = review.to_dict()
-                    review_stats[
-                        {"confirm": "confirmed", "demote": "demoted", "reject": "rejected"}.get(
-                            review.verdict, "unavailable"
-                        )
-                    ] += 1
                     if review.rejects:
                         decision = "archive"
                     elif not review.promotes:
@@ -333,7 +327,6 @@ async def run_backlog_triage(
                         # it is treated like the scorer fallback above.
                         decision = "pending" if review.verdict != UNAVAILABLE else "skip"
                 else:
-                    review_stats["unavailable"] += 1
                     logger.info(
                         f"Triage holding {idea.id}: no second-pass review available "
                         f"this cycle (budget spent or below review threshold)"
@@ -381,12 +374,8 @@ async def run_backlog_triage(
             except Exception:
                 pass
 
-    if any(review_stats.values()):
-        logger.info(
-            f"Second pass: {review_stats['confirmed']} confirmed, "
-            f"{review_stats['demoted']} demoted, {review_stats['rejected']} rejected, "
-            f"{review_stats['unavailable']} unavailable"
-        )
+    if reviewer is not None:
+        reviewer.log_cycle_summary("backlog triage")
     logger.info(
         "Backlog triage done: "
         f"{stats['promoted']} promoted, {stats['archived']} archived, "
