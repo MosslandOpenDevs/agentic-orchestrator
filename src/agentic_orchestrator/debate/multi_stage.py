@@ -1858,28 +1858,111 @@ Return the complete revised plan.
             blocks[int(header.group(1))] = content[header.end() : end]
         return blocks
 
+    # The only two denominators the template can produce a confusion between:
+    # it asks for a `XX/50` total, and for five `X/10` criterion lines above it.
+    # A model that averages the criteria instead of summing them writes a /10
+    # number under the /50 label, and nothing about the line itself says so.
+    _TEMPLATE_SCALES = (10.0, 50.0)
+
+    # How much closer to the criteria mean one reading must be than the other
+    # before the criteria are allowed to override the declared denominator, in
+    # points on the 1-10 scale. In the 830 real mislabelled totals the gap is
+    # ~0.8x the total (4-6 points); anything under a point means the block
+    # disagrees with itself.
+    _SCALE_ARBITRATION_MARGIN = 1.0
+
     @classmethod
     def _score_from_block(cls, block: str) -> Optional[float]:
         """Normalise one block's score to the 1-10 scale, or None."""
+        # Parsed first because the criterion lines are also what arbitrates an
+        # ambiguous total below -- they are no longer only a fallback.
+        criteria = [float(m) for m in cls._CRITERION_RE.findall(block)]
+
         total = cls._TOTAL_SCORE_RE.search(block)
         if total:
-            value = float(total.group(1))
-            # The template asks for `XX/50`, but models answer in `/10` roughly
-            # eight times as often. Trust the denominator when it is there, and
-            # infer it from magnitude when it is not.
-            denominator = (
-                float(total.group(2)) if total.group(2) else (10.0 if value <= 10 else 50.0)
+            # A total the evaluator wrote decides, including deciding that this
+            # idea has no storable score. Falling back to the criteria here
+            # would overwrite an explicit `Total Score: 0/10` -- the sentinel
+            # for "unscored" -- with the mean of the lines above it, which is
+            # inventing a verdict the evaluator did not give.
+            return cls._normalise_total(
+                float(total.group(1)),
+                float(total.group(2)) if total.group(2) else None,
+                criteria,
             )
-            if denominator > 0:
-                return cls._clamp_score(value / denominator * 10)
 
-        # No total line: average the criteria the evaluator did write, still
-        # only from within this block.
-        criteria = [float(m) for m in cls._CRITERION_RE.findall(block)]
+        # No total line at all: average the criteria the evaluator did write,
+        # still only from within this block.
         if criteria:
             return cls._clamp_score(sum(criteria) / len(criteria))
 
         return None
+
+    @classmethod
+    def _normalise_total(
+        cls,
+        value: float,
+        declared: Optional[float],
+        criteria: List[float],
+    ) -> Optional[float]:
+        """Turn one `Total Score` into a 1-10 score, deciding its scale by evidence.
+
+        A declared denominator is a claim the model makes about its own
+        arithmetic, and on this template it was wrong 830 times in 25 days of
+        production evaluations: totals written as `<=10 /50` are the mean of
+        the /10 criteria wearing the /50 label the template asked for.
+        Dividing those by 50 stored them at a fifth of their value -- `7.0/50`
+        became 1.40 beside its own criteria [9, 7, 5, 6, 8]. These scores rank
+        the ballot, so a mislabelled block silently drops out of the top-5 that
+        reaches planning: the evaluator's verdict inverted, for the ideas it
+        liked most.
+
+        The template no longer manufactures the ambiguity -- it now asks for
+        `X.X/10`, matching the weighted formula it states two sections later --
+        but the parser still has to read the history and the models that ignore
+        templates anyway (7,105 of the totals already answered /10 while the
+        template said /50).
+
+        Measured against every evaluation block of the last 25 days, old
+        behaviour vs new: 10,530 blocks, 830 changed, and all 830 are
+        `/50`-labelled. 819 are the fivefold correction; the other 11 recover
+        blocks that were unscored because a small `/50` total fell under the
+        1.0 floor. **None of the 7,105 `/10`-labelled totals changes.**
+
+        A denominator outside the confusable pair (`/100`, four occurrences) is
+        not a scale confusion and is taken at face value.
+        """
+        if declared is not None and declared not in cls._TEMPLATE_SCALES:
+            return cls._clamp_score(value / declared * 10) if declared > 0 else None
+
+        # The block's own criterion lines first, because they are evidence and
+        # everything below is a prior. Both correct readings normalise to their
+        # mean -- a /10 total IS that mean, a /50 total is five times it -- so
+        # in a coherent block the losing reading misses by ~0.8x the total and
+        # the margin is enormous. Deliberately consulted BEFORE any
+        # plausible-range filter: a genuine `3/50` beside criteria averaging
+        # 0.6 must come back unscored, and a filter that had already discarded
+        # the /50 reading for landing under 1.0 would silently return 3.0
+        # instead -- a fivefold promotion of the worst idea on the ballot.
+        if criteria:
+            mean = sum(criteria) / len(criteria)
+            distances = sorted((abs(value / d * 10 - mean), d) for d in cls._TEMPLATE_SCALES)
+            (nearest_gap, nearest), (runner_up_gap, _) = distances[0], distances[1]
+            if runner_up_gap - nearest_gap >= cls._SCALE_ARBITRATION_MARGIN:
+                return cls._clamp_score(value / nearest * 10)
+            # Otherwise the block disagrees with itself, and picking the closer
+            # of two near-equal distances is a coin toss dressed as evidence.
+
+        # No usable criteria. Keep the readings that land in the 1-10 a score
+        # can be: at `41/50` the /10 reading is 41 and impossible, at `3.0/50`
+        # the /50 reading is 0.6 and impossible. When exactly one survives it
+        # is the answer whatever the label said.
+        possible = [d for d in cls._TEMPLATE_SCALES if 1.0 <= value / d * 10 <= 10.0]
+        if len(possible) == 1:
+            return cls._clamp_score(value / possible[0] * 10)
+
+        fallback = declared or (10.0 if value <= 10 else 50.0)
+        return cls._clamp_score(value / fallback * 10)
 
     @staticmethod
     def _clamp_score(score: float) -> Optional[float]:

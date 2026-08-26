@@ -765,11 +765,11 @@ Score: {score_text}
 ```
 ### Idea N: [Title]
 - Feasibility: X/10 - [specific basis, 50+ characters]
+- Mossland Relevance: X/10 - [specific basis, 50+ characters]
+- Novelty: X/10 - [specific basis, 50+ characters]
 - Impact: X/10 - [specific basis, 50+ characters]
-- Innovation: X/10 - [specific basis, 50+ characters]
-- Risk: X/10 - [specific basis, 50+ characters]
 - Urgency: X/10 - [specific basis, 50+ characters]
-- **Total Score**: XX/50
+- **Total Score**: X.X/10  (the weighted score below, out of 10 — NOT a sum)
 ```
 
 ### Final Analysis
