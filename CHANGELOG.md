@@ -43,6 +43,14 @@ Fixed at both ends. The template no longer manufactures the ambiguity: it asks f
 
 And the parser no longer takes a declared denominator on trust. It reads the block's own criterion lines first — both correct readings normalise to their mean, so in a coherent block the losing reading misses by ~0.8x the total and the margin is unmistakable; a block that contradicts itself produces two near-equal distances and defers to the label rather than guessing. Replayed over every evaluation block of the last 25 days, old parser against new: **10,530 blocks, 830 changed, every one of them `/50`-labelled** — 819 fivefold corrections and 11 recoveries of blocks left unscored because a small `/50` total fell under the 1.0 floor. **None of the 7,105 `/10`-labelled totals changes.**
 
+### Fixed — backlog triage paid for work it then threw away
+
+`backlog.triage.per_run` is 25 and `backlog.second_pass.max_reviews_per_cycle` is 20, and nothing connected the two numbers. Promotion needs a second-pass verdict, and the local scorer proposes promotion for very nearly everything it sees, so almost every triage candidate wants one — measured, all 25 candidates of a full cycle did. The loop discovered the allowance was spent one idea at a time, *after* paying for a local scoring call each time, and discarded the result. The pattern is deterministic in a fortnight of logs: `examined=25` always produced exactly five held ideas, six times a day, on a GPU shared with two other services.
+
+Triage now stops when the allowance is spent instead of scoring ideas it could only hold. Stopping strands nothing, because the candidate feed is oldest-first: the untouched tail keeps its place and is examined first next cycle. That was already true of the old behaviour and is measurable — of 269 ideas ever held, only three were held in a second cycle, which is also why the "ideas never converge" reading of this defect does not survive contact with the data. What was actually broken was the waste, and its invisibility.
+
+Made visible too: the summary line now reports held and deferred counts, which were collected and never printed, and the two hold reasons are no longer conflated — "the reviewer had no verdict" (an outage, retry) and "the allowance is spent" (rationing, stop) used to share one log line whose text was an or-list of both. The module docstring's sizing rule was corrected in the same pass: the decisive quota is `min(per_run, max_reviews_per_cycle)`, not `per_run`, and daily production is ~96 ideas of which about half are deduplicated at birth, not the ~40 it claimed.
+
 ### Deliberately not changed
 
 - **`project.auto_generate.enabled` stays `false`.** It was paused on 2026-08-06 "while the debate diversity gate is verified", and restoring promotions is not that verification. Promotions restore plans; projects stay at zero until someone watches a live debate end to end and turns the switch back on deliberately. That is the point of the switch.

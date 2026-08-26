@@ -239,11 +239,20 @@ class SecondPassReviewer:
     def enabled(self) -> bool:
         return bool(self.config.get("enabled", True))
 
+    @property
+    def budget_spent(self) -> bool:
+        """The per-cycle review allowance is used up.
+
+        Separate from ``should_review`` because a caller can check this
+        *before* doing the work that produces a candidate. Backlog triage
+        does: once this is true, every remaining promotion candidate can only
+        be held, so scoring one more with the local model buys nothing.
+        """
+        return self.reviews_used >= int(self.config.get("max_reviews_per_cycle", 8))
+
     def should_review(self, local_score: float) -> bool:
         """Only promotion candidates are worth paying for."""
-        if not self.enabled:
-            return False
-        if self.reviews_used >= int(self.config.get("max_reviews_per_cycle", 8)):
+        if not self.enabled or self.budget_spent:
             return False
         return local_score >= float(self.config.get("min_local_score", 7.0))
 

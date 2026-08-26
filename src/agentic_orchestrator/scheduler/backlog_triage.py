@@ -18,11 +18,20 @@ trends of the debate that produced them — and forces a terminal decision:
   ("re-evaluated N times, never promotable").
 
 Every idea therefore reaches ``promoted`` or ``archived`` within at most
-``max_strikes`` touches, and the steady-state backlog is bounded by
-production_rate x days_to_decision instead of growing without limit. Sizing
-rule: ``per_run x 6 runs/day`` must exceed daily idea production, or the
-queue still grows (25 x 6 = 150 touches/day vs ~40/day produced leaves a
-wide margin and drains bursts within two cycles).
+``max_strikes`` *decisive* touches, and the steady-state backlog is bounded
+by production_rate x days_to_decision instead of growing without limit.
+
+Sizing rule: decisions per day must exceed ideas per day. The decisive
+quota is **not** ``per_run`` — it is ``min(per_run, max_reviews_per_cycle)``,
+because promotion needs a second-pass verdict and the local scorer proposes
+promotion for very nearly everything it sees (measured: every one of 25
+candidates in a full cycle). Once that allowance is spent the run stops
+rather than scoring ideas it could only hold; the untouched tail keeps its
+place at the old end of the oldest-first feed and is examined first next
+cycle. Measured 2026-08: ~96 ideas created per day of which about half are
+deduplicated at birth, so ~50/day reach triage, against 20 x 6 = 120
+decisions/day. The margin is real but it is half of what counting `per_run`
+alone would suggest.
 
 Triage writes ONLY to the DB — SQLite is the source of truth. Closing the
 mirrored GitHub issues is the issue lifecycle's job (it runs right after
@@ -205,6 +214,7 @@ async def run_backlog_triage(
         "aborted": 0,
         "probe_cleared": 0,
         "review_unavailable": 0,
+        "deferred": 0,
     }
     if reviewer is None:
         # Not fatal — a caller may deliberately want the old behavior — but it
@@ -251,6 +261,31 @@ async def run_backlog_triage(
     consecutive_scorer_failures = 0
 
     for idea in candidates:
+        # Stop before scoring something this cycle cannot decide.
+        #
+        # Once the reviewer's per-cycle allowance is spent, every remaining
+        # promotion candidate can only be held -- and with the local scorer
+        # proposing promotion for very nearly everything it sees, that is
+        # every remaining candidate. Finding that out one idea at a time cost
+        # a local scoring call each time and threw the result away: measured
+        # across a fortnight, a full `per_run` cycle discarded exactly
+        # `per_run - max_reviews_per_cycle` scorings, six times a day, on a
+        # GPU shared with two other services.
+        #
+        # Stopping is safe because the feed is oldest-first: the untouched
+        # tail keeps its place at the old end of the queue and is examined
+        # first next cycle. Measured over 269 held ideas, only 3 were ever
+        # held twice.
+        if reviewer is not None and reviewer.enabled and reviewer.budget_spent:
+            stats["deferred"] = len(candidates) - stats["examined"]
+            logger.info(
+                f"Backlog triage stopping at {stats['examined']}/{len(candidates)}: "
+                f"the {reviewer.reviews_used}-review allowance for this cycle is spent, "
+                f"so the remaining {stats['deferred']} candidate(s) could only be held. "
+                f"They keep their place at the front of the queue."
+            )
+            break
+
         stats["examined"] += 1
         try:
             age_days = max((now - idea.created_at).days, 0) if idea.created_at else 0
@@ -327,9 +362,14 @@ async def run_backlog_triage(
                         # it is treated like the scorer fallback above.
                         decision = "pending" if review.verdict != UNAVAILABLE else "skip"
                 else:
+                    # Not the spent-allowance case -- that one breaks out of
+                    # the loop above, before any scoring is paid for. What
+                    # reaches here is a candidate below `min_local_score`,
+                    # which only happens if that floor is configured above the
+                    # promote threshold.
                     logger.info(
-                        f"Triage holding {idea.id}: no second-pass review available "
-                        f"this cycle (budget spent or below review threshold)"
+                        f"Triage holding {idea.id}: local score {score.total:.1f} is below "
+                        f"the second-pass review floor, so it cannot be confirmed"
                     )
                     decision = "skip"
 
@@ -385,8 +425,10 @@ async def run_backlog_triage(
         "Backlog triage done: "
         f"{stats['promoted']} promoted, {stats['archived']} archived, "
         f"{stats['strike_outs']} struck out, {stats['strikes']} strike(s) recorded, "
-        f"{stats['scorer_unavailable']} scorer-unavailable, {stats['errors']} error(s)"
-        + (" [ABORTED: LLM backend down]" if stats["aborted"] else "")
+        f"{stats['scorer_unavailable']} scorer-unavailable, "
+        f"{stats['review_unavailable']} held (no verdict), "
+        f"{stats['deferred']} deferred (review allowance spent), "
+        f"{stats['errors']} error(s)" + (" [ABORTED: LLM backend down]" if stats["aborted"] else "")
     )
     return stats
 
