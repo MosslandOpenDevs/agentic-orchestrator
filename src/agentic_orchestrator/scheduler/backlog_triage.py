@@ -375,7 +375,12 @@ async def run_backlog_triage(
                 pass
 
     if reviewer is not None:
-        reviewer.log_cycle_summary("backlog triage")
+        try:
+            recent_verdicts = idea_repo.second_pass_verdict_counts(days=7)
+        except Exception as e:  # pragma: no cover - reporting must not break the run
+            logger.debug(f"Could not read the rolling verdict window: {e}")
+            recent_verdicts = None
+        reviewer.log_cycle_summary("backlog triage", recent_verdicts)
     logger.info(
         "Backlog triage done: "
         f"{stats['promoted']} promoted, {stats['archived']} archived, "

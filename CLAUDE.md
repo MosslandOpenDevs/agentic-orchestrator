@@ -990,7 +990,12 @@ Signals (30분) → Trends (2시간) → Debate (6시간) → Ideas → Auto-Sco
 > CONFIRM 0, 리뷰어 자신의 점수는 3,168회 중 6.8을 넘은 적 없음). 엔드포인트는
 > 당겨 오는 것이라 아무도 당기지 않으면 침묵과 같다. 그래서
 > `SecondPassReviewer.log_cycle_summary()` 가 한 사이클에서 결정적 판정이
-> `starvation_min_reviews`(기본 5) 이상인데 confirm 이 0이면 **ERROR 로 남긴다**.
+> `starvation_min_reviews`(기본 5) 이상인데 confirm 이 0이면 **WARNING**, 여기에
+> 7일 롤링 집계까지 `no_confirmations` 면 **ERROR** 로 올린다. 한 사이클만으로
+> ERROR 를 내지 않는 이유는 실측이다 — 게이트가 되살아난 2026-08-26 당일 세
+> 사이클이 0/17, 1/12, 2/20 을 확정했다. confirm rate 6% 에서 17건짜리 사이클이
+> 우연히 0건일 확률이 약 35% 이므로, 사이클마다 ERROR 를 내면 셋 중 하나꼴로
+> 울리고 일주일이면 아무도 안 본다 — 이 신호가 막으려던 바로 그 실패다.
 > 두 승격 경로(토론 사이클·백로그 트리아지)가 같은 리뷰어 객체를 쓰므로 집계도
 > 리뷰어가 소유한다 — 호출부가 각자 세면 두 경로가 서로 다른 답을 낸다.
 

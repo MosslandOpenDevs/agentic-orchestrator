@@ -1340,7 +1340,14 @@ async def _auto_score_and_save_ideas(
         except Exception:
             pass
 
-    reviewer.log_cycle_summary("debate cycle")
+    # The rolling window is what tells a weak batch apart from a stopped
+    # gate; a failure to read it must not take the cycle down with it.
+    try:
+        recent_verdicts = idea_repo.second_pass_verdict_counts(days=7)
+    except Exception as e:  # pragma: no cover - reporting must not break the run
+        logger.debug(f"Could not read the rolling verdict window: {e}")
+        recent_verdicts = None
+    reviewer.log_cycle_summary("debate cycle", recent_verdicts)
     logger.info(
         f"Auto-scoring complete: {promoted_count} promoted, {archived_count} archived, "
         f"{pending_count} pending, {dedup_skipped} duplicates skipped, "

@@ -324,8 +324,8 @@ class SecondPassReviewer:
             self.verdicts[verdict.verdict] += 1
         return verdict
 
-    def log_cycle_summary(self, where: str) -> None:
-        """Say what this cycle decided — loudly when it decided nothing.
+    def log_cycle_summary(self, where: str, recent: Optional[dict] = None) -> None:
+        """Say what this cycle decided — loudly when the gate looks stuck.
 
         ``GET /usage`` has reported ``promotion_review.status`` since v0.6.20
         and correctly said ``no_confirmations`` for twenty-one days while
@@ -333,25 +333,41 @@ class SecondPassReviewer:
         this is the push, emitted by the process that did the reviewing, in
         the log an operator already tails when the pipeline looks quiet.
 
-        Deliberately ERROR, not WARNING: a cycle in which several capable
-        candidates were all refused is either a stalled gate or a genuinely
-        empty harvest, and both are worth someone's attention. Below
-        ``starvation_min_reviews`` it stays INFO — three demotes in a row is
-        an ordinary Tuesday, not an incident.
+        ``recent`` is the multi-cycle tally from
+        ``IdeaRepository.second_pass_verdict_counts`` and is what separates
+        the two things a starved cycle can mean. **One cycle confirming
+        nothing is ordinary.** Measured on the first day this gate worked
+        (2026-08-26): three cycles ran, confirming 0/17, 1/12 and 2/20 — a
+        ~6% confirm rate, at which a 17-review cycle has a ~35% chance of
+        confirming nothing by luck alone. An ERROR on every such cycle would
+        fire roughly a third of the time and be tuned out within a week,
+        which is precisely the failure this exists to prevent. So a single
+        starved cycle is a WARNING, and it escalates to ERROR only when the
+        rolling window agrees the gate has stopped confirming altogether.
         """
         summary = (
             f"{self.verdicts[CONFIRM]} confirmed, {self.verdicts[DEMOTE]} demoted, "
             f"{self.verdicts[REJECT]} rejected, {self.verdicts[UNAVAILABLE]} unavailable"
         )
-        if self.starved:
+        if not self.starved:
+            logger.info(f"Second pass ({where}): {summary}")
+            return
+
+        stuck = (recent or {}).get("status") == "no_confirmations"
+        head = (
+            f"Second pass ({where}): {summary} — NOTHING was confirmed out of "
+            f"{self.decisive} decisive reviews."
+        )
+        if stuck:
             logger.error(
-                f"Second pass ({where}): {summary} — NOTHING was confirmed out of "
-                f"{self.decisive} decisive reviews. Promotion is blocked for this cycle. "
-                f"A gate that confirms nothing looks exactly like a strict one: check "
+                f"{head} And the last {recent.get('days', '?')} days confirmed "
+                f"{recent.get('verdicts', {}).get(CONFIRM, 0)} of "
+                f"{recent.get('reviewed', '?')} reviews — the gate is not merely "
+                f"strict, it has stopped confirming. Check the reviewer prompt and "
                 f"`GET /usage` -> promotion_review before assuming the ideas were bad."
             )
         else:
-            logger.info(f"Second pass ({where}): {summary}")
+            logger.warning(f"{head} A weak batch, or the start of a stalled gate.")
 
     @property
     def decisive(self) -> int:
