@@ -354,10 +354,16 @@ backlog:
       - 따라서 "Mossland 관련성"의 실질 질문은 이것입니다:
         MOC 홀더·DAO 참여자·moss.land 이용자 중 **누가** 이 결과물을 쓰게 되는가?
 
-    # Reviews in one cycle before "confirmed nothing" is logged as an ERROR
-    # rather than an ordinary INFO line. Three demotes in a row is a Tuesday;
-    # twenty is a stopped pipeline, and the 21 days it took to notice the
-    # last one is the reason this number exists.
+    # Decisive verdicts in one cycle before "confirmed nothing" is worth
+    # saying out loud at all. Three demotes in a row is a Tuesday.
+    #
+    # Reaching it is a WARNING, not an ERROR: measured on 2026-08-26, the day
+    # the gate started working again, three cycles confirmed 0/17, 1/12 and
+    # 2/20 — a ~6% confirm rate, at which a 17-review cycle draws zero
+    # confirms about a third of the time. An ERROR per starved cycle would
+    # fire constantly and be tuned out, which is the failure the signal
+    # exists to prevent. It escalates to ERROR only when the rolling 7-day
+    # window agrees the gate has stopped confirming altogether.
     starvation_min_reviews: 5
 
   # Backlog triage — the consumer that matches idea production (~40/day from

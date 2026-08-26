@@ -340,15 +340,51 @@ class TestNothingConfirmedIsSaidOutLoud:
             reviewer._record(ReviewVerdict(verdict))
         return reviewer
 
-    def test_a_cycle_that_confirms_nothing_is_an_error(self, caplog):
-        reviewer = self._cycle([DEMOTE] * 8)
+    STUCK = {"days": 7, "reviewed": 433, "verdicts": {CONFIRM: 0}, "status": "no_confirmations"}
+    HEALTHY = {"days": 7, "reviewed": 434, "verdicts": {CONFIRM: 3}, "status": "healthy"}
 
-        with caplog.at_level(logging.ERROR):
-            reviewer.log_cycle_summary("debate cycle")
+    def test_one_starved_cycle_alone_is_a_warning_not_an_error(self, caplog):
+        """Measured on the first day this gate worked: three cycles confirmed
+        0/17, 1/12 and 2/20. At a ~6% confirm rate a 17-review cycle draws
+        zero confirms about a third of the time, so an ERROR per starved
+        cycle would fire constantly and be tuned out — which is the exact
+        failure the signal exists to prevent."""
+        reviewer = self._cycle([DEMOTE] * 17)
+
+        with caplog.at_level(logging.DEBUG):
+            reviewer.log_cycle_summary("backlog triage", self.HEALTHY)
 
         assert reviewer.starved is True
         assert "NOTHING was confirmed" in caplog.text
+        assert caplog.records[-1].levelno == logging.WARNING
+
+    def test_a_starved_cycle_the_rolling_window_agrees_with_is_an_error(self, caplog):
+        reviewer = self._cycle([DEMOTE] * 17)
+
+        with caplog.at_level(logging.DEBUG):
+            reviewer.log_cycle_summary("backlog triage", self.STUCK)
+
+        assert caplog.records[-1].levelno == logging.ERROR
+        assert "has stopped confirming" in caplog.text
         assert "promotion_review" in caplog.text
+
+    def test_without_a_rolling_window_it_will_not_escalate_on_its_own(self, caplog):
+        """A DB read that failed is not evidence the gate is stuck."""
+        reviewer = self._cycle([DEMOTE] * 17)
+
+        with caplog.at_level(logging.DEBUG):
+            reviewer.log_cycle_summary("backlog triage", None)
+
+        assert caplog.records[-1].levelno == logging.WARNING
+
+    def test_a_healthy_cycle_says_so_at_info(self, caplog):
+        reviewer = self._cycle([CONFIRM, DEMOTE, DEMOTE])
+
+        with caplog.at_level(logging.DEBUG):
+            reviewer.log_cycle_summary("debate cycle", self.HEALTHY)
+
+        assert caplog.records[-1].levelno == logging.INFO
+        assert "1 confirmed, 2 demoted" in caplog.text
 
     def test_one_confirmation_is_enough_to_stay_quiet(self):
         assert self._cycle([CONFIRM] + [DEMOTE] * 20).starved is False
