@@ -794,3 +794,137 @@ class TestTheCallSitesUseTheBudgetsAndRulesWeAddedThem:
 
         assert "the structured one" in result.output["final_plan"]
         assert "words words" not in result.output["final_plan"]
+
+
+class TestATotalScoresScaleIsInferredNotTrusted:
+    """The evaluator's `/50` label is a claim about its own arithmetic, and it
+    is wrong 830 times in 25 days of production evaluations.
+
+    The convergence template asks for five `X/10` criteria and a `XX/50` total.
+    A model that averages the criteria instead of summing them writes a /10
+    number under the /50 label, and nothing in the line itself says so. Divided
+    by 50, `7.0/50` was stored as 1.40 beside its own criteria [9, 7, 5, 6, 8].
+
+    That is not a cosmetic wrong number. These scores rank the ballot, so a
+    mislabelled block drops out of the top-5 that reaches planning — the
+    evaluator's verdict is inverted, silently, for the ideas it liked.
+    """
+
+    def test_a_ten_point_mean_wearing_the_fifty_point_label_is_read_as_ten(self):
+        """The production shape, verbatim: 830 of these in 25 days, every one
+        of them carrying criteria that agreed with the /10 reading."""
+        block = (
+            "- Feasibility: 9/10 - r\n"
+            "- Impact: 7/10 - r\n"
+            "- Innovation: 5/10 - r\n"
+            "- Risk: 6/10 - r\n"
+            "- Urgency: 8/10 - r\n"
+            "- **Total Score**: 7.0/50\n"
+        )
+
+        assert MultiStageDebate._score_from_block(block) == 7.0
+
+    def test_a_genuine_fifty_point_sum_is_left_alone(self):
+        """The check must not cost us the 2,120 totals that really are /50.
+        It cannot: at 41 the /10 reading is 41, which is not a score."""
+        block = (
+            "- Feasibility: 9/10 - r\n"
+            "- Impact: 8/10 - r\n"
+            "- Innovation: 8/10 - r\n"
+            "- Risk: 8/10 - r\n"
+            "- Urgency: 8/10 - r\n"
+            "- **Total Score**: 41/50\n"
+        )
+
+        assert MultiStageDebate._score_from_block(block) == 8.2
+
+    def test_a_low_total_whose_criteria_are_low_stays_low(self):
+        """The inverse error, and the reason the criteria arbitrate rather than
+        a magnitude rule: an idea genuinely rated ~1.6 across the board really
+        did total 8/50, and must not be promoted to 8.0 by the fix."""
+        block = (
+            "- Feasibility: 2/10 - r\n"
+            "- Impact: 2/10 - r\n"
+            "- Innovation: 1/10 - r\n"
+            "- Risk: 2/10 - r\n"
+            "- Urgency: 1/10 - r\n"
+            "- **Total Score**: 8/50\n"
+        )
+
+        assert MultiStageDebate._score_from_block(block) == 1.6
+
+    def test_a_block_that_contradicts_itself_defers_to_the_label(self):
+        """Both readings equally far from the criteria mean is not evidence.
+        Guessing there would make the parser's behaviour depend on which side
+        of a coin toss the arithmetic landed."""
+        block = "- Feasibility: 5/10 - r\n" "- Impact: 5/10 - r\n" "- **Total Score**: 8.5/50\n"
+
+        assert MultiStageDebate._score_from_block(block) == 1.7
+
+    def test_an_unusual_denominator_is_taken_at_face_value(self):
+        """`/100` appears four times in 25 days. It is not the /10-vs-/50
+        confusion this rule exists for, so it is not second-guessed."""
+        assert MultiStageDebate._score_from_block("**Total Score**: 82/100") == 8.2
+
+    def test_an_explicit_zero_still_means_unscored(self):
+        """0.0 is the sentinel ``Idea.total_score`` returns for "nobody scored
+        this". A block whose total is out of range must come back unscored, not
+        quietly re-derived from the criteria above it — that would invent a
+        verdict the evaluator declined to give."""
+        block = "- Feasibility: 8/10 - r\n" "- Impact: 5/10 - r\n" "- **Total Score**: 0/10\n"
+
+        assert MultiStageDebate._score_from_block(block) is None
+
+    def test_a_genuinely_low_fifty_point_total_is_not_rescued_into_range(self):
+        """The trap in ordering the checks the other way round. A real `3/50`
+        normalises to 0.6, which is not a storable score — but a filter that
+        discarded the /50 reading *for* being out of range would hand back the
+        /10 reading, 3.0, and promote the worst idea on the ballot fivefold.
+        The criteria are consulted before any range filter for this reason."""
+        block = (
+            "- Feasibility: 1/10 - r\n"
+            "- Mossland Relevance: 1/10 - r\n"
+            "- Novelty: 0/10 - r\n"
+            "- Impact: 1/10 - r\n"
+            "- Urgency: 0/10 - r\n"
+            "- **Total Score**: 3/50\n"
+        )
+
+        assert MultiStageDebate._score_from_block(block) is None
+
+
+class TestTheEvaluationTemplateAgreesWithItsOwnRubric:
+    """The 830 mislabelled totals were manufactured by the prompt, not the model.
+
+    Three inconsistencies in one prompt: the rubric weighted five criteria
+    named Feasibility / Mossland Relevance / Novelty / Impact / Urgency, the
+    output template two sections later asked for Feasibility / Impact /
+    Innovation / Risk / Urgency, and the total was asked for out of 50 while
+    the formula below it produced a weighted mean out of 10. So the model was
+    asked to score a criterion the rubric never defined, never asked for the
+    30%-weighted one by name, and told to label a /10 answer as /50.
+    """
+
+    def setup_method(self):
+        self.prompt = DebateProtocol().create_convergence_prompt(
+            topic="Mossland strategy",
+            ideas=[make_idea().to_dict()],
+            agent_personality=PERSONALITY,
+            round_num=1,
+        )
+
+    def test_the_output_template_asks_for_the_criteria_the_rubric_weights(self):
+        for criterion in ("Feasibility", "Mossland Relevance", "Novelty", "Impact", "Urgency"):
+            assert f"- {criterion}: X/10" in self.prompt
+
+    def test_it_no_longer_asks_for_criteria_the_rubric_never_defined(self):
+        assert "- Innovation: X/10" not in self.prompt
+        assert "- Risk: X/10" not in self.prompt, (
+            "Risk is not in the weighted rubric and its polarity is inverted "
+            "against every other criterion, yet the criteria-mean fallback "
+            "averages it in as though higher were better"
+        )
+
+    def test_the_total_is_asked_for_on_the_scale_the_formula_produces(self):
+        assert "**Total Score**: X.X/10" in self.prompt
+        assert "XX/50" not in self.prompt

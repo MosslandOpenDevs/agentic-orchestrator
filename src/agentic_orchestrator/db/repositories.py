@@ -479,6 +479,21 @@ class DebateRepository(BaseRepository):
             .all()
         )
 
+    def get_recent_topics(self, limit: int = 8) -> List[str]:
+        """Topics of the most recently started debates, newest first.
+
+        Read by the topic picker so a debate does not reopen the story the
+        previous one just closed. Started, not completed: a session that
+        crashed still spent a cycle on its topic.
+        """
+        rows = (
+            self.session.query(DebateSession.topic)
+            .order_by(desc(DebateSession.started_at))
+            .limit(limit)
+            .all()
+        )
+        return [topic for (topic,) in rows if topic]
+
     def get_active_sessions(self) -> List[DebateSession]:
         """Get all active debate sessions."""
         return (

@@ -13,6 +13,7 @@ outage into an unvetted project on disk.
 """
 
 import asyncio
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -20,8 +21,10 @@ import pytest
 from agentic_orchestrator.scoring.second_pass import (
     CONFIRM,
     DEMOTE,
+    ORG_PROFILE_ABSENT,
     REJECT,
     UNAVAILABLE,
+    ReviewVerdict,
     SecondPassReviewer,
 )
 
@@ -219,3 +222,146 @@ class TestConfigContract:
         as_dict = verdict.to_dict()
         assert as_dict["verdict"] == verdict_name
         assert as_dict["model"] == "gpt-5.4-mini"
+
+
+class TestTheConfirmBarIsReachable:
+    """3,166 DEMOTE, 2 REJECT, zero CONFIRM — the gate's entire life.
+
+    Measured 2026-08-26 across every production log the reviewer ever wrote.
+    Its own independent score never exceeded 6.8 in 3,168 trials. Promotion
+    stopped on 2026-08-05 and plan creation on 2026-08-06 while debates kept
+    running four times a day at ~$2.3/day, because BOTH promotion paths — the
+    debate cycle and backlog triage — route through this one object.
+
+    Duplication was not what did it. Of the demote reasons, 75.6% cited a
+    1-2 week MVP scope that could not be verified and 45.9% a weak connection
+    to Mossland; only 20.0% mentioned duplication at all. The top two were
+    questions the reviewer had no way to answer — and "cannot tell" reads as
+    "no". These tests pin the three properties that make the bar answerable;
+    they cannot pin the model's behaviour, which is what
+    ``log_cycle_summary`` is for.
+    """
+
+    def test_the_org_profile_reaches_the_prompt(self):
+        """45.9% of demotes cited weak Mossland relevance in a prompt that
+        never said what Mossland is."""
+        router = FakeRouter('{"verdict": "confirm", "reason": "r"}')
+        reviewer = SecondPassReviewer(router, {"org_profile": "MOC 토큰과 DAO 거버넌스"})
+
+        asyncio.run(reviewer.review(title="t", content="c", local_score=8.0))
+
+        assert "MOC 토큰과 DAO 거버넌스" in router.calls[0]["prompt"]
+
+    def test_an_unset_profile_disarms_the_criterion_instead_of_sinking_it(self):
+        """Left to itself the model answers an ungrounded relevance question
+        with "unclear", which lands as a demote. With no profile configured
+        the prompt has to say so and take the criterion off the table."""
+        router = FakeRouter('{"verdict": "confirm", "reason": "r"}')
+        reviewer = SecondPassReviewer(router, {"org_profile": "   "})
+
+        asyncio.run(reviewer.review(title="t", content="c", local_score=8.0))
+        prompt = router.calls[0]["prompt"]
+
+        assert ORG_PROFILE_ABSENT in prompt
+        assert "감점하지 마세요" in prompt
+
+    def test_the_prompt_does_not_demand_the_next_stages_output(self):
+        """Promotion is what SENDS an idea to the planning stage that writes
+        the execution plan. Requiring a verified 1-2 week MVP scope first made
+        the output of planning the entry price of reaching it — 75.6% of
+        demotes cited exactly that. The idea text usually DOES carry an
+        mvp_scope (the divergence template mandates one); what the reviewer
+        cannot do is verify it, so the instruction has to cover both."""
+        router = FakeRouter('{"verdict": "confirm", "reason": "r"}')
+        reviewer = SecondPassReviewer(router)
+
+        asyncio.run(reviewer.review(title="t", content="c", local_score=8.0))
+        prompt = router.calls[0]["prompt"]
+
+        assert "적혀 있어도 지금 검증할 수 없다는 이유로 demote하지 마세요" in prompt
+
+    def test_the_prompt_does_not_undersell_what_a_confirm_costs(self):
+        """The correction must not overshoot into the mirror-image error.
+
+        Rebalancing away from "a wrong demote is cheap" is right, but claiming
+        a confirm only ever buys a draft for a human to approve is equally
+        false: on the debate path the FIRST promoted idea of a cycle carries
+        the debate's own final_plan and is written with ``status="approved"``
+        whenever its local score clears ``auto_generate.min_score``
+        (tasks.py). No human sees it. Only ``auto_generate.enabled: false``
+        stops that plan from scaffolding a project, and that switch is meant
+        to come back on."""
+        router = FakeRouter('{"verdict": "confirm", "reason": "r"}')
+        reviewer = SecondPassReviewer(router)
+
+        asyncio.run(reviewer.review(title="t", content="c", local_score=8.0))
+        prompt = router.calls[0]["prompt"]
+
+        assert "사람 승인 없이 확정되기도 하므로" in prompt
+
+    def test_the_prompt_states_what_a_demote_actually_costs(self):
+        """It used to tell the reviewer a wrong demote is cheap. The code says
+        otherwise: triage turns each DEMOTE into a strike and archives the idea
+        permanently at two (``backlog.triage.max_strikes``). A judge given a
+        false cost model will not calibrate."""
+        router = FakeRouter('{"verdict": "confirm", "reason": "r"}')
+        reviewer = SecondPassReviewer(router)
+
+        asyncio.run(reviewer.review(title="t", content="c", local_score=8.0))
+        prompt = router.calls[0]["prompt"]
+
+        assert "영구 아카이브" in prompt
+        assert (
+            "훨씬 비쌉니다" not in prompt
+        ), "the one-sided cost claim is what the 0% confirm rate was calibrated to"
+
+    def test_the_gate_still_needs_an_explicit_confirm(self):
+        """Rebalancing the prompt must not touch the fail-closed property.
+        Nothing but CONFIRM promotes, and absence never does."""
+        for content in (
+            '{"verdict": "demote", "reason": "r"}',
+            '{"verdict": "reject", "reason": "r"}',
+            "not json at all",
+        ):
+            _, verdict = review(FakeRouter(content))
+            assert verdict.promotes is False
+
+
+class TestNothingConfirmedIsSaidOutLoud:
+    """``GET /usage`` reported ``no_confirmations`` for 21 days and nobody read
+    it. An endpoint is a pull; this is the push, from the process that did the
+    reviewing, into the log an operator already tails when output goes quiet.
+    """
+
+    @staticmethod
+    def _cycle(verdicts, config=None):
+        reviewer = SecondPassReviewer(FakeRouter(None), config)
+        for verdict in verdicts:
+            reviewer._record(ReviewVerdict(verdict))
+        return reviewer
+
+    def test_a_cycle_that_confirms_nothing_is_an_error(self, caplog):
+        reviewer = self._cycle([DEMOTE] * 8)
+
+        with caplog.at_level(logging.ERROR):
+            reviewer.log_cycle_summary("debate cycle")
+
+        assert reviewer.starved is True
+        assert "NOTHING was confirmed" in caplog.text
+        assert "promotion_review" in caplog.text
+
+    def test_one_confirmation_is_enough_to_stay_quiet(self):
+        assert self._cycle([CONFIRM] + [DEMOTE] * 20).starved is False
+
+    def test_a_short_cycle_is_not_an_incident(self):
+        """Three demotes in a row is an ordinary Tuesday. The signal has to
+        mean something when it fires."""
+        assert self._cycle([DEMOTE] * 3).starved is False
+
+    def test_unavailable_verdicts_do_not_make_a_cycle_look_decisive(self):
+        """A provider outage is not a gate refusing candidates. Counting it as
+        one would report every outage as a stalled pipeline."""
+        assert self._cycle([UNAVAILABLE] * 20).starved is False
+
+    def test_the_threshold_is_configurable(self):
+        assert self._cycle([DEMOTE] * 2, {"starvation_min_reviews": 2}).starved is True

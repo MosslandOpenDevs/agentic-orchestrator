@@ -332,6 +332,34 @@ backlog:
     max_reviews_per_cycle: 20
     max_tokens: 700
 
+    # What "Mossland relevance" is judged against. This lives in config, not
+    # in code, because it is org knowledge that should be sharpened without a
+    # deploy — and because the reviewer was asked to score relevance to
+    # Mossland for 3,168 consecutive reviews while never being told what
+    # Mossland is. 45.9% of its demotes cited exactly that gap; the honest
+    # answer to a question you were given no basis for is "unclear", and
+    # "unclear" reads as "no".
+    #
+    # Keep it short and about USERS, not marketing: the criterion the
+    # reviewer has to apply is "can I name who would use this". Leaving it
+    # blank is safe — the prompt then tells the reviewer not to score
+    # relevance at all — but it is worse than filling it in.
+    org_profile: |
+      Mossland은 MOC 토큰과 DAO 거버넌스를 갖춘 Web3/메타버스 생태계입니다.
+      - 산출물의 단위는 대형 플랫폼이 아니라 생태계에 붙는 **작은 Web3 서비스**입니다.
+      - 이미 운영 중인 것: 공개 사이트(moss.land), DAO 거버넌스 투표, MOC 토큰,
+        NFT, 그리고 서로의 발행 계층을 읽는 내부 서비스들(AO, SignalMap 등).
+      - AO 자신은 결정을 내리지 않습니다. 근거·대안·반대의견을 갖춘 검토 자료를
+        만들고, 결정은 사람과 거버넌스가 합니다.
+      - 따라서 "Mossland 관련성"의 실질 질문은 이것입니다:
+        MOC 홀더·DAO 참여자·moss.land 이용자 중 **누가** 이 결과물을 쓰게 되는가?
+
+    # Reviews in one cycle before "confirmed nothing" is logged as an ERROR
+    # rather than an ordinary INFO line. Three demotes in a row is a Tuesday;
+    # twenty is a stopped pipeline, and the 21 days it took to notice the
+    # last one is the reason this number exists.
+    starvation_min_reviews: 5
+
   # Backlog triage — the consumer that matches idea production (~40/day from
   # debates) with terminal decisions. Every backlog cycle (4h in production)
   # re-scores the OLDEST 'scored' ideas against today's trends:

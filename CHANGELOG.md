@@ -9,6 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — 21 days of zero promotions: a gate that had never once said yes
+
+Promotion stopped on 2026-08-05 and plan creation on 2026-08-06. Debates kept running four times a day, on the paid tier, at roughly $2.3/day, and produced ~96 ideas daily the whole time. Nothing errored. `/status` said `operational` throughout.
+
+The cause is one object. `SecondPassReviewer` is the only door to `promoted` — both promotion paths, the debate cycle and backlog triage, require an explicit CONFIRM from it — and across its entire life it returned **3,166 DEMOTE, 2 REJECT and zero CONFIRM**. Its own independent score never exceeded 6.8 in 3,168 trials. A gate that rejects everything is indistinguishable from a strict one unless someone counts, and `GET /usage` had been counting correctly, reporting `no_confirmations`, for three weeks with nobody reading it.
+
+It was not duplication doing this, though duplication is real and is also fixed below. Tallying every demote reason: **75.6% cited a 1-2 week MVP scope that could not be verified, 45.9% a weak direct connection to Mossland, 20.5% an over-broad proposal — and only 20.0% mentioned duplication at all.** The top two were questions the reviewer had no way to answer:
+
+- **It was asked to judge Mossland relevance while never being told what Mossland is.** Traced exhaustively: no organization description reaches the reviewer from any scheduled path. The prompt's only org framing was the role line, "you are a Mossland new-business reviewer" — a title with no referent. Descriptions do exist in the repo, in `stages/ideation.py` and `backlog.py`, but both are reachable only from the manual `ao` CLI. The honest answer to a question you were given no basis for is "unclear", and "unclear" lands as a demote. There is now an `org_profile` in `config.yaml`, and when it is blank the prompt says so and takes the criterion off the table rather than leaving the model to resolve it.
+- **It was asked to confirm only ideas already verifiable as a 1-2 week MVP** — but promotion is precisely what sends an idea to the planning stage that writes the execution plan. The prompt demanded the output of the next stage as the entry price of reaching it. It now says the scope may be absent *or* unverifiable without that being a reason to demote, and states truthfully what a confirm does buy: a plan gets written, and on the debate path the first confirm of a cycle carries the debate's own `final_plan` and — if that idea's local score also clears `auto_generate.min_score` (8.0), which half of all ideas do — is written already `approved`, with no human in the loop. Below 8.0 it is a draft in the pending-approval queue.
+- **The prompt told the reviewer that a wrong demote is cheap.** The code says otherwise: backlog triage turns each DEMOTE into a strike and archives the idea permanently at two (`max_strikes: 2`). A judge handed a false cost model will not calibrate, and this one drove the error it was told was expensive to exactly zero. Both costs are now stated truthfully.
+
+**The gate keeps its teeth.** CONFIRM is still required, absence still never promotes, a tier that degraded to a local model is still refused, and the sibling comparison stays. What changed is that the bar is now answerable and the cost model is now true.
+
+- **Nothing-confirmed is now said out loud.** `SecondPassReviewer.log_cycle_summary` logs an ERROR when a cycle reaches five or more decisive verdicts and confirms none of them, naming `GET /usage` → `promotion_review`. An endpoint is a pull; this is the push, from the process that did the reviewing, into the log an operator already tails when output goes quiet. Both call sites now report through it, so the two paths cannot drift apart — and the debate path stops folding "never reached the reviewer" into "reviewer unavailable", which made a cycle that asked no questions read like one whose reviewer was down.
+
+### Fixed — the debate reopened yesterday's story, four times a day
+
+Trends are re-analysed every two hours and the topic picker had no memory, so a loud headline kept re-entering the batch at the top and winning the 6-hourly pick again and again. Measured over 2026-08-18..26: the GPT-5 Agent SDK headline seeded **eight** separate debates, Nvidia AVO took all four slots of 08-22, Faraday three of 08-23 — while ~45 *distinct* trends landed every single day. Each rerun spent a paid debate restating the previous one, and the reviewer then, correctly, called the results re-expressions of a single axis.
+
+`_select_debate_trend` now skips a candidate too close to a topic already debated in the last eight sessions and takes the next best instead, using the same TF-IDF space `backlog.clustering` already uses — so the words to ignore ("ai", "agent", "launch") are learned from the batch rather than hard-coded, and the rare ones ("avo", "faraday", "zcash") decide. Tuned in the opposite direction to the clustering threshold next door, deliberately: a wrong merge there deletes an idea, a wrong flag here costs the second-best trend of forty-five. If every candidate is a rerun the highest scorer still wins and logs a warning — a repeated debate is a waste, no debate is a hole in the day.
+
+The candidate pool also went from 5 to 25. At five it was a single analysis batch, so when one story held the top of every batch there was no alternative to fall back to.
+
+### Fixed — 830 evaluation scores stored at a fifth of their value
+
+The convergence template asked for five `X/10` criteria and a `XX/50` total, while the weighted formula two sections below produced a mean out of 10. A model that averages instead of summing writes a /10 number under the /50 label, and nothing in the line says so. Divided by 50, `7.0/50` was stored as **1.40** beside its own criteria of [9, 7, 5, 6, 8].
+
+These scores rank the ballot that reaches planning, so a mislabelled block silently drops out of the top-5 — the evaluator's verdict inverted, for the ideas it liked most. This does *not* explain the promotion freeze: promotion runs off `IdeaScorer`, an entirely different number. It degrades what planning is given.
+
+Fixed at both ends. The template no longer manufactures the ambiguity: it asks for `X.X/10`, and for the criteria the rubric actually weights — it had been asking for `Innovation` and `Risk`, neither of which is in the rubric, while never asking by name for `Novelty`, which carries the largest weight at 30%. `Risk` was the worse of the two: its polarity is inverted against every other criterion and the criteria-mean fallback was averaging it in as though higher were better.
+
+And the parser no longer takes a declared denominator on trust. It reads the block's own criterion lines first — both correct readings normalise to their mean, so in a coherent block the losing reading misses by ~0.8x the total and the margin is unmistakable; a block that contradicts itself produces two near-equal distances and defers to the label rather than guessing. Replayed over every evaluation block of the last 25 days, old parser against new: **10,530 blocks, 830 changed, every one of them `/50`-labelled** — 819 fivefold corrections and 11 recoveries of blocks left unscored because a small `/50` total fell under the 1.0 floor. **None of the 7,105 `/10`-labelled totals changes.**
+
+### Deliberately not changed
+
+- **`project.auto_generate.enabled` stays `false`.** It was paused on 2026-08-06 "while the debate diversity gate is verified", and restoring promotions is not that verification. Promotions restore plans; projects stay at zero until someone watches a live debate end to end and turns the switch back on deliberately. That is the point of the switch.
+- **The local scorer's threshold was not lowered and the reviewer was not disabled.** Both would have restored the number without fixing anything; the reviewer's judgement about the ideas it was shown was largely correct.
+- **The local scorer still barely discriminates** — 561 of 1,128 ideas over three weeks scored exactly 8.0, nine distinct values in all. That is why the second pass exists, and it is a separate piece of work.
+- **Backlog triage can still leave an idea unresolved.** When `max_reviews_per_cycle` (20) is spent before `per_run` (25) candidates are examined, the remainder take no strike and no status change, which contradicts the module's own bounded-backlog invariant. It is masked today because demotes archive everything, and it self-heals while the backlog drains, but it will surface once confirmations resume. Fixing it means choosing between raising the cap and spending a strike on an idea nobody reviewed — a policy call, not a bug fix.
+- **No model or context-window changes.** The shared Ollama host serves one model instance at a time and a distinct `num_ctx` is a distinct instance; pinning either would evict the resident instance for every other service on that box.
+
+
 ### Fixed — defects found reviewing the fixes above
 
 The branch was reviewed adversarially before merge; these are its own bugs, caught before they shipped. All six were reproduced directly, not inferred.
