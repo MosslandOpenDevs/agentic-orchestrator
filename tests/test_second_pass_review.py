@@ -269,14 +269,35 @@ class TestTheConfirmBarIsReachable:
         """Promotion is what SENDS an idea to the planning stage that writes
         the execution plan. Requiring a verified 1-2 week MVP scope first made
         the output of planning the entry price of reaching it — 75.6% of
-        demotes cited exactly that."""
+        demotes cited exactly that. The idea text usually DOES carry an
+        mvp_scope (the divergence template mandates one); what the reviewer
+        cannot do is verify it, so the instruction has to cover both."""
         router = FakeRouter('{"verdict": "confirm", "reason": "r"}')
         reviewer = SecondPassReviewer(router)
 
         asyncio.run(reviewer.review(title="t", content="c", local_score=8.0))
         prompt = router.calls[0]["prompt"]
 
-        assert "그것들이 아직 없다는 이유로 demote하지 마세요" in prompt
+        assert "적혀 있어도 지금 검증할 수 없다는 이유로 demote하지 마세요" in prompt
+
+    def test_the_prompt_does_not_undersell_what_a_confirm_costs(self):
+        """The correction must not overshoot into the mirror-image error.
+
+        Rebalancing away from "a wrong demote is cheap" is right, but claiming
+        a confirm only ever buys a draft for a human to approve is equally
+        false: on the debate path the FIRST promoted idea of a cycle carries
+        the debate's own final_plan and is written with ``status="approved"``
+        whenever its local score clears ``auto_generate.min_score``
+        (tasks.py). No human sees it. Only ``auto_generate.enabled: false``
+        stops that plan from scaffolding a project, and that switch is meant
+        to come back on."""
+        router = FakeRouter('{"verdict": "confirm", "reason": "r"}')
+        reviewer = SecondPassReviewer(router)
+
+        asyncio.run(reviewer.review(title="t", content="c", local_score=8.0))
+        prompt = router.calls[0]["prompt"]
+
+        assert "사람 승인 없이 확정되기도 하므로" in prompt
 
     def test_the_prompt_states_what_a_demote_actually_costs(self):
         """It used to tell the reviewer a wrong demote is cheap. The code says

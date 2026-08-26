@@ -1828,13 +1828,24 @@ Return the complete revised plan.
         re.IGNORECASE,
     )
 
-    # `- Feasibility: 8/10 - reason`, used only when the block has no total.
+    # `- Feasibility: 8/10 - reason`. Two jobs now, both load-bearing: the mean
+    # of these lines is the score when a block carries no total, AND it decides
+    # the scale of a total that IS present (`_normalise_total`). Narrowing this
+    # alternation is therefore not cosmetic -- a block whose criteria stop
+    # matching falls through to the declared denominator, and `7.0/50` is
+    # stored as 1.40 instead of 7.0. That fivefold error is the one this parser
+    # exists to prevent.
     #
-    # Both naming schemes, because the prompt itself uses two: the weighted
-    # rubric names the criteria "Mossland Relevance" and "Novelty", while the
-    # output template two sections later asks for "Innovation" and "Risk".
-    # Knowing only the template's names produced a partial mean -- and the one
-    # it dropped, Novelty, carries the largest weight in the rubric.
+    # Deliberately a superset of the current template, which asks for
+    # Feasibility / Mossland Relevance / Novelty / Impact / Urgency
+    # (`protocol.py`). It kept asking for "Innovation" and "Risk" until this
+    # revision, so every stored block written before it uses those names, and
+    # models volunteer them regardless of what the template says. Dropping a
+    # name the model actually wrote produces a partial mean.
+    #
+    # NOTE if you ever do drop one: "Risk" has inverted polarity against every
+    # other criterion here, so averaging it in reads "riskier" as "better".
+    # Removing it is a behaviour change to the arbitration mean, not a tidy-up.
     _CRITERION_RE = re.compile(
         r"^\s*[-*|]?\s*\*{0,2}(?:Feasibility|Impact|Innovation|Risk|Urgency"
         r"|Novelty|Relevance|Mossland\s+Relevance)\s*[:：]?\*{0,2}"
@@ -1858,10 +1869,13 @@ Return the complete revised plan.
             blocks[int(header.group(1))] = content[header.end() : end]
         return blocks
 
-    # The only two denominators the template can produce a confusion between:
-    # it asks for a `XX/50` total, and for five `X/10` criterion lines above it.
-    # A model that averages the criteria instead of summing them writes a /10
-    # number under the /50 label, and nothing about the line itself says so.
+    # The only two denominators the template can produce a confusion between.
+    # It asked for a `XX/50` total until this revision (now `X.X/10`) while
+    # also asking for five `X/10` criterion lines above it, so a model that
+    # averaged the criteria instead of summing them wrote a /10 number under
+    # the /50 label with nothing in the line to say so. Both scales stay in
+    # play: the stored history is full of the old shape, and models answer off
+    # -template either way.
     _TEMPLATE_SCALES = (10.0, 50.0)
 
     # How much closer to the criteria mean one reading must be than the other

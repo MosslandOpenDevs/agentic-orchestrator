@@ -142,7 +142,8 @@ RSS 피드 → 트렌드 분석 → Claude로 아이디어 생성 → GitHub Iss
                               │
                               ├─ score >= 7.0 → 유료 reviewer 에게 제출
                               │                  └─ CONFIRM 만 promoted
-                              │                     (DEMOTE·REJECT·불가 → 보류)
+                              │                     (DEMOTE·심사 불가 → 보류,
+                              │                      REJECT → archived)
                               ├─ score < 4.0  → archived (이슈 생성 안 함)
                               └─ 중간 점수    → scored (백로그 → 4h마다 트리아지)
 ```
