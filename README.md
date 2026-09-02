@@ -1,5 +1,7 @@
 # Mossland Agentic Orchestrator
 
+> **Status of this repository:** **`Lifecycle: Lab`** (실험, best-effort) — per [MIP-1](https://agora.moss.land/proposals/6a85129f8be190cf5d2ebcc1), ratified 2026-09-02, and the [links.moss.land registry](https://links.moss.land/ecosystem-registry.json) entry `ao`. May change or stop without notice.
+
 [한국어](README.ko.md) | **English**
 
 An autonomous multi-agent orchestration system for discovering, planning, and implementing micro Web3 services for the Mossland ecosystem.
