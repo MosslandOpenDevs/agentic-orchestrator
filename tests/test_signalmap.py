@@ -318,9 +318,9 @@ class TestEpochGate:
         # "!= now" guard passes for free the moment the stored format changes
         # (it did -- the stamp now carries a Z), and a regression would sail
         # through it.
-        assert persisted.last_success_at == (NOW - timedelta(hours=5)).isoformat(), (
-            "an aborted walk must leave the previous success stamp untouched"
-        )
+        assert (
+            persisted.last_success_at == (NOW - timedelta(hours=5)).isoformat()
+        ), "an aborted walk must leave the previous success stamp untouched"
         assert persisted.backfilling is True, "a pending resync must not be throttled"
 
 
