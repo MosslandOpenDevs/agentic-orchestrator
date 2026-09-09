@@ -737,6 +737,12 @@ class TestAdaptersEndpoint:
         assert coingecko["source_count"] > 0
         assert len(coingecko["sources"]) == coingecko["source_count"]
 
+    def test_probed_at_carries_a_utc_marker(self, client, stub_adapter_health):
+        """It dates the cached payload, so a browser has to read it as UTC."""
+        probed_at = client.get("/adapters").json()["probed_at"]
+
+        assert probed_at.endswith("Z"), probed_at
+
 
 class TestAdapterYieldIsMeasured:
     """An adapter that answers 200 while storing nothing must be visible.

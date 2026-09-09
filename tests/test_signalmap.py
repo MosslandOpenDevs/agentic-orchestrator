@@ -314,7 +314,13 @@ class TestEpochGate:
         await make_adapter(cfg).fetch()
 
         persisted = FeedState.load(sm.Path(cfg.state_file))
-        assert persisted.last_success_at != NOW.isoformat()
+        # Assert the old stamp survived, not that it differs from "now": a
+        # "!= now" guard passes for free the moment the stored format changes
+        # (it did -- the stamp now carries a Z), and a regression would sail
+        # through it.
+        assert (
+            persisted.last_success_at == (NOW - timedelta(hours=5)).isoformat()
+        ), "an aborted walk must leave the previous success stamp untouched"
         assert persisted.backfilling is True, "a pending resync must not be throttled"
 
 
@@ -835,6 +841,16 @@ class TestWatermark:
         # regardless of watermark_changed_at having just been rewritten.
         assert state.watermark_age_hours(NOW) == 9.0
 
+    def test_the_change_stamp_carries_a_utc_marker(self, cfg, frozen_now):
+        """It sits in the same state file as `source_watermark`, which arrives
+        from upstream already marked. Two spellings of "UTC" in one file is how
+        one of them ends up read as local time."""
+        state = FeedState(epoch=EPOCH)
+
+        make_adapter(cfg)._apply_manifest(manifest(watermark="2026-08-06T06:00:00.000Z"), state)
+
+        assert state.watermark_changed_at == "2026-08-06T15:00:00Z"
+
     def test_a_first_sync_against_a_frozen_feed_still_warns(self, cfg, frozen_now, caplog):
         adapter = make_adapter(cfg)
         state = FeedState()  # nothing seen before
@@ -924,6 +940,15 @@ class TestFeedStatePersistence:
         path.write_text(json.dumps({"epoch": EPOCH, "invented_later": 1}), encoding="utf-8")
 
         assert FeedState.load(path).epoch == EPOCH
+
+    async def test_a_successful_poll_stamps_a_marked_timestamp(self, cfg, fake_client, frozen_now):
+        """This value is republished on /status as the feed's last known-good
+        moment; without the marker a KST browser reads it nine hours young."""
+        fake_client.pages = [page([video_record("youtube:a")])]
+
+        await make_adapter(cfg).fetch()
+
+        assert FeedState.load(sm.Path(cfg.state_file)).last_success_at == "2026-08-06T15:00:00Z"
 
     def test_save_is_atomic(self, tmp_path):
         """A half-written cursor is worse than an old one."""
@@ -1266,6 +1291,42 @@ class TestFeedReport:
         assert "\n" not in reason
         assert len(reason) < 250
         assert reason.endswith("…")
+
+    def test_last_success_at_is_published_with_its_marker_intact(
+        self, cfg, tmp_path, monkeypatch, frozen_now
+    ):
+        monkeypatch.setattr(sm, "_report_config", cfg)
+        path = tmp_path / "state.json"
+        FeedState(epoch=EPOCH, last_success_at="2026-08-06T15:00:00Z").save(path)
+
+        assert feed_report(path)["last_success_at"] == "2026-08-06T15:00:00Z"
+
+    def test_a_state_file_written_before_the_marker_is_published_marked_anyway(
+        self, cfg, tmp_path, monkeypatch, frozen_now
+    ):
+        """The state file survives the deploy that adds the marker, and the one
+        state that never gets rewritten is a feed whose every poll fails —
+        precisely when an operator reads this field."""
+        monkeypatch.setattr(sm, "_report_config", cfg)
+        path = tmp_path / "state.json"
+        FeedState(
+            epoch=EPOCH,
+            last_success_at="2026-08-06T03:35:01.578349",  # written before the marker existed
+            last_error="ConnectError: no route to host",
+        ).save(path)
+
+        assert feed_report(path)["last_success_at"] == "2026-08-06T03:35:01.578349Z"
+
+    def test_an_unreadable_stamp_is_published_as_null_not_as_itself(
+        self, cfg, tmp_path, monkeypatch, frozen_now
+    ):
+        """The 0-vs-null rule applied to a string: a value we cannot read is
+        not a time, and must not go out looking like one."""
+        monkeypatch.setattr(sm, "_report_config", cfg)
+        path = tmp_path / "state.json"
+        FeedState(epoch=EPOCH, last_success_at="whenever").save(path)
+
+        assert feed_report(path)["last_success_at"] is None
 
     def test_disabled_is_not_degraded(self, cfg, tmp_path, monkeypatch):
         cfg.enabled = False
