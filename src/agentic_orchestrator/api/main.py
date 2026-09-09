@@ -64,6 +64,13 @@ async def lifespan(_app: FastAPI):
     yield
 
 
+# This service's `id` in the ecosystem registry (`links/ecosystem-registry.json`),
+# not its display name -- "ao", not "MOSS.AO". /health publishes it so a consumer
+# can join a health response to its registry entry without keeping a
+# domain-to-service lookup table of its own, which is the one thing such a table
+# is always slightly out of date about.
+SERVICE_ID = "ao"
+
 app = FastAPI(
     title="MOSS.AO API",
     description="Mossland Agentic Orchestrator API",
@@ -155,6 +162,10 @@ class HealthResponse(BaseModel):
     status: str
     timestamp: str
     version: str
+    # Appended rather than slotted in beside `status`: field order here is the
+    # JSON key order, and the three existing keys stay exactly where consumers
+    # have always found them.
+    service: str
 
 
 class ReadinessResponse(BaseModel):
@@ -201,11 +212,21 @@ async def health_check():
     """Liveness: the process is up. Deliberately does not touch the database.
 
     Use ``/ready`` to decide whether this build can actually serve traffic.
+
+    Speaks the ecosystem health contract (``links/HEALTH_CONTRACT.md``):
+    ``status``/``service``/``timestamp``, so one dashboard can read every
+    Mossland service without a per-service parser. ``status`` is the contract's
+    ``ok``, not the old ``healthy`` -- nothing read the literal (the Lightsail
+    uptime probe and ``scripts/deploy.sh`` both judge on the HTTP code and
+    discard the body), so the vocabulary could be aligned without stranding a
+    consumer. A flat ``ok`` is honest here: this probe deliberately checks
+    nothing, so it has nothing to be degraded about.
     """
     return HealthResponse(
-        status="healthy",
+        status="ok",
         timestamp=utc_iso(utcnow()),
         version=__version__,
+        service=SERVICE_ID,
     )
 
 

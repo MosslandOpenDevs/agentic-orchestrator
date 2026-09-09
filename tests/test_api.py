@@ -206,14 +206,31 @@ class TestHealthEndpoint:
     """Tests for /health endpoint."""
 
     def test_health_check(self, client):
-        """Test health check returns healthy status."""
+        """Test health check returns ok status."""
         response = client.get("/health")
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "healthy"
+        assert data["status"] == "ok"
         assert "timestamp" in data
         # Track the package version rather than a literal, which had drifted.
         assert data["version"] == __version__
+
+    def test_health_speaks_the_ecosystem_contract(self, client):
+        """The three fields every Mossland service must publish.
+
+        Pinned as a set, not as three incidental assertions elsewhere: the
+        contract's whole value is that a single consumer can read every
+        service, so dropping one field here breaks a dashboard rather than
+        this API, and nothing in this repo would otherwise notice.
+        """
+        data = client.get("/health").json()
+
+        assert data["status"] in ("ok", "degraded", "down")
+        # The registry id, not the display name -- "ao", not "MOSS.AO".
+        assert data["service"] == "ao"
+        # Response-generation time, marked UTC. Never a data-freshness value:
+        # this endpoint touches no data and has no freshness to report.
+        assert data["timestamp"].endswith("Z")
 
 
 class TestRootEndpoint:
