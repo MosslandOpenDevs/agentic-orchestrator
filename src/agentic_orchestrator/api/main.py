@@ -269,9 +269,11 @@ def _public_router_view(report: dict) -> dict:
     return {
         **report,
         "paid_tiers": {
-            name: {k: v for k, v in tier.items() if k not in ("provider", "model")}
-            if isinstance(tier, dict)
-            else tier
+            name: (
+                {k: v for k, v in tier.items() if k not in ("provider", "model")}
+                if isinstance(tier, dict)
+                else tier
+            )
             for name, tier in tiers.items()
         },
     }
