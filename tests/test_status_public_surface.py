@@ -1,14 +1,15 @@
-"""What ``/status`` may and may not publish.
+"""What the unauthenticated endpoints may and may not publish.
 
 ``/status`` is listed in the links.moss.land registry as this service's status
-endpoint, so it is read by anyone. Two properties have to hold together:
+endpoint and ``/usage`` is called by the public web client; neither takes a
+credential, so both are read by anyone. Two properties have to hold together:
 
 1. It must answer "is this pipeline actually running?" — the Q2 report's whole
    objection to cumulative counters was that they stay put when ingestion dies.
    That is what ``stats.last_signal_at`` is for.
-2. It must not publish deployment detail that has nothing to do with that
+2. Neither may publish deployment detail that has nothing to do with that
    question — specifically which vendor and which exact model each paid tier
-   buys. ``/usage`` keeps the full view; the public endpoint does not.
+   buys. Both route the router report through ``_public_router_view``.
 
 Both are easy to lose in a refactor and neither fails loudly, so they are
 pinned here.
@@ -64,7 +65,7 @@ class TestPublicRouterView:
         assert view["degraded_tiers"] == ["debate"]
 
     def test_input_is_not_mutated(self):
-        """The same report object also feeds /usage, which wants the full view."""
+        """Redaction must not corrupt the caller's own copy of the report."""
         report = _report()
         _public_router_view(report)
         assert report["paid_tiers"]["debate"]["model"] == "gpt-5.4-mini"
@@ -78,3 +79,30 @@ class TestPublicRouterView:
     def test_non_dict_tier_is_left_alone(self):
         report = {"status": "healthy", "paid_tiers": {"debate": "unavailable"}}
         assert _public_router_view(report)["paid_tiers"]["debate"] == "unavailable"
+
+
+class TestNoPublicRouteLeaksTheModelPin:
+    def test_every_public_router_report_is_redacted(self):
+        """Both unauthenticated endpoints must go through the redactor.
+
+        /usage was missed on the first pass -- the code called
+        paid_tier_report() directly and a comment claimed it was internal,
+        while it takes no credential and the public web client calls it. This
+        pins the call sites so the next one is not missed the same way.
+        """
+        import inspect
+
+        from agentic_orchestrator.api import main
+
+        source = inspect.getsource(main)
+        # Every paid_tier_report() call that feeds a response goes through the
+        # redactor; the only bare mention left is the import and the docstring.
+        bare = [
+            line.strip()
+            for line in source.splitlines()
+            if "paid_tier_report(" in line
+            and "_public_router_view(" not in line
+            and not line.strip().startswith(("#", "from", "import"))
+            and "paid_tier_report()" not in line.strip().rstrip(".")  # docstring prose
+        ]
+        assert bare == [], f"unredacted paid_tier_report() call sites: {bare}"

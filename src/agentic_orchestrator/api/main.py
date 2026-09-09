@@ -248,8 +248,9 @@ async def readiness_check():
 def _public_router_view(report: dict) -> dict:
     """Router health for a public endpoint, with the vendor detail stripped.
 
-    ``/status`` is listed in the links.moss.land registry as this service's
-    status endpoint, so anyone can read it. The operational question it has to
+    Used by every unauthenticated endpoint that reports router state --
+    ``/status`` (listed in the links.moss.land registry as this service's
+    status endpoint) and ``/usage`` (called by the public web client). The operational question it has to
     answer is the one paid_tier_report() was written for -- "could a paid tier
     bill anything at all, or are we silently all-local?" -- and that is fully
     answered by status / local_only / degraded_tiers plus each tier's
@@ -261,7 +262,11 @@ def _public_router_view(report: dict) -> dict:
     the project description ("Ollama (Local) + OpenAI/Claude"); the per-tier
     model pin is not, and a public endpoint is not the place to publish it.
 
-    ``/usage`` keeps the full report -- it is the internal cost view.
+    ``/usage`` gets the same treatment: it is unauthenticated too and the
+    public web client calls it, so an earlier version of this docstring
+    calling it "the internal cost view" was simply wrong. Anything that wants
+    the unredacted report must read ``paid_tier_report()`` directly, in
+    process, and not hand it to an HTTP response.
     """
     tiers = report.get("paid_tiers")
     if not isinstance(tiers, dict):
@@ -990,7 +995,11 @@ async def get_usage(
         logger.exception("/usage could not read budget status")
         budget_ok = None
     try:
-        llm_routing = paid_tier_report(budget_ok=budget_ok)
+        # Redacted for the same reason as /status: this endpoint takes no
+        # credential either, and the public web client calls it. The budget
+        # verdict it adds is a spending question; which model each tier pins
+        # is not, and does not belong on an endpoint anyone can read.
+        llm_routing = _public_router_view(paid_tier_report(budget_ok=budget_ok))
     except Exception:
         logger.exception("/usage could not read paid-tier configuration")
         llm_routing = {"status": "unknown"}
