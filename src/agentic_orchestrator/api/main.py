@@ -245,6 +245,38 @@ async def readiness_check():
     )
 
 
+def _public_router_view(report: dict) -> dict:
+    """Router health for a public endpoint, with the vendor detail stripped.
+
+    ``/status`` is listed in the links.moss.land registry as this service's
+    status endpoint, so anyone can read it. The operational question it has to
+    answer is the one paid_tier_report() was written for -- "could a paid tier
+    bill anything at all, or are we silently all-local?" -- and that is fully
+    answered by status / local_only / degraded_tiers plus each tier's
+    enabled / active / reason.
+
+    ``provider`` and ``model`` answer a different question (which vendor and
+    which exact model this deployment buys) and are not needed to tell whether
+    the service is running. The provider mix is already disclosed on purpose in
+    the project description ("Ollama (Local) + OpenAI/Claude"); the per-tier
+    model pin is not, and a public endpoint is not the place to publish it.
+
+    ``/usage`` keeps the full report -- it is the internal cost view.
+    """
+    tiers = report.get("paid_tiers")
+    if not isinstance(tiers, dict):
+        return report
+    return {
+        **report,
+        "paid_tiers": {
+            name: {k: v for k, v in tier.items() if k not in ("provider", "model")}
+            if isinstance(tier, dict)
+            else tier
+            for name, tier in tiers.items()
+        },
+    }
+
+
 @app.get("/status", response_model=StatusResponse)
 async def system_status(session: Session = Depends(get_session)):
     """Get overall system status with real statistics.
@@ -269,6 +301,12 @@ async def system_status(session: Session = Depends(get_session)):
         "plans_created": 0,
         # Persona-count constant, not DB-derived; stays meaningful when degraded.
         "agents_active": 34,
+        # When the pipeline last actually did something. Cumulative counts do
+        # not answer that -- they stay put when ingestion dies -- which is the
+        # gap the Q2 report named ("cumulative figures alone cannot establish
+        # whether a pipeline is running"). null when unknown, never a
+        # fabricated "now".
+        "last_signal_at": None,
     }
     try:
         stats["signals_today"] = (
@@ -282,6 +320,13 @@ async def system_status(session: Session = Depends(get_session)):
         )
         stats["ideas_generated"] = session.query(func.count(Idea.id)).scalar() or 0
         stats["plans_created"] = session.query(func.count(Plan.id)).scalar() or 0
+        last_signal = session.query(func.max(Signal.collected_at)).scalar()
+        # Serialised with an explicit UTC marker: a naive ISO string is read as
+        # *local time* by browsers, which silently shifts the age by the
+        # viewer's offset (KST would show a 9-hour-old feed as current).
+        stats["last_signal_at"] = (
+            last_signal.isoformat() + ("" if last_signal.tzinfo else "Z") if last_signal else None
+        )
 
         # The stat queries above are the real probe (they fail on a missing
         # schema, which the bare "SELECT 1" health check does not detect);
@@ -296,7 +341,7 @@ async def system_status(session: Session = Depends(get_session)):
         # a DB round trip, and budget exhaustion is already visible on /usage.
         # What this catches is the permanent kind of degradation — kill switch
         # engaged, tier disabled, API key missing.
-        llm_router_status = paid_tier_report()
+        llm_router_status = _public_router_view(paid_tier_report())
     except Exception:
         logger.exception("/status could not read paid-tier configuration")
         llm_router_status = {"status": "unknown"}
