@@ -175,9 +175,22 @@ class BaseAdapter(ABC):
         return self._last_fetch
 
     async def health_check(self) -> Dict[str, Any]:
-        """Check adapter health."""
+        """Check adapter health.
+
+        Deliberately does NOT report ``_last_fetch``. Every subclass extends
+        this dict and it is served by ``GET /adapters``, which is read from the
+        API process while ``_last_fetch`` is only ever written by
+        ``fetch_with_retry`` in the signals cron process -- a different process
+        that exits after each tick. The value could therefore never be anything
+        but null there, and the UI renders the health dict key by key, so all
+        twelve adapters showed ``last_fetch: null`` including the three
+        producing hundreds of rows a day.
+
+        What that field was reaching for is answered instead by
+        ``last_signal_at`` / ``signals_24h`` on the adapter itself, measured
+        from the stored rows rather than from in-process state.
+        """
         return {
             "name": self.name,
             "enabled": self.config.enabled,
-            "last_fetch": self._last_fetch.isoformat() if self._last_fetch else None,
         }

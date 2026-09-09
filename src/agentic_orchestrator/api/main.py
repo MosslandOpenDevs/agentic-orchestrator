@@ -18,7 +18,7 @@ import logging
 import os
 import secrets
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from time import monotonic
 from typing import Any, Dict, Optional
 
@@ -245,6 +245,19 @@ async def readiness_check():
     )
 
 
+def _utc_iso(value: Optional[datetime]) -> Optional[str]:
+    """Serialise a stored timestamp with an explicit UTC marker.
+
+    A naive ISO string is read as *local time* by browsers, which silently
+    shifts the age by the viewer's offset -- in KST a nine-hour-old feed reads
+    as current. ``None`` stays ``None``: when the answer is unknown, say so
+    rather than inventing a "now".
+    """
+    if value is None:
+        return None
+    return value.isoformat() + ("" if value.tzinfo else "Z")
+
+
 def _public_router_view(report: dict) -> dict:
     """Router health for a public endpoint, with the vendor detail stripped.
 
@@ -355,13 +368,7 @@ async def system_status(session: Session = Depends(get_session)):
         )
         stats["ideas_generated"] = session.query(func.count(Idea.id)).scalar() or 0
         stats["plans_created"] = session.query(func.count(Plan.id)).scalar() or 0
-        last_signal = session.query(func.max(Signal.collected_at)).scalar()
-        # Serialised with an explicit UTC marker: a naive ISO string is read as
-        # *local time* by browsers, which silently shifts the age by the
-        # viewer's offset (KST would show a 9-hour-old feed as current).
-        stats["last_signal_at"] = (
-            last_signal.isoformat() + ("" if last_signal.tzinfo else "Z") if last_signal else None
-        )
+        stats["last_signal_at"] = _utc_iso(session.query(func.max(Signal.collected_at)).scalar())
 
         # The stat queries above are the real probe (they fail on a missing
         # schema, which the bare "SELECT 1" health check does not detect);
@@ -1231,8 +1238,59 @@ async def get_activity(
     }
 
 
+def _signal_yield_by_source(session: Session) -> Optional[Dict[str, Dict[str, Any]]]:
+    """What each source has actually stored, measured from the rows.
+
+    The health probes answer "can this adapter reach its upstream right now".
+    They cannot answer "is this source still producing", and the two come
+    apart silently -- nitter.net answered 200 to 1,008 requests a day from
+    2026-08-11 to 08-26 while the twitter adapter stored zero rows. A valid
+    response to a feed that has gone empty is
+    indistinguishable from a healthy one, and four of the twelve adapters
+    (twitter, discord, lens, farcaster) have stored nothing in the 30 days
+    this table retains while all four report themselves enabled.
+
+    Measured on ``created_at`` (when AO wrote the row), NOT ``collected_at``.
+    For every adapter but one the two are the same, but SignalMap deliberately
+    sets ``collected_at`` to the upstream event time (see docs/signalmap.md),
+    so grouping on it reports the publisher's clock as our ingest clock: a
+    backfill of older events would not move the count at all, and a perfectly
+    healthy 30-minute ingest reads hours stale. Measured 2026-09-09, the two
+    columns disagree for SignalMap by 45% over 24 hours (219 vs 398).
+
+    Returns ``None`` when the database cannot be read, which is different from
+    a source having produced nothing, and the caller keeps that difference.
+    Read failures are swallowed on purpose: ``/adapters`` answering 200 while
+    the DB-backed endpoints 500 is the documented fingerprint of a lost SQLite
+    file (CLAUDE.md), and coupling this endpoint to the database would erase
+    it.
+    """
+    from sqlalchemy import case, func
+
+    from ..db.models import Signal
+
+    try:
+        cutoff = utcnow() - timedelta(hours=24)
+        rows = (
+            session.query(
+                Signal.source,
+                func.max(Signal.created_at),
+                func.sum(case((Signal.created_at >= cutoff, 1), else_=0)),
+            )
+            .group_by(Signal.source)
+            .all()
+        )
+        return {
+            source: {"last_signal_at": _utc_iso(last), "signals_24h": int(recent or 0)}
+            for source, last, recent in rows
+        }
+    except Exception as e:
+        logger.warning(f"Adapter yield unavailable: {redact_paths(str(e))}")
+        return None
+
+
 @app.get("/adapters")
-async def get_adapters():
+async def get_adapters(session: Session = Depends(get_session)):
     """Get detailed signal adapter information."""
 
     from ..adapters import (
@@ -1351,7 +1409,6 @@ async def get_adapters():
                 "description": adapter_info["description"],
                 "description_en": adapter_info["description_en"],
                 "enabled": adapter.is_enabled(),
-                "last_fetch": health.get("last_fetch"),
                 "health": health,
             }
 
@@ -1406,6 +1463,19 @@ async def get_adapters():
             return cached
 
         adapters_info = list(await asyncio.gather(*(describe(a) for a in adapter_classes)))
+
+        # Measured yield, joined on adapter.name == signals.source. A source
+        # missing from a successful read has genuinely stored nothing, which
+        # is a 0 and not an unknown -- the distinction is the whole point of
+        # the field, so it survives into the response.
+        measured = _signal_yield_by_source(session)
+        for info in adapters_info:
+            row = measured.get(info.get("name")) if measured is not None else None
+            info["last_signal_at"] = row["last_signal_at"] if row else None
+            info["signals_24h"] = (
+                row["signals_24h"] if row else (0 if measured is not None else None)
+            )
+
         payload = {
             "adapters": adapters_info,
             "total": len(adapters_info),
