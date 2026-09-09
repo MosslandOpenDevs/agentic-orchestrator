@@ -13,10 +13,14 @@ first one that failed:
     gw up,  inet down              -> router WAN or the ISP
     inet up, dns down              -> DNS resolution only
     dns up,  tailscale down        -> the tunnel, not the line
-    every layer up                 -> not the network: the app or the host
+    some layers down, none for most -> a partial or moving network failure
+    every layer up, every sample   -> not the network: the app or the host
 
-That last row is the one worth stating plainly. If a future outage shows every
-network layer healthy, the office line is exonerated and the bug is ours.
+That last row is the one worth stating plainly, and it is why the row above it
+exists. "The app" has to be a positive finding -- every layer answering in
+every sample taken during the outage -- not the bucket everything unproven
+falls into. Judged by the layers only, all nine outages between 2026-08-18 and
+09-09 were the office network and none were ours.
 
 Single-sample failures are counted separately from confirmed outages. Mining
 nginx's error log for 2026-08-04..06 turned up 19 error clusters but only 2
@@ -56,6 +60,7 @@ CAUSE_ISP = "ISP/라우터 WAN"
 CAUSE_DNS = "DNS"
 CAUSE_TAILSCALE = "Tailscale 터널"
 CAUSE_APP = "앱/서버 (네트워크 정상)"
+CAUSE_PARTIAL = "네트워크 부분 실패 (과반 미달)"
 CAUSE_UNKNOWN = "불명 (내부 프로브 데이터 없음)"
 
 
@@ -199,13 +204,42 @@ def find_outages(samples: list, interval: float) -> "tuple[list, int]":
     return outages, blips
 
 
-def classify(outage: Outage, net: list, interval: float) -> None:
-    """Attribute an outage to the outermost layer that was failing."""
-    lo = outage.start - timedelta(seconds=interval * 2)
-    hi = outage.end + timedelta(seconds=interval * 2)
-    window = [n for n in net if lo <= n.ts <= hi]
-    if not window:
+def classify(outage: Outage, net: list) -> None:
+    """Attribute an outage to the outermost layer that was failing.
+
+    Only samples taken *during* the outage testify to its cause. This used to
+    pad the span by two intervals on each side, which put healthy before/after
+    samples into the denominator of a strict-majority test -- so an outage
+    shorter than the padding could not reach a majority on any layer no matter
+    what the network did, and fell through to CAUSE_APP.
+
+    Measured over 2026-08-18..09-09 the verdict was a pure function of
+    duration, with no overlap: all five outages of 3m30s or longer were called
+    LAN, all four of 2m30s or shorter were called "network fine, our bug".
+    Every one of those four contains a sample with all four layers down; two
+    were all-down throughout, and two are recovering failures.
+    Sampling made it worse -- during a failure the probe's own layer timeouts
+    (2s + 2s + 10s + 3s) delay the second sample of the minute, so a failing
+    minute yields fewer rows than a healthy one and tilts the denominator
+    further toward the healthy padding.
+    """
+    # Half-open on purpose. ``Outage.end`` is the first sample that RECOVERED,
+    # so a closed interval lets a post-recovery sample testify about the
+    # outage -- and on a short one it can be the only witness. Measured on the
+    # retained CSVs: 2026-08-11 19:30:37 has exactly one sample in the closed
+    # interval, taken after recovery, because the inside prober went quiet for
+    # the whole outage.
+    window = [n for n in net if outage.start <= n.ts < outage.end]
+
+    # A verdict needs at least as much evidence as the outage itself needed.
+    # With one sample every layer is trivially a "majority", so a single
+    # dropped echo would name a cause and a single healthy row would exonerate
+    # the network. CAUSE_UNKNOWN is exactly what that constant is for.
+    if len(window) < CONFIRM_SAMPLES:
         outage.cause = CAUSE_UNKNOWN
+        outage.layer_detail = (
+            f"구간 내 내부 프로브 샘플 {len(window)}개 — 판정에 {CONFIRM_SAMPLES}개 필요"
+        )
         return
 
     total = len(window)
@@ -227,8 +261,17 @@ def classify(outage: Outage, net: list, interval: float) -> None:
         outage.cause = CAUSE_DNS
     elif down["tspeer"] > majority:
         outage.cause = CAUSE_TAILSCALE
-    else:
+    elif not any(down.values()):
+        # Every layer answered in every sample taken during the outage. This
+        # is the only evidence that exonerates the line, and it is the one row
+        # of the table worth acting on -- so it must not be the fall-through.
         outage.cause = CAUSE_APP
+    else:
+        # Layers failed, but none for most of the outage: a partial or moving
+        # failure, which is what a router coming back mid-outage looks like.
+        # Saying "network fine" here is what sent the operator after an app
+        # bug for every short blip on the office line.
+        outage.cause = CAUSE_PARTIAL
     outage.layer_detail = "정상 샘플 " + " · ".join(
         f"{k} {total - v}/{total}" for k, v in down.items()
     )
@@ -381,7 +424,7 @@ def main(argv: Optional[list] = None) -> int:
     interval = median_interval(uptime)
     outages, blips = find_outages(uptime, interval)
     for outage in outages:
-        classify(outage, net, interval)
+        classify(outage, net)
 
     if args.json:
         print(to_json(uptime, outages, blips, interval))

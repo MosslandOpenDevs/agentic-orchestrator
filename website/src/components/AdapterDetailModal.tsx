@@ -231,9 +231,26 @@ export function AdapterDetailModal({
                           <span className={categoryColors[selectedAdapter.category]}>{selectedAdapter.category}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-[#8b949e]">last_fetch:</span>
+                          <span className="text-[#8b949e]">last_signal:</span>
                           <span className="text-[#c0c0c0]">
-                            {selectedAdapter.last_fetch || 'never'}
+                            {selectedAdapter.last_signal_at || 'never'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-[#8b949e]">signals_24h:</span>
+                          {/* 0 and "unknown" must not look alike: zero is the
+                              finding, null only means the count was unreadable. */}
+                          <span
+                            className={
+                              selectedAdapter.signals_24h === null ||
+                              selectedAdapter.signals_24h === undefined
+                                ? 'text-[#8b949e]'
+                                : selectedAdapter.signals_24h > 0
+                                  ? 'text-[#39ff14]'
+                                  : 'text-[#ff6b35]'
+                            }
+                          >
+                            {selectedAdapter.signals_24h ?? '—'}
                           </span>
                         </div>
                         <div className="flex justify-between">

@@ -175,7 +175,11 @@ export interface AdapterInfo {
   description: string;
   description_en: string;
   enabled: boolean;
-  last_fetch: string | null;
+  // Measured from stored rows, not from the probe: an adapter can answer 200
+  // for weeks while storing nothing. null means the count could not be read,
+  // which is not the same as zero.
+  last_signal_at: string | null;
+  signals_24h: number | null;
   health: Record<string, unknown>;
   sources?: string[];
   source_count?: number;

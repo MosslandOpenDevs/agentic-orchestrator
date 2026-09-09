@@ -690,9 +690,16 @@ def stub_adapter_health(monkeypatch):
     assertions here are about the adapter *listing*, which needs no live probe.
     """
     from agentic_orchestrator import adapters as adapters_pkg
+    from agentic_orchestrator.api.main import _adapters_cache
+
+    # The payload is cached at module level for 60s, so without this a test
+    # is served whatever an earlier test in the same run produced -- including
+    # a yield count measured against a database that has since been dropped.
+    _adapters_cache["payload"] = None
+    _adapters_cache["fetched_at"] = 0.0
 
     async def _fake_health_check(self):
-        return {"status": "stubbed", "last_fetch": None}
+        return {"status": "stubbed"}
 
     for name in adapters_pkg.__all__:
         obj = getattr(adapters_pkg, name)
@@ -729,6 +736,92 @@ class TestAdaptersEndpoint:
         # TRACKED_COINS must feed the shared sources/source_count contract.
         assert coingecko["source_count"] > 0
         assert len(coingecko["sources"]) == coingecko["source_count"]
+
+
+class TestAdapterYieldIsMeasured:
+    """An adapter that answers 200 while storing nothing must be visible.
+
+    `last_fetch` used to occupy this slot and could never be anything but
+    null: it lives on the adapter instance, written by `fetch_with_retry` in
+    the signals cron process, and read from a throwaway instance built inside
+    the API process. Every adapter rendered "never", including the two
+    producing hundreds of rows a day, so the field taught its reader to
+    ignore it. nitter.net meanwhile answered 200 to 1,008 requests a day for
+    sixteen days while the twitter adapter stored zero rows.
+    """
+
+    def test_the_unmeasurable_field_is_gone(self, client, stub_adapter_health):
+        adapters = client.get("/adapters").json()["adapters"]
+
+        assert adapters
+        assert all("last_fetch" not in a for a in adapters)
+
+    @pytest.mark.asyncio
+    async def test_it_is_gone_from_the_health_block_too(self):
+        """Removing it from the top level alone would not have helped.
+
+        The modal renders the health dict key by key, so a `last_fetch` left
+        nested one level down still shows up as `null` on every adapter --
+        the exact thing this change exists to stop.
+        """
+        from agentic_orchestrator.adapters.rss import RSSAdapter
+
+        health = await RSSAdapter().health_check()
+
+        assert "last_fetch" not in health
+
+    def test_every_adapter_reports_measured_yield(self, client, stub_adapter_health):
+        adapters = client.get("/adapters").json()["adapters"]
+
+        for adapter in adapters:
+            assert "last_signal_at" in adapter, adapter["name"]
+            assert "signals_24h" in adapter, adapter["name"]
+
+    def test_a_producing_source_reports_its_rows(self, client, stub_adapter_health, test_db):
+        """The join is adapter.name == signals.source."""
+        from agentic_orchestrator.db.models import Signal
+        from agentic_orchestrator.timeutil import utcnow
+
+        test_db.add(
+            Signal(
+                id="yield-1",
+                source="rss",
+                category="ai",
+                title="A story specific enough to be a real title",
+                url="https://example.com/yield-1",
+                collected_at=utcnow(),
+            )
+        )
+        test_db.commit()
+
+        adapters = {a["name"]: a for a in client.get("/adapters").json()["adapters"]}
+
+        assert adapters["rss"]["signals_24h"] == 1
+        assert adapters["rss"]["last_signal_at"] is not None
+        # Explicit UTC marker, or a browser reads it as local time.
+        assert adapters["rss"]["last_signal_at"].endswith(("Z", "+00:00"))
+
+    def test_a_silent_source_reads_zero_not_unknown(self, client, stub_adapter_health):
+        """Zero is the finding. It must not look like a missing measurement."""
+        adapters = {a["name"]: a for a in client.get("/adapters").json()["adapters"]}
+
+        assert adapters["twitter"]["signals_24h"] == 0
+        assert adapters["twitter"]["last_signal_at"] is None
+
+    def test_an_unreadable_database_leaves_the_endpoint_up(
+        self, client, stub_adapter_health, monkeypatch
+    ):
+        """/adapters answering 200 while DB endpoints 500 is the documented
+        fingerprint of a lost SQLite file. Measuring yield must not erase it."""
+        import agentic_orchestrator.api.main as main_module
+
+        monkeypatch.setattr(main_module, "_signal_yield_by_source", lambda _session: None)
+
+        response = client.get("/adapters")
+
+        assert response.status_code == 200
+        adapters = response.json()["adapters"]
+        assert all(a["signals_24h"] is None for a in adapters)
 
 
 class TestPaidTierVisibility:

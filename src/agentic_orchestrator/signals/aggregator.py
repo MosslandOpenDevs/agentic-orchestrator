@@ -8,6 +8,8 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy.exc import OperationalError
+
 from ..adapters.base import AdapterResult, BaseAdapter, SignalData
 from ..adapters.coingecko import CoingeckoAdapter
 from ..adapters.discord import DiscordAdapter
@@ -424,6 +426,26 @@ class SignalAggregator:
         """
         Save signals to database.
 
+        **One transaction per row, not one per batch.** The loop used to flush
+        every signal into a single transaction that committed on context exit,
+        with a per-signal ``except`` that logged and continued. Continuing is
+        not possible after a failed flush: SQLAlchemy locks the session until
+        someone rolls it back, so the first failure turned the remaining
+        several hundred signals into ``PendingRollbackError`` and the closing
+        commit then discarded the run entirely. Measured on production, four
+        runs died this way in 2026-09 (09-02 06:36, 09-05 18:36, 09-06 12:36,
+        09-09 00:36 UTC) and nowhere in the retained signals logs before
+        that -- they cover 2026-08-05 and 2026-08-10 onward, 23 days of
+        continuous coverage ahead of the first one. Each at
+        HH:36:01, exactly ``busy_timeout`` after the save began, every one
+        while the 6-hourly debate held the write lock.
+
+        Committing per row bounds the blast radius to the row that failed and
+        is the pattern already used for debate messages
+        (``scheduler/tasks.py``). It costs one commit per *new* signal, not
+        per signal seen: an already-stored signal leaves by the ``continue``
+        above without writing.
+
         Args:
             signals: List of signals to save
             translate: Whether to translate signals (default: False for performance)
@@ -435,11 +457,12 @@ class SignalAggregator:
         """
         saved_count = 0
         updated_count = 0
+        failed_count = 0
 
         with db.session() as session:
             repo = SignalRepository(session)
 
-            for signal in signals:
+            for index, signal in enumerate(signals):
                 try:
                     # Check if signal already exists (by content hash, or by the
                     # publisher's own id when the source has one)
@@ -447,6 +470,7 @@ class SignalAggregator:
 
                     if existing is not None:
                         if self._apply_revision_update(existing, signal):
+                            session.commit()
                             updated_count += 1
                         continue
 
@@ -479,13 +503,50 @@ class SignalAggregator:
                             "collected_at": signal.collected_at,
                         }
                     )
+                    session.commit()
                     saved_count += 1
 
+                except OperationalError as e:
+                    # The database itself is unavailable -- lock contention or
+                    # disk. Every remaining row would re-pay the full
+                    # busy_timeout for the same answer, so stop and leave them
+                    # to the next tick. What already committed stays committed.
+                    session.rollback()
+                    # Count what was never looked at, not what was never
+                    # saved: most of a batch is already-stored signals that
+                    # leave by the `continue` above without writing anything.
+                    # The row that just failed is attempted, hence the -1.
+                    # Deliberately does not promise the next tick re-reads
+                    # them -- true for the polling adapters, but SignalMap
+                    # advances its cursor during fetch, so its unwritten
+                    # records are gone until the next epoch resync.
+                    logger.error(
+                        f"Signal save stopped after {saved_count} saved: database unavailable "
+                        f"({e.__class__.__name__}). {len(signals) - index - 1} of {len(signals)} "
+                        "signals not attempted."
+                    )
+                    break
+
                 except Exception as e:
+                    # One bad row must not take the batch with it. The rollback
+                    # is what makes that true: SQLAlchemy locks a session after
+                    # a failed flush, so without it every remaining signal
+                    # raises PendingRollbackError and the whole run is lost --
+                    # four collection runs in 2026-09 went that way, each
+                    # logging ~560 errors. That is error records, not rows: a
+                    # batch is mostly already-stored duplicates, so the real
+                    # loss was the ~20-40 signals that were new.
+                    session.rollback()
+                    failed_count += 1
                     logger.error(f"Error saving signal: {e}")
 
         if updated_count:
             logger.info(f"Refreshed {updated_count} signals whose publisher revised them")
+        if failed_count:
+            logger.warning(
+                f"{failed_count} signal(s) rejected by the database and skipped; "
+                f"{saved_count} saved"
+            )
 
         return saved_count
 
