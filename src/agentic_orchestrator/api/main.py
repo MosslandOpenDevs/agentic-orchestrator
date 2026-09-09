@@ -245,6 +245,73 @@ async def readiness_check():
     )
 
 
+def _public_router_view(report: dict) -> dict:
+    """Router health for a public endpoint, with the vendor detail stripped.
+
+    Used by every unauthenticated endpoint that reports router state --
+    ``/status`` (listed in the links.moss.land registry as this service's
+    status endpoint) and ``/usage`` (called by the public web client). The operational question it has to
+    answer is the one paid_tier_report() was written for -- "could a paid tier
+    bill anything at all, or are we silently all-local?" -- and that is fully
+    answered by status / local_only / degraded_tiers plus each tier's
+    enabled / active / reason.
+
+    ``provider``, ``model`` and the detailed ``reason`` answer a different question (which vendor and
+    which exact model this deployment buys) and are not needed to tell whether
+    the service is running. The provider mix is already disclosed on purpose in
+    the project description ("Ollama (Local) + OpenAI/Claude"); the per-tier
+    model pin is not, and a public endpoint is not the place to publish it.
+
+    ``/usage`` gets the same treatment: it is unauthenticated too and the
+    public web client calls it, so an earlier version of this docstring
+    calling it "the internal cost view" was simply wrong. Anything that wants
+    the unredacted report must read ``paid_tier_report()`` directly, in
+    process, and not hand it to an HTTP response.
+    """
+    tiers = report.get("paid_tiers")
+    if not isinstance(tiers, dict):
+        return report
+    return {
+        **report,
+        "paid_tiers": {
+            name: _public_tier_view(tier) if isinstance(tier, dict) else tier
+            for name, tier in tiers.items()
+        },
+    }
+
+
+# Public wording for each reason_code. The private ``reason`` names the exact
+# switch -- provider, environment variable, config path -- which is the point
+# of it for an operator reading a log, and exactly what must not go out on an
+# endpoint anyone can read.
+_PUBLIC_TIER_REASONS = {
+    "not_configured": "tier is not configured",
+    "local_only": "paid providers are disabled (local-only mode)",
+    "disabled": "tier is disabled",
+    "no_model": "tier has no model configured",
+    "no_provider": "tier has no provider configured",
+    "provider_unavailable": "provider credentials are unavailable",
+    "budget_exhausted": "API budget exhausted",
+}
+
+
+def _public_tier_view(tier: dict) -> dict:
+    """One tier, with vendor identity and the detailed reason removed.
+
+    Dropping the ``provider``/``model`` keys is not enough on its own: the
+    ``reason`` string interpolates the provider name and its API-key
+    environment variable, so a tier that is merely missing a key would put
+    both back on a public endpoint. ``reason_code`` says the same thing
+    without naming anything deployment-specific, and the sentence published
+    alongside it is derived from the code rather than from the private text.
+    """
+    out = {k: v for k, v in tier.items() if k not in ("provider", "model")}
+    if "reason" in out or "reason_code" in out:
+        code = out.get("reason_code")
+        out["reason"] = _PUBLIC_TIER_REASONS.get(code) if code else None
+    return out
+
+
 @app.get("/status", response_model=StatusResponse)
 async def system_status(session: Session = Depends(get_session)):
     """Get overall system status with real statistics.
@@ -269,6 +336,12 @@ async def system_status(session: Session = Depends(get_session)):
         "plans_created": 0,
         # Persona-count constant, not DB-derived; stays meaningful when degraded.
         "agents_active": 34,
+        # When the pipeline last actually did something. Cumulative counts do
+        # not answer that -- they stay put when ingestion dies -- which is the
+        # gap the Q2 report named ("cumulative figures alone cannot establish
+        # whether a pipeline is running"). null when unknown, never a
+        # fabricated "now".
+        "last_signal_at": None,
     }
     try:
         stats["signals_today"] = (
@@ -282,6 +355,13 @@ async def system_status(session: Session = Depends(get_session)):
         )
         stats["ideas_generated"] = session.query(func.count(Idea.id)).scalar() or 0
         stats["plans_created"] = session.query(func.count(Plan.id)).scalar() or 0
+        last_signal = session.query(func.max(Signal.collected_at)).scalar()
+        # Serialised with an explicit UTC marker: a naive ISO string is read as
+        # *local time* by browsers, which silently shifts the age by the
+        # viewer's offset (KST would show a 9-hour-old feed as current).
+        stats["last_signal_at"] = (
+            last_signal.isoformat() + ("" if last_signal.tzinfo else "Z") if last_signal else None
+        )
 
         # The stat queries above are the real probe (they fail on a missing
         # schema, which the bare "SELECT 1" health check does not detect);
@@ -296,7 +376,7 @@ async def system_status(session: Session = Depends(get_session)):
         # a DB round trip, and budget exhaustion is already visible on /usage.
         # What this catches is the permanent kind of degradation — kill switch
         # engaged, tier disabled, API key missing.
-        llm_router_status = paid_tier_report()
+        llm_router_status = _public_router_view(paid_tier_report())
     except Exception:
         logger.exception("/status could not read paid-tier configuration")
         llm_router_status = {"status": "unknown"}
@@ -943,7 +1023,11 @@ async def get_usage(
         logger.exception("/usage could not read budget status")
         budget_ok = None
     try:
-        llm_routing = paid_tier_report(budget_ok=budget_ok)
+        # Redacted for the same reason as /status: this endpoint takes no
+        # credential either, and the public web client calls it. The budget
+        # verdict it adds is a spending question; which model each tier pins
+        # is not, and does not belong on an endpoint anyone can read.
+        llm_routing = _public_router_view(paid_tier_report(budget_ok=budget_ok))
     except Exception:
         logger.exception("/usage could not read paid-tier configuration")
         llm_routing = {"status": "unknown"}

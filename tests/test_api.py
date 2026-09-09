@@ -746,7 +746,13 @@ class TestPaidTierVisibility:
         assert router["status"] == "degraded"
         assert router["local_only"] is True
         assert "debate" in router["degraded_tiers"]
-        assert "MOSS_LOCAL_LLM_ONLY" in router["paid_tiers"]["debate"]["reason"]
+        debate = router["paid_tiers"]["debate"]
+        # The verdict is still legible without reading logs...
+        assert debate["reason_code"] == "local_only"
+        assert debate["reason"] == "paid providers are disabled (local-only mode)"
+        # ...but the switch's name is deployment detail and stays off a public
+        # endpoint. The operator-facing text keeps it; see describe_paid_tier.
+        assert "MOSS_LOCAL_LLM_ONLY" not in debate["reason"]
 
     def test_status_reports_healthy_when_the_tier_can_spend(self, client, monkeypatch):
         monkeypatch.setenv("MOSS_LOCAL_LLM_ONLY", "false")
@@ -766,7 +772,11 @@ class TestPaidTierVisibility:
         data = client.get("/usage").json()
         assert data["today"]["total_cost"] == 0
         assert data["llm_routing"]["status"] == "degraded"
-        assert "MOSS_LOCAL_LLM_ONLY" in data["llm_routing"]["paid_tiers"]["debate"]["reason"]
+        debate = data["llm_routing"]["paid_tiers"]["debate"]
+        assert debate["reason_code"] == "local_only"
+        assert debate["reason"] == "paid providers are disabled (local-only mode)"
+        # /usage is unauthenticated too — same rule as /status.
+        assert "MOSS_LOCAL_LLM_ONLY" not in debate["reason"]
 
     def test_usage_never_leaks_the_api_key(self, client, monkeypatch):
         # The report is derived from key *presence*; the value must not ride
