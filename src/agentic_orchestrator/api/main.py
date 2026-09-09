@@ -256,7 +256,7 @@ def _public_router_view(report: dict) -> dict:
     answered by status / local_only / degraded_tiers plus each tier's
     enabled / active / reason.
 
-    ``provider`` and ``model`` answer a different question (which vendor and
+    ``provider``, ``model`` and the detailed ``reason`` answer a different question (which vendor and
     which exact model this deployment buys) and are not needed to tell whether
     the service is running. The provider mix is already disclosed on purpose in
     the project description ("Ollama (Local) + OpenAI/Claude"); the per-tier
@@ -274,14 +274,42 @@ def _public_router_view(report: dict) -> dict:
     return {
         **report,
         "paid_tiers": {
-            name: (
-                {k: v for k, v in tier.items() if k not in ("provider", "model")}
-                if isinstance(tier, dict)
-                else tier
-            )
+            name: _public_tier_view(tier) if isinstance(tier, dict) else tier
             for name, tier in tiers.items()
         },
     }
+
+
+# Public wording for each reason_code. The private ``reason`` names the exact
+# switch -- provider, environment variable, config path -- which is the point
+# of it for an operator reading a log, and exactly what must not go out on an
+# endpoint anyone can read.
+_PUBLIC_TIER_REASONS = {
+    "not_configured": "tier is not configured",
+    "local_only": "paid providers are disabled (local-only mode)",
+    "disabled": "tier is disabled",
+    "no_model": "tier has no model configured",
+    "no_provider": "tier has no provider configured",
+    "provider_unavailable": "provider credentials are unavailable",
+    "budget_exhausted": "API budget exhausted",
+}
+
+
+def _public_tier_view(tier: dict) -> dict:
+    """One tier, with vendor identity and the detailed reason removed.
+
+    Dropping the ``provider``/``model`` keys is not enough on its own: the
+    ``reason`` string interpolates the provider name and its API-key
+    environment variable, so a tier that is merely missing a key would put
+    both back on a public endpoint. ``reason_code`` says the same thing
+    without naming anything deployment-specific, and the sentence published
+    alongside it is derived from the code rather than from the private text.
+    """
+    out = {k: v for k, v in tier.items() if k not in ("provider", "model")}
+    if "reason" in out or "reason_code" in out:
+        code = out.get("reason_code")
+        out["reason"] = _PUBLIC_TIER_REASONS.get(code) if code else None
+    return out
 
 
 @app.get("/status", response_model=StatusResponse)

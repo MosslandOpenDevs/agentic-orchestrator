@@ -68,23 +68,38 @@ def describe_paid_tier(
         provider_ready = bool(os.getenv(key_env)) if key_env else None
 
     # Precedence matters: report the switch an operator must flip *first*.
+    #
+    # `reason` names the exact switch, which is what an operator needs and what
+    # route() logs. `reason_code` is the same verdict without the specifics --
+    # no provider name, no environment variable, no config path. Public
+    # endpoints publish the code and a generic sentence derived from it
+    # (see api.main._public_router_view); nothing outside this process should
+    # have to scrub free text to avoid leaking deployment detail.
     if tier is None:
+        reason_code = "not_configured"
         reason = f"tier '{name}' is not configured in config.yaml llm.paid_tiers"
     elif local_only:
+        reason_code = "local_only"
         reason = "MOSS_LOCAL_LLM_ONLY is engaged — paid providers disabled"
     elif not enabled:
+        reason_code = "disabled"
         reason = f"tier '{name}' is disabled (llm.paid_tiers.{name}.enabled)"
     elif not model:
+        reason_code = "no_model"
         reason = f"tier '{name}' has no model configured"
     elif not provider:
+        reason_code = "no_provider"
         reason = f"tier '{name}' has no provider configured"
     elif provider_ready is False:
+        reason_code = "provider_unavailable"
         reason = (
             f"provider '{provider}' unavailable (no {_PROVIDER_KEY_ENV.get(provider, 'API key')})"
         )
     elif budget_ok is False:
+        reason_code = "budget_exhausted"
         reason = "API budget exhausted (see config.yaml budget.*)"
     else:
+        reason_code = None
         reason = None
 
     return {
@@ -94,6 +109,7 @@ def describe_paid_tier(
         "model": model,
         "active": reason is None,
         "reason": reason,
+        "reason_code": reason_code,
     }
 
 
