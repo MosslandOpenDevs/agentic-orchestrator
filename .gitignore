@@ -2,6 +2,12 @@
 .env
 .env.local
 .env.*.local
+# Any sidecar of .env, whatever the suffix. The three patterns above missed
+# `.env.bak-<timestamp>`, which sat untracked on the production box holding
+# live ANTHROPIC/OPENAI/GEMINI keys and a GITHUB_TOKEN — one `git add -A`
+# from being committed. `.env.example` is force-added and stays tracked.
+.env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -88,6 +94,11 @@ data/backup/
 # Async job state
 data/jobs.json
 data/orchestrator.db.bak*
+
+# Adapter runtime state — written by the SignalMap poller (cursor, watermark,
+# last_success_at). Machine-local and per-deployment; committing it would let
+# one box's cursor overwrite another's.
+data/signalmap_state.json
 
 # Auto-generated project scaffolds (LLM output, not hand-authored source).
 # Regenerated from plans on demand; keeping them out of git avoids repo bloat.
