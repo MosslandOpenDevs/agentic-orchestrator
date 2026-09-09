@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from .. import __version__
 from ..pathutil import redact_paths
-from ..timeutil import utcnow
+from ..timeutil import utc_iso, utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +204,7 @@ async def health_check():
     """
     return HealthResponse(
         status="healthy",
-        timestamp=utcnow().isoformat(),
+        timestamp=utc_iso(utcnow()),
         version=__version__,
     )
 
@@ -239,23 +239,10 @@ async def readiness_check():
 
     return ReadinessResponse(
         status="ready",
-        timestamp=utcnow().isoformat(),
+        timestamp=utc_iso(utcnow()),
         version=__version__,
         checks={"database": "ok"},
     )
-
-
-def _utc_iso(value: Optional[datetime]) -> Optional[str]:
-    """Serialise a stored timestamp with an explicit UTC marker.
-
-    A naive ISO string is read as *local time* by browsers, which silently
-    shifts the age by the viewer's offset -- in KST a nine-hour-old feed reads
-    as current. ``None`` stays ``None``: when the answer is unknown, say so
-    rather than inventing a "now".
-    """
-    if value is None:
-        return None
-    return value.isoformat() + ("" if value.tzinfo else "Z")
 
 
 def _public_router_view(report: dict) -> dict:
@@ -368,7 +355,7 @@ async def system_status(session: Session = Depends(get_session)):
         )
         stats["ideas_generated"] = session.query(func.count(Idea.id)).scalar() or 0
         stats["plans_created"] = session.query(func.count(Plan.id)).scalar() or 0
-        stats["last_signal_at"] = _utc_iso(session.query(func.max(Signal.collected_at)).scalar())
+        stats["last_signal_at"] = utc_iso(session.query(func.max(Signal.collected_at)).scalar())
 
         # The stat queries above are the real probe (they fail on a missing
         # schema, which the bare "SELECT 1" health check does not detect);
@@ -399,7 +386,7 @@ async def system_status(session: Session = Depends(get_session)):
 
     return StatusResponse(
         status="operational" if db_healthy else "degraded",
-        timestamp=utcnow().isoformat(),
+        timestamp=utc_iso(utcnow()),
         components={
             # "api" is honest by construction: this handler answered.
             "api": {"status": "healthy"},
@@ -1281,7 +1268,7 @@ def _signal_yield_by_source(session: Session) -> Optional[Dict[str, Dict[str, An
             .all()
         )
         return {
-            source: {"last_signal_at": _utc_iso(last), "signals_24h": int(recent or 0)}
+            source: {"last_signal_at": utc_iso(last), "signals_24h": int(recent or 0)}
             for source, last, recent in rows
         }
     except Exception as e:
@@ -1480,7 +1467,7 @@ async def get_adapters(session: Session = Depends(get_session)):
             "adapters": adapters_info,
             "total": len(adapters_info),
             "enabled_count": sum(1 for a in adapters_info if a.get("enabled", False)),
-            "probed_at": utcnow().isoformat(),
+            "probed_at": utc_iso(utcnow()),
         }
         _adapters_cache["payload"] = payload
         _adapters_cache["fetched_at"] = monotonic()

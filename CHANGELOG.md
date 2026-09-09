@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the status endpoint published instants that did not say they were UTC
+
+`GET /status` is what the links.moss.land registry points at for this service, and the Q2 report asked it for exactly one thing: figures an outside reader can use to decide whether the pipeline is running. Measured live on 2026-09-09 it answered `"timestamp": "2026-09-09T07:26:51.117534"` — no marker — directly beside `"last_signal_at": "2026-09-09T07:05:06.668596Z"`, which had one. `components.signal_feed.last_success_at` was unmarked too, at `"2026-09-09T03:35:01.578349"`.
+
+A marker-less ISO string is read as *local time* by a browser, so in KST each of those renders nine hours later than the moment it names: a freshness field stating the opposite of the truth, and it never fails loudly because the value stays entirely plausible.
+
+The rule already existed as `_utc_iso()` in `api/main.py` and was applied only to timestamps read back out of the database. It moves to `timeutil.utc_iso()`, beside the `utcnow()` whose naive return value is the reason it is needed at all — naive is what the `DateTime` columns and every age comparison require, marked is what anything leaving the process as a string requires. The four instants an outside monitor reads (`/health`, `/ready`, `/status`, and `/adapters`' `probed_at`) and the two SignalMap state stamps now go through it. It stays a function of a datetime rather than a "now" helper, so that `utcnow()` remains the single patch point the tests already freeze.
+
+`feed_report()` re-serialises `last_success_at` on the way out instead of trusting the string on disk. State files outlive the deploy, and the one that never gets rewritten belongs to a feed whose every poll is failing — precisely when someone reads that field. A stored value that will not parse now reports `null` rather than itself, which is the same 0-vs-null discipline `/adapters` already follows.
+
+### Deliberately not changed
+
+The other 11 `utcnow().isoformat()` call sites. None of them is on a status surface, and two would break if a marker were added blindly: `trends/models.py` uses the string as a *default for parsing*, where a `Z` would silently produce an aware datetime beside a naive `analysis_date` and raise on the next comparison, and `trends/storage.py` already appends its own. The rest stamp project-job records (`GET /jobs/{id}`, also persisted to `data/project_jobs.json`), a plan's `approved_at` audit field in a JSON column, a generated project's `.moss-project.json`, and a scheduler health dict that is written to the cache and never read. Nothing parses any of those strings today, so they can be moved later; none of them answers the question the report asked.
+
 ### Fixed — three places the system reported something untrue about its own operation
 
 All three were found by auditing production on 2026-09-09 rather than by a failure anyone noticed. None of them raised an error, and `/status` said `operational` through all of them.

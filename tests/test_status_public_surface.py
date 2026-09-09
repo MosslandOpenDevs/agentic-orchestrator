@@ -2,7 +2,7 @@
 
 ``/status`` is listed in the links.moss.land registry as this service's status
 endpoint and ``/usage`` is called by the public web client; neither takes a
-credential, so both are read by anyone. Two properties have to hold together:
+credential, so both are read by anyone. Three properties have to hold together:
 
 1. It must answer "is this pipeline actually running?" — the Q2 report's whole
    objection to cumulative counters was that they stay put when ingestion dies.
@@ -10,12 +10,22 @@ credential, so both are read by anyone. Two properties have to hold together:
 2. Neither may publish deployment detail that has nothing to do with that
    question — specifically which vendor and which exact model each paid tier
    buys. Both route the router report through ``_public_router_view``.
+3. Every instant published has to say that it is UTC. A marker-less ISO string
+   is read as *local time* by the browser, so in KST a nine-hour-old value
+   renders as current — a freshness field reporting the opposite of the truth.
 
-Both are easy to lose in a refactor and neither fails loudly, so they are
-pinned here.
+All three are easy to lose in a refactor and none of them fails loudly, so they
+are pinned here.
 """
 
-from agentic_orchestrator.api.main import _public_router_view
+from datetime import datetime, timezone
+
+import pytest
+from fastapi.testclient import TestClient
+
+import agentic_orchestrator.api.main as api_main
+from agentic_orchestrator.api.main import _public_router_view, app
+from agentic_orchestrator.db.connection import Database
 
 
 def _report(**tier_overrides):
@@ -180,3 +190,60 @@ class TestNoPublicRouteLeaksTheModelPin:
         assert tier["active"] is False
         assert tier["reason_code"] == "provider_unavailable"
         assert tier["reason"] == "provider credentials are unavailable"
+
+
+@pytest.fixture
+def served_client(tmp_path, monkeypatch):
+    """A client over a database that exists and answers, so every probe is 200."""
+    db = Database(f"sqlite:///{tmp_path / 'served.db'}")
+    db.create_tables()
+    monkeypatch.setattr(api_main, "get_db", lambda: db)
+    return TestClient(app)
+
+
+@pytest.fixture
+def tableless_client(tmp_path, monkeypatch):
+    """Connectable, but with no schema: /status degrades and still answers 200."""
+    db_file = tmp_path / "empty.db"
+    db_file.touch()
+    monkeypatch.setattr(api_main, "get_db", lambda: Database(f"sqlite:///{db_file}"))
+    return TestClient(app)
+
+
+class TestPublishedInstantsCarryTheUTCMarker:
+    """Property 3, checked on real responses rather than on the source.
+
+    Measured live on 2026-09-09, ``/status`` published
+    ``"timestamp": "2026-09-09T07:26:51.117534"`` directly beside a correctly
+    marked ``stats.last_signal_at``: the first came from
+    ``utcnow().isoformat()``, the second from ``utc_iso()``. Nothing about the
+    difference fails loudly — the value stays plausible and merely means
+    something nine hours away from what it says.
+    """
+
+    @staticmethod
+    def _assert_marked_utc(value):
+        assert isinstance(value, str), f"not a timestamp: {value!r}"
+        assert value.endswith("Z"), f"no UTC marker: {value!r}"
+        # Marked *and* meant: it has to parse as an instant near now, not be a
+        # local time with a "Z" stapled onto it.
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+        drift = abs((datetime.now(timezone.utc) - parsed).total_seconds())
+        assert drift < 300, f"{value!r} is {drift:.0f}s away from now"
+
+    def test_health(self, served_client):
+        self._assert_marked_utc(served_client.get("/health").json()["timestamp"])
+
+    def test_ready(self, served_client):
+        self._assert_marked_utc(served_client.get("/ready").json()["timestamp"])
+
+    def test_status(self, served_client):
+        self._assert_marked_utc(served_client.get("/status").json()["timestamp"])
+
+    def test_status_while_degraded(self, tableless_client):
+        """The degraded answer is the one an operator reads under pressure, and
+        it is produced by a different branch than the healthy one."""
+        body = tableless_client.get("/status").json()
+
+        assert body["status"] == "degraded"
+        self._assert_marked_utc(body["timestamp"])

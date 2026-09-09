@@ -66,7 +66,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
-from ..timeutil import utcnow
+from ..timeutil import utc_iso, utcnow
 from ..utils.config import load_config
 from .base import AdapterConfig, AdapterResult, BaseAdapter, SignalData
 
@@ -550,7 +550,7 @@ class SignalMapAdapter(BaseAdapter):
             # An aborted walk is not a successful poll; leaving the old
             # timestamp lets the next tick retry instead of waiting out
             # min_interval_minutes.
-            state.last_success_at = utcnow().isoformat()
+            state.last_success_at = utc_iso(utcnow())
         else:
             state.last_error = f"aborted mid-walk: {abort_reason}"
         state.save(self.state_path)
@@ -621,7 +621,7 @@ class SignalMapAdapter(BaseAdapter):
         watermark = manifest.get("sourceWatermark")
         if watermark and watermark != state.source_watermark:
             state.source_watermark = watermark
-            state.watermark_changed_at = utcnow().isoformat()
+            state.watermark_changed_at = utc_iso(utcnow())
 
         # Checked whether or not the value moved: a watermark that advanced but
         # is still three days old is just as dead as one that did not move.
@@ -835,7 +835,7 @@ class SignalMapAdapter(BaseAdapter):
                 "resyncs": state.resyncs,
                 "source_watermark": state.source_watermark,
                 "watermark_age_hours": state.watermark_age_hours(),
-                "last_success_at": state.last_success_at,
+                "last_success_at": utc_iso(_parse_iso(state.last_success_at)),
                 "last_error": state.last_error,
             }
         )
@@ -901,7 +901,11 @@ def feed_report(state_path: Optional[Path] = None) -> Dict[str, Any]:
         "cursor_set": bool(state.cursor),
         "source_watermark": state.source_watermark,
         "watermark_age_hours": round(age, 1) if age is not None else None,
-        "last_success_at": state.last_success_at,
+        # Re-serialised rather than passed through: the UTC marker has to hold
+        # for state files written before it was added, and those are exactly
+        # the ones that stop being rewritten when polling breaks -- the case
+        # this field exists for. An unreadable value reports null, not itself.
+        "last_success_at": utc_iso(_parse_iso(state.last_success_at)),
         "records_emitted": state.records_emitted,
     }
 
