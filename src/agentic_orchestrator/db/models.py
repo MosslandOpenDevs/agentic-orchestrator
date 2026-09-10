@@ -105,6 +105,31 @@ class ProjectStatus(str, enum.Enum):
 COMPLETED_PROJECT_STATUSES = ("ready", "ready_with_warnings")
 
 
+# Ideas the pipeline has not decided about yet.
+#
+# Every other status the pipeline writes IS a decision: "promoted" went
+# forward, "archived" went away, and "duplicate" -- written by the debate
+# cycle's clustering gate, and deliberately absent from IdeaStatus above -- is
+# a linked sibling that was never a candidate. The remaining enum members
+# ("in_debate", "selected", "rejected", "planned") are read but never written
+# by any scheduled path, so they are not part of the partition today; adding
+# one means deciding which side it falls on, not just widening a tuple.
+#
+# "pending" is the legacy pre-scoring status: it survives only as the column
+# default, but old rows still have to drain.
+#
+# This exists because the count is now asked three times -- the GitHub mirror
+# cap, backlog triage, and /status -- and a lifetime COUNT(*) under the word
+# "active" was off by two orders of magnitude (3,282 shown, 24 actually open).
+OPEN_IDEA_STATUSES = ("pending", "scored")
+
+# Plans still waiting on a decision. "approved" is decided -- it is what
+# unlocks project generation -- and "rejected" is terminal. Nothing writes
+# "review" today; it is counted because the enum defines it as non-terminal,
+# so the number stays right the day something does.
+OPEN_PLAN_STATUSES = ("draft", "review")
+
+
 class LogLevel(str, enum.Enum):
     DEBUG = "debug"
     INFO = "info"

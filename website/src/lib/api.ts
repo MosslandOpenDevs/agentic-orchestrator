@@ -42,6 +42,14 @@ export interface StatusResponse {
      *  backend. null when nothing has ever been collected. Optional because an
      *  API deployed before it existed simply omits it. */
     last_signal_at?: string | null;
+    /** Rolling 24-hour windows. Optional: an API deployed before these
+     *  existed simply omits them, and a caller must not read a missing
+     *  field as a zero. */
+    signals_24h?: number;
+    debates_24h?: number;
+    /** Still-undecided counts, as opposed to the lifetime totals above. */
+    ideas_open?: number;
+    plans_open?: number;
   };
 }
 
@@ -762,12 +770,16 @@ export async function fetchPipeline(): Promise<PipelineStage[]> {
   const stats = statusRes.data.stats;
   const hasActiveDebate = (debatesRes.data?.total || 0) > 0;
 
-  // Determine status based on actual state
-  // If there are ideas and active debates, ideas are still being processed
-  // If there are plans, show plans as active
-  const ideasStatus = stats.ideas_generated > 0 ? (hasActiveDebate ? 'active' : 'completed') : 'idle';
-  const plansStatus = stats.plans_created > 0 ? 'active' : (stats.ideas_generated > 0 ? 'idle' : 'idle');
-  const devStatus = 'idle'; // No dev tracking yet
+  // A stage is "active" when it is holding undecided work, not when it has
+  // ever produced anything. These used to key off ideas_generated /
+  // plans_created, which are lifetime counts that have been above zero for
+  // months and are never decremented -- so Plans rendered "active"
+  // permanently, including while nothing was running, and the ternary that
+  // was supposed to say otherwise returned 'idle' from both of its branches.
+  const ideasOpen = stats.ideas_open ?? 0;
+  const plansOpen = stats.plans_open ?? 0;
+  const ideasStatus = hasActiveDebate ? 'active' : ideasOpen > 0 ? 'pending' : 'idle';
+  const plansStatus = plansOpen > 0 ? 'pending' : 'idle';
 
   return [
     {
@@ -781,12 +793,6 @@ export async function fetchPipeline(): Promise<PipelineStage[]> {
       name: 'Plans',
       count: stats.plans_created,
       status: plansStatus,
-    },
-    {
-      id: 'dev',
-      name: 'In Dev',
-      count: 0,
-      status: devStatus,
     },
   ];
 }

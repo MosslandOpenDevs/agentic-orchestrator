@@ -853,6 +853,7 @@ async def _auto_score_and_save_ideas(
     import uuid
 
     from ..db import IdeaRepository, PlanRepository
+    from ..db.models import OPEN_IDEA_STATUSES
     from ..scoring import IdeaScorer
     from ..translation import ContentTranslator
 
@@ -888,7 +889,7 @@ async def _auto_score_and_save_ideas(
         # With triage draining the backlog, the open count stays low and the
         # cap becomes what it reads as: an emergency valve.
         status_counts = idea_repo.count_by_status()
-        open_idea_count = sum(status_counts.get(s, 0) for s in ("scored", "pending"))
+        open_idea_count = sum(status_counts.get(s, 0) for s in OPEN_IDEA_STATUSES)
         for existing in idea_repo.get_all(limit=5000):
             fp = _idea_title_fingerprint(getattr(existing, "title", "") or "", dedup_tokens)
             if fp:

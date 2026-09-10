@@ -341,20 +341,51 @@ async def system_status(session: Session = Depends(get_session)):
     ``status="degraded"`` with zeroed stats instead of a 500, so external
     monitors (e.g. the moss.land governance widget, which consumes
     ``stats.agents_active/ideas_generated/debates_today``) keep working.
+
+    Fields are only ever ADDED here, never renamed or removed: this endpoint is
+    what the links.moss.land registry points at for this service, and its
+    readers are not all enumerable from inside this repository.
     """
 
-    from sqlalchemy import func
+    from sqlalchemy import case, func
 
-    from ..db.models import DebateSession, Idea, Plan, Signal
+    from ..db.models import (
+        OPEN_IDEA_STATUSES,
+        OPEN_PLAN_STATUSES,
+        DebateSession,
+        Idea,
+        Plan,
+        Signal,
+    )
 
     # Calculate real stats
-    today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    now = utcnow()
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    last_24h = now - timedelta(hours=24)
 
     stats = {
+        # Since 00:00 UTC. Kept because it is published and named honestly;
+        # note that it is not a throughput figure -- just after midnight UTC
+        # (09:00 KST) it collapses to near zero while the pipeline is running
+        # perfectly, and a consumer that labels it "24h" is off by ~6x.
         "signals_today": 0,
         "debates_today": 0,
+        # The rolling window, and the field name says which window it is.
+        # A reader asking "is this running" needs a figure that measures 24
+        # hours rather than a label that claims to.
+        "signals_24h": 0,
+        "debates_24h": 0,
+        # Lifetime totals. Ideas and plans are never deleted, so these only
+        # grow and say nothing about what the backlog is holding.
         "ideas_generated": 0,
         "plans_created": 0,
+        # ...which is what these are for. Measured 2026-09-09, 3,282 ideas had
+        # ever been created and 24 were still open; a dashboard rendering the
+        # first figure under the word "Active" was wrong by two orders of
+        # magnitude. The partition lives in db.models beside the status
+        # vocabulary it splits.
+        "ideas_open": 0,
+        "plans_open": 0,
         # Persona-count constant, not DB-derived; stays meaningful when degraded.
         "agents_active": 34,
         # When the pipeline last actually did something. Cumulative counts do
@@ -365,18 +396,37 @@ async def system_status(session: Session = Depends(get_session)):
         "last_signal_at": None,
     }
     try:
-        stats["signals_today"] = (
-            session.query(func.count(Signal.id)).filter(Signal.collected_at >= today).scalar() or 0
-        )
-        stats["debates_today"] = (
-            session.query(func.count(DebateSession.id))
-            .filter(DebateSession.started_at >= today)
-            .scalar()
-            or 0
-        )
+        # One pass over `signals` for all three figures rather than three.
+        # This endpoint is public, uncached, and polled every 30s per open
+        # dashboard tab; `/adapters` computes its own 24h window the same way
+        # (a single `case()` aggregate) but behind a 60-second cache, so the
+        # shape is borrowed and the cost is not.
+        signals_today, signals_24h, newest = session.query(
+            func.sum(case((Signal.collected_at >= today, 1), else_=0)),
+            func.sum(case((Signal.collected_at >= last_24h, 1), else_=0)),
+            func.max(Signal.collected_at),
+        ).one()
+        stats["signals_today"] = int(signals_today or 0)
+        stats["signals_24h"] = int(signals_24h or 0)
+        stats["last_signal_at"] = utc_iso(newest)
+
+        debates_today, debates_24h = session.query(
+            func.sum(case((DebateSession.started_at >= today, 1), else_=0)),
+            func.sum(case((DebateSession.started_at >= last_24h, 1), else_=0)),
+        ).one()
+        stats["debates_today"] = int(debates_today or 0)
+        stats["debates_24h"] = int(debates_24h or 0)
+
         stats["ideas_generated"] = session.query(func.count(Idea.id)).scalar() or 0
         stats["plans_created"] = session.query(func.count(Plan.id)).scalar() or 0
-        stats["last_signal_at"] = utc_iso(session.query(func.max(Signal.collected_at)).scalar())
+        stats["ideas_open"] = (
+            session.query(func.count(Idea.id)).filter(Idea.status.in_(OPEN_IDEA_STATUSES)).scalar()
+            or 0
+        )
+        stats["plans_open"] = (
+            session.query(func.count(Plan.id)).filter(Plan.status.in_(OPEN_PLAN_STATUSES)).scalar()
+            or 0
+        )
 
         # The stat queries above are the real probe (they fail on a missing
         # schema, which the bare "SELECT 1" health check does not detect);
@@ -1540,7 +1590,15 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
 
     from sqlalchemy import desc, func
 
-    from ..db.models import DebateSession, Idea, Plan, Project, Signal, Trend
+    from ..db.models import (
+        DebateSession,
+        DebateSessionStatus,
+        Idea,
+        Plan,
+        Project,
+        Signal,
+        Trend,
+    )
 
     now = utcnow()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -1604,10 +1662,17 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
             }
         )
 
-    # Active debates
+    # Active debates. The literal used to be "in-progress", which nothing has
+    # ever written: the scheduler writes "active" and DebateSessionStatus.ACTIVE
+    # is "active", so this filter matched zero rows on every call and the
+    # "processing now" list silently never mentioned a debate -- including
+    # during the ~15 minutes every six hours when one is the only thing the
+    # system is doing. The frontend found and fixed its own copy of this same
+    # wrong literal (website/src/app/transparency/debates/page.tsx); the
+    # backend kept it.
     active_debates = (
         session.query(DebateSession)
-        .filter(DebateSession.status == "in-progress")
+        .filter(DebateSession.status == DebateSessionStatus.ACTIVE.value)
         .order_by(desc(DebateSession.started_at))
         .limit(2)
         .all()

@@ -47,6 +47,27 @@ Pinned in two places, because the failure only reproduces in a non-UTC zone. `te
 #### Deliberately not changed
 
 `/activity`'s `time` and `/signals/timeline`'s `label` are UTC wall clocks with no slot for a marker; fixing them is a response-shape change with a frontend counterpart, not a serialisation rule. `plans/{id}/approve`'s `approved_at` is stored in a JSON column that no response emits. The `.isoformat()` calls in `trends/models.py` and `state.py` are round-tripped by `fromisoformat` in the same module — a marker there makes them aware and the next comparison against a naive `utcnow()` raises.
+### Added — `/status` figures that mean what a reader takes them to mean
+
+Three numbers on the public status endpoint answered a different question than the one asked of them, and none of the three failed loudly.
+
+**`signals_today` is a midnight-anchored count, not a throughput figure.** It counts from 00:00 UTC, which is 09:00 in Seoul, so for the first hours of a Korean working day it reports near zero while ingestion runs perfectly. A dashboard rendering it as "24h" showed 225 against 1,402 actually collected in the preceding day — measured 2026-09-09 — and the shape of the error is "the pipeline looks dead every morning". `signals_24h` and `debates_24h` are the rolling windows, and the field names say which window they are. The midnight pair stays: it is published, it is named honestly, and removing a key from an endpoint the links.moss.land registry points at is not a change this repository can verify the blast radius of. Fields are added here, never renamed.
+
+**`ideas_generated` and `plans_created` are lifetime counts over tables nothing deletes from.** They only grow, so they cannot answer a liveness question — the Q2 report's own objection to cumulative counters — and under the word "Active" they were wrong by two orders of magnitude: 3,282 ideas ever created against 24 still open. `ideas_open` and `plans_open` are the counts a consumer can label truthfully.
+
+The partition lives in `db/models.py` beside the status vocabulary it splits, because the question is now asked three times: the GitHub mirror cap, backlog triage, and this endpoint. It covers what the pipeline *writes*, not what the enum declares — `"duplicate"` is written by the debate cycle's clustering gate and is deliberately not an `IdeaStatus` member, so a partition derived from the enum alone would have counted it as open. Backlog triage keeps its own tuple rather than aliasing this one: "what may triage consume" and "what is undecided" are two questions that agree today, and coupling them would let a change to triage's appetite silently move a published figure. A test pins the agreement instead.
+
+All three signal figures are now one pass over the table rather than three. `/adapters` computes its 24-hour window the same way, but behind a 60-second cache; `/status` is uncached and polled every 30 seconds per open tab, so the shape is borrowed and the cost is not.
+
+### Fixed — `/pipeline/live` could never find a running debate
+
+The "processing now" list filtered on `DebateSession.status == "in-progress"`. The scheduler writes `"active"`, and `DebateSessionStatus.ACTIVE` is `"active"`; nothing has ever written `"in-progress"`. The filter matched zero rows on every call, so a debate never appeared in the live view — including during the ~15 minutes every six hours when a debate is the only thing the system is doing. The frontend had already found and fixed its own copy of the same wrong literal, with a comment saying so (`transparency/debates/page.tsx`); the backend kept it. It now compares against the enum rather than a hand-typed string.
+
+### Fixed — the dashboard's "active" and its invented status breakdowns
+
+`fetchPipeline` derived stage liveness from `ideas_generated`/`plans_created`, monotonic lifetime counts that have been above zero for months, so the Plans stage rendered "active" permanently — and the ternary meant to say otherwise returned `'idle'` from both of its branches. Stages now read the open counts, and a stage holding undecided work while nothing runs it reports `pending` rather than borrowing the word for "running right now".
+
+`StatsDetail` rendered a four-box "Ideas breakdown by status" in which the lifetime total was labelled "Pending" and the other three boxes were literal zeros; Plans had the same shape. `/status` knows two things about ideas — how many have ever existed and how many are still open — so those are the two boxes. A breakdown the endpoint cannot supply is not a breakdown. The system page's `TODAY_STATS` panel, in which only two of five tiles were about today, becomes `PIPELINE` and uses the rolling windows.
 
 ### Fixed — the status endpoint published instants that did not say they were UTC
 

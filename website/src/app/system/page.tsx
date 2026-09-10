@@ -170,15 +170,20 @@ export default function SystemPage() {
               )}
             </TerminalWindow>
 
-            {/* Stats */}
+            {/* Stats. Was TODAY_STATS, in which only the first two tiles were
+                about today: Ideas and Plans were lifetime totals and Agents is
+                a constant. The two throughput tiles now use the rolling
+                24-hour window rather than "since 00:00 UTC", which collapses
+                to near zero at 09:00 KST and makes a healthy pipeline look
+                dead. */}
             {status && (
-              <TerminalWindow title="TODAY_STATS" className="mb-6">
+              <TerminalWindow title="PIPELINE" className="mb-6">
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                   {[
-                    { label: 'Signals', value: status.stats.signals_today, color: 'cyan' },
-                    { label: 'Debates', value: status.stats.debates_today, color: 'orange' },
-                    { label: 'Ideas', value: status.stats.ideas_generated, color: 'green' },
-                    { label: 'Plans', value: status.stats.plans_created, color: 'purple' },
+                    { label: 'Signals (24h)', value: status.stats.signals_24h ?? 0, color: 'cyan' },
+                    { label: 'Debates (24h)', value: status.stats.debates_24h ?? 0, color: 'orange' },
+                    { label: 'Ideas (open)', value: status.stats.ideas_open ?? 0, color: 'green' },
+                    { label: 'Plans (open)', value: status.stats.plans_open ?? 0, color: 'purple' },
                     { label: 'Agents', value: status.stats.agents_active, color: 'cyan' },
                   ].map((stat) => (
                     <div key={stat.label} className="text-center p-4 rounded bg-black/20 border border-[#21262d]">

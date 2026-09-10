@@ -206,7 +206,7 @@ agentic-orchestrator/
 | GET | `/` | API 인덱스 (버전, 엔드포인트 목록) |
 | GET | `/health` | 라이브니스 — 프로세스 생존만 확인 (DB 미사용) |
 | GET | `/ready` | 레디니스 — 실제 테이블을 읽어 확인, 실패 시 503 (배포 게이트가 사용) |
-| GET | `/status` | 시스템 상태 및 통계 |
+| GET | `/status` | 시스템 상태 및 통계 (자정 기준 + 롤링 24시간 + 열린 개수) |
 | GET | `/signals` | 수집된 신호 목록 |
 | GET | `/signals/timeline` | 신호 수집 타임라인 (`period=24h\|7d`) |
 | GET | `/signals/{id}` | 시그널 상세 정보 |
@@ -252,6 +252,20 @@ agentic-orchestrator/
 > 게 아니라 `.tzinfo`를 읽으므로 **예외를 던진다** — `.isoformat()`을 grep 으로
 > 훑다가 "마저 끝내면" `/usage`가 500 이 된다.
 > `tests/test_status_public_surface.py`가 양쪽을 다 고정한다.
+> **`/status`의 수치는 세 종류이고 서로 다른 질문에 답한다.**
+> `signals_today`·`debates_today` 는 **00:00 UTC 기준 누계**다 — 서울 09:00 이므로
+> 한국 근무일 초반에는 파이프라인이 멀쩡한데도 0 에 가깝게 떨어진다. 처리량을
+> 묻는 자리에는 `signals_24h`·`debates_24h`(롤링 24시간)를 쓸 것.
+> `ideas_generated`·`plans_created` 는 **평생 누계**다(아이디어·플랜은 삭제되지
+> 않는다). "활성"·"열린" 같은 말이 붙는 자리에는 `ideas_open`·`plans_open` 을
+> 쓸 것 — 실측 2026-09-09 에 누계 3,282 대 실제 열린 24 였다.
+>
+> **여기서 필드는 추가만 하고 이름을 바꾸거나 빼지 않는다.** links.moss.land
+> 레지스트리가 이 엔드포인트를 가리키고 있고, 소비자를 이 저장소 안에서 전부
+> 열거할 수 없다. 열린/닫힌 상태의 구분은 `db/models.py` 의
+> `OPEN_IDEA_STATUSES`·`OPEN_PLAN_STATUSES` 한 곳이다 — enum 이 아니라 **파이프라인이
+> 실제로 쓰는 값**을 기준으로 한다(`"duplicate"` 는 `IdeaStatus` 멤버가 아니지만
+> 매 토론 사이클마다 기록된다). `tests/test_status_figures.py` 가 고정한다.
 
 > **호스트 경로는 응답에 싣지 않는다.** `Project.directory_path`에는 스캐폴드가 쓴
 > 절대 경로(`/home/<계정>/agentic-orchestrator/projects/<name>`)가 들어가는데,

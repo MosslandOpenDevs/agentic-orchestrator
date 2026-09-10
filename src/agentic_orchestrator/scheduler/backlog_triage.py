@@ -58,6 +58,14 @@ logger = get_logger(__name__)
 
 # Statuses triage may consume. "pending" is the legacy pre-scoring status —
 # nothing writes it anymore, but old rows must drain too.
+#
+# Deliberately its own tuple rather than an alias of db.models's
+# OPEN_IDEA_STATUSES, which happens to hold the same two values: these are two
+# different questions that agree today. That one is a partition ("which ideas
+# are undecided", published on /status and enforced by the mirror cap); this
+# one is a work queue ("what may triage pick up"). Aliasing them would let a
+# future change to triage's appetite silently move a public figure. The
+# agreement is pinned by a test instead.
 TRIAGE_STATUSES = ("scored", "pending")
 
 TRIAGE_DEFAULTS = {
