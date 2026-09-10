@@ -39,7 +39,6 @@ export interface Idea {
   status: string;
   source: string;
   created: string;
-  issueUrl?: string;
 }
 
 export interface Plan {
@@ -52,7 +51,6 @@ export interface Plan {
   status: string;
   debateRounds: number;
   created: string;
-  issueUrl?: string;
 }
 
 export interface PipelineStage {

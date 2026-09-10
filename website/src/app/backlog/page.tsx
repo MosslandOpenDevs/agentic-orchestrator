@@ -267,23 +267,6 @@ export default function BacklogPage() {
             </div>
           </motion.div>
         )}
-
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.3 }}
-          className="mt-8 text-center"
-        >
-          <a
-            href="https://github.com/MosslandOpenDevs/agentic-orchestrator/issues"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800/50 px-4 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-700"
-          >
-            {t('backlog.viewAllIssues')}
-            <span className="text-zinc-500">→</span>
-          </a>
-        </motion.div>
       </div>
     </div>
   );

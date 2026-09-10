@@ -18,6 +18,10 @@ the Q2 report's own objection to them.
 Both are fixed by *adding* fields, never by changing what an existing key means:
 this endpoint is what the links.moss.land registry points at, and its readers
 are not all enumerable from inside this repository.
+
+``plans_created`` had one value corrected, and that is not a change of meaning:
+the key still means "plans created". It had also been counting placeholder
+rows, which were never plans, so it drops when those rows are reclassified.
 """
 
 from datetime import timedelta
@@ -29,6 +33,7 @@ import agentic_orchestrator.api.main as api_main
 from agentic_orchestrator.api.main import app
 from agentic_orchestrator.db.connection import Database
 from agentic_orchestrator.db.models import (
+    NON_PLAN_STATUSES,
     OPEN_IDEA_STATUSES,
     OPEN_PLAN_STATUSES,
     DebateSession,
@@ -49,10 +54,14 @@ WRITTEN_IDEA_STATUSES = {
     "duplicate": "decided",
 }
 
+# Three sides, not two: a placeholder is neither waiting nor decided, it is a
+# row that was never a plan. Filing it under "decided" would pass an open/decided
+# check while meaning the wrong thing.
 WRITTEN_PLAN_STATUSES = {
     "draft": "open",
     "approved": "decided",
     "rejected": "decided",
+    "placeholder": "not_a_plan",
 }
 
 
@@ -232,6 +241,24 @@ class TestOpenIsNotTotal:
         assert stats["plans_created"] == 3
         assert stats["plans_open"] == 1
 
+    def test_a_placeholder_is_neither_created_nor_open(self, client):
+        """A placeholder row was never a plan, so no plan figure counts it.
+
+        ``plans_open`` leaves it out through the partition alone;
+        ``plans_created`` was a bare COUNT(*) and did not.
+        """
+        c, db = client
+        _seed(db, ideas=("promoted",), plans=("draft", "approved", "rejected", "placeholder"))
+        session = db.get_session()
+        # Guard: the row is really there, so the figures below exclude it
+        # rather than never seeing it.
+        assert session.query(Plan).filter(Plan.status == "placeholder").count() == 1
+        session.close()
+
+        stats = c.get("/status").json()["stats"]
+        assert stats["plans_created"] == 3
+        assert stats["plans_open"] == 1
+
     def test_every_status_the_pipeline_writes_is_classified(self):
         """The partition must cover the vocabulary, not just the enum.
 
@@ -243,6 +270,8 @@ class TestOpenIsNotTotal:
             assert (status in OPEN_IDEA_STATUSES) == (side == "open"), status
         for status, side in WRITTEN_PLAN_STATUSES.items():
             assert (status in OPEN_PLAN_STATUSES) == (side == "open"), status
+            assert (status in NON_PLAN_STATUSES) == (side == "not_a_plan"), status
+        assert not set(OPEN_PLAN_STATUSES) & set(NON_PLAN_STATUSES)
 
     def test_the_triage_queue_and_the_public_partition_agree(self):
         """Two deliberately separate tuples that must not drift apart unnoticed.

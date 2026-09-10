@@ -3,7 +3,6 @@
 The write-side fix stops new rows from being written dirty. It does nothing for
 what is already stored — 240 of 1,264 ideas carry markup in at least one
 language, 8 of 44 plans do, and 29 trend names start with a heading marker.
-431 public GitHub issues read ``[Idea] Idea: ...``.
 
 Design notes, because a backfill that rewrites rows deserves them:
 
@@ -14,23 +13,16 @@ Design notes, because a backfill that rewrites rows deserves them:
 - **Never blanks a field.** If cleaning would empty a title — a title that was
   *only* markup — the row is left alone and counted as skipped. A visible
   ``## Idea:`` is worse than a clean title and better than no title at all.
-- **GitHub is opt-in separately** (``--issues``), because renaming issues is an
-  outward-facing action against a public repository, while the database rewrite
-  is not. It touches **open issues only**: of the 431 that read
-  ``[Idea] Idea: ...``, 11 are open and 420 are closed. Closed issues are
-  settled history — rewriting 420 of them would churn the tracker for readers
-  who will never see those titles again anyway.
 
 Usage::
 
     python -m agentic_orchestrator.scheduler clean-titles            # report
     python -m agentic_orchestrator.scheduler clean-titles --apply
-    python -m agentic_orchestrator.scheduler clean-titles --apply --issues
 """
 
 from typing import Dict, List, Optional, Tuple
 
-from ..textutil import clean_issue_title, clean_name, clean_title
+from ..textutil import clean_name, clean_title
 from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -83,16 +75,12 @@ def _sweep(session, model, fields, limit: Optional[int]) -> Tuple[List[Tuple], i
     return planned, skipped
 
 
-def clean_titles(
-    apply: bool = False,
-    issues: bool = False,
-    limit: Optional[int] = None,
-) -> Dict[str, int]:
+def clean_titles(apply: bool = False, limit: Optional[int] = None) -> Dict[str, int]:
     """Clean stored titles. Reports without writing unless ``apply`` is set."""
     from ..db import get_db
     from ..db.models import Idea, Plan, Trend
 
-    stats = {"ideas": 0, "plans": 0, "trends": 0, "issues": 0, "skipped": 0, "errors": 0}
+    stats = {"ideas": 0, "plans": 0, "trends": 0, "skipped": 0}
 
     db = get_db()
     with db.session() as session:
@@ -124,57 +112,4 @@ def clean_titles(
             # keeping a dry run dry, and it would not be.
             logger.info("Dry run — nothing written. Re-run with --apply to write.")
 
-    if issues:
-        stats["issues"], issue_errors = _clean_issue_titles(apply=apply, limit=limit)
-        stats["errors"] += issue_errors
-
     return stats
-
-
-def _clean_issue_titles(apply: bool, limit: Optional[int]) -> Tuple[int, int]:
-    """Rename OPEN bot issues whose titles carry markup. Best-effort.
-
-    Open only, deliberately: 420 of the 431 affected issues are closed, and a
-    closed issue's title is settled history that nobody is going to read again.
-    """
-    from ..github_client import GitHubClient, Labels
-
-    changed = 0
-    errors = 0
-    try:
-        client = GitHubClient()
-    except Exception as e:
-        logger.warning(f"GitHub unavailable, skipping issue titles: {e}")
-        return 0, 1
-
-    try:
-        open_issues = client.list_issues(labels=[Labels.GENERATED_BY_ORCHESTRATOR], state="open")
-    except Exception as e:
-        logger.warning(f"Could not list issues: {e}")
-        return 0, 1
-
-    bounded = open_issues if limit is None else open_issues[: max(limit, 0)]
-    for issue in bounded:
-        # `[Idea] ` / `[Plan] ` is the tracker's own prefix, not model output:
-        # clean what follows it and put it back.
-        prefix, _, rest = issue.title.partition("] ")
-        if not rest or not prefix.startswith("["):
-            prefix, rest = "", issue.title
-
-        cleaned_rest = clean_issue_title(rest)
-        if not cleaned_rest:
-            continue
-        new_title = f"{prefix}] {cleaned_rest}" if prefix else cleaned_rest
-        if new_title == issue.title:
-            continue
-
-        logger.info(f"#{issue.number}: {issue.title!r} -> {new_title!r}")
-        changed += 1
-        if apply:
-            try:
-                client.update_issue(issue.number, title=new_title)
-            except Exception as e:
-                logger.warning(f"Could not rename #{issue.number}: {e}")
-                errors += 1
-
-    return changed, errors

@@ -14,6 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import agentic_orchestrator.api.main as api_main
 from agentic_orchestrator.api.main import app, get_session
 from agentic_orchestrator.db.models import Base, Idea, Plan, Project, Signal
 from agentic_orchestrator.project import scaffold as scaffold_mod
@@ -127,6 +128,78 @@ class TestApprovalAuditTrail:
         # Existing metadata is preserved, not replaced.
         assert plan.extra_metadata["auto_promoted"] is True
         session.close()
+
+
+class TestAPlaceholderCannotBecomeAProject:
+    """A placeholder row is readable by id but has no plan document.
+
+    Approval unlocks project generation, and ``force_regenerate`` skips the
+    approved check -- so each of the two endpoints needs its own refusal.
+    """
+
+    METADATA = {"reclassified_from": "draft", "reclassified_reason": "empty"}
+
+    @pytest.fixture
+    def generation_started(self, monkeypatch):
+        """Record project generation instead of running it.
+
+        The refusal is what is under test; if it regresses, this keeps the
+        request from starting a real generation job or writing the jobs file.
+        """
+        started = []
+
+        async def record(*args):
+            started.append(args)
+
+        monkeypatch.setattr(api_main, "_generate_project_task", record)
+        monkeypatch.setattr(api_main, "_save_jobs", lambda: None)
+        monkeypatch.setattr(api_main, "_project_jobs", {})
+        monkeypatch.setenv("MOSS_API_KEY", "test-key")
+        return started
+
+    def _seed(self):
+        session = next(app.dependency_overrides[get_session]())
+        session.add(Idea(id="idea-ph", title="An idea", summary="seed", source_type="debate"))
+        session.add(
+            Plan(
+                id="plan-ph",
+                idea_id="idea-ph",
+                title="Plan: An idea",
+                status="placeholder",
+                extra_metadata=dict(self.METADATA),
+            )
+        )
+        session.commit()
+        return session
+
+    def test_approve_refuses_it_and_leaves_the_row_alone(self, client, generation_started):
+        session = self._seed()
+
+        response = client.post(
+            "/plans/plan-ph/approve",
+            json={"generate_project": True},
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 409
+        session.expire_all()
+        plan = session.query(Plan).filter(Plan.id == "plan-ph").one()
+        assert plan.status == "placeholder"
+        assert plan.extra_metadata == self.METADATA
+        assert generation_started == []
+        session.close()
+
+    def test_force_regenerate_does_not_get_past_it(self, client, generation_started):
+        self._seed().close()
+
+        response = client.post(
+            "/plans/plan-ph/generate-project",
+            json={"force_regenerate": True},
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 409
+        assert generation_started == []
 
 
 @pytest.fixture

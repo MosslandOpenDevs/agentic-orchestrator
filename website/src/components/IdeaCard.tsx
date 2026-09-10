@@ -72,33 +72,11 @@ export function IdeaCard({ idea, index, ideaId }: IdeaCardProps) {
             >
               🔍
             </button>
-            {idea.issueUrl && (
-              <span className="text-xs text-zinc-600 group-hover:text-green-400 transition-colors">
-                GitHub →
-              </span>
-            )}
           </div>
         </div>
       </div>
     </>
   );
-
-  if (idea.issueUrl) {
-    return (
-      <motion.a
-        href={idea.issueUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: index * 0.05 }}
-        whileHover={{ y: -2 }}
-        className="group block rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 transition-colors hover:border-green-500/50 hover:bg-zinc-900"
-      >
-        {CardContent}
-      </motion.a>
-    );
-  }
 
   return (
     <motion.div

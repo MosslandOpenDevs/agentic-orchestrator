@@ -54,12 +54,6 @@
 │   ┌────────────────────────────────────────────────┐             │
 │   │                  SQLite DB                      │             │
 │   │              ideas table                        │             │
-│   └─────────────────────┬──────────────────────────┘             │
-│                         │                                        │
-│                         ▼                                        │
-│   ┌────────────────────────────────────────────────┐             │
-│   │              GitHub Issues                      │             │
-│   │    type:idea + status:backlog/promoted          │             │
 │   └────────────────────────────────────────────────┘             │
 │                                                                  │
 └──────────────────────────────────────────────────────────────────┘
@@ -70,6 +64,9 @@
 > 성격 균형에 맞춰 선발한다 (`config.yaml`의 `debate.normal.*_agents_per_round`).
 
 ## 아이디어 생성 방법
+
+> 1·2는 스케줄 밖의 수동 CLI 경로이고, 사람이 돌리면 지금도 GitHub 이슈를 만든다.
+> 스케줄된 파이프라인(3·4)은 이슈를 만들지 않는다 — 아래 [GitHub 이슈 (은퇴)](#github-이슈-은퇴).
 
 ### 1. IdeaGenerator (수동 생성)
 
@@ -138,13 +135,13 @@ RSS 피드 → 트렌드 분석 → Claude로 아이디어 생성 → GitHub Iss
 **파일**: `src/agentic_orchestrator/scheduler/tasks.py:207-426`
 
 ```
-토론 결과 → 클러스터링 → 자동 점수화 → 2차 심사 → DB 저장 + GitHub Issue
+토론 결과 → 클러스터링 → 자동 점수화 → 2차 심사 → DB 저장
                               │
                               ├─ score >= 7.0 → 유료 reviewer 에게 제출
                               │                  └─ CONFIRM 만 promoted
                               │                     (DEMOTE·심사 불가 → 보류,
                               │                      REJECT → archived)
-                              ├─ score < 4.0  → archived (이슈 생성 안 함)
+                              ├─ score < 4.0  → archived
                               └─ 중간 점수    → scored (백로그 → 4h마다 트리아지)
 ```
 
@@ -155,7 +152,8 @@ RSS 피드 → 트렌드 분석 → Claude로 아이디어 생성 → GitHub Iss
 
 - **트리거**: 토론 완료 후 자동 실행
 - **LLM**: Ollama (로컬)
-- **출력**: DB 저장 + GitHub Issue
+- **출력**: DB 저장. 플랜 행은 기획 문서가 있을 때만 — 토론의 `final_plan` 을 그 사이클에서
+  처음 승격된 아이디어 하나가 가져가고, 나머지 승격은 플랜 행 없이 `promoted` 로 남는다
 - **특징**: 점수 기반 자동 승격/아카이브. `scored`는 종착역이 아니다 —
   아래 백로그 트리아지가 며칠 안에 promoted 또는 archived로 종결시킨다.
 
@@ -290,9 +288,9 @@ Auto-Scorer는 4가지 차원으로 아이디어를 평가합니다:
 
 | 총점 범위 | 상태 | 액션 |
 |----------|------|------|
-| 7.0 이상 | `promoted` | 플랜 자동 생성, GitHub Issue에 `promote:to-plan` 라벨 |
-| 4.0 - 7.0 | `scored` | 백로그 대기 (`status:backlog` 라벨) → 트리아지가 재평가 |
-| 4.0 미만 | `archived` | 아카이브 (GitHub 이슈 생성 안 함) |
+| 7.0 이상 (+ CONFIRM) | `promoted` | 토론의 기획 문서를 실은 승격 하나만 플랜 행 |
+| 4.0 - 7.0 | `scored` | 백로그 대기 → 트리아지가 재평가 |
+| 4.0 미만 | `archived` | 아카이브 |
 
 ### 백로그 트리아지 — 아이디어 생산·소비 균형 (v0.6.16)
 
@@ -300,16 +298,14 @@ Auto-Scorer는 4가지 차원으로 아이디어를 평가합니다:
 
 토론은 하루 ~96개 아이디어를 만들고(절반은 생성 즉시 dedup) 트리아지 이전에는
 소비자가 없었다:
-`scored`(약 85%)는 영원히 백로그에 남았고 GitHub 이슈는 30일 방치 타이머만
-기다렸다. 트리아지는 그 반대쪽 절반이다 — 매 백로그 주기마다 **가장 오래된**
-`scored` 아이디어를 오늘의 트렌드 기준으로 재채점해 종결 결정을 강제한다:
+`scored`(약 85%)는 영원히 백로그에 남았다. 트리아지는 그 반대쪽 절반이다 — 매 백로그
+주기마다 **가장 오래된** `scored` 아이디어를 오늘의 트렌드 기준으로 재채점해 종결 결정을 강제한다:
 
 ```
 scored (6h 이상 경과, 오래된 순 per_run개)
    │  IdeaScorer 재채점 (현재 트렌드 컨텍스트)
-   ├─ score >= 7.0 → promoted + draft 플랜 (사람이 /plans/{id}/approve로 승인)
-   │                 → [Idea] 이슈는 lifecycle이 completed로 닫음
-   ├─ score < 4.0  → archived → 이슈는 not_planned + 판정 코멘트로 닫힘
+   ├─ score >= 7.0 (+ CONFIRM) → promoted (플랜 행 없음 — 트리아지에는 planning 단계가 없다)
+   ├─ score < 4.0  → archived
    └─ 중간 점수    → 스트라이크 1개; max_strikes(기본 2) 도달 시 archived
 ```
 
@@ -321,8 +317,7 @@ scored (6h 이상 경과, 오래된 순 per_run개)
   아이디어 하나가 `archived`에 닿기까지 `max_strikes`번의 리뷰를 쓴다.
   `max_strikes=2` 기준 **~60결정/일 대 도달 ~50/일 = 1.2배**, 얇다.
   (v0.6.17에서 per_run 15→25, min_age 24h→6h — 24h 격리는 첫날 소비가 0이었다)
-- 트리아지는 **DB만** 쓴다. 이슈 닫기는 같은 주기에서 바로 뒤에 도는 issue
-  lifecycle의 몫 (GitHub 장애 시 다음 주기에 자기치유)
+- 트리아지는 **DB만** 쓴다.
 - LLM 폴백(중립 5.0 + reasoning 없음) 감지 시 스트라이크를 주지 않고 건너뜀 —
   Ollama 장애가 아이디어를 잘못 아카이브하면 안 됨
 - 설정: `config.yaml`의 `backlog.triage` (enabled/per_run/min_age_hours/max_strikes)
@@ -338,7 +333,7 @@ scored (6h 이상 경과, 오래된 순 per_run개)
 | Signal Collection | 30분마다 | `5,35 * * * *` | RSS/API에서 신호 수집 |
 | Trend Analysis | 2시간마다 | `15 */2 * * *` | 신호 분석 → 트렌드 생성 |
 | **Debate** | **6시간마다** | `25 */6 * * *` | 트렌드 기반 토론 → 아이디어 생성 |
-| Backlog | 4시간마다 | `45 */4 * * *` | 백로그 트리아지 + 이슈 라이프사이클 + 리텐션 |
+| Backlog | 4시간마다 | `45 */4 * * *` | 백로그 트리아지 + 리텐션 (+ 이슈 미러 은퇴 전환 작업, 임시) |
 | Health Check | 5분마다 | `2-57/5 * * * *` | 시스템 상태 확인 |
 
 > 분 단위가 정각이 아닌 이유: 정각 동시 기동이 Ollama 큐를 폭주시킨 이력이
@@ -353,56 +348,20 @@ scored (6h 이상 경과, 오래된 순 per_run개)
 | Signal Collection | 30분마다 | `5,35 * * * *` | RSS/API에서 신호 수집 |
 | Trend Analysis | 1시간마다 | `15 */1 * * *` | 신호 분석 → 트렌드 생성 |
 | Debate | 1시간마다 | `25 * * * *` | 트렌드 기반 토론 → 아이디어 생성 |
-| Backlog | 1시간마다 | `45 * * * *` | 백로그 트리아지 + 이슈 라이프사이클 |
+| Backlog | 1시간마다 | `45 * * * *` | 백로그 트리아지 + 리텐션 (+ 이슈 미러 은퇴 전환 작업, 임시) |
 | Health Check | 5분마다 | `2-57/5 * * * *` | 시스템 상태 확인 |
 
 > 분이 정각이 아닌 이유는 프로덕션과 같다 — 동시 기동이 단일 인스턴스 Ollama
 > 큐를 폭주시킨다 (`ecosystem.config.js`의 `SCHEDULES` 주석). TEST 에서도
 > signals 주기는 프로덕션과 **같다**.
 
-## GitHub 연동
+## GitHub 이슈 (은퇴)
 
-> **참고**: 현재 시스템은 **DB 중심**입니다. GitHub Issues는 가시성을 위해 선택적으로 생성되며, 기본 데이터 저장소는 SQLite입니다.
-
-아이디어와 플랜은 DB에 저장되고, 선택적으로 GitHub Issues로 생성됩니다.
-
-### 라벨 체계
-
-| 라벨 | 용도 | 상태 |
-|------|------|------|
-| `type:idea` | 아이디어 이슈 | 활성 |
-| `type:plan` | 플랜 이슈 | 활성 |
-| `status:backlog` | 백로그 대기 | 활성 |
-| `status:promoted` | 고점수 아이디어 | 활성 |
-| `generated:by-orchestrator` | 오케스트레이터가 자동 생성 | 활성 |
-| `source:debate` | 토론에서 생성 | 활성 |
-| `promote:to-plan` | 플랜 생성 대상 | 활성 (승격 시 부착). 소비자도 구현돼 있으나 `ao backlog run` 전용 — `docs/labels.md` |
-| `promote:to-dev` | 개발 시작 대상 | *향후 구현* |
-
-자세한 내용은 [labels.md](labels.md) 참조.
-
-### Issue 본문 예시
-
-```markdown
-## Idea Summary
-[아이디어 요약]
-
-## Auto-Score Results
-- **Total Score**: 7.5/10
-- **Feasibility**: 8.0/10
-- **Relevance**: 7.0/10
-- **Novelty**: 7.5/10
-- **Impact**: 7.5/10
-
-## Decision: PROMOTE
-
-## Context
-**Debate Topic**: [토론 주제]
-**Debate Session**: [세션 ID]
-
----
-*Auto-generated by MOSS.AO Orchestrator*
-```
+스케줄된 파이프라인은 아이디어·플랜을 GitHub 이슈로 미러링하지 않는다. 공개 기록은
+https://ao.moss.land 이다. 은퇴 직후의 전환 작업(임시 — 운영에서 확인되면 후속 PR 에서
+삭제)이 백로그 주기마다 기획 문서 없는 draft 플랜을 `placeholder` 로 옮기고, 남은 열린 봇
+이슈를 한 번씩 닫는다. 규칙은 `CLAUDE.md` 의 "GitHub 이슈 미러 은퇴" 절에 있다. 기존
+이슈의 라벨과, 지금도 이슈를 읽고 쓰는 수동 `ao backlog` CLI 는 [labels.md](labels.md) 참조.
 
 ## CLI 명령어
 
@@ -432,15 +391,6 @@ SELECT source_type, COUNT(*) as count
 FROM ideas
 GROUP BY source_type
 ORDER BY count DESC;
-```
-
-### GitHub Issue 동기화 확인
-
-```sql
-SELECT
-    COUNT(*) as total,
-    SUM(CASE WHEN github_issue_url IS NOT NULL THEN 1 ELSE 0 END) as with_github
-FROM ideas;
 ```
 
 ### 토론 결과 확인

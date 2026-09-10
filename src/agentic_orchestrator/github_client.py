@@ -45,8 +45,8 @@ class Labels:
     # Source markers
     SOURCE_TREND = "source:trend"
 
-    # Human curation marker: keep this issue open; the aging sweep must
-    # never auto-close it.
+    # Human curation marker: keep this issue open; automation must never
+    # close it.
     CURATED_KEEP = "curated:keep"
 
     # All labels with descriptions for setup
@@ -62,11 +62,11 @@ class Labels:
             "description": "Low-scoring idea, not actively pursued",
         },
         PROMOTE_TO_PLAN: {
-            # Applied automatically at score >= 7.0 as well as by hand; see the
-            # "Known Ambiguity" section of docs/labels.md before relying on it
-            # as a human approval gate.
+            # Added by a human; reject_plan() re-adds it when a person rejects
+            # the plan. Until the issue mirror was retired the debate pipeline
+            # also added it on promotion; see "Known Ambiguity" in docs/labels.md.
             "color": "D93F0B",
-            "description": "Idea queued for planning (auto at score >= 7.0, or added by a human)",
+            "description": "Idea queued for planning (by a human, or again when its plan is rejected)",
         },
         PROMOTE_TO_DEV: {
             "color": "B60205",
@@ -85,7 +85,7 @@ class Labels:
         SOURCE_TREND: {"color": "7057FF", "description": "Idea generated from trend analysis"},
         CURATED_KEEP: {
             "color": "FEF2C0",
-            "description": "Human-curated: keep open, exempt from the aging sweep",
+            "description": "Human-curated: keep open, never closed by automation",
         },
     }
 
@@ -379,14 +379,12 @@ class GitHubClient:
         """First page of comments on an issue, OLDEST first.
 
         This endpoint returns ascending order and ignores ``direction``, so a
-        single page is the oldest ``per_page`` comments, not the newest. That is
-        fine for the one caller today — it asks "did anyone with standing say
-        anything", and the busiest issue in this repository has six comments —
-        but a thread longer than ``per_page`` would need real pagination before
-        any caller could reason about recency.
+        single page is the oldest ``per_page`` comments, not the newest. A thread
+        longer than ``per_page`` needs real pagination before a caller can reason
+        about recency.
 
-        Only ``author_association`` and ``body`` are read. Returns ``[]`` rather
-        than raising; the caller treats "cannot tell" as "leave the issue alone".
+        Returns ``[]`` rather than raising, so a failed read looks like an empty
+        thread; only the issue's ``comments`` count tells them apart.
         """
         try:
             response = self._request(
@@ -409,10 +407,11 @@ class GitHubClient:
         """
         List repository issues via the list API (not the search API).
 
-        The search index (`/search/issues`) is known to silently omit some
-        issues in this repo, so anything that must see EVERY issue — e.g. the
-        lifecycle sweep — must use this endpoint instead. Pull requests, which
-        the list endpoint interleaves with issues, are filtered out.
+        Neither this endpoint nor search (`/search/issues`) is complete here.
+        The issue lifecycle moved off search after search omitted #36/#43/#60/#668
+        (CHANGELOG 0.6.15); on 2026-09-10 list and search returned the same 113
+        open issues, and both omitted open issue #36 (GraphQL counts 114). Pull
+        requests, which the list endpoint interleaves with issues, are filtered out.
 
         Args:
             labels: Labels the issues must ALL carry (comma-joined).

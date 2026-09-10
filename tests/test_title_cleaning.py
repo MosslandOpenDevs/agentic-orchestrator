@@ -6,7 +6,7 @@ a prompt rule left over from a pre-JSON era, the translator, and a bare f-string
 in backlog triage — so the cleaning lives in one place and every writer calls it.
 """
 
-from agentic_orchestrator.textutil import clean_issue_title, clean_name, clean_title
+from agentic_orchestrator.textutil import clean_name, clean_title
 
 
 class TestCleanTitle:
@@ -41,10 +41,11 @@ class TestCleanTitle:
         assert clean_title("## 계획: 지갑 가스비 상한") == "계획: 지갑 가스비 상한"
 
     def test_the_f_string_and_heading_combination(self):
-        """``backlog_triage`` builds ``f"Plan: {idea.title_ko}"``. When the idea
-        title was itself dirty the result was ``Plan: ## Mossland ...`` — which
-        the frontend's anchored regex could not match either, so it reached the
-        page with the hashes visible."""
+        """The debate path in ``scheduler/tasks.py`` builds a plan title as
+        ``f"Plan: {idea_title}"``. When the idea title was itself dirty the
+        result was ``Plan: ## Mossland ...`` — which the frontend's anchored
+        regex could not match either, so it reached the page with the hashes
+        visible."""
         assert clean_title("Plan: ## Mossland Wallet Guard") == "Plan: ## Mossland Wallet Guard"
         # ...which is why the cleaner runs on the idea title *before* the
         # f-string wraps it, not on the result.
@@ -69,21 +70,6 @@ class TestCleanTitle:
     def test_terminates_on_adversarial_input(self):
         assert clean_title("#" * 500 + " x").endswith("x")
         assert clean_title("*" * 200) != ""
-
-
-class TestCleanIssueTitle:
-    def test_removes_emphasis_github_will_not_render(self):
-        assert (
-            clean_issue_title("Deploy **wstETH** vaults on Base") == "Deploy wstETH vaults on Base"
-        )
-
-    def test_removes_the_duplicated_idea_label(self):
-        """``[Idea] Idea: ...`` appeared on 431 public issues: the issue builder
-        stripped ``#`` but left the word."""
-        assert clean_issue_title("## Idea: Gas-Guard Copilot") == "Gas-Guard Copilot"
-
-    def test_keeps_underscores_that_belong_to_identifiers(self):
-        assert "title_ko" in clean_issue_title("Fix title_ko rendering in the ideas list")
 
 
 class TestCleanName:
@@ -179,23 +165,3 @@ class TestCleanNameDoesNotCutOrdinaryProse:
         name = '"AI”, “x”: 1'
 
         assert clean_name(name) == name
-
-
-class TestCleanIssueTitleIsAFixedPoint:
-    """This one renames real issues on a public repository. Not being a fixed
-    point means the command that exists to fix 431 ``[Idea] Idea:`` titles left
-    them one pass short, and a second run renamed the same issue again."""
-
-    def test_a_label_hidden_inside_emphasis_is_removed_in_one_pass(self):
-        assert clean_issue_title("**Idea:** Gas-Guard Copilot") == "Gas-Guard Copilot"
-
-    def test_running_it_twice_changes_nothing(self):
-        for title in [
-            "**Idea:** Gas-Guard Copilot",
-            "## Idea: ERC-6551 Spend Passport",
-            "Deploy **wstETH** vaults on Base",
-            "Plan: Mossland Quest Rewards",
-            "*__Idea:__* Session-Key Budget Vault",
-        ]:
-            once = clean_issue_title(title)
-            assert clean_issue_title(once) == once, f"not a fixed point: {title!r} -> {once!r}"

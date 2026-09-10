@@ -2,19 +2,16 @@
 
 Debates produce ~96 ideas a day, about half of them deduplicated at birth,
 but before this module only auto-promoted ones (score >= 7 at debate time)
-ever left the backlog; the other ~85% sat in ``scored`` forever
-and their GitHub issues waited for the 30-day aging timer. Production had no
-matching consumer, so the open-issue count could only climb.
+ever left the backlog; the other ~85% sat in ``scored`` forever.
+Production had no matching consumer, so the backlog could only climb.
 
 This module is that consumer. Each backlog cycle (every 4h in production) it
 re-scores the OLDEST backlog ideas against the trends of today — not the
 trends of the debate that produced them — and forces a terminal decision:
 
-- score >= promote threshold → ``promoted`` + a draft plan (a human approves
-  it via ``POST /plans/{id}/approve``); the issue lifecycle then closes the
-  [Idea] issue as ``completed``;
-- score < archive threshold → ``archived``; the issue lifecycle closes the
-  issue as ``not_planned`` with the verdict;
+- score >= promote threshold → ``promoted``, with no plan row: a plan row
+  exists only where a plan document exists, and triage has no planning phase;
+- score < archive threshold → ``archived``;
 - middle band → one strike; at ``max_strikes`` the idea archives anyway
   ("re-evaluated N times, never promotable").
 
@@ -40,17 +37,13 @@ against 20 x 6 = 120 *reviews*/day, which at ``max_strikes: 2`` is a floor of
 ~60 terminal decisions/day. A 1.2x margin, not the 2.4x the review count
 alone suggests — raising ``max_strikes``, or a higher demote rate, spends it.
 
-Triage writes ONLY to the DB — SQLite is the source of truth. Closing the
-mirrored GitHub issues is the issue lifecycle's job (it runs right after
-triage in the same backlog cycle and self-heals if GitHub was down).
+Triage writes ONLY to the DB — SQLite is the source of truth.
 """
 
-import uuid
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from ..scoring.second_pass import UNAVAILABLE
-from ..textutil import clean_title
 from ..timeutil import utcnow
 from ..utils.logging import get_logger
 
@@ -62,10 +55,10 @@ logger = get_logger(__name__)
 # Deliberately its own tuple rather than an alias of db.models's
 # OPEN_IDEA_STATUSES, which happens to hold the same two values: these are two
 # different questions that agree today. That one is a partition ("which ideas
-# are undecided", published on /status and enforced by the mirror cap); this
-# one is a work queue ("what may triage pick up"). Aliasing them would let a
-# future change to triage's appetite silently move a public figure. The
-# agreement is pinned by a test instead.
+# are undecided", published on /status); this one is a work queue ("what may
+# triage pick up"). Aliasing them would let a future change to triage's
+# appetite silently move a public figure. The agreement is pinned by a test
+# instead.
 TRIAGE_STATUSES = ("scored", "pending")
 
 TRIAGE_DEFAULTS = {
@@ -203,7 +196,6 @@ def _merged_triage_metadata(idea, patch: Dict) -> Dict:
 
 async def run_backlog_triage(
     idea_repo,
-    plan_repo,
     trend_repo,
     scorer,
     config: Optional[dict] = None,
@@ -395,7 +387,7 @@ async def run_backlog_triage(
                 continue
 
             if decision == "promote":
-                _promote(idea_repo, plan_repo, idea, score, record)
+                _promote(idea_repo, idea, score, record)
                 stats["promoted"] += 1
             elif decision == "archive":
                 record["reason"] = "re-scored below archive threshold"
@@ -449,7 +441,7 @@ async def run_backlog_triage(
 
 
 def _archive(idea_repo, idea, score, record: Dict) -> None:
-    """Terminal reject. The issue lifecycle closes the mirror issue next."""
+    """Terminal reject."""
     idea_repo.update_fields(
         idea.id,
         {
@@ -464,83 +456,14 @@ def _archive(idea_repo, idea, score, record: Dict) -> None:
     )
 
 
-# Header on a triage-promoted plan. Triage has no planning phase, so it cannot
-# produce a plan -- it can only carry the idea forward and say so. Saying so is
-# the point: 35 of 44 plans held text byte-identical to their idea, and every
-# one of the 20 rows in the human approval queue was a raw JSON blob presented
-# as a plan to approve.
-PLAN_SEED_NOTICE_EN = (
-    "> **Not an authored plan yet.** Backlog triage promoted the idea below on a "
-    "re-score and seeded this draft from it. The six required sections still have "
-    "to be written before there is anything here to approve."
-)
-PLAN_SEED_NOTICE_KO = (
-    "> **아직 작성된 기획안이 아닙니다.** 백로그 트리아지가 재평가에서 아래 아이디어를 "
-    "승격시키며 이 draft 를 씨앗으로 만들었습니다. 승인할 것이 생기려면 필수 6개 섹션이 "
-    "아직 작성되어야 합니다."
-)
+def _promote(idea_repo, idea, score, record: Dict) -> None:
+    """Terminal accept: ``promoted``.
 
-# Generous next to the 1,500 an issue body gets: this is the whole of what a
-# human has to judge, and ideas run ~4,600 characters.
-PLAN_SEED_CHARS = 8000
-
-
-def _seed_plan_body(text: Optional[str], notice: str) -> str:
-    """Readable markdown stand-in for a plan nobody has written yet.
-
-    An idea's ``description`` is the raw model response -- a fenced JSON blob --
-    so copying it into ``final_plan`` put ``{"idea_title": ...`` on the approval
-    screen. ``_format_idea_summary`` already parses that blob into markdown for
-    issue bodies; reuse it rather than teaching this module about the shape.
+    A triage promotion writes no plan row. A plan row exists only where a plan
+    document exists, and triage has no planning phase to write one. The
+    provenance stays on the idea: its ``score`` and ``extra_metadata.triage``,
+    which carries the reviewer's ``second_pass`` verdict when there was one.
     """
-    from .tasks import _format_idea_summary  # lazy: tasks imports this module
-
-    body = _format_idea_summary(text or "", limit=PLAN_SEED_CHARS)
-    return f"{notice}\n\n## Source idea\n\n{body}" if body else notice
-
-
-def _promote(idea_repo, plan_repo, idea, score, record: Dict) -> None:
-    """Terminal accept: promoted + a DRAFT plan for human approval.
-
-    Unlike debate-time promotion this never auto-approves and never creates a
-    [Plan] GitHub issue — the plan shows up in the pending-approval queue
-    (``GET /plans/pending-approval``) and the existing lifecycle close of the
-    [Idea] issue links to it by plan id.
-
-    The plan row is required, not optional: ``run_issue_lifecycle`` closes a
-    promoted idea's issue only once a plan exists for it. So this writes an
-    honest placeholder rather than skipping the row or fabricating a plan.
-    """
-    plan_id = str(uuid.uuid4())[:8]
-    # Clean the idea title before the prefix wraps it: an idea title carrying a
-    # heading produced `Plan: ## Mossland ...`, which the frontend's anchored
-    # strip could not match either, so the hashes reached the page.
-    title = f"Plan: {clean_title(idea.title)[:200]}"
-    title_ko = f"Plan: {clean_title(idea.title_ko or idea.title)[:200]}"
-    plan_repo.create(
-        {
-            "id": plan_id,
-            "idea_id": idea.id,
-            "debate_session_id": idea.debate_session_id,
-            "title": title,
-            "title_ko": title_ko,
-            "version": 1,
-            "status": "draft",
-            "final_plan": _seed_plan_body(idea.description or idea.summary, PLAN_SEED_NOTICE_EN),
-            "final_plan_ko": _seed_plan_body(
-                idea.description_ko or idea.summary_ko, PLAN_SEED_NOTICE_KO
-            ),
-            "extra_metadata": {
-                "auto_promoted": False,
-                "promoted_by": "backlog_triage",
-                "promotion_score": score.total,
-                "auto_approved": False,
-                # Consumed by GET /plans/pending-approval so the queue can say
-                # which rows are seeds rather than presenting them as plans.
-                "plan_authored": False,
-            },
-        }
-    )
     idea_repo.update_fields(
         idea.id,
         {
@@ -549,7 +472,4 @@ def _promote(idea_repo, plan_repo, idea, score, record: Dict) -> None:
             "extra_metadata": _merged_triage_metadata(idea, record),
         },
     )
-    logger.info(
-        f"Triage promoted idea {idea.id} (score {score.total:.1f}) → draft plan "
-        f"{plan_id}: {idea.title[:50]}"
-    )
+    logger.info(f"Triage promoted idea {idea.id} (score {score.total:.1f}): {idea.title[:50]}")

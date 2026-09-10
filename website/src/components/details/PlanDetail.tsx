@@ -246,13 +246,16 @@ export function PlanDetail({ data }: PlanDetailProps) {
     );
   }
 
-  const statusColors: Record<string, 'green' | 'cyan' | 'orange' | 'purple'> = {
-    // PlanStatus in db/models.py: draft / review / approved / rejected.
+  const statusColors: Record<string, 'green' | 'cyan' | 'orange' | 'purple' | 'grey'> = {
+    // PlanStatus in db/models.py: draft / review / approved / rejected / placeholder.
     // The key here used to be 'in-review', which the backend never emits.
     approved: 'green',
     draft: 'cyan',
     review: 'purple',
     rejected: 'orange',
+    // Not a plan document. Unmapped, it would fall back to the draft look
+    // and read as a plan awaiting approval.
+    placeholder: 'grey',
   };
 
   // Get active content with Korean fallback for final_plan
@@ -356,22 +359,6 @@ export function PlanDetail({ data }: PlanDetailProps) {
           </div>
         </div>
       </div>
-
-      {/* Links */}
-      {plan.github_issue_url && (
-        <div className="card-cli p-4">
-          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.links')}</div>
-          <a
-            href={plan.github_issue_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 text-[#00ffff] hover:underline text-sm"
-          >
-            <span>→</span>
-            {t('detail.viewOnGitHub')}
-          </a>
-        </div>
-      )}
 
       {/* Project Generation Section */}
       <div className="card-cli p-4">
@@ -511,12 +498,17 @@ export function PlanDetail({ data }: PlanDetailProps) {
           </button>
         )}
 
-        {/* Plan not approved */}
+        {/* Plan not approved. A placeholder has no plan document, so there is
+            nothing approval could unlock and the approval hint would mislead. */}
         {!projectState.project && !projectState.generating && plan.status !== 'approved' && (
           <div className="text-[#8b949e] text-sm">
-            {locale === 'ko'
-              ? '프로젝트 생성은 승인된 플랜에서만 가능합니다.'
-              : 'Project generation is only available for approved plans.'}
+            {plan.status === 'placeholder'
+              ? locale === 'ko'
+                ? '기획 문서 없음 — 문서 없이 승격된 아이디어입니다.'
+                : 'No plan document — this idea was promoted without one.'
+              : locale === 'ko'
+                ? '프로젝트 생성은 승인된 플랜에서만 가능합니다.'
+                : 'Project generation is only available for approved plans.'}
           </div>
         )}
       </div>

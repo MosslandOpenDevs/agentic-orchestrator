@@ -86,6 +86,7 @@ class PlanStatus(str, enum.Enum):
     REVIEW = "review"
     APPROVED = "approved"
     REJECTED = "rejected"
+    PLACEHOLDER = "placeholder"
 
 
 class ProjectStatus(str, enum.Enum):
@@ -118,16 +119,26 @@ COMPLETED_PROJECT_STATUSES = ("ready", "ready_with_warnings")
 # "pending" is the legacy pre-scoring status: it survives only as the column
 # default, but old rows still have to drain.
 #
-# This exists because the count is now asked three times -- the GitHub mirror
-# cap, backlog triage, and /status -- and a lifetime COUNT(*) under the word
-# "active" was off by two orders of magnitude (3,282 shown, 24 actually open).
+# /status publishes this count as ideas_open, and backlog triage's own
+# TRIAGE_STATUSES is held equal to it by tests/test_status_figures.py. It is a
+# named partition because a lifetime COUNT(*) under the word "active" was off
+# by two orders of magnitude (measured 2026-09-09: 3,282 shown, 24 open).
 OPEN_IDEA_STATUSES = ("pending", "scored")
 
 # Plans still waiting on a decision. "approved" is decided -- it is what
 # unlocks project generation -- and "rejected" is terminal. Nothing writes
 # "review" today; it is counted because the enum defines it as non-terminal,
-# so the number stays right the day something does.
+# so the number stays right the day something does. "placeholder" is on
+# neither side: it is not a plan at all (NON_PLAN_STATUSES below).
 OPEN_PLAN_STATUSES = ("draft", "review")
+
+# Rows in `plans` that are not plan documents: a promotion wrote a plan row
+# with no plan behind it. Not open, not decided, not a plan. They are kept and
+# never deleted -- retention must still see the debate sessions they point at,
+# and the row carries what reclassification changed -- so this tuple is
+# permanent, not part of the transition that reclassified them.
+# PlanRepository leaves them out of its lists and counts by default.
+NON_PLAN_STATUSES = ("placeholder",)
 
 
 class LogLevel(str, enum.Enum):

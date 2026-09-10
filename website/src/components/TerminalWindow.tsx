@@ -161,7 +161,7 @@ export function TerminalProgress({
 
 interface TerminalBadgeProps {
   children: ReactNode;
-  variant?: 'green' | 'cyan' | 'orange' | 'purple' | 'red';
+  variant?: 'green' | 'cyan' | 'orange' | 'purple' | 'red' | 'grey';
   pulse?: boolean;
 }
 
@@ -176,6 +176,7 @@ export function TerminalBadge({
     orange: 'tag-orange',
     purple: 'tag-purple',
     red: 'bg-[#ff5555]/10 text-[#ff5555] border border-[#ff5555]',
+    grey: 'bg-[#8b949e]/10 text-[#8b949e] border border-[#8b949e]',
   };
 
   return (

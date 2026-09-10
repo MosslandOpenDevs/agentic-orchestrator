@@ -512,17 +512,6 @@ export default function IdeasPage() {
                             </div>
                           )}
                         </div>
-                        {idea.github_issue_url && (
-                          <a
-                            href={idea.github_issue_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-[#00ffff] hover:underline text-xs"
-                          >
-                            GitHub
-                          </a>
-                        )}
                       </div>
                     </motion.div>
                   ))}
@@ -564,17 +553,6 @@ export default function IdeasPage() {
                             </div>
                           )}
                         </div>
-                        {plan.github_issue_url && (
-                          <a
-                            href={plan.github_issue_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-[#00ffff] hover:underline text-xs"
-                          >
-                            GitHub
-                          </a>
-                        )}
                       </div>
                     </motion.div>
                   ))}
