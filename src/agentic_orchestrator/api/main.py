@@ -401,9 +401,22 @@ async def system_status(session: Session = Depends(get_session)):
         # dashboard tab; `/adapters` computes its own 24h window the same way
         # (a single `case()` aggregate) but behind a 60-second cache, so the
         # shape is borrowed and the cost is not.
+        #
+        # Two clocks, on purpose, and the difference is the point:
+        #   signals_24h  -> created_at, when AO wrote the row. This is the
+        #     ingest question, and it is the column `/adapters` already
+        #     publishes under this exact field name. One name, one meaning,
+        #     across the API.
+        #   signals_today / last_signal_at -> collected_at, the upstream event
+        #     time. Both are already published; changing what an existing
+        #     field measures is not something to do silently, and this change
+        #     adds fields rather than redefining them.
+        # They differ only for SignalMap, which deliberately sets collected_at
+        # to the upstream event time (docs/signalmap.md) -- measured 2026-09-09
+        # the two disagreed for that source by 45% over 24 hours.
         signals_today, signals_24h, newest = session.query(
             func.sum(case((Signal.collected_at >= today, 1), else_=0)),
-            func.sum(case((Signal.collected_at >= last_24h, 1), else_=0)),
+            func.sum(case((Signal.created_at >= last_24h, 1), else_=0)),
             func.max(Signal.collected_at),
         ).one()
         stats["signals_today"] = int(signals_today or 0)
@@ -583,10 +596,11 @@ async def get_signal_detail(
     if not signal:
         raise HTTPException(status_code=404, detail="Signal not found")
 
-    # Delegated, not hand-copied. This body used to spell out the same thirteen
-    # keys in the same order as ``Signal.to_dict()``, and that is exactly how
-    # the two drifted: the serialisation rule had to be remembered twice and
-    # was not. One definition means the next rule can only be got wrong once.
+    # Delegated, not hand-copied. This body spelled out the same thirteen keys
+    # in the same order as ``Signal.to_dict()``. The two never actually
+    # diverged -- but the rule had to be remembered in two places to keep it
+    # that way, and the UTC-marker change is the first one that would have
+    # split them. One definition, one place to get it wrong.
     return signal.to_dict()
 
 
@@ -611,6 +625,12 @@ async def get_signals(
         source=source,
         category=category,
         min_score=min_score,
+        # A list, so "recent" means newest-first. The repository default is
+        # best-scoring-first, which three scheduler callers depend on; see its
+        # docstring. This endpoint feeds the Signal Explorer and
+        # PipelineDetail's "Recent Signals" panel, both of which were showing
+        # the window's highest-scoring row rather than its newest.
+        newest_first=True,
     )
 
     # Get total count for pagination info
@@ -1298,7 +1318,8 @@ def _signal_yield_by_source(session: Session) -> Optional[Dict[str, Dict[str, An
     response to a feed that has gone empty is
     indistinguishable from a healthy one, and four of the twelve adapters
     (twitter, discord, lens, farcaster) have stored nothing in the 30 days
-    this table retains while all four report themselves enabled.
+    this table retains. Three of them still report themselves enabled; twitter
+    was switched off on 2026-09-10 on the strength of this measurement.
 
     Measured on ``created_at`` (when AO wrote the row), NOT ``collected_at``.
     For every adapter but one the two are the same, but SignalMap deliberately
@@ -1674,7 +1695,18 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
     # backend kept it.
     active_debates = (
         session.query(DebateSession)
-        .filter(DebateSession.status == DebateSessionStatus.ACTIVE.value)
+        .filter(
+            DebateSession.status == DebateSessionStatus.ACTIVE.value,
+            # Same 90-minute bound the debate task's own startup recovery
+            # sweep uses to mark orphans failed. A SIGKILLed debate stays
+            # `active` until the next 6-hourly cycle sweeps it, and the item
+            # rendered here carries no timestamp (`time_ago` is the round
+            # counter), so without this an orphan is indistinguishable from a
+            # live debate on a list titled "processing now". This filter was
+            # unreachable before the literal above was fixed; fixing it is
+            # what makes the bound necessary.
+            DebateSession.started_at >= now - timedelta(minutes=90),
+        )
         .order_by(desc(DebateSession.started_at))
         .limit(2)
         .all()

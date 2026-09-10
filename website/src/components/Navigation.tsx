@@ -73,10 +73,12 @@ export function Navigation() {
               sat directly above the dashboard banner, which does read /status
               and would be showing SYSTEM DEGRADED at the same moment. The
               banner is the one that measures; this was the one that guessed.
-              (SystemStatus.tsx and Pipeline.tsx each had the same defect and
-              were each fixed by reading /status; there is nothing for a
-              site-wide chrome element to read that the banner is not already
-              showing.) */}
+              The site-wide reader is the Footer, which is in layout.tsx, calls
+              /status on every page, and already reports online / degraded /
+              unknown -- so nothing is lost anywhere, and on the dashboard the
+              banner covers the same ground twice over. (SystemStatus.tsx and
+              Pipeline.tsx each had this same defect and were each fixed by
+              reading /status.) */}
 
           <LanguageToggle />
 

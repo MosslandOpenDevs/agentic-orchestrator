@@ -347,12 +347,13 @@ export default function Dashboard() {
                       instantiate -- and nothing checked whether any of them
                       was reachable or billing.
 
-                      Publishing vendor identity is also the one thing the
-                      backend deliberately strips from this same public
-                      surface: _public_router_view() in api/main.py removes
-                      `provider` and `model` from /status precisely so they do
-                      not leave the process. A hand-written copy on the front
-                      page put back what that redaction exists to remove. */}
+                      The backend also treats this ground carefully on the
+                      same public surface: _public_router_view() in api/main.py
+                      strips the per-tier `provider`/`model` binding from
+                      /status while its own docstring notes the provider mix
+                      is disclosed on purpose. A hand-written vendor list here
+                      was neither -- not the deliberate disclosure, not the
+                      redacted binding, just a constant nobody maintained. */}
 
                   {/* Two dollar figures used to sit here as string literals:
                       daily_budget $50.00 against a configured limit of $3.00,

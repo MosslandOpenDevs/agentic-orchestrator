@@ -59,10 +59,10 @@ class SignalAggregator:
             RSSAdapter(),
             GitHubEventsAdapter(),
             OnChainAdapter(),  # Now includes DEX volume and whale alerts
-            SocialMediaAdapter(),  # Reddit + basic Twitter
+            SocialMediaAdapter(),  # Reddit (its Nitter path was deleted 2026-09-10)
             NewsAPIAdapter(),
             # Web3 social adapters (new in v0.5.0)
-            TwitterAdapter(),  # Enhanced Twitter/X with Nitter pool
+            TwitterAdapter(),  # Twitter/X via Nitter pool -- DISABLED, see twitter.py
             DiscordAdapter(),  # Discord announcements
             LensAdapter(),  # Lens Protocol
             FarcasterAdapter(),  # Farcaster/Warpcast
@@ -440,14 +440,23 @@ class SignalAggregator:
         HH:36:01, exactly ``busy_timeout`` after the save began, every one
         while the 6-hourly debate cycle was running.
 
-        Which is a coincidence of timing, not the holder. Traced afterwards,
-        the debate writes and commits per row and holds nothing across an LLM
-        call; the writer that did hold the lock for minutes was the 2-hourly
-        trend analysis, which flushed each trend and then awaited two
-        translation round-trips before committing anything
-        (``scheduler/tasks.py``, fixed alongside this). "The debate held the
-        write lock" was an inference from the clock and is corrected here
-        rather than left compiled into the module it misdescribes.
+        **Which writer held the lock was never measured.** This docstring used
+        to say "while the debate held the write lock", which is an inference
+        from the clock, not an observation -- nothing in this repository
+        records the holder. There are at least two writers of the right shape,
+        and neither has been ruled in or out for those four incidents:
+
+        - the 2-hourly trend save loop, which flushed each trend and then
+          awaited two translation round-trips before committing anything.
+          Fixed (``scheduler/tasks.py``): it now commits at the write.
+        - the debate cycle's own *idea* loop, which flushes a plan row and
+          does not commit until the next iteration, spanning a GitHub call,
+          ``_auto_generate_project`` and the next idea's LLM awaits
+          (``scheduler/tasks.py``, ``plan_repo.create`` -> the following
+          iteration's ``db_session.commit()``). **Still open.**
+
+        The debate's per-message writer does commit per row; that is the part
+        that was actually traced, and it is not the loop above.
 
         Committing per row bounds the blast radius to the row that failed and
         is the pattern already used for debate messages

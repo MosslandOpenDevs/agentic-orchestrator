@@ -87,11 +87,12 @@ export default function SystemPage() {
 
   // Static, and honest about being a stack rather than a status. Three entries
   // had drifted into being wrong rather than merely static: "GPT-4 (OpenAI)"
-  // names a model the router has not used in a year, "45+ RSS Feeds" against
-  // the 31 config.yaml actually enables, and "Daily Signal Collection" against
-  // a cron that runs every 30 minutes. Counts and model pins are removed
-  // rather than corrected -- a number here has nothing keeping it in step, and
-  // the measured ones are on /adapters.
+  // names a model this router has never used (the only `gpt-4` string under
+  // src/ is the gpt-4o row in llm/budget.py's price table), "45+ RSS Feeds"
+  // against the 31 config.yaml actually enables, and "Daily Signal Collection"
+  // against a cron that runs every 30 minutes. Counts and model pins are
+  // removed rather than corrected -- a number here has nothing keeping it in
+  // step, and the measured ones are on /adapters.
   const techStack = [
     { category: 'LLM Providers', items: ['Anthropic', 'OpenAI', 'Ollama (Local)'] },
     { category: 'Data Sources', items: ['RSS Feeds', 'GitHub API', 'Custom APIs'] },

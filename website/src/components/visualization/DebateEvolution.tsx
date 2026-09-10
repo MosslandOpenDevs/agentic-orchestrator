@@ -257,8 +257,9 @@ function analyzeRounds(messages: ApiDebateMessage[], maxRounds: number): RoundSu
       Math.abs(sentimentScore) <= 1 ? 'neutral' : 'mixed';
 
     // Ideas proposed is counted from the messages. There is no counterpart
-    // for "filtered": `Math.floor(ideasProposed * 0.3)` was a fixed 30% of a
-    // real number, and `50 + round * 15 + Math.random() * 10` was a consensus
+    // for "filtered": it was `round > 1 ? Math.floor(proposed * 0.3) : 0` --
+    // a fixed discount on a real number from round 2 on, not a count of
+    // anything -- and `50 + round * 15 + Math.random() * 10` was a consensus
     // percentage that re-rolled on every render and rose with the round index
     // whatever the agents said. Both are removed rather than approximated --
     // ScoreBreakdown.tsx and TrendSparkline.tsx already carry the same note
@@ -284,9 +285,9 @@ function analyzeRounds(messages: ApiDebateMessage[], maxRounds: number): RoundSu
 function calculateEvolutionMetrics(summaries: RoundSummary[]) {
   const totalMessages = summaries.reduce((sum, s) => sum + s.messageCount, 0);
   const allParticipants = new Set(summaries.flatMap((s) => s.participants));
-  // "Net ideas" was proposed minus a filtered count that was 30% of proposed,
-  // i.e. always 0.7x proposed dressed as a measurement. The proposed count is
-  // real -- it is counted from the messages -- so that is what is shown.
+  // "Net ideas" was proposed minus a filtered count that was 30% of proposed
+  // from round 2 on -- a fixed discount dressed as a measurement. The proposed
+  // count is real (counted from the messages), so that is what is shown.
   return {
     totalMessages,
     uniqueParticipants: allParticipants.size,

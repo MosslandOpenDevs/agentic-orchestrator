@@ -229,17 +229,18 @@ FastAPI 백엔드는 REST API 접근을 제공합니다:
 
 ## 시그널 소스
 
-어댑터 12개가 시그널을 수집하며 모두 `config.yaml`에서 설정한다. **인증**은 해당 어댑터에
-필요한 자격 증명이며, `—`는 자격 증명 없이도 동작한다는 뜻이다.
+어댑터 12개가 등록돼 있고 그중 **11개가 시그널을 수집한다** — `Twitter / X`는 2026-09-10에
+껐다(아래 참조). 모두 `config.yaml`에서 설정한다. **인증**은 해당 어댑터에 필요한 자격
+증명이며, `—`는 자격 증명 없이도 동작한다는 뜻이다.
 
 | 어댑터 | 수집 내용 | 추적 범위 | 인증 |
 |--------|-----------|-----------|------|
 | RSS | AI, Crypto, Finance, Security, Dev 카테고리 피드 기사 | 활성 피드 31개 (아래 목록) | — |
 | GitHub Events | 저장소 활동, 트렌딩 프로젝트, 이슈·PR 분석 | — | — |
 | 온체인 | 웨일 트랜잭션 알림, DEX 거래량·스테이블코인 흐름(DefiLlama), DeFi 프로토콜 메트릭 | — | — |
-| 소셜 미디어 | Reddit 게시물과 Nitter RSS 기반 X 게시물, 커뮤니티 감성 분석 | 서브레딧 11개 | — |
+| 소셜 미디어 | Reddit 게시물, 커뮤니티 감성 분석 | 서브레딧 11개 | — |
 | News API | 실시간 뉴스 집계, 키워드 기반 필터링 | — | — |
-| Twitter / X | Nitter RSS 인스턴스 풀을 통한 계정 타임라인 | 계정 19개 (`MosslandMOC` 포함) | `TWITTER_BEARER_TOKEN` (선택 — API v2 키워드 검색 추가) |
+| Twitter / X | Nitter RSS 인스턴스 풀을 통한 계정 타임라인 — **2026-09-10 비활성**: 풀의 미러가 전부 사라졌고 30일간 0행을 저장했다 | 계정 19개 (`MosslandMOC` 포함) | `TWITTER_BEARER_TOKEN` (선택 — API v2 키워드 검색 추가. 이것만으로는 되살아나지 않는다) |
 | Discord | 공지 채널 메시지 | 서버 7개 (Ethereum, Polygon, Arbitrum, Optimism, Aave, Uniswap, OpenAI) | `DISCORD_BOT_TOKEN` |
 | Lens Protocol | GraphQL API — 인기 퍼블리케이션, 프로필 게시물, 트렌딩 토픽 | 프로필 10개 | — |
 | Farcaster | Neynar API 기반 캐스트, Warpcast 공개 API 폴백 | 유저 10개, 채널 10개 | `NEYNAR_API_KEY` |

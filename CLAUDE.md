@@ -408,19 +408,24 @@ pm2 restart all
 > `tests/test_signal_save_isolation.py` 가 고정한다.
 >
 > 네 번 모두 저장 시작 후 정확히 30초에 터졌고, 마침 6시간 주기 토론이 실행
-> 중이었다. **그래서 한동안 토론이 범인으로 적혀 있었는데 틀렸다** — 토론은
-> 행마다 쓰고 커밋하며 LLM 호출을 가로질러 아무것도 쥐지 않는다. 잠금을 분
-> 단위로 쥐고 있던 것은 **2시간 주기 트렌드 분석**이었다: `TrendRepository.create()`
-> 가 flush 해서 쓰기 트랜잭션을 연 뒤, 다음 트렌드의 번역 왕복 두 번을 await
-> 하고서야 커밋했다. 시각만으로 범인을 정하지 말 것.
+> 중이었다. **어느 프로세스가 실제로 잠금을 쥐고 있었는지는 측정된 적이 없다** —
+> 한동안 "토론이 쥐고 있다"고 적혀 있었지만 그것은 시계에서 나온 추론이었다.
+> 시각만으로 범인을 정하지 말 것.
 >
 > **쓰기 트랜잭션을 `await` 너머로 들고 가지 말 것.** SQLite 의 writer 는 하나다.
 > flush 하는 순간 잠금이 열리고, 커밋 전까지 그 프로세스가 무엇을 기다리든 다른
 > 모든 writer 가 `busy_timeout` 만큼 서 있다가 실패한다. 커밋은 쓰기 지점에
 > 붙이고, `except` 에서는 **반드시 `rollback()` 후** continue 한다.
-> `tests/test_trend_save_isolation.py` 가 두 성질을 동작으로 고정한다 — 번역
-> await 동안 다른 커넥션이 실제로 쓸 수 있는지, 그리고 가운데 한 행이 실패해도
-> 나머지가 커밋된 채로 남는지.
+>
+> 같은 형태의 writer 가 지금까지 둘 확인됐다:
+>
+> | writer | 상태 |
+> |--------|------|
+> | 2시간 주기 트렌드 저장 루프 (`TrendRepository.create()` flush → 다음 트렌드의 번역 왕복 2회 await → 커밋) | **수정됨** — 쓰기 지점에서 커밋. `tests/test_trend_save_isolation.py` 가 동작으로 고정한다(번역 await 동안 다른 커넥션이 실제로 쓸 수 있는지, 가운데 한 행이 실패해도 나머지가 커밋된 채 남는지) |
+> | 토론 사이클의 **아이디어 루프** (`plan_repo.create()` flush → GitHub 호출 → `_auto_generate_project` await → *다음 반복*의 `db_session.commit()`) | **열려 있음** — 잠금이 아이디어 하나를 통째로 가로지른다 |
+>
+> 토론의 *메시지* writer 는 행마다 커밋한다. 실제로 확인된 것은 그 부분이고,
+> 위 표의 두 번째 항목과는 다른 코드다.
 
 ## 환경 변수
 
@@ -1499,9 +1504,13 @@ project:
   output_dir: "projects"
 ```
 
-## 향후 구현 예정 기능
+## 스케줄러에 연결되지 않은 기능
 
 ### GitHub 라벨 기반 승격 워크플로우
+
+**두 라벨 다 소비자는 구현돼 있고, 둘 다 PM2 에서 호출되지 않는다.**
+`run_cycle` 은 수동 `ao backlog run` / `ao backlog process` 로만 도달하며,
+`moss-ao-backlog` 는 전혀 다른 함수를 돌린다.
 
 GitHub Issues에서 라벨을 추가하면 자동으로 처리:
 
@@ -1511,7 +1520,11 @@ GitHub Issues에서 라벨을 추가하면 자동으로 처리:
   `ao backlog process` 에서만 도달 가능하고, PM2 의 `moss-ao-backlog` 는 전혀
   다른 함수(`run_backlog_triage` + 이슈 라이프사이클 + 리텐션)를 돌린다.
   라벨 자체는 승격 시 파이프라인이 자동으로 붙인다.
-- `promote:to-dev`: Plan → Project 스캐폴드 생성 — **구현 예정** (소비자 없음)
+- `promote:to-dev`: Plan → Project 스캐폴드 생성 — **이것도 구현돼 있다**
+  (`GitHubClient.find_plans_to_promote` → `DevScaffolder.scaffold_from_plan`,
+  같은 `run_cycle` 의 4단계). 스텁이 아니라 프로젝트 트리를 만들고 커밋하고
+  `processed:to-dev` 를 달고 이슈에 코멘트한다. 없는 것은 위와 똑같이
+  스케줄러 엔트리뿐이다.
 
 자세한 내용: `docs/labels.md`
 

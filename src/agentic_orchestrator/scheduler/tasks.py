@@ -338,19 +338,24 @@ async def _analyze_trends_async():
                 # The lock: `create()` flushes, which opens the SQLite write
                 # transaction, and the next iteration then awaits two
                 # translation round-trips before anything commits. The one
-                # writer lock was therefore held across every remaining
-                # network call of the batch -- minutes, against a
-                # `busy_timeout` of 30 seconds -- which is what the 30-minute
-                # signal collector collided with. Per-row commits bound the
-                # hold to the write itself.
+                # writer lock was therefore held from the first row until
+                # after the last -- across every remaining translation of the
+                # batch. How long that is was never timed: the note above this
+                # loop estimates "a couple of seconds" per pair (so ~20s over
+                # nine pairs), while `_save_to_db` records ~15s per field for
+                # the same helper (so minutes). Either way it is unbounded by
+                # anything, and `busy_timeout` is 30 seconds. Per-row commits
+                # bound the hold to the write itself.
                 #
                 # The rollback: a failed flush locks the SQLAlchemy session,
                 # so the bare `continue` below was not recovery. The first
                 # failure turned every later row into `PendingRollbackError`
-                # and the closing commit failed too -- the batch was lost
-                # while `saved_count` went on reporting a number. That is
-                # exactly the defect #4989 removed from `_save_to_db`, still
-                # alive here, in a job that runs twelve times a day.
+                # and the closing commit failed with them, so the run ended in
+                # `Trend analysis failed` with a traceback and never reached
+                # its own `Saved N trends` line. Loud, then -- but it said the
+                # cycle failed, not that a finished analysis had been thrown
+                # away. That is the defect #4989 removed from `_save_to_db`,
+                # still alive here, in a job that runs twelve times a day.
                 session.commit()
                 saved_count += 1
             except Exception as e:
@@ -358,9 +363,10 @@ async def _analyze_trends_async():
                 logger.warning(f"Failed to save trend '{trend.topic}': {e}")
 
         if analysis.trends and saved_count == 0:
-            # Do not report a total loss at INFO. "Saved 0 trends" beside
-            # "Analyzing 24h trends..." is what a whole failed batch looked
-            # like, and it is the same shape of quiet as the bug above.
+            # Now that the rollback lets the loop finish, a run in which every
+            # write failed reaches this line and would otherwise report
+            # "Saved 0 trends to database" at INFO -- quieter than the
+            # traceback it replaces. The WARNING keeps the volume.
             logger.warning(
                 f"Saved NO trends: all {len(analysis.trends)} writes failed. "
                 "The pipeline has no fresh trends for this cycle."

@@ -43,7 +43,14 @@ export function AgentDetail({ data }: AgentDetailProps) {
       setError(null);
 
       // If full agent data is passed in, use it
-      if (data.name && data.role && data.personality) {
+      // Deliberately NOT requiring `personality`. It is optional now, and
+      // the agents page passes it through only when /agents answered -- so
+      // requiring it would send the static-fallback path (which exists
+      // *because* /agents failed) back to /agents, and land in an error box.
+      // Its ids would not match either: the roster uses `alex_kim`, the
+      // catalog `dev_optimistic`. With it absent, axisValues is empty and the
+      // personality panel simply does not render.
+      if (data.name && data.role) {
         setAgent(data as unknown as AgentData);
         setLoading(false);
         return;

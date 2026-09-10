@@ -71,13 +71,18 @@ def _seed(db, *, signals=(), debates=(), ideas=(), plans=()):
     now = utcnow()
     session = db.get_session()
     for i, hours_ago in enumerate(signals):
+        stamp = now - timedelta(hours=hours_ago)
         session.add(
             Signal(
                 id=f"sig-{i}",
                 source="rss",
                 category="ai",
                 title=f"Seeded signal {i} with a title long enough to look real",
-                collected_at=now - timedelta(hours=hours_ago),
+                # Both clocks, or the test is not exercising the one it names:
+                # created_at defaults to now, which would put every seeded row
+                # inside the rolling window regardless of its age.
+                collected_at=stamp,
+                created_at=stamp,
             )
         )
     for i, hours_ago in enumerate(debates):
@@ -129,6 +134,7 @@ class TestTheRollingWindowIsRolling:
                 category="ai",
                 title="Collected before midnight but well within 24 hours",
                 collected_at=just_after_midnight - timedelta(hours=2),
+                created_at=just_after_midnight - timedelta(hours=2),
             )
         )
         session.add(
@@ -138,6 +144,7 @@ class TestTheRollingWindowIsRolling:
                 category="ai",
                 title="Collected a minute into the new UTC day",
                 collected_at=just_after_midnight - timedelta(minutes=1),
+                created_at=just_after_midnight - timedelta(minutes=1),
             )
         )
         session.commit()
@@ -154,6 +161,39 @@ class TestTheRollingWindowIsRolling:
 
         stats = c.get("/status").json()["stats"]
         assert stats["signals_24h"] == 2
+
+    def test_the_rolling_window_measures_the_ingest_clock(self, client):
+        """``signals_24h`` means the same thing here as it does on /adapters.
+
+        The two columns come apart for exactly one source: SignalMap sets
+        ``collected_at`` to the upstream event time, so a record about
+        something that happened last week is ingested today. That is real
+        ingest work, and a throughput figure measured on the publisher's clock
+        would not see it at all. ``/adapters`` already made this choice; two
+        endpoints publishing a field of the same name against different clocks
+        is the defect this endpoint's change exists to end.
+        """
+        from agentic_orchestrator.db.models import Signal
+
+        c, db = client
+        now = utcnow()
+        session = db.get_session()
+        session.add(
+            Signal(
+                id="backfilled",
+                source="signalmap",
+                category="ai",
+                title="An event from last week, ingested a minute ago",
+                collected_at=now - timedelta(days=7),
+                created_at=now - timedelta(minutes=1),
+            )
+        )
+        session.commit()
+        session.close()
+
+        stats = c.get("/status").json()["stats"]
+        assert stats["signals_24h"] == 1, "ingest happened; the throughput figure must see it"
+        assert stats["signals_today"] == 0, "the event did not occur today; that field says so"
 
     def test_debates_have_the_same_pair(self, client, monkeypatch):
         c, db = client
@@ -277,6 +317,32 @@ class TestPipelineLiveFindsARunningDebate:
 
         processing = c.get("/pipeline/live").json()["processing"]
         assert any(item["type"] == "DEBATE" for item in processing), processing
+
+    def test_an_orphaned_debate_does_not(self, client):
+        """A SIGKILLed debate stays `active` until the next 6-hourly cycle.
+
+        The rendered item carries no timestamp — `time_ago` is the round
+        counter — so without a recency bound an orphan is indistinguishable
+        from a live debate on a list headed "processing now". The bound is the
+        same 90 minutes the debate task's own startup recovery sweep uses.
+        This became reachable only when the status literal above was fixed.
+        """
+        c, db = client
+        session = db.get_session()
+        session.add(
+            DebateSession(
+                id="orphan",
+                phase="divergence",
+                topic="Killed hours ago, never marked failed",
+                status="active",
+                started_at=utcnow() - timedelta(hours=3),
+            )
+        )
+        session.commit()
+        session.close()
+
+        processing = c.get("/pipeline/live").json()["processing"]
+        assert not any(item["type"] == "DEBATE" for item in processing), processing
 
     def test_a_finished_debate_does_not(self, client):
         c, db = client

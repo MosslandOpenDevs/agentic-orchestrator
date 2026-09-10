@@ -18,7 +18,7 @@ All three are easy to lose in a refactor and none of them fails loudly, so they
 are pinned here.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 import agentic_orchestrator.api.main as api_main
 from agentic_orchestrator.api.main import _public_router_view, app
 from agentic_orchestrator.db.connection import Database
+from agentic_orchestrator.timeutil import utcnow
 
 
 def _report(**tier_overrides):
@@ -270,6 +271,7 @@ def seeded_client(tmp_path, monkeypatch):
     serializer that ignored the column entirely.
     """
     from agentic_orchestrator.db.models import (
+        APIUsage,
         DebateMessage,
         DebateSession,
         Idea,
@@ -282,7 +284,13 @@ def seeded_client(tmp_path, monkeypatch):
     db = Database(f"sqlite:///{tmp_path / 'seeded.db'}")
     db.create_tables()
 
-    stamp = datetime(2026, 9, 9, 7, 26, 51, 117534)
+    # Relative, not a literal date. It only has to be distinguishable from
+    # "now" -- ``_assert_is`` compares the returned instant to it exactly, so a
+    # serializer that ignored the column still fails. A fixed 2026-09-09 would
+    # have fallen out of ``/signals?hours=720`` (the widest window the endpoint
+    # accepts) 30 days after it was written, turning CI red and, per CLAUDE.md,
+    # stopping every deploy.
+    stamp = utcnow().replace(microsecond=117534) - timedelta(hours=1)
     session = db.get_session()
     session.add(
         Signal(
@@ -338,6 +346,21 @@ def seeded_client(tmp_path, monkeypatch):
             name="seeded-project",
             created_at=stamp,
             completed_at=stamp,
+        )
+    )
+    # A ledger row, so /usage's history has something to publish. Its `date` is
+    # a calendar day rather than an instant and is the one field on the public
+    # surface that must NOT carry a UTC marker.
+    session.add(
+        APIUsage(
+            id="usage-1",
+            date=date(2026, 9, 9),
+            provider="openai",
+            model="seeded-model",
+            input_tokens=100,
+            output_tokens=10,
+            cost_usd=0.01,
+            request_count=1,
         )
     )
     session.commit()
@@ -431,10 +454,23 @@ class TestTheOneFieldThatMustStayUnmarked:
     ``.isoformat()`` does not "finish the job" and 500 the endpoint.
     """
 
-    def test_usage_history_dates_are_plain_calendar_days(self, served_client):
+    def test_usage_history_dates_are_plain_calendar_days(self, seeded_client):
+        """Seeded, because an empty ledger makes this test assert nothing.
+
+        The first version of it iterated ``/usage``'s history over a database
+        with no rows: the loop body never ran, and the sweep it was written to
+        catch -- ``utc_iso`` applied to the two date-only sites -- left the
+        whole suite green while ``/usage`` returned 500.
+        """
         import re
 
-        for row in served_client.get("/usage").json().get("history", []):
+        client, _ = seeded_client
+        response = client.get("/usage")
+
+        assert response.status_code == 200
+        history = response.json()["history"]
+        assert history, "the fixture is not exercising the path it claims to"
+        for row in history:
             assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", row["date"]), row["date"]
 
     def test_utc_iso_is_not_applicable_to_a_date(self):
@@ -478,3 +514,78 @@ class TestTheCacheComponentIsGone:
 
         with pytest.raises(ModuleNotFoundError):
             importlib.import_module("agentic_orchestrator.cache")
+
+
+class TestTheSignalListIsOrderedByRecency:
+    """``GET /signals`` is a list, so "recent" has to mean newest-first.
+
+    ``SignalRepository.get_recent`` orders by score by default, because three
+    scheduler callers pick quality out of a window far larger than their limit
+    and two of them pass no ``min_score``. Changing that default would have
+    been a silent change to what the paid debate tier reads, so the list
+    endpoint asks for recency explicitly instead — and this is what checks that
+    it still does. The banner and PipelineDetail's "Recent Signals" panel were
+    both showing the window's best row rather than its newest.
+    """
+
+    def test_newest_first(self, tmp_path, monkeypatch):
+        from agentic_orchestrator.db.models import Signal
+
+        db = Database(f"sqlite:///{tmp_path / 'order.db'}")
+        db.create_tables()
+        now = utcnow()
+        session = db.get_session()
+        # The oldest row is also the highest-scoring one, so score ordering and
+        # recency ordering disagree and the test can tell them apart.
+        session.add(
+            Signal(
+                id="old-and-best",
+                source="rss",
+                category="ai",
+                title="Collected six hours ago, and the best of the window",
+                score=9.9,
+                collected_at=now - timedelta(hours=6),
+            )
+        )
+        session.add(
+            Signal(
+                id="new-and-dull",
+                source="rss",
+                category="ai",
+                title="Collected a minute ago, and unremarkable",
+                score=0.1,
+                collected_at=now - timedelta(minutes=1),
+            )
+        )
+        session.commit()
+        session.close()
+        monkeypatch.setattr(api_main, "get_db", lambda: db)
+
+        signals = TestClient(app).get("/signals").json()["signals"]
+        assert [s["id"] for s in signals] == ["new-and-dull", "old-and-best"]
+
+    def test_the_repository_default_is_unchanged(self, tmp_path):
+        """The scheduler callers must keep getting best-first."""
+        from agentic_orchestrator.db.models import Signal
+        from agentic_orchestrator.db.repositories import SignalRepository
+
+        db = Database(f"sqlite:///{tmp_path / 'default.db'}")
+        db.create_tables()
+        now = utcnow()
+        session = db.get_session()
+        for i, (score, hours) in enumerate([(9.9, 6), (0.1, 0.01)]):
+            session.add(
+                Signal(
+                    id=f"row-{i}",
+                    source="rss",
+                    category="ai",
+                    title=f"A seeded signal with a long enough title {i}",
+                    score=score,
+                    collected_at=now - timedelta(hours=hours),
+                )
+            )
+        session.commit()
+
+        rows = SignalRepository(session).get_recent()
+        assert [r.id for r in rows] == ["row-0", "row-1"]
+        session.close()

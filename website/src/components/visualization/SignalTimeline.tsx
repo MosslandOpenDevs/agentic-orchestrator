@@ -19,11 +19,12 @@ interface SignalTimelineProps {
 
 // The two "generate mock data" functions that used to live here built a
 // plausible 24-hour or 7-day chart out of Math.random() and an assumption
-// about work hours, and were used whenever `data` was absent. A chart is a
-// measurement; an outage that renders as a normal-looking histogram is worse
-// than one that renders as nothing. `data` is required instead -- the only
-// caller has always passed it, and its own loading state is the honest
-// placeholder.
+// about work hours, whenever `data` was absent. It never was: the only caller
+// mounts this component behind a `timelineData ?` guard and renders its own
+// loading state otherwise, so the generators were unreachable from the day
+// they were written. Dead code that, had anything ever reached it, would have
+// drawn a normal-looking histogram out of nothing -- which is worse than
+// drawing none. `data` is required now, so it cannot come back by accident.
 
 export function SignalTimeline({
   data,

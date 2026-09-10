@@ -103,8 +103,11 @@ class TwitterAdapter(BaseAdapter):
         config: Optional[AdapterConfig] = None,
         twitter_bearer_token: Optional[str] = None,
     ):
-        # DISABLED 2026-09-10. Every Nitter mirror this adapter can reach is
-        # gone, re-probed on the day of this change:
+        # DISABLED 2026-09-10. NITTER_INSTANCES above lists ten mirrors and
+        # `_refresh_working_instances()` probes all ten; the three below are
+        # `NITTER_INSTANCES[:3]`, the slice the account loop falls back to
+        # when that probe finds nothing working. Those three, re-probed on the
+        # day of this change:
         #   nitter.net             HTTP 410 Gone
         #   nitter.privacydev.net  DNS resolves to disabled.privacydev.net,
         #                          connection refused
@@ -115,15 +118,23 @@ class TwitterAdapter(BaseAdapter):
         # between 2026-08-11 and 08-26 (see _signal_yield_by_source in
         # api/main.py). What justifies the switch is the yield: this source has
         # stored ZERO rows in the entire 30 days the signals table retains,
-        # across both regimes, while emitting ~1,440 "Error fetching" lines a
-        # day. A feed that answers 200 with nothing in it and a feed that
-        # answers 410 are indistinguishable downstream; the row count is not.
+        # under both regimes. A feed that answers 200 with nothing in it and a
+        # feed that answers 410 are indistinguishable downstream; the row
+        # count is not.
         #
-        # This is the whole switch. `enabled` is read in exactly one place --
-        # BaseAdapter.is_enabled() -- and both the fetch loop
-        # (signals/aggregator.py, which skips disabled adapters before any
-        # network call) and GET /adapters read it from there, so the endpoint
-        # and the loop cannot disagree about it. The adapter stays registered
+        # The ~1,440 "Error fetching" lines a day belong to the current regime
+        # only (15 accounts x the two fallback mirrors that raise -- 410 is a
+        # response, not an exception -- x 48 cycles). Under the 200 regime it
+        # logged almost nothing and still stored nothing, which is exactly why
+        # the noise is the weaker argument.
+        #
+        # This is the whole switch. `enabled` has two readers, both on
+        # BaseAdapter and both reading the same AdapterConfig:
+        # `is_enabled()` (the fetch loop's pre-network filter in
+        # signals/aggregator.py, and the `enabled` field of GET /adapters) and
+        # `health_check()` (that response's nested `health.enabled`, which the
+        # modal renders key by key). Same source, so the endpoint and the loop
+        # cannot disagree about it. The adapter stays registered
         # and stays visible on /adapters, reporting enabled: false; deleting it
         # would make the system silent about a source it used to have.
         #
