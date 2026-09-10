@@ -84,9 +84,21 @@ class SignalRepository(BaseRepository):
         category: Optional[str] = None,
         min_score: float = 0.0,
     ) -> List[Signal]:
-        """Get recent signals with optional filters and SQL-level pagination."""
+        """Get recent signals with optional filters and SQL-level pagination.
+
+        Ordered newest-first, on the same column the window filters
+        (``collected_at``), which is what "recent" means and what
+        ``IdeaRepository.get_recent`` below already does. It used to order by
+        ``desc(Signal.score)``: the highest-scoring signal of the window, under
+        a method named ``get_recent``, and every caller believed the name.
+        The dashboard banner read row 0 as "when the pipeline last ran" and
+        PipelineDetail renders the first five under the heading "Recent
+        Signals" -- both showed a top-scoring row that could be a day old.
+
+        Ranking is what ``min_score`` is for; ordering is what this is for.
+        """
         query = self._build_recent_query(hours, source, category, min_score)
-        return query.order_by(desc(Signal.score)).offset(offset).limit(limit).all()
+        return query.order_by(desc(Signal.collected_at)).offset(offset).limit(limit).all()
 
     def count_recent_filtered(
         self,

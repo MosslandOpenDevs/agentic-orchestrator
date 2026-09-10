@@ -238,6 +238,21 @@ agentic-orchestrator/
 > `tests/test_api.py::TestLiteralRouteOrdering::test_no_literal_route_is_shadowed`가
 > 전체 라우트 테이블을 검사해 이 회귀를 차단한다.
 
+> **문자열로 프로세스를 떠나는 시각은 전부 `timeutil.utc_iso()`를 거친다.**
+> `utcnow()`는 naive 를 돌려준다(=`DateTime` 컬럼과 모든 경과 시간 비교가 요구하는
+> 형태). 마커 없는 ISO 문자열을 브라우저는 **로컬 시간**으로 읽으므로 KST 에서는
+> 9시간 어긋나고, 값이 그럴듯하게 남아 아무 데서도 소리 내어 실패하지 않는다.
+> 행의 시각은 `db/models.py`의 `to_dict()` 한 곳에서 직렬화되고 — 응답을 손으로
+> 다시 조립하지 말 것, `/signals/{id}`가 그렇게 표류했다 — API 가 직접 만드는
+> 시각은 `utc_iso(utcnow())`로 쓴다(편의 헬퍼를 만들지 말 것: 테스트가 고정하는
+> 단일 패치 지점이 `utcnow()`다).
+>
+> **예외는 `Date` 컬럼 하나뿐이다.** `APIUsage.date`(그리고 `/usage` 히스토리 행)
+> 는 달력의 하루이지 순간이 아니다. `utc_iso()`는 여기서 이상한 문자열을 만드는
+> 게 아니라 `.tzinfo`를 읽으므로 **예외를 던진다** — `.isoformat()`을 grep 으로
+> 훑다가 "마저 끝내면" `/usage`가 500 이 된다.
+> `tests/test_status_public_surface.py`가 양쪽을 다 고정한다.
+
 > **호스트 경로는 응답에 싣지 않는다.** `Project.directory_path`에는 스캐폴드가 쓴
 > 절대 경로(`/home/<계정>/agentic-orchestrator/projects/<name>`)가 들어가는데,
 > 이 API는 public 저장소 앞의 공개 사이트가 소비한다. `pathutil.public_project_path()`가

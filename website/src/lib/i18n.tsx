@@ -25,7 +25,6 @@ const translations: Record<Locale, Record<string, string>> = {
     'dashboard.title': 'Agentic Orchestrator',
     'dashboard.subtitle': 'Autonomous AI orchestration system for the Mossland ecosystem',
     'dashboard.lastRun': 'Last run:',
-    'dashboard.nextRun': 'Next run:',
     
     'stats.totalIdeas': 'Total Ideas',
     'stats.plansGenerated': 'Plans',
@@ -549,7 +548,6 @@ const translations: Record<Locale, Record<string, string>> = {
     'dashboard.title': 'Agentic Orchestrator',
     'dashboard.subtitle': '모스랜드 생태계를 위한 자율 AI 오케스트레이션 시스템',
     'dashboard.lastRun': '마지막 실행:',
-    'dashboard.nextRun': '다음 실행:',
     
     'stats.totalIdeas': '전체 아이디어',
     'stats.plansGenerated': '플랜',

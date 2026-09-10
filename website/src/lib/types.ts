@@ -12,8 +12,6 @@ export interface SystemStats {
    *  API exposes nothing to derive it from -- it must never be the
    *  viewer's own clock dressed up as a pipeline run. */
   lastRun?: string;
-  /** Absent: the API does not report the scheduler's next tick. */
-  nextRun?: string;
 }
 
 export interface ActivityItem {

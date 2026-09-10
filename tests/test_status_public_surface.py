@@ -210,6 +210,19 @@ def tableless_client(tmp_path, monkeypatch):
     return TestClient(app)
 
 
+def _parse_marked_utc(value):
+    """Assert the string says it is UTC, and return the instant it names.
+
+    Split out of the near-now check below because the two questions come apart:
+    a response-generation stamp must be marked *and* recent, while a stored
+    row's timestamp must be marked and equal to what was stored — which is a
+    stronger check, and would fail a near-now assertion by construction.
+    """
+    assert isinstance(value, str), f"not a timestamp: {value!r}"
+    assert value.endswith("Z"), f"no UTC marker: {value!r}"
+    return datetime.fromisoformat(value[:-1] + "+00:00")
+
+
 class TestPublishedInstantsCarryTheUTCMarker:
     """Property 3, checked on real responses rather than on the source.
 
@@ -223,11 +236,9 @@ class TestPublishedInstantsCarryTheUTCMarker:
 
     @staticmethod
     def _assert_marked_utc(value):
-        assert isinstance(value, str), f"not a timestamp: {value!r}"
-        assert value.endswith("Z"), f"no UTC marker: {value!r}"
         # Marked *and* meant: it has to parse as an instant near now, not be a
         # local time with a "Z" stapled onto it.
-        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+        parsed = _parse_marked_utc(value)
         drift = abs((datetime.now(timezone.utc) - parsed).total_seconds())
         assert drift < 300, f"{value!r} is {drift:.0f}s away from now"
 
@@ -247,3 +258,189 @@ class TestPublishedInstantsCarryTheUTCMarker:
 
         assert body["status"] == "degraded"
         self._assert_marked_utc(body["timestamp"])
+
+
+@pytest.fixture
+def seeded_client(tmp_path, monkeypatch):
+    """A client over a database holding one row of every model the API serves.
+
+    Every timestamp is deliberately NOT "now": these are stored instants, and
+    the property under test is that the value survives the round trip meaning
+    the same moment it meant going in. A near-now assertion would pass on a
+    serializer that ignored the column entirely.
+    """
+    from agentic_orchestrator.db.models import (
+        DebateMessage,
+        DebateSession,
+        Idea,
+        Plan,
+        Project,
+        Signal,
+        Trend,
+    )
+
+    db = Database(f"sqlite:///{tmp_path / 'seeded.db'}")
+    db.create_tables()
+
+    stamp = datetime(2026, 9, 9, 7, 26, 51, 117534)
+    session = db.get_session()
+    session.add(
+        Signal(
+            id="sig-1",
+            source="rss",
+            category="ai",
+            title="A seeded signal with a title long enough to look real",
+            collected_at=stamp,
+            created_at=stamp,
+        )
+    )
+    session.add(
+        Trend(id="trend-1", period="24h", name="A seeded trend", score=8.0, analyzed_at=stamp)
+    )
+    session.add(
+        Idea(
+            id="idea-1",
+            title="A seeded idea",
+            summary="A seeded idea summary",
+            source_type="debate",
+            created_at=stamp,
+        )
+    )
+    session.add(
+        DebateSession(
+            id="debate-1",
+            phase="divergence",
+            topic="A seeded debate topic",
+            started_at=stamp,
+            completed_at=stamp,
+        )
+    )
+    session.add(
+        DebateMessage(
+            id="msg-1",
+            session_id="debate-1",
+            agent_id="a1",
+            agent_name="Agent One",
+            message_type="propose",
+            content="A seeded message",
+            created_at=stamp,
+        )
+    )
+    session.add(
+        Plan(
+            id="plan-1", idea_id="idea-1", title="A seeded plan", created_at=stamp, updated_at=stamp
+        )
+    )
+    session.add(
+        Project(
+            id="project-1",
+            plan_id="plan-1",
+            name="seeded-project",
+            created_at=stamp,
+            completed_at=stamp,
+        )
+    )
+    session.commit()
+    session.close()
+
+    monkeypatch.setattr(api_main, "get_db", lambda: db)
+    return TestClient(app), stamp
+
+
+class TestStoredInstantsCarryTheUTCMarkerToo:
+    """The same property, on the endpoints that publish rows rather than "now".
+
+    ``/status`` was made correct by #5002; every list endpoint was not, because
+    the rule lived at the six call sites that answer a monitor rather than in
+    ``to_dict()``, where the rows are actually serialised. Those are the
+    timestamps the dashboard renders — a signal's ``collected_at`` is what the
+    front-page banner ages — so this is where the nine-hour skew was visible.
+
+    Checked through the real endpoints, and checked for *meaning*: the instant
+    that comes back has to be the instant that went in. Stapling a "Z" onto a
+    naive local time would satisfy the marker and fail here.
+    """
+
+    @staticmethod
+    def _assert_is(value, stamp):
+        parsed = _parse_marked_utc(value)
+        assert parsed == stamp.replace(tzinfo=timezone.utc), f"{value!r} is not {stamp}"
+
+    def test_signals_list(self, seeded_client):
+        client, stamp = seeded_client
+        body = client.get("/signals?hours=720").json()
+        self._assert_is(body["signals"][0]["collected_at"], stamp)
+
+    def test_signal_detail(self, seeded_client):
+        """Guards the delegation: this handler used to hand-copy to_dict()."""
+        client, stamp = seeded_client
+        self._assert_is(client.get("/signals/sig-1").json()["collected_at"], stamp)
+
+    def test_trends(self, seeded_client):
+        client, stamp = seeded_client
+        self._assert_is(client.get("/trends").json()["trends"][0]["analyzed_at"], stamp)
+
+    def test_ideas(self, seeded_client):
+        client, stamp = seeded_client
+        self._assert_is(client.get("/ideas").json()["ideas"][0]["created_at"], stamp)
+
+    def test_debates(self, seeded_client):
+        client, stamp = seeded_client
+        debate = client.get("/debates").json()["debates"][0]
+        self._assert_is(debate["started_at"], stamp)
+        self._assert_is(debate["completed_at"], stamp)
+
+    def test_debate_messages(self, seeded_client):
+        client, stamp = seeded_client
+        body = client.get("/debates/debate-1").json()
+        self._assert_is(body["messages"][0]["created_at"], stamp)
+
+    def test_plans(self, seeded_client):
+        client, stamp = seeded_client
+        self._assert_is(client.get("/plans").json()["plans"][0]["created_at"], stamp)
+
+    def test_plan_detail(self, seeded_client):
+        client, stamp = seeded_client
+        body = client.get("/plans/plan-1").json()
+        self._assert_is(body["created_at"], stamp)
+        self._assert_is(body["updated_at"], stamp)
+
+    def test_projects(self, seeded_client):
+        client, stamp = seeded_client
+        project = client.get("/projects").json()["projects"][0]
+        self._assert_is(project["created_at"], stamp)
+        self._assert_is(project["completed_at"], stamp)
+
+    def test_signals_timeline(self, seeded_client):
+        client, _ = seeded_client
+        body = client.get("/signals/timeline").json()
+        TestPublishedInstantsCarryTheUTCMarker._assert_marked_utc(body["timestamp"])
+
+    def test_pipeline_live(self, seeded_client):
+        client, _ = seeded_client
+        body = client.get("/pipeline/live").json()
+        TestPublishedInstantsCarryTheUTCMarker._assert_marked_utc(body["timestamp"])
+
+
+class TestTheOneFieldThatMustStayUnmarked:
+    """``/usage`` history rows carry a calendar date, not an instant.
+
+    A date has no moment to mark, and ``utc_iso`` does not merely produce a
+    wrong string for one — it reads ``.tzinfo``, which a ``date`` does not
+    have, and raises. This is pinned so the next grep-driven sweep over
+    ``.isoformat()`` does not "finish the job" and 500 the endpoint.
+    """
+
+    def test_usage_history_dates_are_plain_calendar_days(self, served_client):
+        import re
+
+        for row in served_client.get("/usage").json().get("history", []):
+            assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", row["date"]), row["date"]
+
+    def test_utc_iso_is_not_applicable_to_a_date(self):
+        from datetime import date
+
+        from agentic_orchestrator.timeutil import utc_iso
+
+        with pytest.raises(AttributeError):
+            utc_iso(date(2026, 9, 10))

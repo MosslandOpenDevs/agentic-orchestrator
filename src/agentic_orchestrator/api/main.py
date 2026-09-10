@@ -515,7 +515,7 @@ async def get_signals_timeline(
         "slots": slots,
         "total": total,
         "period": period,
-        "timestamp": now.isoformat(),
+        "timestamp": utc_iso(now),
     }
 
 
@@ -531,21 +531,11 @@ async def get_signal_detail(
     if not signal:
         raise HTTPException(status_code=404, detail="Signal not found")
 
-    return {
-        "id": signal.id,
-        "source": signal.source,
-        "category": signal.category,
-        "title": signal.title,
-        "title_ko": signal.title_ko,
-        "summary": signal.summary,
-        "summary_ko": signal.summary_ko,
-        "url": signal.url,
-        "score": signal.score,
-        "sentiment": signal.sentiment,
-        "topics": signal.topics or [],
-        "entities": signal.entities or [],
-        "collected_at": signal.collected_at.isoformat() if signal.collected_at else None,
-    }
+    # Delegated, not hand-copied. This body used to spell out the same thirteen
+    # keys in the same order as ``Signal.to_dict()``, and that is exactly how
+    # the two drifted: the serialisation rule had to be remembered twice and
+    # was not. One definition means the next rule can only be got wrong once.
+    return signal.to_dict()
 
 
 @app.get("/signals")
@@ -1008,8 +998,8 @@ async def get_plan_detail(
         "final_plan": plan.final_plan,
         "final_plan_ko": getattr(plan, "final_plan_ko", None),
         "github_issue_url": plan.github_issue_url,
-        "created_at": plan.created_at.isoformat() if plan.created_at else None,
-        "updated_at": plan.updated_at.isoformat() if plan.updated_at else None,
+        "created_at": utc_iso(plan.created_at),
+        "updated_at": utc_iso(plan.updated_at),
     }
 
 
@@ -1715,7 +1705,7 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
             "plans_to_projects": round(plans_to_projects, 1),
         },
         "processing": processing[:5],  # Limit to 5 items
-        "timestamp": now.isoformat(),
+        "timestamp": utc_iso(now),
     }
 
 
@@ -1805,7 +1795,7 @@ async def _generate_project_task(
     from ..project import ProjectScaffold
 
     _project_jobs[job_id]["status"] = "in_progress"
-    _project_jobs[job_id]["started_at"] = utcnow().isoformat()
+    _project_jobs[job_id]["started_at"] = utc_iso(utcnow())
     _save_jobs()
 
     session = None
@@ -1830,7 +1820,7 @@ async def _generate_project_task(
 
         # Update job status
         _project_jobs[job_id]["status"] = "completed" if result.success else "failed"
-        _project_jobs[job_id]["completed_at"] = utcnow().isoformat()
+        _project_jobs[job_id]["completed_at"] = utc_iso(utcnow())
         _project_jobs[job_id]["result"] = result.to_dict()
         _save_jobs()
 
@@ -1844,7 +1834,7 @@ async def _generate_project_task(
         if session is not None:
             session.rollback()
         _project_jobs[job_id]["status"] = "failed"
-        _project_jobs[job_id]["completed_at"] = utcnow().isoformat()
+        _project_jobs[job_id]["completed_at"] = utc_iso(utcnow())
         # GET /jobs/{id} returns this dict verbatim and is unauthenticated;
         # an OSError here carries the absolute path it failed on.
         _project_jobs[job_id]["error"] = redact_paths(str(e))
@@ -1911,7 +1901,7 @@ async def generate_project(
         "job_id": job_id,
         "plan_id": plan_id,
         "status": "pending",
-        "created_at": utcnow().isoformat(),
+        "created_at": utc_iso(utcnow()),
     }
 
     # Start background task
@@ -2072,7 +2062,7 @@ async def approve_plan(
                     "job_id": job_id,
                     "plan_id": plan_id,
                     "status": "pending",
-                    "created_at": utcnow().isoformat(),
+                    "created_at": utc_iso(utcnow()),
                 }
                 if background_tasks:
                     background_tasks.add_task(_generate_project_task, job_id, plan_id, False)
@@ -2103,6 +2093,12 @@ async def approve_plan(
     plan.extra_metadata = {
         **(plan.extra_metadata or {}),
         "manually_approved": True,
+        # Left unmarked on purpose, unlike every other instant in this module:
+        # this one is stored, not published. It goes into a JSON column that no
+        # response emits -- Plan.to_dict() does not include extra_metadata, and
+        # /plans/pending-approval reads named scalar keys out of it. A sweep
+        # that "finishes the job" here would change a stored value, not a
+        # published one.
         "approved_at": utcnow().isoformat(),
     }
     session.commit()
@@ -2117,7 +2113,7 @@ async def approve_plan(
             "job_id": job_id,
             "plan_id": plan_id,
             "status": "pending",
-            "created_at": utcnow().isoformat(),
+            "created_at": utc_iso(utcnow()),
         }
         if background_tasks:
             background_tasks.add_task(_generate_project_task, job_id, plan_id, False)

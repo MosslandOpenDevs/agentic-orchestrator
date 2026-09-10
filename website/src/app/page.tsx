@@ -114,7 +114,6 @@ export default function Dashboard() {
         >
           <SystemStatus
             lastRun={stats?.lastRun}
-            nextRun={stats?.nextRun}
             status={stats?.systemStatus ?? 'unknown'}
           />
         </motion.div>

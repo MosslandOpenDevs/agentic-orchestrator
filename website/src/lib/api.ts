@@ -38,6 +38,10 @@ export interface StatusResponse {
     ideas_generated: number;
     plans_created: number;
     agents_active: number;
+    /** MAX(collected_at) over the whole signals table, UTC-marked by the
+     *  backend. null when nothing has ever been collected. Optional because an
+     *  API deployed before it existed simply omits it. */
+    last_signal_at?: string | null;
   };
 }
 
@@ -623,13 +627,10 @@ export class ApiClient {
 
 export async function fetchSystemStats(): Promise<SystemStats | null> {
   // Use /status endpoint which has accurate counts
-  const [statusRes, trendsRes, rejectedPlansRes, signalsRes, projectsRes] = await Promise.all([
+  const [statusRes, trendsRes, rejectedPlansRes, projectsRes] = await Promise.all([
     ApiClient.getStatus(),
     ApiClient.getTrends({ limit: 1 }),
     ApiClient.getPlans({ limit: 1, status: 'rejected' }),
-    // The newest signal's collection time is the only evidence the API exposes
-    // of the pipeline actually having run.
-    ApiClient.getSignals({ limit: 1 }),
     // Generated projects are the only "in development" the system has;
     // this tile used to be a hard-coded 0.
     ApiClient.getProjects({ limit: 1 }),
@@ -651,13 +652,14 @@ export async function fetchSystemStats(): Promise<SystemStats | null> {
     plansRejected,
     inDevelopment: projectsRes.data?.total ?? 0,
     trendsAnalyzed,
-    // Both of these used to be made up from the browser clock: lastRun was
-    // "now", so the banner always read "less than a minute ago", and nextRun
-    // was now+24h while the signal cron actually runs every 30 minutes. The
-    // banner was rewritten to report only what the backend says; these two
-    // values were the part still being invented underneath it.
-    lastRun: signalsRes.data?.signals?.[0]?.collected_at ?? undefined,
-    nextRun: undefined,
+    // This used to be made up from the browser clock ("now", so the banner
+    // always read "less than a minute ago"), and was then pointed at
+    // /signals[0].collected_at -- the head of a list the backend ordered by
+    // score, so the banner reported the age of the window's best signal, not
+    // of the newest one. /status reports MAX(collected_at) over the whole
+    // table, which is the question the banner asks, and is the one instant on
+    // that payload the backend marks as UTC.
+    lastRun: stats.last_signal_at ?? undefined,
   };
 }
 

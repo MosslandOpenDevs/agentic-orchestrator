@@ -26,6 +26,27 @@ The tests check behaviour, not source shape: a second connection tries a real wr
 #### Corrected — a claim this repository had compiled into itself
 
 `_save_to_db`'s docstring said the four incidents happened "while the 6-hourly debate held the write lock". The timing is right and the attribution was an inference from the clock: traced afterwards, the debate writes and commits per row and holds nothing across an LLM call. The writer that did hold the lock for minutes was the 2-hourly trend analysis, above. The docstring now says what was measured.
+### Fixed — the nine-hour clock on ao.moss.land, at the two places it was actually wrong
+
+The dashboard rendered a run 24 minutes old as "about 9 hours ago" for a KST viewer, and the parenthesised clock beside it was off by the same amount. Two independent defects produced it, and the previous fix reached neither.
+
+**Every timestamp that leaves a row was still unmarked.** #5002 applied `utc_iso()` to the six instants a monitor reads — `/health`, `/ready`, `/status`, `/adapters` — and said so in its own message ("범위는 상태 표면으로 한정했다"). The other eleven live in `db/models.py`'s `to_dict()`, which is what serialises every signal, trend, idea, debate, message, plan and project the site renders. Those are the timestamps a *reader* sees; the status surface is the one a *monitor* sees. A marker-less ISO string is read as local time by a browser, so in KST each rendered as nine hours away from the moment it named, and never failed loudly because the value stayed plausible.
+
+The rule now lives where the rows are serialised rather than at the call sites that answer a monitor. `GET /signals/{id}` had hand-copied the same thirteen keys in the same order as `Signal.to_dict()` — which is precisely how it drifted — and now delegates to it, so the next serialisation rule can only be got wrong once.
+
+One field is deliberately left plain and is pinned by a test: `APIUsage.date` is a `Date`, not a `DateTime`. A calendar day has no instant to mark, and `utc_iso()` would not merely produce a bad string for one — it reads `.tzinfo`, which a `date` does not have, so it raises. A grep-driven sweep over `.isoformat()` would have 500'd `/usage`.
+
+**And the banner was reading the wrong row.** `SignalRepository.get_recent()` ordered by `desc(Signal.score)`: the highest-scoring signal of the window, from a method named "recent", and every caller believed the name. The dashboard took row 0 as "when the pipeline last ran" and `PipelineDetail` renders the first five under the heading "Recent Signals" — both showed a row that could be a day old, marker or no marker. It now orders newest-first on `collected_at`, the same column the window already filters, which is what `IdeaRepository.get_recent()` beside it has always done. Ranking is what `min_score` is for.
+
+The banner no longer derives its own answer at all: it reads `stats.last_signal_at`, which is `MAX(collected_at)` over the whole table rather than the head of a list, and drops one HTTP request from the dashboard's fan-out. The frontend adopts the `parseUTCDate` helper it already had — a second layer, idempotent on an already-marked string — rather than a sixth component reimplementing the rule.
+
+`next_run` is deleted. It was fed `undefined` on every render and could only ever print "pending"; a permanent placeholder is not a status.
+
+Pinned in two places, because the failure only reproduces in a non-UTC zone. `tests/test_status_public_surface.py` seeds one row of every model and asserts through the real endpoints that the instant coming back is the instant that went in — stapling a "Z" onto a local time satisfies a marker check and fails this one. `website/src/lib/date.test.ts` sets `process.env.TZ = 'Asia/Seoul'` in the file itself, verified to take effect even when the runner's own TZ is UTC, which `ubuntu-latest` is.
+
+#### Deliberately not changed
+
+`/activity`'s `time` and `/signals/timeline`'s `label` are UTC wall clocks with no slot for a marker; fixing them is a response-shape change with a frontend counterpart, not a serialisation rule. `plans/{id}/approve`'s `approved_at` is stored in a JSON column that no response emits. The `.isoformat()` calls in `trends/models.py` and `state.py` are round-tripped by `fromisoformat` in the same module — a marker there makes them aware and the next comparison against a naive `utcnow()` raises.
 
 ### Fixed — the status endpoint published instants that did not say they were UTC
 
