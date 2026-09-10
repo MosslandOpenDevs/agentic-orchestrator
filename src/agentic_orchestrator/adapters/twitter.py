@@ -103,7 +103,46 @@ class TwitterAdapter(BaseAdapter):
         config: Optional[AdapterConfig] = None,
         twitter_bearer_token: Optional[str] = None,
     ):
-        super().__init__(config or AdapterConfig(timeout=60))
+        # DISABLED 2026-09-10. NITTER_INSTANCES above lists ten mirrors and
+        # `_refresh_working_instances()` probes all ten; the three below are
+        # `NITTER_INSTANCES[:3]`, the slice the account loop falls back to
+        # when that probe finds nothing working. Those three, re-probed on the
+        # day of this change:
+        #   nitter.net             HTTP 410 Gone
+        #   nitter.privacydev.net  DNS resolves to disabled.privacydev.net,
+        #                          connection refused
+        #   nitter.poast.org       NXDOMAIN
+        #
+        # The status codes are the weaker evidence -- they move -- and the repo
+        # already records nitter.net answering 200 to ~1,008 requests a day
+        # between 2026-08-11 and 08-26 (see _signal_yield_by_source in
+        # api/main.py). What justifies the switch is the yield: this source has
+        # stored ZERO rows in the entire 30 days the signals table retains,
+        # under both regimes. A feed that answers 200 with nothing in it and a
+        # feed that answers 410 are indistinguishable downstream; the row
+        # count is not.
+        #
+        # The ~1,440 "Error fetching" lines a day belong to the current regime
+        # only (15 accounts x the two fallback mirrors that raise -- 410 is a
+        # response, not an exception -- x 48 cycles). Under the 200 regime it
+        # logged almost nothing and still stored nothing, which is exactly why
+        # the noise is the weaker argument.
+        #
+        # This is the whole switch. `enabled` has two readers, both on
+        # BaseAdapter and both reading the same AdapterConfig:
+        # `is_enabled()` (the fetch loop's pre-network filter in
+        # signals/aggregator.py, and the `enabled` field of GET /adapters) and
+        # `health_check()` (that response's nested `health.enabled`, which the
+        # modal renders key by key). Same source, so the endpoint and the loop
+        # cannot disagree about it. The adapter stays registered
+        # and stays visible on /adapters, reporting enabled: false; deleting it
+        # would make the system silent about a source it used to have.
+        #
+        # To re-enable: delete `enabled=False`. Do that when a working mirror
+        # exists -- note that a TWITTER_BEARER_TOKEN alone is not enough, since
+        # fetch() runs the Nitter path unconditionally and the API search is
+        # additive, never a replacement.
+        super().__init__(config or AdapterConfig(timeout=60, enabled=False))
         self.twitter_bearer_token = twitter_bearer_token or os.getenv("TWITTER_BEARER_TOKEN")
         self._working_instances: List[str] = []
         self._last_instance_check: Optional[datetime] = None

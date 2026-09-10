@@ -59,10 +59,10 @@ class SignalAggregator:
             RSSAdapter(),
             GitHubEventsAdapter(),
             OnChainAdapter(),  # Now includes DEX volume and whale alerts
-            SocialMediaAdapter(),  # Reddit + basic Twitter
+            SocialMediaAdapter(),  # Reddit (its Nitter path was deleted 2026-09-10)
             NewsAPIAdapter(),
             # Web3 social adapters (new in v0.5.0)
-            TwitterAdapter(),  # Enhanced Twitter/X with Nitter pool
+            TwitterAdapter(),  # Twitter/X via Nitter pool -- DISABLED, see twitter.py
             DiscordAdapter(),  # Discord announcements
             LensAdapter(),  # Lens Protocol
             FarcasterAdapter(),  # Farcaster/Warpcast
@@ -438,7 +438,26 @@ class SignalAggregator:
         that -- they cover 2026-08-05 and 2026-08-10 onward, 23 days of
         continuous coverage ahead of the first one. Each at
         HH:36:01, exactly ``busy_timeout`` after the save began, every one
-        while the 6-hourly debate held the write lock.
+        while the 6-hourly debate cycle was running.
+
+        **Which writer held the lock was never measured.** This docstring used
+        to say "while the debate held the write lock", which is an inference
+        from the clock, not an observation -- nothing in this repository
+        records the holder. There are at least two writers of the right shape,
+        and neither has been ruled in or out for those four incidents:
+
+        - the 2-hourly trend save loop, which flushed each trend and then
+          awaited two translation round-trips before committing anything.
+          Fixed (``scheduler/tasks.py``): it now commits at the write.
+        - the debate cycle's own *idea* loop, which flushed a plan row and
+          did not commit until the next iteration, spanning a GitHub call,
+          ``_auto_generate_project`` and the next idea's LLM awaits. Also
+          fixed (``scheduler/tasks.py``): the plan commits at its own write,
+          which additionally stops the next idea's failure from rolling it
+          back and leaving a promoted idea with no plan.
+
+        The debate's per-message writer does commit per row; that is the part
+        that was actually traced, and it is not the loop above.
 
         Committing per row bounds the blast radius to the row that failed and
         is the pattern already used for debate messages

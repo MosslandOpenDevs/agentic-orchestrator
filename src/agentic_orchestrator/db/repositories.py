@@ -83,10 +83,33 @@ class SignalRepository(BaseRepository):
         source: Optional[str] = None,
         category: Optional[str] = None,
         min_score: float = 0.0,
+        newest_first: bool = False,
     ) -> List[Signal]:
-        """Get recent signals with optional filters and SQL-level pagination."""
+        """Signals inside a ``hours`` window, best-scoring first by default.
+
+        The name says "recent" and means the *window*, not the order. The
+        default ordering is ``desc(Signal.score)`` because three scheduler
+        callers depend on it to pick quality out of a window far larger than
+        their limit, and two of them pass no ``min_score`` at all, so a score
+        floor cannot stand in for it:
+
+        - ``tasks.py`` trend candidate pool: 600 rows out of a 48-hour window
+          that holds several thousand;
+        - ``tasks.py`` debate context block: 20 rows out of 24 hours, unfiltered;
+        - ``tasks.py`` fallback debate topic: 10 rows above 0.7.
+
+        ``newest_first=True`` orders by ``collected_at`` instead -- the same
+        column the window filters, and what a *list* means by "recent".
+        ``GET /signals`` asks for it: it feeds the Signal Explorer and
+        PipelineDetail's "Recent Signals" panel, both of which were showing the
+        window's best row rather than its newest.
+
+        Changing the default would have been a silent change to what the paid
+        debate tier reads, which is why it is a parameter and not a rewrite.
+        """
         query = self._build_recent_query(hours, source, category, min_score)
-        return query.order_by(desc(Signal.score)).offset(offset).limit(limit).all()
+        order = desc(Signal.collected_at) if newest_first else desc(Signal.score)
+        return query.order_by(order).offset(offset).limit(limit).all()
 
     def count_recent_filtered(
         self,

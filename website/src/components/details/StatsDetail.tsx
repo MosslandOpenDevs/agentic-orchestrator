@@ -89,13 +89,17 @@ export function StatsDetail({ data }: StatsDetailProps) {
         <div className="space-y-4">
           <div className="text-xs text-[#8b949e]">
             <span className="text-[#bd93f9]"># </span>
-            Ideas breakdown by status
+            Ideas
           </div>
+          {/* This was a four-box "breakdown by status" in which the lifetime
+              total was labelled "Pending" and the other three boxes were
+              hard-coded zeros. /status knows two things about ideas -- how many
+              have ever been created, and how many are still undecided -- so
+              those are the two boxes. A breakdown the endpoint cannot supply is
+              not a breakdown. */}
           <div className="grid grid-cols-2 gap-3">
-            <StatBox label="Pending" value={statusData.stats?.ideas_generated || 0} color="cyan" />
-            <StatBox label="In Progress" value={0} color="orange" />
-            <StatBox label="Completed" value={0} color="green" />
-            <StatBox label="Rejected" value={0} color="purple" />
+            <StatBox label="Total" value={statusData.stats?.ideas_generated || 0} color="cyan" />
+            <StatBox label="Open" value={statusData.stats?.ideas_open ?? 0} color="orange" />
           </div>
         </div>
       )}
@@ -104,12 +108,14 @@ export function StatsDetail({ data }: StatsDetailProps) {
         <div className="space-y-4">
           <div className="text-xs text-[#8b949e]">
             <span className="text-[#bd93f9]"># </span>
-            Plans breakdown by status
+            Plans
           </div>
+          {/* Same as above: "Draft" was the lifetime total and "Review" and
+              "Approved" were literal zeros. Rejected is real -- it is a
+              separate count of /plans?status=rejected. */}
           <div className="grid grid-cols-2 gap-3">
-            <StatBox label="Draft" value={statusData.stats?.plans_created || 0} color="cyan" />
-            <StatBox label="Review" value={0} color="orange" />
-            <StatBox label="Approved" value={0} color="green" />
+            <StatBox label="Total" value={statusData.stats?.plans_created || 0} color="cyan" />
+            <StatBox label="Open" value={statusData.stats?.plans_open ?? 0} color="orange" />
             <StatBox label="Rejected" value={data.rejected as number || 0} color="purple" />
           </div>
         </div>

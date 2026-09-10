@@ -428,3 +428,66 @@ class TestFailureModes:
         grouped = tasks_mod._cluster_debate_ideas(one, {"enabled": True})
         assert len(grouped) == 1
         assert grouped[0]["representative"] is one[0]
+
+
+class TestAPlanSurvivesTheNextIdeaFailing:
+    """A committed idea must never be left without the plan it was promoted for.
+
+    The idea row is committed as ``promoted`` at its own write. The plan used
+    to be only flushed, with the loop's closing ``commit()`` making it durable
+    -- so the ``rollback()`` in the per-idea ``except`` (added to stop a failed
+    flush poisoning the rest of the batch) would take the previous iteration's
+    plan with it. And the failure does not have to be exotic: the scorer, the
+    second-pass reviewer and all three translations run *before* the next idea
+    is created, so any of them raising lands in that handler while the previous
+    plan is still uncommitted.
+
+    Measured on SQLite before the fix: one promoted idea, zero plans.
+    """
+
+    def _reviewing_confirm(self, monkeypatch):
+        from agentic_orchestrator.scoring import second_pass as sp
+
+        class Fixed(sp.SecondPassReviewer):
+            async def review(self, title, content, local_score, context="", siblings=None):
+                self.reviews_used += 1
+                return sp.ReviewVerdict(sp.CONFIRM, reason="stub", score=8.0, model="m")
+
+        monkeypatch.setattr(sp, "SecondPassReviewer", Fixed)
+
+    def test_the_plan_is_still_there(self, session, monkeypatch, no_external):
+        self._reviewing_confirm(monkeypatch)
+
+        class FailsOnTheSecondIdea(ScriptedScorer):
+            """Promotes the first idea, then dies the way the real scorer can.
+
+            Raising from `score_and_decide` puts the exception exactly where
+            production puts it: inside the per-idea try, before that idea's
+            row exists, with the previous idea's plan pending.
+            """
+
+            def __init__(self):
+                super().__init__({}, default=8.5)
+                self.calls = 0
+
+            async def score_and_decide(self, idea_content: str, context: str = ""):
+                self.calls += 1
+                if self.calls == 2:
+                    raise RuntimeError("Ollama timeout scoring the next idea")
+                return await super().score_and_decide(idea_content, context)
+
+        ideas = [
+            FakeIdea(title="A first idea long enough to look like a real one", content="x"),
+            FakeIdea(title="A completely unrelated second idea, also long enough", content="y"),
+        ]
+        scorer = FailsOnTheSecondIdea()
+
+        run_scoring(session, ideas, scorer, monkeypatch)
+
+        assert scorer.calls == 2, "the second idea has to have been reached"
+        promoted = IdeaRepository(session).get_by_status("promoted", limit=10)
+        plans = PlanRepository(session).get_all(limit=10)
+
+        assert len(promoted) == 1
+        assert len(plans) == 1, "a promoted idea was left with no plan"
+        assert plans[0].idea_id == promoted[0].id

@@ -11,7 +11,7 @@
 
 ## 핵심 철학
 
-### 1. 다양한 시그널 소스 (12개 어댑터)
+### 1. 다양한 시그널 소스 (12개 어댑터, 11개 활성)
 
 **목적:** 최신 트렌드를 빠르게 파악 → 신선한 아이디어의 기반 마련
 
@@ -45,6 +45,21 @@ SignalMap
 > 한 행도 저장하지 않았다(그 이전은 정리돼 있어 "한 번도"는 확인할 수 없다).
 > 그래서 `GET /adapters`는 행에서 직접 잰 `last_signal_at`·`signals_24h`를 함께
 > 낸다(`adapter.name == signals.source` 조인).
+>
+> **twitter 는 2026-09-10 부로 꺼져 있다** (`adapters/twitter.py` 의
+> `AdapterConfig(..., enabled=False)`). 미러 3곳 재실측 결과 410 Gone / 연결 거부 /
+> NXDOMAIN 이지만, 근거로 적을 것은 상태 코드가 아니라 **30일간 0행**이다 —
+> 상태 코드는 움직이고(같은 호스트가 8월엔 200 을 냈다) 빈 200 과 410 은 하류에서
+> 구별되지 않는다. 어댑터는 **등록된 채로** 남아 `/adapters`에 `enabled: false`
+> 로 나온다. 지우면 한때 있던 소스에 대해 시스템이 침묵한다.
+>
+> **어댑터를 켜고 끄는 스위치는 `AdapterConfig.enabled` 하나뿐이고, 읽는 곳도
+> `BaseAdapter.is_enabled()` 하나다.** `/adapters`는 `_default_adapters()`와
+> 별개로 자기 목록에서 인스턴스를 새로 만들므로, 비활성화를 수집기 쪽에만 두면
+> 엔드포인트가 "돌지 않는 어댑터"를 enabled 로 보고한다.
+> `discord`·`lens`·`farcaster` 는 0행이지만 **켜 둔다** — 고장난 게 아니라
+> 설정되지 않은 것이고, 크리덴셜이 없으면 값싸게 no-op 한다.
+> `tests/test_adapter_enablement.py`가 고정한다.
 >
 > **`0`과 `null`은 다르다.** `0`은 "쟀고, 아무것도 없다"는 발견이고 `null`은
 > "재지 못했다"뿐이다. DB 를 못 읽으면 `null`을 내고 엔드포인트는 200 을 유지한다 —
@@ -89,9 +104,9 @@ agentic-orchestrator/
 │   │   ├── rss.py               # RSS 피드 (config.yaml `feeds`에서 로드)
 │   │   ├── github_events.py     # GitHub Trending/Releases
 │   │   ├── onchain.py           # DefiLlama, Whale Alert, DEX
-│   │   ├── social.py            # Reddit, Nitter
+│   │   ├── social.py            # Reddit (Nitter 경로는 2026-09-10 삭제)
 │   │   ├── news.py              # NewsAPI, Cryptopanic, HN
-│   │   ├── twitter.py           # Twitter/X (Nitter RSS 풀)
+│   │   ├── twitter.py           # Twitter/X (Nitter RSS 풀) — 2026-09-10 비활성
 │   │   ├── discord.py           # Discord 서버 공지
 │   │   ├── lens.py              # Lens Protocol (GraphQL)
 │   │   ├── farcaster.py         # Farcaster (Neynar API)
@@ -206,7 +221,7 @@ agentic-orchestrator/
 | GET | `/` | API 인덱스 (버전, 엔드포인트 목록) |
 | GET | `/health` | 라이브니스 — 프로세스 생존만 확인 (DB 미사용) |
 | GET | `/ready` | 레디니스 — 실제 테이블을 읽어 확인, 실패 시 503 (배포 게이트가 사용) |
-| GET | `/status` | 시스템 상태 및 통계 |
+| GET | `/status` | 시스템 상태 및 통계 (자정 기준 + 롤링 24시간 + 열린 개수) |
 | GET | `/signals` | 수집된 신호 목록 |
 | GET | `/signals/timeline` | 신호 수집 타임라인 (`period=24h\|7d`) |
 | GET | `/signals/{id}` | 시그널 상세 정보 |
@@ -237,6 +252,35 @@ agentic-orchestrator/
 > 라우트는 영구히 도달 불가능해지고 `signal_id="timeline"`으로 바인딩된다.
 > `tests/test_api.py::TestLiteralRouteOrdering::test_no_literal_route_is_shadowed`가
 > 전체 라우트 테이블을 검사해 이 회귀를 차단한다.
+
+> **문자열로 프로세스를 떠나는 시각은 전부 `timeutil.utc_iso()`를 거친다.**
+> `utcnow()`는 naive 를 돌려준다(=`DateTime` 컬럼과 모든 경과 시간 비교가 요구하는
+> 형태). 마커 없는 ISO 문자열을 브라우저는 **로컬 시간**으로 읽으므로 KST 에서는
+> 9시간 어긋나고, 값이 그럴듯하게 남아 아무 데서도 소리 내어 실패하지 않는다.
+> 행의 시각은 `db/models.py`의 `to_dict()` 한 곳에서 직렬화되고 — 응답을 손으로
+> 다시 조립하지 말 것, `/signals/{id}`가 그렇게 표류했다 — API 가 직접 만드는
+> 시각은 `utc_iso(utcnow())`로 쓴다(편의 헬퍼를 만들지 말 것: 테스트가 고정하는
+> 단일 패치 지점이 `utcnow()`다).
+>
+> **예외는 `Date` 컬럼 하나뿐이다.** `APIUsage.date`(그리고 `/usage` 히스토리 행)
+> 는 달력의 하루이지 순간이 아니다. `utc_iso()`는 여기서 이상한 문자열을 만드는
+> 게 아니라 `.tzinfo`를 읽으므로 **예외를 던진다** — `.isoformat()`을 grep 으로
+> 훑다가 "마저 끝내면" `/usage`가 500 이 된다.
+> `tests/test_status_public_surface.py`가 양쪽을 다 고정한다.
+> **`/status`의 수치는 세 종류이고 서로 다른 질문에 답한다.**
+> `signals_today`·`debates_today` 는 **00:00 UTC 기준 누계**다 — 서울 09:00 이므로
+> 한국 근무일 초반에는 파이프라인이 멀쩡한데도 0 에 가깝게 떨어진다. 처리량을
+> 묻는 자리에는 `signals_24h`·`debates_24h`(롤링 24시간)를 쓸 것.
+> `ideas_generated`·`plans_created` 는 **평생 누계**다(아이디어·플랜은 삭제되지
+> 않는다). "활성"·"열린" 같은 말이 붙는 자리에는 `ideas_open`·`plans_open` 을
+> 쓸 것 — 실측 2026-09-09 에 누계 3,282 대 실제 열린 24 였다.
+>
+> **여기서 필드는 추가만 하고 이름을 바꾸거나 빼지 않는다.** links.moss.land
+> 레지스트리가 이 엔드포인트를 가리키고 있고, 소비자를 이 저장소 안에서 전부
+> 열거할 수 없다. 열린/닫힌 상태의 구분은 `db/models.py` 의
+> `OPEN_IDEA_STATUSES`·`OPEN_PLAN_STATUSES` 한 곳이다 — enum 이 아니라 **파이프라인이
+> 실제로 쓰는 값**을 기준으로 한다(`"duplicate"` 는 `IdeaStatus` 멤버가 아니지만
+> 매 토론 사이클마다 기록된다). `tests/test_status_figures.py` 가 고정한다.
 
 > **호스트 경로는 응답에 싣지 않는다.** `Project.directory_path`에는 스캐폴드가 쓴
 > 절대 경로(`/home/<계정>/agentic-orchestrator/projects/<name>`)가 들어가는데,
@@ -285,7 +329,7 @@ agentic-orchestrator/
 한꺼번에 500이 났다 (2026-07 장애). 세 겹의 방어가 추가됨:
 
 1. **기동 시 스키마 자기치유**: API의 FastAPI lifespan 훅과 스케줄러 CLI 명령
-   (`backup-db` 제외 — 백업은 대상 DB를 변경하면 안 됨)이 시작 시 멱등적
+   (`backup-db`·`restore-db` 제외 — 스냅샷을 뜨거나 교체하려는 DB의 스키마를 건드리면 안 됨)이 시작 시 멱등적
    `ensure_schema()`(= `create_tables()` + 부팅 레이스 재시도)를 실행. 빈/유실
    DB → "no such table" 500 대신 비어 있지만 동작하는 DB로 강등되고,
    파이프라인이 다시 채움.
@@ -330,7 +374,11 @@ pm2 restart all
 > `tests/test_restore.py::TestTheHazard`가 이 현상(스냅샷 1행 → 복원 후 401행, 무결성 ok)을
 > 실제로 재현해 고정해 둔다.
 
-배포 시 `git clean -fdx`는 반드시 `-e data -e .env`와 함께 사용할 것.
+배포에서 **`git clean`은 쓰지 않는다** — `git reset --hard`만 쓴다. `data/`와
+`.env`는 untracked라 reset은 건드리지 않지만 clean은 어떤 제외 플래그를 붙이든
+위험하다. `scripts/deploy.sh`에 clean 이 없다는 것을 `tests/test_deploy.py`가
+고정하고 있다 (2026-07 사고). 이 줄은 예전에 `-e data -e .env`를 붙여 쓰라고
+적혀 있었는데, 같은 문서의 배포 절과 `docs/deployment.md`와 스크립트 자신이 전부 금지하는 명령이었다.
 
 ### 커넥션 풀과 저널 모드
 
@@ -359,9 +407,25 @@ pm2 restart all
 > 회차를 멈출 것 — 답은 어차피 전부 같고, 30초짜리 작업이 10분이 된다.
 > `tests/test_signal_save_isolation.py` 가 고정한다.
 >
-> 네 번 모두 6시간 주기 토론이 실행 중일 때, 저장 시작 후 정확히 30초에
-> 터졌다. 즉 **토론이 쓰기 잠금을 `busy_timeout` 보다 오래 쥐고 있다** — 위 수정은
-> 피해를 막을 뿐 경합 자체를 없애지 않는다. 잠금 보유 시간은 별도 과제다.
+> 네 번 모두 저장 시작 후 정확히 30초에 터졌고, 마침 6시간 주기 토론이 실행
+> 중이었다. **어느 프로세스가 실제로 잠금을 쥐고 있었는지는 측정된 적이 없다** —
+> 한동안 "토론이 쥐고 있다"고 적혀 있었지만 그것은 시계에서 나온 추론이었다.
+> 시각만으로 범인을 정하지 말 것.
+>
+> **쓰기 트랜잭션을 `await` 너머로 들고 가지 말 것.** SQLite 의 writer 는 하나다.
+> flush 하는 순간 잠금이 열리고, 커밋 전까지 그 프로세스가 무엇을 기다리든 다른
+> 모든 writer 가 `busy_timeout` 만큼 서 있다가 실패한다. 커밋은 쓰기 지점에
+> 붙이고, `except` 에서는 **반드시 `rollback()` 후** continue 한다.
+>
+> 같은 형태의 writer 가 지금까지 둘 확인됐다:
+>
+> | writer | 상태 |
+> |--------|------|
+> | 2시간 주기 트렌드 저장 루프 (`TrendRepository.create()` flush → 다음 트렌드의 번역 왕복 2회 await → 커밋) | **수정됨** — 쓰기 지점에서 커밋. `tests/test_trend_save_isolation.py` 가 동작으로 고정한다(번역 await 동안 다른 커넥션이 실제로 쓸 수 있는지, 가운데 한 행이 실패해도 나머지가 커밋된 채 남는지) |
+> | 토론 사이클의 **아이디어 루프** (`plan_repo.create()` flush → GitHub 호출 → `_auto_generate_project` await → *다음 반복*의 `db_session.commit()`) | **수정됨** — plan 도 자기 쓰기 지점에서 커밋한다. 이 루프의 `except` 에는 `rollback()` 이 있으므로, flush 만 된 채 다음 반복으로 넘어간 행은 **다음 아이디어의 실패에 함께 취소된다** — 아이디어는 이미 `promoted` 로 커밋돼 있으므로 플랜 없는 아이디어가 남는다. `tests/test_debate_pipeline_gate.py::TestAPlanSurvivesTheNextIdeaFailing` 이 고정한다 |
+>
+> 토론의 *메시지* writer 는 행마다 커밋한다. 실제로 확인된 것은 그 부분이고,
+> 위 표의 두 번째 항목과는 다른 코드다.
 
 ## 환경 변수
 
@@ -467,10 +531,10 @@ pm2 status
 # 주요 프로세스
 moss-ao-web      # Next.js 프론트엔드 (포트 3000) - 상시 실행
 moss-ao-api      # FastAPI 백엔드 (포트 3001) - 상시 실행
-moss-ao-signals  # 신호 수집기 (TEST: 10분, PROD: 30분)
-moss-ao-trends   # 트렌드 분석 (TEST: 30분, PROD: 2시간)
+moss-ao-signals  # 신호 수집기 (TEST·PROD 모두 30분 — 이 잡만 같다)
+moss-ao-trends   # 트렌드 분석 (TEST: 1시간, PROD: 2시간)
 moss-ao-debate   # 토론 스케줄러 (TEST: 1시간, PROD: 6시간)
-moss-ao-backlog  # 백로그 처리 (TEST: 30분, PROD: 4시간)
+moss-ao-backlog  # 백로그 트리아지 + 이슈 라이프사이클 (TEST: 1시간, PROD: 4시간)
 moss-ao-health   # 헬스체크 (5분마다)
 moss-ao-deploy   # 자동 배포 폴러 (5분마다, .env의 MOSS_AO_AUTO_DEPLOY=1일 때만 등록)
 
@@ -575,7 +639,7 @@ pm2 save
 - **가드**: CI 초록불일 때만 (체크 0건·`skipped`·`stale`은 초록이 아니라 **연기**;
   `DEPLOY_REQUIRE_CI_JOBS`로 필수 job까지 지정 가능) / 서버에 로컬 수정·로컬 커밋이
   있으면 중단 / 토론 실행 중이면 백엔드 배포는 다음 틱으로 연기 — **단 무한정은 아니다**:
-  스케줄러 작업이 작업별 한도(signals/trends/backlog/debate = 30/60/90/120분)를 넘겨
+  스케줄러 작업이 작업별 한도(signals/trends/backlog/debate = 20/45/90/120분)를 넘겨
   실행 중이면 busy가 아니라 **wedged**로 보고 배포를 진행한다. 이 작업들은 Ollama가
   멈춰도 죽지 않고 HTTP 대기에 앉아 `online`으로 남기 때문에, 무조건 연기하면 멈춘
   작업 하나가 배포를 영구히 막는다 (2026-08-06). 시작 시각 불명·pm2 출력 파싱 실패는
@@ -730,6 +794,15 @@ npm run dev
 ```
 
 ### 데이터베이스 스키마 변경 시
+
+> **`db/models.py` 를 고치는 것만으로는 운영 DB 에 아무 일도 일어나지 않는다.**
+> 스키마를 만드는 경로는 `ensure_schema()` → `create_tables()` →
+> `Base.metadata.create_all(bind=engine)` 하나뿐이고, `create_all` 의 기본값
+> `checkfirst=True` 는 **이미 존재하는 테이블을 통째로 건너뛴다** — 그 테이블에
+> 새로 선언한 컬럼도, `Index()` 도 함께 건너뛴다. 즉 모델에 인덱스를 추가하고
+> "성능 문제는 인덱스로 해결했다"고 적으면, 새 DB 에서만 참인 문장이 된다.
+> 기존 테이블에 무언가를 추가하려면 아래 절차나 명시적 DDL
+> (`CREATE INDEX IF NOT EXISTS ...`)을 직접 실행해야 한다.
 
 SQLite는 ALTER COLUMN을 지원하지 않으므로 테이블 재생성 필요:
 
@@ -900,15 +973,18 @@ npm run build 2>&1 | head -50  # 오류 확인
 
 ### 6. Ollama 타임아웃 오류
 
-**증상:** "Ollama timeout after 300s" 에러 발생
+**증상:** `Ollama timeout after <N>s` 에러 발생. N 은 설정값이다 —
+`throttling.ollama.request_timeout` 이 현재 **1800**(30분)이므로 로그에서
+보게 될 숫자도 그것이다. 예전 이 문서는 300 을 예로 들고 "600 으로 올려라"고
+적고 있었는데, 지금 그렇게 하면 **내리는** 것이다.
 
 **원인:** 여러 에이전트가 동시에 Ollama 요청, 쓰로틀링 큐 대기 중 타임아웃
 
-**해결:**
-- `config.yaml`의 `throttling.ollama` 설정 조정:
-  - `request_timeout: 600` (600초로 증가)
-  - `requests_before_cooling: 10` (쿨링 전 더 많은 요청 허용)
-  - `cooling_period_seconds: 60` (쿨링 시간 단축)
+**해결:** 숫자를 올리기 전에 아래 "혼잡 vs 멈춤" 진단부터 할 것. 30분을 기다려도
+안 온다면 더 기다린다고 오지 않는다.
+- 현재 값 (`config.yaml`의 `throttling.ollama`): `request_timeout: 1800`,
+  `requests_before_cooling: 10`, `cooling_period_seconds: 60`.
+  세 값 모두 이미 설정돼 있으니 "이렇게 바꿔라"의 대상이 아니다.
 - `config.yaml`의 `debate.test_mode: true`로 에이전트 수 감소
 - 사용 중인 Ollama 모델 확인: `curl "$OLLAMA_HOST/api/ps"`
 
@@ -1147,7 +1223,7 @@ GitHub 이슈는 DB의 가시성 미러일 뿐인데, 예전에는 생성만 있
 | Signal Collection | 30분마다 | RSS/API에서 신호 수집 |
 | Trend Analysis | 2시간마다 | 신호 분석 → 트렌드 생성 (Ollama) |
 | Debate | 6시간마다 | 트렌드 기반 토론 → 아이디어/플랜 자동 생성 |
-| Backlog | 4시간마다 | 처리 상태 집계/리포트 |
+| Backlog | 4시간마다 | 백로그 트리아지 + 이슈 라이프사이클 + 리텐션 |
 | Health Check | 5분마다 | 시스템 상태 확인 |
 
 ## 개발 규칙
@@ -1412,8 +1488,11 @@ project:
     # 주의: 이 스위치가 막는 것은 스케줄러의 인라인 호출 한 곳뿐이다
     # (tasks.py의 _auto_generate_project). API/버튼 경로
     # (POST /plans/{id}/generate-project)는 이 값을 읽지 않으므로 "일시정지"
-    # 상태에서도 프로젝트는 생성된다. 게다가 config.yaml을 못 읽으면 기본값
-    # enabled: True로 열린 쪽으로 실패한다.
+    # 상태에서도 프로젝트는 생성된다.
+    #
+    # config.yaml을 못 읽으면 **닫힌 쪽**으로 실패한다 (기본값 enabled: False,
+    # 그리고 실제 boolean True 만 활성화 — "true" 같은 문자열은 거부).
+    # 예전에는 열린 쪽이었고 이 주석도 그렇게 적혀 있었다.
     enabled: false
     min_score: 8.0        # 자동 생성 최소 점수
     max_concurrent: 1     # 동시 생성 제한
@@ -1425,16 +1504,27 @@ project:
   output_dir: "projects"
 ```
 
-## 향후 구현 예정 기능
+## 스케줄러에 연결되지 않은 기능
 
 ### GitHub 라벨 기반 승격 워크플로우
 
-**상태:** 구현 예정
+**두 라벨 다 소비자는 구현돼 있고, 둘 다 PM2 에서 호출되지 않는다.**
+`run_cycle` 은 수동 `ao backlog run` / `ao backlog process` 로만 도달하며,
+`moss-ao-backlog` 는 전혀 다른 함수를 돌린다.
 
 GitHub Issues에서 라벨을 추가하면 자동으로 처리:
 
-- `promote:to-plan`: Idea → Plan 자동 생성
-- `promote:to-dev`: Plan → Project 스캐폴드 생성
+- `promote:to-plan`: Idea → Plan 자동 생성 — **라벨과 소비자는 이미 구현돼 있다**
+  (`GitHubClient.find_ideas_to_promote` → `BacklogOrchestrator.run_cycle`).
+  없는 것은 **스케줄러 엔트리**다: `run_cycle` 은 수동 `ao backlog run` /
+  `ao backlog process` 에서만 도달 가능하고, PM2 의 `moss-ao-backlog` 는 전혀
+  다른 함수(`run_backlog_triage` + 이슈 라이프사이클 + 리텐션)를 돌린다.
+  라벨 자체는 승격 시 파이프라인이 자동으로 붙인다.
+- `promote:to-dev`: Plan → Project 스캐폴드 생성 — **이것도 구현돼 있다**
+  (`GitHubClient.find_plans_to_promote` → `DevScaffolder.scaffold_from_plan`,
+  같은 `run_cycle` 의 4단계). 스텁이 아니라 프로젝트 트리를 만들고 커밋하고
+  `processed:to-dev` 를 달고 이슈에 코멘트한다. 없는 것은 위와 똑같이
+  스케줄러 엔트리뿐이다.
 
 자세한 내용: `docs/labels.md`
 

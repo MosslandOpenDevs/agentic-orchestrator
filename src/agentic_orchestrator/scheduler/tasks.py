@@ -333,12 +333,46 @@ async def _analyze_trends_async():
                         "analyzed_at": analyzed_at,
                     }
                 )
+                # Commit here, not after the loop, for two reasons.
+                #
+                # The lock: `create()` flushes, which opens the SQLite write
+                # transaction, and the next iteration then awaits two
+                # translation round-trips before anything commits. The one
+                # writer lock was therefore held from the first row until
+                # after the last -- across every remaining translation of the
+                # batch. How long that is was never timed: the note above this
+                # loop estimates "a couple of seconds" per pair (so ~20s over
+                # nine pairs), while `_save_to_db` records ~15s per field for
+                # the same helper (so minutes). Either way it is unbounded by
+                # anything, and `busy_timeout` is 30 seconds. Per-row commits
+                # bound the hold to the write itself.
+                #
+                # The rollback: a failed flush locks the SQLAlchemy session,
+                # so the bare `continue` below was not recovery. The first
+                # failure turned every later row into `PendingRollbackError`
+                # and the closing commit failed with them, so the run ended in
+                # `Trend analysis failed` with a traceback and never reached
+                # its own `Saved N trends` line. Loud, then -- but it said the
+                # cycle failed, not that a finished analysis had been thrown
+                # away. That is the defect #4989 removed from `_save_to_db`,
+                # still alive here, in a job that runs twelve times a day.
+                session.commit()
                 saved_count += 1
             except Exception as e:
+                session.rollback()
                 logger.warning(f"Failed to save trend '{trend.topic}': {e}")
 
-        session.commit()
-        logger.info(f"Saved {saved_count} trends to database")
+        if analysis.trends and saved_count == 0:
+            # Now that the rollback lets the loop finish, a run in which every
+            # write failed reaches this line and would otherwise report
+            # "Saved 0 trends to database" at INFO -- quieter than the
+            # traceback it replaces. The WARNING keeps the volume.
+            logger.warning(
+                f"Saved NO trends: all {len(analysis.trends)} writes failed. "
+                "The pipeline has no fresh trends for this cycle."
+            )
+        else:
+            logger.info(f"Saved {saved_count} trends to database")
 
         duration = (utcnow() - start_time).total_seconds()
         logger.info(f"Trend analysis completed in {duration:.1f}s")
@@ -825,6 +859,7 @@ async def _auto_score_and_save_ideas(
     import uuid
 
     from ..db import IdeaRepository, PlanRepository
+    from ..db.models import OPEN_IDEA_STATUSES
     from ..scoring import IdeaScorer
     from ..translation import ContentTranslator
 
@@ -860,7 +895,7 @@ async def _auto_score_and_save_ideas(
         # With triage draining the backlog, the open count stays low and the
         # cap becomes what it reads as: an emergency valve.
         status_counts = idea_repo.count_by_status()
-        open_idea_count = sum(status_counts.get(s, 0) for s in ("scored", "pending"))
+        open_idea_count = sum(status_counts.get(s, 0) for s in OPEN_IDEA_STATUSES)
         for existing in idea_repo.get_all(limit=5000):
             fp = _idea_title_fingerprint(getattr(existing, "title", "") or "", dedup_tokens)
             if fp:
@@ -1284,6 +1319,23 @@ async def _auto_score_and_save_ideas(
                             },
                         }
                     )
+                    # Commit the plan here, not at the end of the loop.
+                    #
+                    # Durability: the idea above is already committed as
+                    # `promoted`. If the plan stays merely flushed, anything
+                    # that raises later -- including the *next* idea's scorer,
+                    # reviewer or translator, which all run before that idea
+                    # is created -- reaches the `except` below, and its
+                    # `rollback()` takes this plan with it. The result is a
+                    # promoted idea with no plan. Measured on SQLite: without
+                    # this commit the sequence "plan created, next idea's
+                    # scoring fails" ends with 1 idea and 0 plans.
+                    #
+                    # Lock hold: it also closes the write transaction before
+                    # the GitHub call and `_auto_generate_project` below, so
+                    # the one SQLite writer is not held across them. That was
+                    # the second long hold named in CLAUDE.md's table.
+                    db_session.commit()
                     logger.info(
                         f"Created {plan_status} plan for promoted idea: {idea_id} (score: {score.total:.1f})"
                     )
@@ -1328,6 +1380,16 @@ async def _auto_score_and_save_ideas(
                     logger.warning(f"Failed to create plan for idea {idea_id}: {e}")
 
         except Exception as e:
+            # Roll back before continuing, for the same reason the trends loop
+            # above does: SQLAlchemy locks a session after a failed flush, so
+            # `continue` alone leaves every later idea of this batch raising
+            # `PendingRollbackError` and takes the closing commit with it.
+            #
+            # This discards whatever is still merely flushed, which is why
+            # every row this loop means to keep is committed at its own write
+            # -- the idea above, and the plan with it. A rollback here must be
+            # able to throw away only the failed iteration's work.
+            db_session.rollback()
             logger.warning(f"Failed to score/save idea: {e}")
             continue
 
@@ -2113,7 +2175,6 @@ def process_backlog():
 
 async def _health_check_async():
     """Async implementation of health check."""
-    from ..cache import get_cache
     from ..db import get_database
     from ..llm import HybridLLMRouter
     from ..providers.ollama import OllamaProvider
@@ -2138,24 +2199,12 @@ async def _health_check_async():
             health_status["status"] = "degraded"
             logger.error(f"Database: unhealthy - {e}")
 
-        # Check cache
-        try:
-            cache = get_cache()
-            cache.set("health_check", "ok", ttl=60)
-            result = cache.get("health_check")
-            cache_health = cache.health_check()
-            if result == "ok":
-                health_status["components"]["cache"] = {
-                    "status": "healthy",
-                    "type": cache_health.get("type", "unknown"),
-                }
-                logger.info(f"Cache: healthy ({cache_health.get('type', 'unknown')})")
-            else:
-                health_status["components"]["cache"] = {"status": "degraded"}
-                logger.warning("Cache: degraded")
-        except Exception as e:
-            health_status["components"]["cache"] = {"status": "unhealthy", "error": str(e)}
-            logger.warning(f"Cache: unhealthy - {e}")
+        # No cache probe. It wrote a key into a per-process dict, read the same
+        # key back, and reported "healthy" -- a dict testing itself. It also
+        # discarded the only real verdict available: the cache reports
+        # "fallback" (there is no redis dependency and never has been) and this
+        # kept the `type` while logging "Cache: healthy". The cache had no
+        # consumers, so it has been removed entirely.
 
         # Check Ollama
         try:
@@ -2216,12 +2265,12 @@ async def _health_check_async():
         # Log final status
         logger.info(f"Health check completed: {health_status['status']}")
 
-        # Store health status in cache
-        try:
-            cache = get_cache()
-            cache.set("system_health", health_status, ttl=300)
-        except Exception:
-            pass
+        # The result used to be written to the cache under "system_health".
+        # Nothing ever read it, and nothing could have: this job is
+        # `autorestart: false` + `cron_restart`, so the process exits as soon as
+        # it finishes and takes its in-memory dict with it. The API is a
+        # separate process -- the same structural trap that made `last_fetch`
+        # permanently null on /adapters. The log is the output.
 
     except Exception as e:
         logger.error(f"Health check failed: {e}", exc_info=True)

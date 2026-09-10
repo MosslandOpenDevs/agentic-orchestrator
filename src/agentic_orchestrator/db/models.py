@@ -25,7 +25,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
 from ..pathutil import public_project_path
-from ..timeutil import utcnow
+from ..timeutil import utc_iso, utcnow
 
 Base = declarative_base()
 
@@ -105,6 +105,31 @@ class ProjectStatus(str, enum.Enum):
 COMPLETED_PROJECT_STATUSES = ("ready", "ready_with_warnings")
 
 
+# Ideas the pipeline has not decided about yet.
+#
+# Every other status the pipeline writes IS a decision: "promoted" went
+# forward, "archived" went away, and "duplicate" -- written by the debate
+# cycle's clustering gate, and deliberately absent from IdeaStatus above -- is
+# a linked sibling that was never a candidate. The remaining enum members
+# ("in_debate", "selected", "rejected", "planned") are read but never written
+# by any scheduled path, so they are not part of the partition today; adding
+# one means deciding which side it falls on, not just widening a tuple.
+#
+# "pending" is the legacy pre-scoring status: it survives only as the column
+# default, but old rows still have to drain.
+#
+# This exists because the count is now asked three times -- the GitHub mirror
+# cap, backlog triage, and /status -- and a lifetime COUNT(*) under the word
+# "active" was off by two orders of magnitude (3,282 shown, 24 actually open).
+OPEN_IDEA_STATUSES = ("pending", "scored")
+
+# Plans still waiting on a decision. "approved" is decided -- it is what
+# unlocks project generation -- and "rejected" is terminal. Nothing writes
+# "review" today; it is counted because the enum defines it as non-terminal,
+# so the number stays right the day something does.
+OPEN_PLAN_STATUSES = ("draft", "review")
+
+
 class LogLevel(str, enum.Enum):
     DEBUG = "debug"
     INFO = "info"
@@ -160,7 +185,7 @@ class Signal(Base):
             "sentiment": self.sentiment,
             "topics": self.topics or [],
             "entities": self.entities or [],
-            "collected_at": self.collected_at.isoformat() if self.collected_at else None,
+            "collected_at": utc_iso(self.collected_at),
         }
 
 
@@ -200,7 +225,7 @@ class Trend(Base):
             "signal_count": self.signal_count,
             "category": self.category,
             "keywords": self.keywords or [],
-            "analyzed_at": self.analyzed_at.isoformat() if self.analyzed_at else None,
+            "analyzed_at": utc_iso(self.analyzed_at),
             # Rich analysis data
             "web3_relevance": analysis.get("web3_relevance", ""),
             "idea_seeds": analysis.get("idea_seeds", []),
@@ -257,7 +282,7 @@ class Idea(Base):
             "score": self.score,
             "debate_session_id": self.debate_session_id,
             "github_issue_url": self.github_issue_url,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": utc_iso(self.created_at),
         }
 
 
@@ -318,8 +343,8 @@ class DebateSession(Base):
             "ideas_generated": self.ideas_generated or [],
             "total_tokens": self.total_tokens,
             "total_cost": self.total_cost,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "started_at": utc_iso(self.started_at),
+            "completed_at": utc_iso(self.completed_at),
             "message_count": message_count if message_count is not None else 0,
         }
 
@@ -355,7 +380,7 @@ class DebateMessage(Base):
             "message_type": self.message_type,
             "content": self.content,
             "content_ko": self.content_ko,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": utc_iso(self.created_at),
         }
 
 
@@ -404,7 +429,7 @@ class Plan(Base):
             "final_plan": self.final_plan,
             "final_plan_ko": self.final_plan_ko,
             "github_issue_url": self.github_issue_url,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": utc_iso(self.created_at),
         }
 
 
@@ -443,8 +468,8 @@ class Project(Base):
             "status": self.status,
             "files_generated": self.files_generated,
             "generation_log": self.generation_log,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "created_at": utc_iso(self.created_at),
+            "completed_at": utc_iso(self.completed_at),
         }
 
 
@@ -471,6 +496,12 @@ class APIUsage(Base):
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
+            # The one field in this module that must NOT go through utc_iso():
+            # ``date`` is a Date, not a DateTime, and a calendar day has no
+            # instant to mark. utc_iso() would not even produce a bad string --
+            # it reads ``.tzinfo``, which a date does not have, so it raises.
+            # The same date-only value ships from get_usage_history() in
+            # db/repositories.py; keep both plain.
             "date": self.date.isoformat() if self.date else None,
             "provider": self.provider,
             "model": self.model,
@@ -503,7 +534,7 @@ class SystemLog(Base):
             "source": self.source,
             "message": self.message,
             "details": self.details,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": utc_iso(self.created_at),
         }
 
 
@@ -532,7 +563,7 @@ class AgentState(Base):
             "handle": self.handle,
             "status": self.status,
             "current_task": self.current_task,
-            "last_active_at": self.last_active_at.isoformat() if self.last_active_at else None,
+            "last_active_at": utc_iso(self.last_active_at),
             "total_messages": self.total_messages,
             "total_tokens": self.total_tokens,
         }

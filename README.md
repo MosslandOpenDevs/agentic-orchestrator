@@ -237,7 +237,8 @@ subset across these axes is what stops it from being eight agents of one tempera
 
 ## Signal Sources
 
-Twelve adapters feed the collector, all configured in `config.yaml`. **Auth** names the
+Twelve adapters are registered; **eleven feed the collector** — `Twitter / X` was switched
+off on 2026-09-10 (see below). All are configured in `config.yaml`. **Auth** names the
 credential an adapter needs; `—` means it works with no credential at all.
 
 | Adapter | What it pulls | Tracked scope | Auth |
@@ -245,9 +246,9 @@ credential an adapter needs; `—` means it works with no credential at all.
 | RSS | Feed articles across AI, Crypto, Finance, Security, Dev | 31 active feeds (listed below) | — |
 | GitHub Events | Repository activity, trending projects, issue and PR analysis | — | — |
 | On-Chain | Whale transaction alerts, DEX volume and stablecoin flows (DefiLlama), DeFi protocol metrics | — | — |
-| Social Media | Reddit posts and X posts via Nitter RSS, community sentiment analysis | 11 subreddits | — |
+| Social Media | Reddit posts, community sentiment analysis | 11 subreddits | — |
 | News API | Real-time news aggregation, keyword-based filtering | — | — |
-| Twitter / X | Account timelines via a Nitter RSS instance pool | 19 accounts (incl. `MosslandMOC`) | `TWITTER_BEARER_TOKEN` (optional — adds API v2 keyword search) |
+| Twitter / X | Account timelines via a Nitter RSS instance pool — **disabled 2026-09-10**: every mirror in the pool is gone and it stored no rows in 30 days | 19 accounts (incl. `MosslandMOC`) | `TWITTER_BEARER_TOKEN` (optional — adds API v2 keyword search; not enough on its own to revive it) |
 | Discord | Announcement-channel messages | 7 servers (Ethereum, Polygon, Arbitrum, Optimism, Aave, Uniswap, OpenAI) | `DISCORD_BOT_TOKEN` |
 | Lens Protocol | GraphQL API — popular publications, profile posts, trending topics | 10 profiles | — |
 | Farcaster | Casts via the Neynar API, Warpcast public API fallback | 10 users, 10 channels | `NEYNAR_API_KEY` |
@@ -295,7 +296,6 @@ agentic-orchestrator/
 │   │                        #   farcaster, coingecko, threads, signalmap
 │   ├── api/                 # FastAPI backend
 │   │   └── main.py
-│   ├── cache/               # Caching layer
 │   ├── db/                  # Database models, repositories & rolling backups
 │   ├── debate/              # Multi-stage debate system
 │   │   ├── protocol.py

@@ -2,7 +2,10 @@
 
 이 문서는 MOSS.AO에서 생성된 프로젝트를 관리하는 방법을 설명합니다.
 
-> **상태**: 이 기능은 구현 예정입니다. 현재 `projects/` 폴더는 비어 있습니다.
+> **상태**: 구현돼 있습니다 (`project/scaffold.py`,
+> `POST /plans/{id}/generate-project`). 일시정지된 것은 스케줄러의 인라인
+> 자동 생성 한 곳뿐입니다 (`project.auto_generate.enabled: false`).
+> 저장소의 `projects/` 폴더가 비어 있는 것은 생성물을 커밋하지 않기 때문입니다.
 
 ## 개요
 
@@ -11,7 +14,8 @@ MOSS.AO의 핵심 파이프라인:
 ```
 Signals → Trends → Debate → Ideas → Plans → Projects
                                               ↑
-                                         (구현 예정)
+                                    (스케줄러 자동 생성만 일시정지;
+                                     API·버튼 경로는 동작)
 ```
 
 Plan이 승인되면 `projects/` 폴더에 실제 프로젝트 스캐폴드가 자동 생성됩니다.

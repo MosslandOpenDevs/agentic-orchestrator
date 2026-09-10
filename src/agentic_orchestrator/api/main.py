@@ -341,20 +341,51 @@ async def system_status(session: Session = Depends(get_session)):
     ``status="degraded"`` with zeroed stats instead of a 500, so external
     monitors (e.g. the moss.land governance widget, which consumes
     ``stats.agents_active/ideas_generated/debates_today``) keep working.
+
+    Fields are only ever ADDED here, never renamed or removed: this endpoint is
+    what the links.moss.land registry points at for this service, and its
+    readers are not all enumerable from inside this repository.
     """
 
-    from sqlalchemy import func
+    from sqlalchemy import case, func
 
-    from ..db.models import DebateSession, Idea, Plan, Signal
+    from ..db.models import (
+        OPEN_IDEA_STATUSES,
+        OPEN_PLAN_STATUSES,
+        DebateSession,
+        Idea,
+        Plan,
+        Signal,
+    )
 
     # Calculate real stats
-    today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    now = utcnow()
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    last_24h = now - timedelta(hours=24)
 
     stats = {
+        # Since 00:00 UTC. Kept because it is published and named honestly;
+        # note that it is not a throughput figure -- just after midnight UTC
+        # (09:00 KST) it collapses to near zero while the pipeline is running
+        # perfectly, and a consumer that labels it "24h" is off by ~6x.
         "signals_today": 0,
         "debates_today": 0,
+        # The rolling window, and the field name says which window it is.
+        # A reader asking "is this running" needs a figure that measures 24
+        # hours rather than a label that claims to.
+        "signals_24h": 0,
+        "debates_24h": 0,
+        # Lifetime totals. Ideas and plans are never deleted, so these only
+        # grow and say nothing about what the backlog is holding.
         "ideas_generated": 0,
         "plans_created": 0,
+        # ...which is what these are for. Measured 2026-09-09, 3,282 ideas had
+        # ever been created and 24 were still open; a dashboard rendering the
+        # first figure under the word "Active" was wrong by two orders of
+        # magnitude. The partition lives in db.models beside the status
+        # vocabulary it splits.
+        "ideas_open": 0,
+        "plans_open": 0,
         # Persona-count constant, not DB-derived; stays meaningful when degraded.
         "agents_active": 34,
         # When the pipeline last actually did something. Cumulative counts do
@@ -365,18 +396,50 @@ async def system_status(session: Session = Depends(get_session)):
         "last_signal_at": None,
     }
     try:
-        stats["signals_today"] = (
-            session.query(func.count(Signal.id)).filter(Signal.collected_at >= today).scalar() or 0
-        )
-        stats["debates_today"] = (
-            session.query(func.count(DebateSession.id))
-            .filter(DebateSession.started_at >= today)
-            .scalar()
-            or 0
-        )
+        # One pass over `signals` for all three figures rather than three.
+        # This endpoint is public, uncached, and polled every 30s per open
+        # dashboard tab; `/adapters` computes its own 24h window the same way
+        # (a single `case()` aggregate) but behind a 60-second cache, so the
+        # shape is borrowed and the cost is not.
+        #
+        # Two clocks, on purpose, and the difference is the point:
+        #   signals_24h  -> created_at, when AO wrote the row. This is the
+        #     ingest question, and it is the column `/adapters` already
+        #     publishes under this exact field name. One name, one meaning,
+        #     across the API.
+        #   signals_today / last_signal_at -> collected_at, the upstream event
+        #     time. Both are already published; changing what an existing
+        #     field measures is not something to do silently, and this change
+        #     adds fields rather than redefining them.
+        # They differ only for SignalMap, which deliberately sets collected_at
+        # to the upstream event time (docs/signalmap.md) -- measured 2026-09-09
+        # the two disagreed for that source by 45% over 24 hours.
+        signals_today, signals_24h, newest = session.query(
+            func.sum(case((Signal.collected_at >= today, 1), else_=0)),
+            func.sum(case((Signal.created_at >= last_24h, 1), else_=0)),
+            func.max(Signal.collected_at),
+        ).one()
+        stats["signals_today"] = int(signals_today or 0)
+        stats["signals_24h"] = int(signals_24h or 0)
+        stats["last_signal_at"] = utc_iso(newest)
+
+        debates_today, debates_24h = session.query(
+            func.sum(case((DebateSession.started_at >= today, 1), else_=0)),
+            func.sum(case((DebateSession.started_at >= last_24h, 1), else_=0)),
+        ).one()
+        stats["debates_today"] = int(debates_today or 0)
+        stats["debates_24h"] = int(debates_24h or 0)
+
         stats["ideas_generated"] = session.query(func.count(Idea.id)).scalar() or 0
         stats["plans_created"] = session.query(func.count(Plan.id)).scalar() or 0
-        stats["last_signal_at"] = utc_iso(session.query(func.max(Signal.collected_at)).scalar())
+        stats["ideas_open"] = (
+            session.query(func.count(Idea.id)).filter(Idea.status.in_(OPEN_IDEA_STATUSES)).scalar()
+            or 0
+        )
+        stats["plans_open"] = (
+            session.query(func.count(Plan.id)).filter(Plan.status.in_(OPEN_PLAN_STATUSES)).scalar()
+            or 0
+        )
 
         # The stat queries above are the real probe (they fail on a missing
         # schema, which the bare "SELECT 1" health check does not detect);
@@ -412,12 +475,14 @@ async def system_status(session: Session = Depends(get_session)):
             # "api" is honest by construction: this handler answered.
             "api": {"status": "healthy"},
             "database": {"status": "healthy" if db_healthy else "unhealthy"},
-            # These two were reported as healthy unconditionally -- nothing
-            # here probes a cache or the LLM router, and this endpoint is
-            # public and hot, so it must not start making network calls to
-            # find out. "unknown" is what we actually know; the scheduler's
-            # 5-minute health check is what measures the router.
-            "cache": {"status": "unknown"},
+            # There is no "cache" component here any more, and there is
+            # nothing to put back: the only cache in the process tree was an
+            # in-memory dict with no consumers, and it has been removed. It
+            # reported "unknown" for as long as it existed -- honest, but a
+            # component that can only ever refuse to answer is not a
+            # component. The llm_router below reports config-level state,
+            # which needs no probe; this endpoint is public and hot and must
+            # not start making network calls to find out anything.
             # Config-level, not a live probe: this endpoint is public and hot,
             # so it still must not make network calls. What it *can* answer for
             # free is whether a paid tier could bill anything at all — the
@@ -515,7 +580,7 @@ async def get_signals_timeline(
         "slots": slots,
         "total": total,
         "period": period,
-        "timestamp": now.isoformat(),
+        "timestamp": utc_iso(now),
     }
 
 
@@ -531,21 +596,12 @@ async def get_signal_detail(
     if not signal:
         raise HTTPException(status_code=404, detail="Signal not found")
 
-    return {
-        "id": signal.id,
-        "source": signal.source,
-        "category": signal.category,
-        "title": signal.title,
-        "title_ko": signal.title_ko,
-        "summary": signal.summary,
-        "summary_ko": signal.summary_ko,
-        "url": signal.url,
-        "score": signal.score,
-        "sentiment": signal.sentiment,
-        "topics": signal.topics or [],
-        "entities": signal.entities or [],
-        "collected_at": signal.collected_at.isoformat() if signal.collected_at else None,
-    }
+    # Delegated, not hand-copied. This body spelled out the same thirteen keys
+    # in the same order as ``Signal.to_dict()``. The two never actually
+    # diverged -- but the rule had to be remembered in two places to keep it
+    # that way, and the UTC-marker change is the first one that would have
+    # split them. One definition, one place to get it wrong.
+    return signal.to_dict()
 
 
 @app.get("/signals")
@@ -569,6 +625,12 @@ async def get_signals(
         source=source,
         category=category,
         min_score=min_score,
+        # A list, so "recent" means newest-first. The repository default is
+        # best-scoring-first, which three scheduler callers depend on; see its
+        # docstring. This endpoint feeds the Signal Explorer and
+        # PipelineDetail's "Recent Signals" panel, both of which were showing
+        # the window's highest-scoring row rather than its newest.
+        newest_first=True,
     )
 
     # Get total count for pagination info
@@ -1008,8 +1070,8 @@ async def get_plan_detail(
         "final_plan": plan.final_plan,
         "final_plan_ko": getattr(plan, "final_plan_ko", None),
         "github_issue_url": plan.github_issue_url,
-        "created_at": plan.created_at.isoformat() if plan.created_at else None,
-        "updated_at": plan.updated_at.isoformat() if plan.updated_at else None,
+        "created_at": utc_iso(plan.created_at),
+        "updated_at": utc_iso(plan.updated_at),
     }
 
 
@@ -1256,7 +1318,8 @@ def _signal_yield_by_source(session: Session) -> Optional[Dict[str, Dict[str, An
     response to a feed that has gone empty is
     indistinguishable from a healthy one, and four of the twelve adapters
     (twitter, discord, lens, farcaster) have stored nothing in the 30 days
-    this table retains while all four report themselves enabled.
+    this table retains. Three of them still report themselves enabled; twitter
+    was switched off on 2026-09-10 on the strength of this measurement.
 
     Measured on ``created_at`` (when AO wrote the row), NOT ``collected_at``.
     For every adapter but one the two are the same, but SignalMap deliberately
@@ -1550,7 +1613,15 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
 
     from sqlalchemy import desc, func
 
-    from ..db.models import DebateSession, Idea, Plan, Project, Signal, Trend
+    from ..db.models import (
+        DebateSession,
+        DebateSessionStatus,
+        Idea,
+        Plan,
+        Project,
+        Signal,
+        Trend,
+    )
 
     now = utcnow()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -1614,10 +1685,28 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
             }
         )
 
-    # Active debates
+    # Active debates. The literal used to be "in-progress", which nothing has
+    # ever written: the scheduler writes "active" and DebateSessionStatus.ACTIVE
+    # is "active", so this filter matched zero rows on every call and the
+    # "processing now" list silently never mentioned a debate -- including
+    # during the ~15 minutes every six hours when one is the only thing the
+    # system is doing. The frontend found and fixed its own copy of this same
+    # wrong literal (website/src/app/transparency/debates/page.tsx); the
+    # backend kept it.
     active_debates = (
         session.query(DebateSession)
-        .filter(DebateSession.status == "in-progress")
+        .filter(
+            DebateSession.status == DebateSessionStatus.ACTIVE.value,
+            # Same 90-minute bound the debate task's own startup recovery
+            # sweep uses to mark orphans failed. A SIGKILLed debate stays
+            # `active` until the next 6-hourly cycle sweeps it, and the item
+            # rendered here carries no timestamp (`time_ago` is the round
+            # counter), so without this an orphan is indistinguishable from a
+            # live debate on a list titled "processing now". This filter was
+            # unreachable before the literal above was fixed; fixing it is
+            # what makes the bound necessary.
+            DebateSession.started_at >= now - timedelta(minutes=90),
+        )
         .order_by(desc(DebateSession.started_at))
         .limit(2)
         .all()
@@ -1715,7 +1804,7 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
             "plans_to_projects": round(plans_to_projects, 1),
         },
         "processing": processing[:5],  # Limit to 5 items
-        "timestamp": now.isoformat(),
+        "timestamp": utc_iso(now),
     }
 
 
@@ -1805,7 +1894,7 @@ async def _generate_project_task(
     from ..project import ProjectScaffold
 
     _project_jobs[job_id]["status"] = "in_progress"
-    _project_jobs[job_id]["started_at"] = utcnow().isoformat()
+    _project_jobs[job_id]["started_at"] = utc_iso(utcnow())
     _save_jobs()
 
     session = None
@@ -1830,7 +1919,7 @@ async def _generate_project_task(
 
         # Update job status
         _project_jobs[job_id]["status"] = "completed" if result.success else "failed"
-        _project_jobs[job_id]["completed_at"] = utcnow().isoformat()
+        _project_jobs[job_id]["completed_at"] = utc_iso(utcnow())
         _project_jobs[job_id]["result"] = result.to_dict()
         _save_jobs()
 
@@ -1844,7 +1933,7 @@ async def _generate_project_task(
         if session is not None:
             session.rollback()
         _project_jobs[job_id]["status"] = "failed"
-        _project_jobs[job_id]["completed_at"] = utcnow().isoformat()
+        _project_jobs[job_id]["completed_at"] = utc_iso(utcnow())
         # GET /jobs/{id} returns this dict verbatim and is unauthenticated;
         # an OSError here carries the absolute path it failed on.
         _project_jobs[job_id]["error"] = redact_paths(str(e))
@@ -1911,7 +2000,7 @@ async def generate_project(
         "job_id": job_id,
         "plan_id": plan_id,
         "status": "pending",
-        "created_at": utcnow().isoformat(),
+        "created_at": utc_iso(utcnow()),
     }
 
     # Start background task
@@ -2072,7 +2161,7 @@ async def approve_plan(
                     "job_id": job_id,
                     "plan_id": plan_id,
                     "status": "pending",
-                    "created_at": utcnow().isoformat(),
+                    "created_at": utc_iso(utcnow()),
                 }
                 if background_tasks:
                     background_tasks.add_task(_generate_project_task, job_id, plan_id, False)
@@ -2103,6 +2192,12 @@ async def approve_plan(
     plan.extra_metadata = {
         **(plan.extra_metadata or {}),
         "manually_approved": True,
+        # Left unmarked on purpose, unlike every other instant in this module:
+        # this one is stored, not published. It goes into a JSON column that no
+        # response emits -- Plan.to_dict() does not include extra_metadata, and
+        # /plans/pending-approval reads named scalar keys out of it. A sweep
+        # that "finishes the job" here would change a stored value, not a
+        # published one.
         "approved_at": utcnow().isoformat(),
     }
     session.commit()
@@ -2117,7 +2212,7 @@ async def approve_plan(
             "job_id": job_id,
             "plan_id": plan_id,
             "status": "pending",
-            "created_at": utcnow().isoformat(),
+            "created_at": utc_iso(utcnow()),
         }
         if background_tasks:
             background_tasks.add_task(_generate_project_task, job_id, plan_id, False)

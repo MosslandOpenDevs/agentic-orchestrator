@@ -61,6 +61,15 @@ export function Pipeline({ stages, status = 'unknown' }: PipelineProps) {
       text: 'text-[#39ff14]',
       glow: 'shadow-[0_0_15px_rgba(57,255,20,0.3)]',
     },
+    // Holding undecided work, but nothing is running it. Yellow rather than
+    // green: the pipeline has a backlog here, which is not the same claim as
+    // "this stage is working right now".
+    pending: {
+      border: 'border-[#f1fa8c]',
+      bg: 'bg-[#f1fa8c]/5',
+      text: 'text-[#f1fa8c]',
+      glow: '',
+    },
     completed: {
       border: 'border-[#8b949e]',
       bg: 'bg-[#21262d]',
@@ -81,35 +90,35 @@ export function Pipeline({ stages, status = 'unknown' }: PipelineProps) {
       id: 'signals',
       name: 'Signals',
       count: liveData.stages.signals.count,
-      status: liveData.stages.signals.status as 'active' | 'completed' | 'idle',
+      status: liveData.stages.signals.status as PipelineStage['status'],
       rate: liveData.stages.signals.rate,
     },
     {
       id: 'trends',
       name: 'Trends',
       count: liveData.stages.trends.count,
-      status: liveData.stages.trends.status as 'active' | 'completed' | 'idle',
+      status: liveData.stages.trends.status as PipelineStage['status'],
       rate: liveData.stages.trends.rate,
     },
     {
       id: 'ideas',
       name: 'Ideas',
       count: liveData.stages.ideas.count,
-      status: liveData.stages.ideas.status as 'active' | 'completed' | 'idle',
+      status: liveData.stages.ideas.status as PipelineStage['status'],
       rate: liveData.stages.ideas.rate,
     },
     {
       id: 'plans',
       name: 'Plans',
       count: liveData.stages.plans.count,
-      status: liveData.stages.plans.status as 'active' | 'completed' | 'idle',
+      status: liveData.stages.plans.status as PipelineStage['status'],
       rate: liveData.stages.plans.rate,
     },
     {
       id: 'projects',
       name: 'Projects',
       count: liveData.stages.projects?.count || 0,
-      status: (liveData.stages.projects?.status || 'idle') as 'active' | 'completed' | 'idle',
+      status: (liveData.stages.projects?.status || 'idle') as PipelineStage['status'],
       rate: liveData.stages.projects?.rate || '',
     },
   ] : [...stages.map(s => ({ ...s, rate: '' })), { id: 'projects', name: 'Projects', count: 0, status: 'idle' as const, rate: '' }];

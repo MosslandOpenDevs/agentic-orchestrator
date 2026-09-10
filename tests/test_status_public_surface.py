@@ -18,7 +18,7 @@ All three are easy to lose in a refactor and none of them fails loudly, so they
 are pinned here.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 import agentic_orchestrator.api.main as api_main
 from agentic_orchestrator.api.main import _public_router_view, app
 from agentic_orchestrator.db.connection import Database
+from agentic_orchestrator.timeutil import utcnow
 
 
 def _report(**tier_overrides):
@@ -210,6 +211,19 @@ def tableless_client(tmp_path, monkeypatch):
     return TestClient(app)
 
 
+def _parse_marked_utc(value):
+    """Assert the string says it is UTC, and return the instant it names.
+
+    Split out of the near-now check below because the two questions come apart:
+    a response-generation stamp must be marked *and* recent, while a stored
+    row's timestamp must be marked and equal to what was stored — which is a
+    stronger check, and would fail a near-now assertion by construction.
+    """
+    assert isinstance(value, str), f"not a timestamp: {value!r}"
+    assert value.endswith("Z"), f"no UTC marker: {value!r}"
+    return datetime.fromisoformat(value[:-1] + "+00:00")
+
+
 class TestPublishedInstantsCarryTheUTCMarker:
     """Property 3, checked on real responses rather than on the source.
 
@@ -223,11 +237,9 @@ class TestPublishedInstantsCarryTheUTCMarker:
 
     @staticmethod
     def _assert_marked_utc(value):
-        assert isinstance(value, str), f"not a timestamp: {value!r}"
-        assert value.endswith("Z"), f"no UTC marker: {value!r}"
         # Marked *and* meant: it has to parse as an instant near now, not be a
         # local time with a "Z" stapled onto it.
-        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+        parsed = _parse_marked_utc(value)
         drift = abs((datetime.now(timezone.utc) - parsed).total_seconds())
         assert drift < 300, f"{value!r} is {drift:.0f}s away from now"
 
@@ -247,3 +259,339 @@ class TestPublishedInstantsCarryTheUTCMarker:
 
         assert body["status"] == "degraded"
         self._assert_marked_utc(body["timestamp"])
+
+
+@pytest.fixture
+def seeded_client(tmp_path, monkeypatch):
+    """A client over a database holding one row of every model the API serves.
+
+    Every timestamp is deliberately NOT "now": these are stored instants, and
+    the property under test is that the value survives the round trip meaning
+    the same moment it meant going in. A near-now assertion would pass on a
+    serializer that ignored the column entirely.
+    """
+    from agentic_orchestrator.db.models import (
+        APIUsage,
+        DebateMessage,
+        DebateSession,
+        Idea,
+        Plan,
+        Project,
+        Signal,
+        Trend,
+    )
+
+    db = Database(f"sqlite:///{tmp_path / 'seeded.db'}")
+    db.create_tables()
+
+    # Relative, not a literal date. It only has to be distinguishable from
+    # "now" -- ``_assert_is`` compares the returned instant to it exactly, so a
+    # serializer that ignored the column still fails. A fixed 2026-09-09 would
+    # have fallen out of ``/signals?hours=720`` (the widest window the endpoint
+    # accepts) 30 days after it was written, turning CI red and, per CLAUDE.md,
+    # stopping every deploy.
+    stamp = utcnow().replace(microsecond=117534) - timedelta(hours=1)
+    session = db.get_session()
+    session.add(
+        Signal(
+            id="sig-1",
+            source="rss",
+            category="ai",
+            title="A seeded signal with a title long enough to look real",
+            collected_at=stamp,
+            created_at=stamp,
+        )
+    )
+    session.add(
+        Trend(id="trend-1", period="24h", name="A seeded trend", score=8.0, analyzed_at=stamp)
+    )
+    session.add(
+        Idea(
+            id="idea-1",
+            title="A seeded idea",
+            summary="A seeded idea summary",
+            source_type="debate",
+            created_at=stamp,
+        )
+    )
+    session.add(
+        DebateSession(
+            id="debate-1",
+            phase="divergence",
+            topic="A seeded debate topic",
+            started_at=stamp,
+            completed_at=stamp,
+        )
+    )
+    session.add(
+        DebateMessage(
+            id="msg-1",
+            session_id="debate-1",
+            agent_id="a1",
+            agent_name="Agent One",
+            message_type="propose",
+            content="A seeded message",
+            created_at=stamp,
+        )
+    )
+    session.add(
+        Plan(
+            id="plan-1", idea_id="idea-1", title="A seeded plan", created_at=stamp, updated_at=stamp
+        )
+    )
+    session.add(
+        Project(
+            id="project-1",
+            plan_id="plan-1",
+            name="seeded-project",
+            created_at=stamp,
+            completed_at=stamp,
+        )
+    )
+    # A ledger row, so /usage's history has something to publish. Its `date` is
+    # a calendar day rather than an instant and is the one field on the public
+    # surface that must NOT carry a UTC marker.
+    #
+    # `date.today()`, not a literal: /usage looks back seven days by default,
+    # so a fixed date drops out of the window a week after it is written and
+    # `assert history` starts failing -- turning CI red and, per CLAUDE.md,
+    # stopping every deploy. `date.today()` is also exactly what the production
+    # writer uses (db/repositories.py), so this row is shaped like a real one.
+    session.add(
+        APIUsage(
+            id="usage-1",
+            date=date.today(),
+            provider="openai",
+            model="seeded-model",
+            input_tokens=100,
+            output_tokens=10,
+            cost_usd=0.01,
+            request_count=1,
+        )
+    )
+    session.commit()
+    session.close()
+
+    monkeypatch.setattr(api_main, "get_db", lambda: db)
+    return TestClient(app), stamp
+
+
+class TestStoredInstantsCarryTheUTCMarkerToo:
+    """The same property, on the endpoints that publish rows rather than "now".
+
+    ``/status`` was made correct by #5002; every list endpoint was not, because
+    the rule lived at the six call sites that answer a monitor rather than in
+    ``to_dict()``, where the rows are actually serialised. Those are the
+    timestamps the dashboard renders — a signal's ``collected_at`` is what the
+    front-page banner ages — so this is where the nine-hour skew was visible.
+
+    Checked through the real endpoints, and checked for *meaning*: the instant
+    that comes back has to be the instant that went in. Stapling a "Z" onto a
+    naive local time would satisfy the marker and fail here.
+    """
+
+    @staticmethod
+    def _assert_is(value, stamp):
+        parsed = _parse_marked_utc(value)
+        assert parsed == stamp.replace(tzinfo=timezone.utc), f"{value!r} is not {stamp}"
+
+    def test_signals_list(self, seeded_client):
+        client, stamp = seeded_client
+        body = client.get("/signals?hours=720").json()
+        self._assert_is(body["signals"][0]["collected_at"], stamp)
+
+    def test_signal_detail(self, seeded_client):
+        """Guards the delegation: this handler used to hand-copy to_dict()."""
+        client, stamp = seeded_client
+        self._assert_is(client.get("/signals/sig-1").json()["collected_at"], stamp)
+
+    def test_trends(self, seeded_client):
+        client, stamp = seeded_client
+        self._assert_is(client.get("/trends").json()["trends"][0]["analyzed_at"], stamp)
+
+    def test_ideas(self, seeded_client):
+        client, stamp = seeded_client
+        self._assert_is(client.get("/ideas").json()["ideas"][0]["created_at"], stamp)
+
+    def test_debates(self, seeded_client):
+        client, stamp = seeded_client
+        debate = client.get("/debates").json()["debates"][0]
+        self._assert_is(debate["started_at"], stamp)
+        self._assert_is(debate["completed_at"], stamp)
+
+    def test_debate_messages(self, seeded_client):
+        client, stamp = seeded_client
+        body = client.get("/debates/debate-1").json()
+        self._assert_is(body["messages"][0]["created_at"], stamp)
+
+    def test_plans(self, seeded_client):
+        client, stamp = seeded_client
+        self._assert_is(client.get("/plans").json()["plans"][0]["created_at"], stamp)
+
+    def test_plan_detail(self, seeded_client):
+        client, stamp = seeded_client
+        body = client.get("/plans/plan-1").json()
+        self._assert_is(body["created_at"], stamp)
+        self._assert_is(body["updated_at"], stamp)
+
+    def test_projects(self, seeded_client):
+        client, stamp = seeded_client
+        project = client.get("/projects").json()["projects"][0]
+        self._assert_is(project["created_at"], stamp)
+        self._assert_is(project["completed_at"], stamp)
+
+    def test_signals_timeline(self, seeded_client):
+        client, _ = seeded_client
+        body = client.get("/signals/timeline").json()
+        TestPublishedInstantsCarryTheUTCMarker._assert_marked_utc(body["timestamp"])
+
+    def test_pipeline_live(self, seeded_client):
+        client, _ = seeded_client
+        body = client.get("/pipeline/live").json()
+        TestPublishedInstantsCarryTheUTCMarker._assert_marked_utc(body["timestamp"])
+
+
+class TestTheOneFieldThatMustStayUnmarked:
+    """``/usage`` history rows carry a calendar date, not an instant.
+
+    A date has no moment to mark, and ``utc_iso`` does not merely produce a
+    wrong string for one — it reads ``.tzinfo``, which a ``date`` does not
+    have, and raises. This is pinned so the next grep-driven sweep over
+    ``.isoformat()`` does not "finish the job" and 500 the endpoint.
+    """
+
+    def test_usage_history_dates_are_plain_calendar_days(self, seeded_client):
+        """Seeded, because an empty ledger makes this test assert nothing.
+
+        The first version of it iterated ``/usage``'s history over a database
+        with no rows: the loop body never ran, and the sweep it was written to
+        catch -- ``utc_iso`` applied to the two date-only sites -- left the
+        whole suite green while ``/usage`` returned 500.
+        """
+        import re
+
+        client, _ = seeded_client
+        response = client.get("/usage")
+
+        assert response.status_code == 200
+        history = response.json()["history"]
+        assert history, "the fixture is not exercising the path it claims to"
+        for row in history:
+            assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", row["date"]), row["date"]
+
+    def test_utc_iso_is_not_applicable_to_a_date(self):
+        from datetime import date
+
+        from agentic_orchestrator.timeutil import utc_iso
+
+        with pytest.raises(AttributeError):
+            utc_iso(date(2026, 9, 10))
+
+
+class TestTheCacheComponentIsGone:
+    """``components.cache`` reported ``"unknown"`` for as long as it existed.
+
+    It was honest -- this endpoint is public and hot and must not start probing
+    to find out -- but it described a subsystem with no consumers: an in-memory
+    dict, per process, that nothing but a self-testing health probe ever
+    touched. The 5-minute health job wrote a key, read the same key back, and
+    logged "Cache: healthy" while the cache's own ``health_check()`` said
+    ``"fallback"``, then stored its verdict into that same per-process dict and
+    exited (the job is ``autorestart: false`` + ``cron_restart``), so nothing
+    could ever read it -- the same structural trap that kept ``last_fetch``
+    permanently null on ``/adapters``.
+
+    The package is deleted. A component that can only refuse to answer, about
+    something that no longer exists, is not a component.
+    """
+
+    def test_status_publishes_no_cache_component(self, served_client):
+        assert "cache" not in served_client.get("/status").json()["components"]
+
+    def test_the_components_that_do_mean_something_are_still_there(self, served_client):
+        components = served_client.get("/status").json()["components"]
+        for name in ("api", "database", "llm_router", "signal_feed"):
+            assert name in components, name
+
+    def test_nothing_imports_the_cache_package(self):
+        """Enforced by Python once the package is gone; asserted so that a
+        re-add has to be a decision rather than an autocomplete."""
+        import importlib
+
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module("agentic_orchestrator.cache")
+
+
+class TestTheSignalListIsOrderedByRecency:
+    """``GET /signals`` is a list, so "recent" has to mean newest-first.
+
+    ``SignalRepository.get_recent`` orders by score by default, because three
+    scheduler callers pick quality out of a window far larger than their limit
+    and two of them pass no ``min_score``. Changing that default would have
+    been a silent change to what the paid debate tier reads, so the list
+    endpoint asks for recency explicitly instead — and this is what checks that
+    it still does. The banner and PipelineDetail's "Recent Signals" panel were
+    both showing the window's best row rather than its newest.
+    """
+
+    def test_newest_first(self, tmp_path, monkeypatch):
+        from agentic_orchestrator.db.models import Signal
+
+        db = Database(f"sqlite:///{tmp_path / 'order.db'}")
+        db.create_tables()
+        now = utcnow()
+        session = db.get_session()
+        # The oldest row is also the highest-scoring one, so score ordering and
+        # recency ordering disagree and the test can tell them apart.
+        session.add(
+            Signal(
+                id="old-and-best",
+                source="rss",
+                category="ai",
+                title="Collected six hours ago, and the best of the window",
+                score=9.9,
+                collected_at=now - timedelta(hours=6),
+            )
+        )
+        session.add(
+            Signal(
+                id="new-and-dull",
+                source="rss",
+                category="ai",
+                title="Collected a minute ago, and unremarkable",
+                score=0.1,
+                collected_at=now - timedelta(minutes=1),
+            )
+        )
+        session.commit()
+        session.close()
+        monkeypatch.setattr(api_main, "get_db", lambda: db)
+
+        signals = TestClient(app).get("/signals").json()["signals"]
+        assert [s["id"] for s in signals] == ["new-and-dull", "old-and-best"]
+
+    def test_the_repository_default_is_unchanged(self, tmp_path):
+        """The scheduler callers must keep getting best-first."""
+        from agentic_orchestrator.db.models import Signal
+        from agentic_orchestrator.db.repositories import SignalRepository
+
+        db = Database(f"sqlite:///{tmp_path / 'default.db'}")
+        db.create_tables()
+        now = utcnow()
+        session = db.get_session()
+        for i, (score, hours) in enumerate([(9.9, 6), (0.1, 0.01)]):
+            session.add(
+                Signal(
+                    id=f"row-{i}",
+                    source="rss",
+                    category="ai",
+                    title=f"A seeded signal with a long enough title {i}",
+                    score=score,
+                    collected_at=now - timedelta(hours=hours),
+                )
+            )
+        session.commit()
+
+        rows = SignalRepository(session).get_recent()
+        assert [r.id for r in rows] == ["row-0", "row-1"]
+        session.close()

@@ -12,8 +12,6 @@ export interface SystemStats {
    *  API exposes nothing to derive it from -- it must never be the
    *  viewer's own clock dressed up as a pipeline run. */
   lastRun?: string;
-  /** Absent: the API does not report the scheduler's next tick. */
-  nextRun?: string;
 }
 
 export interface ActivityItem {
@@ -61,7 +59,13 @@ export interface PipelineStage {
   id: string;
   name: string;
   count: number;
-  status: 'active' | 'completed' | 'idle';
+  /** 'active' = something is running in this stage right now.
+   *  'pending' = it is holding undecided work but nothing is processing it.
+   *  'idle'    = neither. 'completed' is legacy and no longer derived.
+   *  The distinction matters: a lifetime count that has been above zero for
+   *  months used to render 'active' forever, which is the opposite of a
+   *  liveness signal. */
+  status: 'active' | 'pending' | 'completed' | 'idle';
 }
 
 // Transparency Dashboard Types

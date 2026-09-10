@@ -10,8 +10,9 @@ Production hit it four times in 2026-09 (09-02 06:36, 09-05 18:36, 09-06
 12:36, 09-09 00:36 UTC) and nowhere in the retained signals logs before that
 (they cover 2026-08-05 and 2026-08-10 onward) -- each at
 HH:36:01, exactly `busy_timeout` after the save began, every one while the
-6-hourly debate held the write lock. Each incident logged ~560 errors, all
-naming the same signal, and stored nothing.
+6-hourly debate cycle was running -- which writer actually held the lock was
+never established; see `_save_to_db`'s docstring. Each incident logged ~560
+errors, all naming the same signal, and stored nothing.
 """
 
 from __future__ import annotations

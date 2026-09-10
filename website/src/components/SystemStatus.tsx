@@ -1,14 +1,14 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { formatDistanceToNow, parseISO, format, isValid, isPast } from 'date-fns';
+import { formatDistanceToNow, format, isValid } from 'date-fns';
+import { parseUTCDate } from '@/lib/date';
 import { ko, enUS } from 'date-fns/locale';
 import { useI18n } from '@/lib/i18n';
 import type { SystemHealth } from '@/lib/types';
 
 interface SystemStatusProps {
   lastRun?: string;
-  nextRun?: string;
   /** What /status reported. The banner used to read SYSTEM ONLINE with a
    *  green dot no matter what -- including while the API was unreachable. */
   status?: SystemHealth;
@@ -20,19 +20,15 @@ const STATUS_PRESENTATION: Record<SystemHealth, { dot: string; text: string; lab
   unknown: { dot: 'unknown', text: '#8b949e', label: 'STATUS UNKNOWN' },
 };
 
-export function SystemStatus({ lastRun, nextRun, status = 'unknown' }: SystemStatusProps) {
+export function SystemStatus({ lastRun, status = 'unknown' }: SystemStatusProps) {
   const { locale } = useI18n();
   const dateLocale = locale === 'ko' ? ko : enUS;
   const presentation = STATUS_PRESENTATION[status];
-  const lastRunDate = lastRun ? parseISO(lastRun) : null;
-  const nextRunDate = nextRun ? parseISO(nextRun) : null;
-  // A "next run" in the past (stale data) should not render as "6 months ago".
-  const nextRunPending = !nextRunDate || !isValid(nextRunDate) || isPast(nextRunDate);
-  const nextRunLabel = nextRunPending
-    ? locale === 'ko'
-      ? '대기 중'
-      : 'pending'
-    : formatDistanceToNow(nextRunDate!, { addSuffix: true, locale: dateLocale });
+  // parseUTCDate, not date-fns parseISO: a backend instant without a "Z" is
+  // read by parseISO as the *viewer's* local wall clock, which in KST reports a
+  // fresh run as nine hours old. The backend marks its instants now; this is
+  // the second layer, and it is idempotent on an already-marked string.
+  const lastRunDate = parseUTCDate(lastRun);
 
   return (
     <div className="card-cli p-4">
@@ -75,17 +71,11 @@ export function SystemStatus({ lastRun, nextRun, status = 'unknown' }: SystemSta
           </span>
         </div>
 
-        <div className="h-4 w-px bg-[#21262d] hidden md:block" />
+        {/* No next_run figure: the API does not report the scheduler's next
+            tick, so this field was fed `undefined` on every render and could
+            only ever print "pending". A permanent placeholder is not a status.
 
-        {/* Next Run */}
-        <div className="flex items-center gap-2">
-          <span className="text-[#8b949e] text-xs">next_run:</span>
-          <span className="text-[#00ffff] text-xs" suppressHydrationWarning>
-            {nextRunLabel}
-          </span>
-        </div>
-
-        {/* No uptime figure: this read a hard-coded "99.9%" that nothing
+            No uptime figure: this read a hard-coded "99.9%" that nothing
             measured. The API reports no uptime, so the honest display is
             none at all. */}
       </div>

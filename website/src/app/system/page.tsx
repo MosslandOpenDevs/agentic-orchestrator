@@ -85,11 +85,19 @@ export default function SystemPage() {
     { id: 'tech' as const, labelKey: 'system.tab.tech', icon: '🔧' },
   ];
 
+  // Static, and honest about being a stack rather than a status. Three entries
+  // had drifted into being wrong rather than merely static: "GPT-4 (OpenAI)"
+  // names a model this router has never used (the only `gpt-4` string under
+  // src/ is the gpt-4o row in llm/budget.py's price table), "45+ RSS Feeds"
+  // against the 31 config.yaml actually enables, and "Daily Signal Collection"
+  // against a cron that runs every 30 minutes. Counts and model pins are
+  // removed rather than corrected -- a number here has nothing keeping it in
+  // step, and the measured ones are on /adapters.
   const techStack = [
-    { category: 'LLM Providers', items: ['Claude (Anthropic)', 'GPT-4 (OpenAI)', 'Ollama (Local)'] },
-    { category: 'Data Sources', items: ['45+ RSS Feeds', 'GitHub API', 'Custom APIs'] },
+    { category: 'LLM Providers', items: ['Anthropic', 'OpenAI', 'Ollama (Local)'] },
+    { category: 'Data Sources', items: ['RSS Feeds', 'GitHub API', 'Custom APIs'] },
     { category: 'Storage', items: ['SQLite Database', 'GitHub Issues', 'Markdown Files'] },
-    { category: 'Automation', items: ['PM2 Scheduler', 'Daily Signal Collection', 'Auto Debate Trigger'] },
+    { category: 'Automation', items: ['PM2 Scheduler', 'Scheduled Signal Collection', 'Scheduled Debates'] },
   ];
 
   const scoreColors = (score: number) => {
@@ -147,21 +155,36 @@ export default function SystemPage() {
                 </div>
               ) : status ? (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {Object.entries(status.components).map(([name, comp]) => (
-                    <div key={name} className="p-4 rounded bg-black/20 border border-[#21262d]">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className={`w-2 h-2 rounded-full ${
-                          comp.status === 'healthy' ? 'bg-[#39ff14]' : 'bg-[#ff5555]'
-                        }`} />
-                        <span className="text-sm text-[#c0c0c0] uppercase">{name}</span>
+                  {Object.entries(status.components).map(([name, comp]) => {
+                    // Three outcomes, not two. This was `healthy ? green : red`,
+                    // which painted every other value as broken -- including
+                    // "unknown", which the backend uses to mean "we did not
+                    // measure this", and "disabled", which means someone
+                    // switched it off on purpose. Reporting a deliberate
+                    // configuration as an outage is the same class of error as
+                    // reporting an outage as healthy.
+                    const tone =
+                      comp.status === 'healthy'
+                        ? 'text-[#39ff14]'
+                        : comp.status === 'degraded' || comp.status === 'unhealthy'
+                          ? 'text-[#ff5555]'
+                          : 'text-[#8b949e]';
+                    const dot =
+                      comp.status === 'healthy'
+                        ? 'bg-[#39ff14]'
+                        : comp.status === 'degraded' || comp.status === 'unhealthy'
+                          ? 'bg-[#ff5555]'
+                          : 'bg-[#8b949e]';
+                    return (
+                      <div key={name} className="p-4 rounded bg-black/20 border border-[#21262d]">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className={`w-2 h-2 rounded-full ${dot}`} />
+                          <span className="text-sm text-[#c0c0c0] uppercase">{name}</span>
+                        </div>
+                        <div className={`text-xs ${tone}`}>{comp.status}</div>
                       </div>
-                      <div className={`text-xs ${
-                        comp.status === 'healthy' ? 'text-[#39ff14]' : 'text-[#ff5555]'
-                      }`}>
-                        {comp.status}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-8 text-[#ff5555]">
@@ -170,15 +193,20 @@ export default function SystemPage() {
               )}
             </TerminalWindow>
 
-            {/* Stats */}
+            {/* Stats. Was TODAY_STATS, in which only the first two tiles were
+                about today: Ideas and Plans were lifetime totals and Agents is
+                a constant. The two throughput tiles now use the rolling
+                24-hour window rather than "since 00:00 UTC", which collapses
+                to near zero at 09:00 KST and makes a healthy pipeline look
+                dead. */}
             {status && (
-              <TerminalWindow title="TODAY_STATS" className="mb-6">
+              <TerminalWindow title="PIPELINE" className="mb-6">
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                   {[
-                    { label: 'Signals', value: status.stats.signals_today, color: 'cyan' },
-                    { label: 'Debates', value: status.stats.debates_today, color: 'orange' },
-                    { label: 'Ideas', value: status.stats.ideas_generated, color: 'green' },
-                    { label: 'Plans', value: status.stats.plans_created, color: 'purple' },
+                    { label: 'Signals (24h)', value: status.stats.signals_24h ?? 0, color: 'cyan' },
+                    { label: 'Debates (24h)', value: status.stats.debates_24h ?? 0, color: 'orange' },
+                    { label: 'Ideas (open)', value: status.stats.ideas_open ?? 0, color: 'green' },
+                    { label: 'Plans (open)', value: status.stats.plans_open ?? 0, color: 'purple' },
                     { label: 'Agents', value: status.stats.agents_active, color: 'cyan' },
                   ].map((stat) => (
                     <div key={stat.label} className="text-center p-4 rounded bg-black/20 border border-[#21262d]">

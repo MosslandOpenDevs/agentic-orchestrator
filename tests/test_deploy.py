@@ -829,6 +829,30 @@ class TestGuards:
         assert server.head() == target
         assert "DEPLOYED" in result.stdout
 
+    def test_the_documented_limits_match_the_code(self):
+        """The numbers in the DEPLOY_SCHEDULER_STALE_MIN comment are the ones
+        an operator reads before overriding them.
+
+        They were 30/60/90/120 while the code said 20/45/90/120 -- signals and
+        trends were tuned down in 226dd33 and the comment stayed behind, as did
+        CLAUDE.md and both changelogs. A comment two lines from the value it
+        describes is exactly where drift is least likely to be noticed, so it
+        is pinned rather than proof-read.
+        """
+        import re
+
+        script = DEPLOY_SH.read_text()
+        limits = [
+            int(m.group(2)) for m in re.finditer(r'"(moss-ao-[a-z]+)":\s*(\d+),\s*#\s*cron', script)
+        ]
+        assert len(limits) == 4, f"expected 4 per-job limits, parsed {limits}"
+
+        documented = re.search(
+            r"#\s*\((\d+(?:/\d+){3}) for signals/trends/backlog/debate\)", script
+        )
+        assert documented, "the DEPLOY_SCHEDULER_STALE_MIN comment no longer states the limits"
+        assert documented.group(1) == "/".join(str(limit) for limit in limits)
+
     def test_stale_limits_are_all_under_their_cron_periods(self):
         """Source invariant, so a schedule change cannot silently make a limit
         unreachable again.

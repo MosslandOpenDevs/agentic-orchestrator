@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { TrendCard } from '@/components/TrendCard';
-import { rssCategories } from '@/data/mock';
 import { fetchTrends } from '@/lib/api';
 import type { Trend } from '@/lib/types';
 
@@ -87,27 +86,13 @@ export default function TrendsPage() {
           <p className="mt-2 text-zinc-400">{t('trends.subtitle')}</p>
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="mb-8 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4"
-        >
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-            {rssCategories.map((cat, index) => (
-              <motion.div
-                key={cat.name}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: index * 0.05 }}
-                className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-3 text-center"
-              >
-                <div className="font-mono text-xl font-bold text-white">{cat.count}</div>
-                <div className="text-xs text-zinc-500">{cat.name}</div>
-              </motion.div>
-            ))}
-          </div>
-        </motion.div>
+        {/* Five tiles used to sit here reading "5 AI / 5 Crypto / 1 Finance /
+            2 Security / 3 Dev" from a constant in src/data/mock.ts -- a copy of
+            config.yaml's feed list made when it held 16 feeds, against the 31
+            active ones it holds now. Nothing on this page has the real
+            per-category feed count, and a stale number beside live trends
+            reads as measurement. The front page's signals.conf panel shows the
+            adapter fleet from /adapters, which is measured. */}
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}

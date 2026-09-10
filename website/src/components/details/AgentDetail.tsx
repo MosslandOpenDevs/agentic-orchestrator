@@ -5,24 +5,28 @@ import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 import { ApiClient } from '@/lib/api';
 import type { ModalData } from '../modals/ModalProvider';
-import { ScoreGauge } from '../visualization/ScoreGauge';
 import { TerminalBadge } from '../TerminalWindow';
 
 interface AgentDetailProps {
   data: ModalData;
 }
 
+/** The four personality axes the backend models, in the order it defines them
+ *  (src/agentic_orchestrator/personas/personalities.py). */
+export const PERSONALITY_AXES = ['thinking', 'decision', 'communication', 'action'] as const;
+export type PersonalityAxis = (typeof PERSONALITY_AXES)[number];
+
 interface AgentData {
   id: string;
   name: string;
   role: string;
   phase: string;
-  personality: {
-    creativity: number;
-    analytical: number;
-    risk_tolerance: number;
-    collaboration: number;
-  };
+  /** The four binary axes the backend models (personas/personalities.py),
+   *  e.g. { thinking: 'optimistic', decision: 'analytical', ... }.
+   *  Optional: the agents page falls back to a static roster when /agents is
+   *  unreachable, and that roster carries no per-axis values. Absent means
+   *  "not reported", which is rendered as nothing rather than as a default. */
+  personality?: Partial<Record<PersonalityAxis, string>>;
   description?: string;
   handle?: string;
 }
@@ -39,7 +43,14 @@ export function AgentDetail({ data }: AgentDetailProps) {
       setError(null);
 
       // If full agent data is passed in, use it
-      if (data.name && data.role && data.personality) {
+      // Deliberately NOT requiring `personality`. It is optional now, and
+      // the agents page passes it through only when /agents answered -- so
+      // requiring it would send the static-fallback path (which exists
+      // *because* /agents failed) back to /agents, and land in an error box.
+      // Its ids would not match either: the roster uses `alex_kim`, the
+      // catalog `dev_optimistic`. With it absent, axisValues is empty and the
+      // personality panel simply does not render.
+      if (data.name && data.role) {
         setAgent(data as unknown as AgentData);
         setLoading(false);
         return;
@@ -99,12 +110,10 @@ export function AgentDetail({ data }: AgentDetailProps) {
     founder_friend: 'purple',
   };
 
-  const personalityTraits = [
-    { key: 'creativity', label: t('detail.creativity'), color: 'purple' as const },
-    { key: 'analytical', label: t('detail.analytical'), color: 'cyan' as const },
-    { key: 'risk_tolerance', label: t('detail.riskTolerance'), color: 'orange' as const },
-    { key: 'collaboration', label: t('detail.collaboration'), color: 'green' as const },
-  ];
+  const axisValues = PERSONALITY_AXES.map((axis) => ({
+    axis,
+    value: agent.personality?.[axis],
+  })).filter((entry): entry is { axis: PersonalityAxis; value: string } => Boolean(entry.value));
 
   return (
     <motion.div
@@ -141,27 +150,35 @@ export function AgentDetail({ data }: AgentDetailProps) {
         </div>
       )}
 
-      {/* Personality Traits */}
-      <div className="card-cli p-4">
-        <div className="text-xs text-[#8b949e] uppercase mb-4">{t('detail.personalityProfile')}</div>
-        <div className="space-y-4">
-          {personalityTraits.map((trait, idx) => (
-            <motion.div
-              key={trait.key}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: idx * 0.1 }}
-            >
-              <ScoreGauge
-                value={agent.personality[trait.key as keyof typeof agent.personality]}
-                maxValue={10}
-                label={trait.label}
-                color={trait.color}
-              />
-            </motion.div>
-          ))}
+      {/* Personality. Four labelled choices, not four bars: the backend models
+          each axis as one of two named styles, and the gauges that used to be
+          here were fed `{creativity: 7, analytical: 7, risk_tolerance: 5,
+          collaboration: 7}` written as literals in the agents page -- the same
+          four numbers for every one of the 34 agents, under the heading
+          "Personality Profile". Rendered only when the API reported them. */}
+      {axisValues.length > 0 && (
+        <div className="card-cli p-4">
+          <div className="text-xs text-[#8b949e] uppercase mb-4">
+            {t('detail.personalityProfile')}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {axisValues.map(({ axis, value }, idx) => (
+              <motion.div
+                key={axis}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: idx * 0.1 }}
+                className="rounded border border-[#21262d] p-2"
+              >
+                <div className="text-[10px] text-[#8b949e] uppercase">
+                  {t(`detail.axis.${axis}`)}
+                </div>
+                <div className="text-sm text-[#39ff14]">{t(`detail.trait.${value}`)}</div>
+              </motion.div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Role Perspective */}
       <div className="card-cli p-4">
@@ -171,26 +188,6 @@ export function AgentDetail({ data }: AgentDetailProps) {
         </div>
       </div>
 
-      {/* Personality Radar (ASCII style) */}
-      <div className="card-cli p-4">
-        <div className="text-xs text-[#8b949e] uppercase mb-4">{t('detail.traitRadar')}</div>
-        <div className="grid grid-cols-2 gap-4 text-center">
-          {personalityTraits.map((trait) => {
-            const value = agent.personality[trait.key as keyof typeof agent.personality];
-            const bars = Math.round(value);
-            return (
-              <div key={trait.key} className="space-y-1">
-                <div className="text-xs text-[#8b949e]">{trait.label}</div>
-                <div className="text-[#39ff14] font-mono text-sm">
-                  {'█'.repeat(bars)}
-                  <span className="text-[#21262d]">{'░'.repeat(10 - bars)}</span>
-                </div>
-                <div className="text-xs text-[#c0c0c0]">{value.toFixed(1)}</div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </motion.div>
   );
 }

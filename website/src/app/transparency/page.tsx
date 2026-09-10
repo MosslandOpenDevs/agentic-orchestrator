@@ -15,6 +15,10 @@ interface TransparencyStats {
   agentsActive: number;
 }
 
+// Indexing by position is what let the arrow count and the highlight drift
+// apart from the list; both are derived from it now.
+const PIPELINE_STAGES = ['Signals', 'Trends', 'Ideas', 'Debates', 'Plans', 'Projects'] as const;
+
 export default function TransparencyPage() {
   const { t } = useI18n();
   const [stats, setStats] = useState<TransparencyStats | null>(null);
@@ -144,7 +148,11 @@ export default function TransparencyPage() {
         {/* Pipeline Flow Visualization */}
         <TerminalWindow title="ORCHESTRATION_PIPELINE" className="mb-8">
           <div className="flex flex-col md:flex-row items-center justify-center gap-2 md:gap-4 py-4">
-            {['Signals', 'Trends', 'Ideas', 'Debates', 'Plans'].map((stage, idx) => (
+            {/* Projects was missing from this row while the site's front page
+                showed it. It is the one stage that is deliberately paused
+                (project.auto_generate.enabled: false), so leaving it out hid
+                exactly what a transparency page exists to show. */}
+            {PIPELINE_STAGES.map((stage, idx) => (
               <div key={stage} className="flex items-center">
                 <motion.div
                   initial={{ opacity: 0, scale: 0.8 }}
@@ -152,11 +160,11 @@ export default function TransparencyPage() {
                   transition={{ delay: idx * 0.1 }}
                   className="px-4 py-2 rounded border border-[#21262d] bg-[#0d1117]"
                 >
-                  <span className={`text-sm ${idx === 3 ? 'text-[#ff6b35]' : 'text-[#c0c0c0]'}`}>
+                  <span className={`text-sm ${stage === 'Debates' ? 'text-[#ff6b35]' : 'text-[#c0c0c0]'}`}>
                     {stage}
                   </span>
                 </motion.div>
-                {idx < 4 && (
+                {idx < PIPELINE_STAGES.length - 1 && (
                   <span className="text-[#21262d] mx-1 md:mx-2">→</span>
                 )}
               </div>
