@@ -2149,7 +2149,6 @@ def process_backlog():
 
 async def _health_check_async():
     """Async implementation of health check."""
-    from ..cache import get_cache
     from ..db import get_database
     from ..llm import HybridLLMRouter
     from ..providers.ollama import OllamaProvider
@@ -2174,24 +2173,12 @@ async def _health_check_async():
             health_status["status"] = "degraded"
             logger.error(f"Database: unhealthy - {e}")
 
-        # Check cache
-        try:
-            cache = get_cache()
-            cache.set("health_check", "ok", ttl=60)
-            result = cache.get("health_check")
-            cache_health = cache.health_check()
-            if result == "ok":
-                health_status["components"]["cache"] = {
-                    "status": "healthy",
-                    "type": cache_health.get("type", "unknown"),
-                }
-                logger.info(f"Cache: healthy ({cache_health.get('type', 'unknown')})")
-            else:
-                health_status["components"]["cache"] = {"status": "degraded"}
-                logger.warning("Cache: degraded")
-        except Exception as e:
-            health_status["components"]["cache"] = {"status": "unhealthy", "error": str(e)}
-            logger.warning(f"Cache: unhealthy - {e}")
+        # No cache probe. It wrote a key into a per-process dict, read the same
+        # key back, and reported "healthy" -- a dict testing itself. It also
+        # discarded the only real verdict available: the cache reports
+        # "fallback" (there is no redis dependency and never has been) and this
+        # kept the `type` while logging "Cache: healthy". The cache had no
+        # consumers, so it has been removed entirely.
 
         # Check Ollama
         try:
@@ -2252,12 +2239,12 @@ async def _health_check_async():
         # Log final status
         logger.info(f"Health check completed: {health_status['status']}")
 
-        # Store health status in cache
-        try:
-            cache = get_cache()
-            cache.set("system_health", health_status, ttl=300)
-        except Exception:
-            pass
+        # The result used to be written to the cache under "system_health".
+        # Nothing ever read it, and nothing could have: this job is
+        # `autorestart: false` + `cron_restart`, so the process exits as soon as
+        # it finishes and takes its in-memory dict with it. The API is a
+        # separate process -- the same structural trap that made `last_fetch`
+        # permanently null on /adapters. The log is the output.
 
     except Exception as e:
         logger.error(f"Health check failed: {e}", exc_info=True)

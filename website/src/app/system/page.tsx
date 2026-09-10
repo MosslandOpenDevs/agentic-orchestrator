@@ -154,21 +154,36 @@ export default function SystemPage() {
                 </div>
               ) : status ? (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {Object.entries(status.components).map(([name, comp]) => (
-                    <div key={name} className="p-4 rounded bg-black/20 border border-[#21262d]">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className={`w-2 h-2 rounded-full ${
-                          comp.status === 'healthy' ? 'bg-[#39ff14]' : 'bg-[#ff5555]'
-                        }`} />
-                        <span className="text-sm text-[#c0c0c0] uppercase">{name}</span>
+                  {Object.entries(status.components).map(([name, comp]) => {
+                    // Three outcomes, not two. This was `healthy ? green : red`,
+                    // which painted every other value as broken -- including
+                    // "unknown", which the backend uses to mean "we did not
+                    // measure this", and "disabled", which means someone
+                    // switched it off on purpose. Reporting a deliberate
+                    // configuration as an outage is the same class of error as
+                    // reporting an outage as healthy.
+                    const tone =
+                      comp.status === 'healthy'
+                        ? 'text-[#39ff14]'
+                        : comp.status === 'degraded' || comp.status === 'unhealthy'
+                          ? 'text-[#ff5555]'
+                          : 'text-[#8b949e]';
+                    const dot =
+                      comp.status === 'healthy'
+                        ? 'bg-[#39ff14]'
+                        : comp.status === 'degraded' || comp.status === 'unhealthy'
+                          ? 'bg-[#ff5555]'
+                          : 'bg-[#8b949e]';
+                    return (
+                      <div key={name} className="p-4 rounded bg-black/20 border border-[#21262d]">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className={`w-2 h-2 rounded-full ${dot}`} />
+                          <span className="text-sm text-[#c0c0c0] uppercase">{name}</span>
+                        </div>
+                        <div className={`text-xs ${tone}`}>{comp.status}</div>
                       </div>
-                      <div className={`text-xs ${
-                        comp.status === 'healthy' ? 'text-[#39ff14]' : 'text-[#ff5555]'
-                      }`}>
-                        {comp.status}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-8 text-[#ff5555]">

@@ -287,7 +287,6 @@ agentic-orchestrator/
 │   │                        #   farcaster, coingecko, threads, signalmap
 │   ├── api/                 # FastAPI 백엔드
 │   │   └── main.py
-│   ├── cache/               # 캐싱 레이어
 │   ├── db/                  # 데이터베이스 모델, 레포지토리 & 롤링 백업
 │   ├── debate/              # 멀티 스테이지 토론 시스템
 │   │   ├── protocol.py

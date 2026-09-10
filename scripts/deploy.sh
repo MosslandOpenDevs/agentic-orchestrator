@@ -596,7 +596,7 @@ ECOSYSTEM_PENDING=${ECOSYSTEM_PENDING:-${REPO_ROOT}/logs/.ecosystem-pending}
   DEPLOY_LOCK_STALE_MIN=${DEPLOY_LOCK_STALE_MIN:-90}
   # Minutes a scheduler job may run before it stops counting as "busy" and
   # starts counting as wedged. Empty = per-job defaults in scheduler_state
-  # (30/60/90/120 for signals/trends/backlog/debate); a positive number
+  # (20/45/90/120 for signals/trends/backlog/debate); a positive number
   # overrides all four, mainly for tests.
   DEPLOY_SCHEDULER_STALE_MIN=${DEPLOY_SCHEDULER_STALE_MIN:-}
 

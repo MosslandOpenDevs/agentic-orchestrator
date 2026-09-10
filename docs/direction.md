@@ -156,9 +156,10 @@ plan_status = "approved" if score.total >= auto_gen_min_score and plan_final_con
    (`tasks.py:1391`). API/버튼 경로(`POST /plans/{id}/generate-project`)는 읽지
    않으므로, 생성이 "일시정지"인 지금도 `MOSS_API_KEY` 보유자나
    `PlanDetail.tsx:507`의 버튼은 프로젝트를 만든다.
-2. 그 스위치는 **열린 쪽으로 실패한다** — `_load_project_config()`의 기본값이
-   `enabled: True`라 config.yaml을 못 읽으면 자동 생성이 조용히 재개된다
-   (`tasks.py:1334`).
+2. 그 스위치는 **닫힌 쪽으로 실패한다** — `_load_project_config()`의 기본값이
+   `enabled: False`이고, 실제 boolean `True`만 활성화한다(`"true"` 같은 문자열은
+   거부된다). config.yaml을 못 읽으면 자동 생성은 꺼진 채로 남는다.
+   *(이 초안을 쓴 시점(`8a677be`)에는 열린 쪽이었다.)*
 3. `force_regenerate: true`는 `approved` 전제조건을 아예 우회하고
    (`main.py:1633`), 승인 엔드포인트의 `generate_project: true`는 같은 호출에서
    생성을 발사한다(`main.py:1876`) — **한 번의 인증 호출이 승인과 실행을 동시에**

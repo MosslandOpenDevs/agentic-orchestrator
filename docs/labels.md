@@ -9,7 +9,7 @@ This document describes the labels used in the Mossland Agentic Orchestrator wor
 > (`GitHubClient.find_ideas_to_promote` → `BacklogOrchestrator.run_cycle`) and last ran
 > successfully on 2026-01-04. What is missing is a *scheduler entry*: `run_cycle` is reachable
 > only from `ao backlog run` / `ao backlog process`, and no PM2 process invokes it. The PM2
-> `moss-ao-backlog` job is a different task (DB aggregation/retention). Note also that the
+> `moss-ao-backlog` job runs a different function (`run_backlog_triage` + issue lifecycle + retention), not `run_cycle`. Note also that the
 > orchestrator adds this label **itself** to any idea scoring >= 7.0, so it is not purely a human
 > approval signal today — see [Known Ambiguity](#known-ambiguity-promoteto-plan-has-two-meanings).
 

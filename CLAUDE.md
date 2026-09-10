@@ -329,7 +329,7 @@ agentic-orchestrator/
 한꺼번에 500이 났다 (2026-07 장애). 세 겹의 방어가 추가됨:
 
 1. **기동 시 스키마 자기치유**: API의 FastAPI lifespan 훅과 스케줄러 CLI 명령
-   (`backup-db` 제외 — 백업은 대상 DB를 변경하면 안 됨)이 시작 시 멱등적
+   (`backup-db`·`restore-db` 제외 — 스냅샷을 뜨거나 교체하려는 DB의 스키마를 건드리면 안 됨)이 시작 시 멱등적
    `ensure_schema()`(= `create_tables()` + 부팅 레이스 재시도)를 실행. 빈/유실
    DB → "no such table" 500 대신 비어 있지만 동작하는 DB로 강등되고,
    파이프라인이 다시 채움.
@@ -374,7 +374,11 @@ pm2 restart all
 > `tests/test_restore.py::TestTheHazard`가 이 현상(스냅샷 1행 → 복원 후 401행, 무결성 ok)을
 > 실제로 재현해 고정해 둔다.
 
-배포 시 `git clean -fdx`는 반드시 `-e data -e .env`와 함께 사용할 것.
+배포에서 **`git clean`은 쓰지 않는다** — `git reset --hard`만 쓴다. `data/`와
+`.env`는 untracked라 reset은 건드리지 않지만 clean은 어떤 제외 플래그를 붙이든
+위험하다. `scripts/deploy.sh`에 clean 이 없다는 것을 `tests/test_deploy.py`가
+고정하고 있다 (2026-07 사고). 이 줄은 예전에 `-e data -e .env`를 붙여 쓰라고
+적혀 있었는데, 같은 문서의 배포 절과 `docs/deployment.md`와 스크립트 자신이 전부 금지하는 명령이었다.
 
 ### 커넥션 풀과 저널 모드
 
@@ -522,10 +526,10 @@ pm2 status
 # 주요 프로세스
 moss-ao-web      # Next.js 프론트엔드 (포트 3000) - 상시 실행
 moss-ao-api      # FastAPI 백엔드 (포트 3001) - 상시 실행
-moss-ao-signals  # 신호 수집기 (TEST: 10분, PROD: 30분)
-moss-ao-trends   # 트렌드 분석 (TEST: 30분, PROD: 2시간)
+moss-ao-signals  # 신호 수집기 (TEST·PROD 모두 30분 — 이 잡만 같다)
+moss-ao-trends   # 트렌드 분석 (TEST: 1시간, PROD: 2시간)
 moss-ao-debate   # 토론 스케줄러 (TEST: 1시간, PROD: 6시간)
-moss-ao-backlog  # 백로그 처리 (TEST: 30분, PROD: 4시간)
+moss-ao-backlog  # 백로그 트리아지 + 이슈 라이프사이클 (TEST: 1시간, PROD: 4시간)
 moss-ao-health   # 헬스체크 (5분마다)
 moss-ao-deploy   # 자동 배포 폴러 (5분마다, .env의 MOSS_AO_AUTO_DEPLOY=1일 때만 등록)
 
@@ -630,7 +634,7 @@ pm2 save
 - **가드**: CI 초록불일 때만 (체크 0건·`skipped`·`stale`은 초록이 아니라 **연기**;
   `DEPLOY_REQUIRE_CI_JOBS`로 필수 job까지 지정 가능) / 서버에 로컬 수정·로컬 커밋이
   있으면 중단 / 토론 실행 중이면 백엔드 배포는 다음 틱으로 연기 — **단 무한정은 아니다**:
-  스케줄러 작업이 작업별 한도(signals/trends/backlog/debate = 30/60/90/120분)를 넘겨
+  스케줄러 작업이 작업별 한도(signals/trends/backlog/debate = 20/45/90/120분)를 넘겨
   실행 중이면 busy가 아니라 **wedged**로 보고 배포를 진행한다. 이 작업들은 Ollama가
   멈춰도 죽지 않고 HTTP 대기에 앉아 `online`으로 남기 때문에, 무조건 연기하면 멈춘
   작업 하나가 배포를 영구히 막는다 (2026-08-06). 시작 시각 불명·pm2 출력 파싱 실패는
@@ -785,6 +789,15 @@ npm run dev
 ```
 
 ### 데이터베이스 스키마 변경 시
+
+> **`db/models.py` 를 고치는 것만으로는 운영 DB 에 아무 일도 일어나지 않는다.**
+> 스키마를 만드는 경로는 `ensure_schema()` → `create_tables()` →
+> `Base.metadata.create_all(bind=engine)` 하나뿐이고, `create_all` 의 기본값
+> `checkfirst=True` 는 **이미 존재하는 테이블을 통째로 건너뛴다** — 그 테이블에
+> 새로 선언한 컬럼도, `Index()` 도 함께 건너뛴다. 즉 모델에 인덱스를 추가하고
+> "성능 문제는 인덱스로 해결했다"고 적으면, 새 DB 에서만 참인 문장이 된다.
+> 기존 테이블에 무언가를 추가하려면 아래 절차나 명시적 DDL
+> (`CREATE INDEX IF NOT EXISTS ...`)을 직접 실행해야 한다.
 
 SQLite는 ALTER COLUMN을 지원하지 않으므로 테이블 재생성 필요:
 
@@ -955,15 +968,18 @@ npm run build 2>&1 | head -50  # 오류 확인
 
 ### 6. Ollama 타임아웃 오류
 
-**증상:** "Ollama timeout after 300s" 에러 발생
+**증상:** `Ollama timeout after <N>s` 에러 발생. N 은 설정값이다 —
+`throttling.ollama.request_timeout` 이 현재 **1800**(30분)이므로 로그에서
+보게 될 숫자도 그것이다. 예전 이 문서는 300 을 예로 들고 "600 으로 올려라"고
+적고 있었는데, 지금 그렇게 하면 **내리는** 것이다.
 
 **원인:** 여러 에이전트가 동시에 Ollama 요청, 쓰로틀링 큐 대기 중 타임아웃
 
-**해결:**
-- `config.yaml`의 `throttling.ollama` 설정 조정:
-  - `request_timeout: 600` (600초로 증가)
-  - `requests_before_cooling: 10` (쿨링 전 더 많은 요청 허용)
-  - `cooling_period_seconds: 60` (쿨링 시간 단축)
+**해결:** 숫자를 올리기 전에 아래 "혼잡 vs 멈춤" 진단부터 할 것. 30분을 기다려도
+안 온다면 더 기다린다고 오지 않는다.
+- 현재 값 (`config.yaml`의 `throttling.ollama`): `request_timeout: 1800`,
+  `requests_before_cooling: 10`, `cooling_period_seconds: 60`.
+  세 값 모두 이미 설정돼 있으니 "이렇게 바꿔라"의 대상이 아니다.
 - `config.yaml`의 `debate.test_mode: true`로 에이전트 수 감소
 - 사용 중인 Ollama 모델 확인: `curl "$OLLAMA_HOST/api/ps"`
 
@@ -1202,7 +1218,7 @@ GitHub 이슈는 DB의 가시성 미러일 뿐인데, 예전에는 생성만 있
 | Signal Collection | 30분마다 | RSS/API에서 신호 수집 |
 | Trend Analysis | 2시간마다 | 신호 분석 → 트렌드 생성 (Ollama) |
 | Debate | 6시간마다 | 트렌드 기반 토론 → 아이디어/플랜 자동 생성 |
-| Backlog | 4시간마다 | 처리 상태 집계/리포트 |
+| Backlog | 4시간마다 | 백로그 트리아지 + 이슈 라이프사이클 + 리텐션 |
 | Health Check | 5분마다 | 시스템 상태 확인 |
 
 ## 개발 규칙
@@ -1467,8 +1483,11 @@ project:
     # 주의: 이 스위치가 막는 것은 스케줄러의 인라인 호출 한 곳뿐이다
     # (tasks.py의 _auto_generate_project). API/버튼 경로
     # (POST /plans/{id}/generate-project)는 이 값을 읽지 않으므로 "일시정지"
-    # 상태에서도 프로젝트는 생성된다. 게다가 config.yaml을 못 읽으면 기본값
-    # enabled: True로 열린 쪽으로 실패한다.
+    # 상태에서도 프로젝트는 생성된다.
+    #
+    # config.yaml을 못 읽으면 **닫힌 쪽**으로 실패한다 (기본값 enabled: False,
+    # 그리고 실제 boolean True 만 활성화 — "true" 같은 문자열은 거부).
+    # 예전에는 열린 쪽이었고 이 주석도 그렇게 적혀 있었다.
     enabled: false
     min_score: 8.0        # 자동 생성 최소 점수
     max_concurrent: 1     # 동시 생성 제한
@@ -1484,12 +1503,15 @@ project:
 
 ### GitHub 라벨 기반 승격 워크플로우
 
-**상태:** 구현 예정
-
 GitHub Issues에서 라벨을 추가하면 자동으로 처리:
 
-- `promote:to-plan`: Idea → Plan 자동 생성
-- `promote:to-dev`: Plan → Project 스캐폴드 생성
+- `promote:to-plan`: Idea → Plan 자동 생성 — **라벨과 소비자는 이미 구현돼 있다**
+  (`GitHubClient.find_ideas_to_promote` → `BacklogOrchestrator.run_cycle`).
+  없는 것은 **스케줄러 엔트리**다: `run_cycle` 은 수동 `ao backlog run` /
+  `ao backlog process` 에서만 도달 가능하고, PM2 의 `moss-ao-backlog` 는 전혀
+  다른 함수(`run_backlog_triage` + 이슈 라이프사이클 + 리텐션)를 돌린다.
+  라벨 자체는 승격 시 파이프라인이 자동으로 붙인다.
+- `promote:to-dev`: Plan → Project 스캐폴드 생성 — **구현 예정** (소비자 없음)
 
 자세한 내용: `docs/labels.md`
 

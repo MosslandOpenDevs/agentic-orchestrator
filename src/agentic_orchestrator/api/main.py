@@ -462,12 +462,14 @@ async def system_status(session: Session = Depends(get_session)):
             # "api" is honest by construction: this handler answered.
             "api": {"status": "healthy"},
             "database": {"status": "healthy" if db_healthy else "unhealthy"},
-            # These two were reported as healthy unconditionally -- nothing
-            # here probes a cache or the LLM router, and this endpoint is
-            # public and hot, so it must not start making network calls to
-            # find out. "unknown" is what we actually know; the scheduler's
-            # 5-minute health check is what measures the router.
-            "cache": {"status": "unknown"},
+            # There is no "cache" component here any more, and there is
+            # nothing to put back: the only cache in the process tree was an
+            # in-memory dict with no consumers, and it has been removed. It
+            # reported "unknown" for as long as it existed -- honest, but a
+            # component that can only ever refuse to answer is not a
+            # component. The llm_router below reports config-level state,
+            # which needs no probe; this endpoint is public and hot and must
+            # not start making network calls to find out anything.
             # Config-level, not a live probe: this endpoint is public and hot,
             # so it still must not make network calls. What it *can* answer for
             # free is whether a paid tier could bill anything at all — the

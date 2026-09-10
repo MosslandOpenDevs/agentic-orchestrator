@@ -350,11 +350,15 @@ scored (6h 이상 경과, 오래된 순 per_run개)
 
 | 작업 | 주기 | Cron | 설명 |
 |------|------|------|------|
-| Signal Collection | 10분마다 | `*/10 * * * *` | RSS/API에서 신호 수집 |
-| Trend Analysis | 30분마다 | `*/30 * * * *` | 신호 분석 → 트렌드 생성 |
-| Debate | 1시간마다 | `0 * * * *` | 트렌드 기반 토론 → 아이디어 생성 |
-| Backlog | 30분마다 | `*/30 * * * *` | 상태 집계/리포트 |
-| Health Check | 5분마다 | `*/5 * * * *` | 시스템 상태 확인 |
+| Signal Collection | 30분마다 | `5,35 * * * *` | RSS/API에서 신호 수집 |
+| Trend Analysis | 1시간마다 | `15 */1 * * *` | 신호 분석 → 트렌드 생성 |
+| Debate | 1시간마다 | `25 * * * *` | 트렌드 기반 토론 → 아이디어 생성 |
+| Backlog | 1시간마다 | `45 * * * *` | 백로그 트리아지 + 이슈 라이프사이클 |
+| Health Check | 5분마다 | `2-57/5 * * * *` | 시스템 상태 확인 |
+
+> 분이 정각이 아닌 이유는 프로덕션과 같다 — 동시 기동이 단일 인스턴스 Ollama
+> 큐를 폭주시킨다 (`ecosystem.config.js`의 `SCHEDULES` 주석). TEST 에서도
+> signals 주기는 프로덕션과 **같다**.
 
 ## GitHub 연동
 
@@ -372,7 +376,7 @@ scored (6h 이상 경과, 오래된 순 per_run개)
 | `status:promoted` | 고점수 아이디어 | 활성 |
 | `generated:by-orchestrator` | 오케스트레이터가 자동 생성 | 활성 |
 | `source:debate` | 토론에서 생성 | 활성 |
-| `promote:to-plan` | 플랜 생성 대상 | *향후 구현* |
+| `promote:to-plan` | 플랜 생성 대상 | 활성 (승격 시 부착). 소비자도 구현돼 있으나 `ao backlog run` 전용 — `docs/labels.md` |
 | `promote:to-dev` | 개발 시작 대상 | *향후 구현* |
 
 자세한 내용은 [labels.md](labels.md) 참조.
@@ -451,11 +455,12 @@ LIMIT 5;
 
 ---
 
-## 프로젝트 생성 (향후 기능)
+## 프로젝트 생성
 
-> **상태**: 구현 예정. 현재 `projects/` 폴더는 비어 있습니다.
-
-Plan이 승인되면 `projects/` 폴더에 프로젝트 스캐폴드가 자동 생성될 예정입니다.
+> **상태**: 구현됨 (`project/scaffold.py`, `POST /plans/{id}/generate-project`).
+> 일시정지된 것은 **스케줄러의 인라인 자동 생성 한 곳**뿐이고
+> (`project.auto_generate.enabled: false`), API·버튼 경로는 동작한다.
+> 저장소의 `projects/` 폴더가 비어 보이는 것은 생성물을 커밋하지 않기 때문이다.
 
 ### 계획된 워크플로우
 

@@ -295,7 +295,6 @@ agentic-orchestrator/
 │   │                        #   farcaster, coingecko, threads, signalmap
 │   ├── api/                 # FastAPI backend
 │   │   └── main.py
-│   ├── cache/               # Caching layer
 │   ├── db/                  # Database models, repositories & rolling backups
 │   ├── debate/              # Multi-stage debate system
 │   │   ├── protocol.py

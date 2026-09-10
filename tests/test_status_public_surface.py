@@ -444,3 +444,37 @@ class TestTheOneFieldThatMustStayUnmarked:
 
         with pytest.raises(AttributeError):
             utc_iso(date(2026, 9, 10))
+
+
+class TestTheCacheComponentIsGone:
+    """``components.cache`` reported ``"unknown"`` for as long as it existed.
+
+    It was honest -- this endpoint is public and hot and must not start probing
+    to find out -- but it described a subsystem with no consumers: an in-memory
+    dict, per process, that nothing but a self-testing health probe ever
+    touched. The 5-minute health job wrote a key, read the same key back, and
+    logged "Cache: healthy" while the cache's own ``health_check()`` said
+    ``"fallback"``, then stored its verdict into that same per-process dict and
+    exited (the job is ``autorestart: false`` + ``cron_restart``), so nothing
+    could ever read it -- the same structural trap that kept ``last_fetch``
+    permanently null on ``/adapters``.
+
+    The package is deleted. A component that can only refuse to answer, about
+    something that no longer exists, is not a component.
+    """
+
+    def test_status_publishes_no_cache_component(self, served_client):
+        assert "cache" not in served_client.get("/status").json()["components"]
+
+    def test_the_components_that_do_mean_something_are_still_there(self, served_client):
+        components = served_client.get("/status").json()["components"]
+        for name in ("api", "database", "llm_router", "signal_feed"):
+            assert name in components, name
+
+    def test_nothing_imports_the_cache_package(self):
+        """Enforced by Python once the package is gone; asserted so that a
+        re-add has to be a decision rather than an autocomplete."""
+        import importlib
+
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module("agentic_orchestrator.cache")
