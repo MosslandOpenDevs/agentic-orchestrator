@@ -333,12 +333,40 @@ async def _analyze_trends_async():
                         "analyzed_at": analyzed_at,
                     }
                 )
+                # Commit here, not after the loop, for two reasons.
+                #
+                # The lock: `create()` flushes, which opens the SQLite write
+                # transaction, and the next iteration then awaits two
+                # translation round-trips before anything commits. The one
+                # writer lock was therefore held across every remaining
+                # network call of the batch -- minutes, against a
+                # `busy_timeout` of 30 seconds -- which is what the 30-minute
+                # signal collector collided with. Per-row commits bound the
+                # hold to the write itself.
+                #
+                # The rollback: a failed flush locks the SQLAlchemy session,
+                # so the bare `continue` below was not recovery. The first
+                # failure turned every later row into `PendingRollbackError`
+                # and the closing commit failed too -- the batch was lost
+                # while `saved_count` went on reporting a number. That is
+                # exactly the defect #4989 removed from `_save_to_db`, still
+                # alive here, in a job that runs twelve times a day.
+                session.commit()
                 saved_count += 1
             except Exception as e:
+                session.rollback()
                 logger.warning(f"Failed to save trend '{trend.topic}': {e}")
 
-        session.commit()
-        logger.info(f"Saved {saved_count} trends to database")
+        if analysis.trends and saved_count == 0:
+            # Do not report a total loss at INFO. "Saved 0 trends" beside
+            # "Analyzing 24h trends..." is what a whole failed batch looked
+            # like, and it is the same shape of quiet as the bug above.
+            logger.warning(
+                f"Saved NO trends: all {len(analysis.trends)} writes failed. "
+                "The pipeline has no fresh trends for this cycle."
+            )
+        else:
+            logger.info(f"Saved {saved_count} trends to database")
 
         duration = (utcnow() - start_time).total_seconds()
         logger.info(f"Trend analysis completed in {duration:.1f}s")
@@ -1328,6 +1356,13 @@ async def _auto_score_and_save_ideas(
                     logger.warning(f"Failed to create plan for idea {idea_id}: {e}")
 
         except Exception as e:
+            # Roll back before continuing, for the same reason the trends loop
+            # above does: SQLAlchemy locks a session after a failed flush, so
+            # `continue` alone leaves every later idea of this batch raising
+            # `PendingRollbackError` and takes the closing commit with it.
+            # Rows already committed earlier in the loop survive either way;
+            # this is about the ones after the failure.
+            db_session.rollback()
             logger.warning(f"Failed to score/save idea: {e}")
             continue
 

@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — the trend writer held the SQLite write lock across every translation, and lost the batch when one row failed
+
+This is the defect #4989 removed from `signals/aggregator.py::_save_to_db`, still alive in the trend writer, in a job that runs twelve times a day. One cause, two failures, and the second one is silent data loss.
+
+`TrendRepository.create()` flushes, which opens the one SQLite write transaction. The loop then awaited two translation round-trips — the next trend's name and description — before anything committed. So the write lock was held from the first row until after the last, minutes at a time, against a `busy_timeout` of 30 seconds. That is what the 30-minute signal collector was colliding with: four collection runs died in 2026-09, each at exactly HH:36:01, thirty seconds after its save began. The per-row commits in #4989 bounded the damage; this removes the contention.
+
+And the `except ... continue` was not recovery. SQLAlchemy locks a session after a failed flush, so the first failed write turned every later row into `PendingRollbackError` and the closing `session.commit()` failed with them — the entire batch discarded, while `saved_count` went on reporting a number nobody had stored. Reproduced by reverting the fix under the new test: one bad row out of three leaves **zero** rows in the table.
+
+Both are fixed by committing at the write and rolling back before continuing. A run in which every write failed now logs WARNING rather than "Saved 0 trends to database" at INFO, which is what a lost batch looked like.
+
+The same missing `rollback()` is in the debate cycle's idea loop (`scheduler/tasks.py`), where it can poison the rest of a batch the same way; it is fixed here too.
+
+The tests check behaviour, not source shape: a second connection tries a real write during each translation await and must not be blocked, and a deliberately failing middle row must leave the other two committed. "There is a commit inside the loop" is a property a refactor slides past; "another connection can write while this loop is awaiting" is not.
+
+#### Corrected — a claim this repository had compiled into itself
+
+`_save_to_db`'s docstring said the four incidents happened "while the 6-hourly debate held the write lock". The timing is right and the attribution was an inference from the clock: traced afterwards, the debate writes and commits per row and holds nothing across an LLM call. The writer that did hold the lock for minutes was the 2-hourly trend analysis, above. The docstring now says what was measured.
+
 ### Fixed — the status endpoint published instants that did not say they were UTC
 
 `GET /status` is what the links.moss.land registry points at for this service, and the Q2 report asked it for exactly one thing: figures an outside reader can use to decide whether the pipeline is running. Measured live on 2026-09-09 it answered `"timestamp": "2026-09-09T07:26:51.117534"` — no marker — directly beside `"last_signal_at": "2026-09-09T07:05:06.668596Z"`, which had one. `components.signal_feed.last_success_at` was unmarked too, at `"2026-09-09T03:35:01.578349"`.

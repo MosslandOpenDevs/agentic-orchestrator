@@ -140,11 +140,20 @@ class TestTheWriterStampsOnce:
 
     @staticmethod
     def _save_loop() -> str:
+        """The whole loop body, including its ``except``.
+
+        The end anchor used to be the first ``session.commit()`` after the loop
+        head. That commit now lives *inside* the loop (it has to: holding the
+        transaction open across the translation awaits held the one SQLite
+        write lock for the whole batch), so the old anchor would silently
+        shrink this region to the ``create()`` call and stop checking the
+        error path. Anchor on the summary line after the loop instead.
+        """
         from agentic_orchestrator.scheduler import tasks
 
         source = Path(tasks.__file__).read_text(encoding="utf-8")
         start = source.index("for trend in analysis.trends:")
-        return source[start : source.index("session.commit()", start)]
+        return source[start : source.index("Saved NO trends", start)]
 
     def test_the_batch_timestamp_is_taken_before_the_loop(self):
         from agentic_orchestrator.scheduler import tasks

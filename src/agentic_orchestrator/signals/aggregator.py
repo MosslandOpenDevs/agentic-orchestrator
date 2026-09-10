@@ -438,7 +438,16 @@ class SignalAggregator:
         that -- they cover 2026-08-05 and 2026-08-10 onward, 23 days of
         continuous coverage ahead of the first one. Each at
         HH:36:01, exactly ``busy_timeout`` after the save began, every one
-        while the 6-hourly debate held the write lock.
+        while the 6-hourly debate cycle was running.
+
+        Which is a coincidence of timing, not the holder. Traced afterwards,
+        the debate writes and commits per row and holds nothing across an LLM
+        call; the writer that did hold the lock for minutes was the 2-hourly
+        trend analysis, which flushed each trend and then awaited two
+        translation round-trips before committing anything
+        (``scheduler/tasks.py``, fixed alongside this). "The debate held the
+        write lock" was an inference from the clock and is corrected here
+        rather than left compiled into the module it misdescribes.
 
         Committing per row bounds the blast radius to the row that failed and
         is the pattern already used for debate messages
