@@ -45,8 +45,8 @@ class Labels:
     # Source markers
     SOURCE_TREND = "source:trend"
 
-    # Human curation marker: keep this issue open; the aging sweep must
-    # never auto-close it.
+    # Human curation marker: keep this issue open; automation must never
+    # close it.
     CURATED_KEEP = "curated:keep"
 
     # All labels with descriptions for setup
@@ -85,7 +85,7 @@ class Labels:
         SOURCE_TREND: {"color": "7057FF", "description": "Idea generated from trend analysis"},
         CURATED_KEEP: {
             "color": "FEF2C0",
-            "description": "Human-curated: keep open, exempt from the aging sweep",
+            "description": "Human-curated: keep open, never closed by automation",
         },
     }
 
@@ -380,10 +380,10 @@ class GitHubClient:
 
         This endpoint returns ascending order and ignores ``direction``, so a
         single page is the oldest ``per_page`` comments, not the newest. That is
-        fine for the one caller today — it asks "did anyone with standing say
-        anything", and the busiest issue in this repository has six comments —
-        but a thread longer than ``per_page`` would need real pagination before
-        any caller could reason about recency.
+        fine for the callers today — they ask "did anyone with standing say
+        anything" and "is the retirement marker there", and the busiest issue in
+        this repository has six comments — but a thread longer than ``per_page``
+        would need real pagination before any caller could reason about recency.
 
         Only ``author_association`` and ``body`` are read. Returns ``[]`` rather
         than raising; the caller treats "cannot tell" as "leave the issue alone".
@@ -411,7 +411,7 @@ class GitHubClient:
 
         The search index (`/search/issues`) is known to silently omit some
         issues in this repo, so anything that must see EVERY issue — e.g. the
-        lifecycle sweep — must use this endpoint instead. Pull requests, which
+        mirror retirement sweep — must use this endpoint instead. Pull requests, which
         the list endpoint interleaves with issues, are filtered out.
 
         Args:

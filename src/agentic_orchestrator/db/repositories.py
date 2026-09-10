@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..timeutil import utcnow
 from .models import (
+    NON_PLAN_STATUSES,
     AgentState,
     APIUsage,
     DebateMessage,
@@ -625,6 +626,7 @@ class DebateRepository(BaseRepository):
         referenced_by_ideas = self.session.query(Idea.debate_session_id).filter(
             Idea.debate_session_id.isnot(None)
         )
+        # Raw, not PlanRepository: a placeholder row is a reference on purpose.
         referenced_by_plans = self.session.query(Plan.debate_session_id).filter(
             Plan.debate_session_id.isnot(None)
         )
@@ -670,7 +672,21 @@ class DebateRepository(BaseRepository):
 
 
 class PlanRepository(BaseRepository):
-    """Repository for Plan operations."""
+    """Repository for Plan operations.
+
+    Lists and counts cover plan documents only: rows in NON_PLAN_STATUSES are
+    left out by default. Reads that name a row or a status -- ``get_by_id``,
+    ``get_by_status``, ``count_by_status`` -- are the explicit opt-in and see
+    every row.
+    """
+
+    def _plans(self):
+        """Every row that is a plan document -- the one copy of the predicate.
+
+        NOT IN also drops a NULL status. The ORM never writes one (the column
+        default fills an explicit None), so only raw SQL could.
+        """
+        return self.session.query(Plan).filter(Plan.status.notin_(NON_PLAN_STATUSES))
 
     def create(self, plan_data: Dict[str, Any]) -> Plan:
         """Create a new plan."""
@@ -680,26 +696,16 @@ class PlanRepository(BaseRepository):
         return plan
 
     def get_by_id(self, plan_id: str) -> Optional[Plan]:
-        """Get plan by ID."""
+        """Get plan by ID, whatever its status."""
         return self.session.query(Plan).filter(Plan.id == plan_id).first()
 
     def get_by_idea(self, idea_id: str) -> List[Plan]:
-        """Get all plans for an idea."""
-        return (
-            self.session.query(Plan)
-            .filter(Plan.idea_id == idea_id)
-            .order_by(desc(Plan.version))
-            .all()
-        )
+        """Get all plan documents for an idea."""
+        return self._plans().filter(Plan.idea_id == idea_id).order_by(desc(Plan.version)).all()
 
     def get_latest_by_idea(self, idea_id: str) -> Optional[Plan]:
-        """Get the latest plan for an idea."""
-        return (
-            self.session.query(Plan)
-            .filter(Plan.idea_id == idea_id)
-            .order_by(desc(Plan.version))
-            .first()
-        )
+        """Get the latest plan document for an idea."""
+        return self._plans().filter(Plan.idea_id == idea_id).order_by(desc(Plan.version)).first()
 
     def get_by_status(self, status: str, limit: int = 50, offset: int = 0) -> List[Plan]:
         """Get plans by status."""
@@ -722,22 +728,20 @@ class PlanRepository(BaseRepository):
         return plan
 
     def count_all(self) -> int:
-        """Count all plans."""
-        return self.session.query(func.count(Plan.id)).scalar() or 0
+        """Count plan documents."""
+        return self._plans().count()
+
+    def count_created_since(self, since: datetime) -> int:
+        """Count plan documents created at or after ``since``."""
+        return self._plans().filter(Plan.created_at >= since).count()
 
     def count_by_status(self, status: str) -> int:
         """Count plans by status."""
         return self.session.query(func.count(Plan.id)).filter(Plan.status == status).scalar() or 0
 
     def get_all(self, limit: int = 100, offset: int = 0) -> List[Plan]:
-        """Get all plans with pagination."""
-        return (
-            self.session.query(Plan)
-            .order_by(desc(Plan.created_at))
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
+        """Get plan documents, newest first, with pagination."""
+        return self._plans().order_by(desc(Plan.created_at)).offset(offset).limit(limit).all()
 
 
 class ProjectRepository(BaseRepository):

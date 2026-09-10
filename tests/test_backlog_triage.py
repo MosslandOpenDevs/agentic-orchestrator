@@ -1,11 +1,11 @@
 """Tests for backlog triage — the consumer that matches idea production.
 
 Before triage, ~85% of debate ideas landed in ``scored`` and nothing ever
-touched them again: production had no consumer, so the backlog (and its
-GitHub mirror) only grew. These tests pin the triage contract: every touched
-idea moves toward a terminal state (promoted|archived) within ``max_strikes``
-touches, oldest ideas drain first, fresh ideas are left alone, and an LLM
-outage never hands out strikes.
+touched them again: production had no consumer, so the backlog only grew.
+These tests pin the triage contract: every touched idea moves toward a
+terminal state (promoted|archived) within ``max_strikes`` touches, oldest
+ideas drain first, fresh ideas are left alone, and an LLM outage never hands
+out strikes.
 """
 
 import asyncio
@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from agentic_orchestrator.db.models import Base
+from agentic_orchestrator.db.models import Base, Plan
 from agentic_orchestrator.db.repositories import (
     IdeaRepository,
     PlanRepository,
@@ -84,7 +84,6 @@ def make_idea(
     status="scored",
     age_days=3,
     extra_metadata=None,
-    github_issue_id=None,
 ):
     idea = idea_repo.create(
         {
@@ -95,7 +94,6 @@ def make_idea(
             "status": status,
             "score": 5.0,
             "extra_metadata": extra_metadata,
-            "github_issue_id": github_issue_id,
         }
     )
     idea.created_at = NOW - timedelta(days=age_days)
@@ -105,11 +103,10 @@ def make_idea(
     return idea
 
 
-def triage(idea_repo, plan_repo, trend_repo, scorer, config=None, reviewer=None):
+def triage(idea_repo, _plan_repo, trend_repo, scorer, config=None, reviewer=None):
     return asyncio.run(
         run_backlog_triage(
             idea_repo=idea_repo,
-            plan_repo=plan_repo,
             trend_repo=trend_repo,
             scorer=scorer,
             config=config,
@@ -120,7 +117,9 @@ def triage(idea_repo, plan_repo, trend_repo, scorer, config=None, reviewer=None)
 
 
 class TestDecisions:
-    def test_promote_creates_draft_plan(self, repos):
+    def test_a_triage_promotion_writes_no_plan_row(self, repos):
+        """A plan row exists only where a plan document exists, and triage has
+        no planning phase: the promotion lives on the idea alone."""
         idea_repo, plan_repo, trend_repo, session = repos
         make_idea(idea_repo, session, "i1", "great idea")
         scorer = FakeScorer({"great idea": (FakeScore(total=8.2), "promote")})
@@ -132,11 +131,9 @@ class TestDecisions:
         assert idea.status == "promoted"
         assert idea.score == 8.2
         assert idea.extra_metadata["triage"]["last_decision"] == "promote"
-        plans = plan_repo.get_by_idea("i1")
-        assert len(plans) == 1
-        assert plans[0].status == "draft"  # human approval required, never auto
-        assert plans[0].github_issue_id is None  # no new mirror issue
-        assert plans[0].extra_metadata["promoted_by"] == "backlog_triage"
+        # Raw query: PlanRepository leaves placeholder rows out, so it would not
+        # see one being written.
+        assert session.query(Plan).count() == 0
 
     def test_archive_records_verdict(self, repos):
         idea_repo, plan_repo, trend_repo, session = repos
@@ -151,7 +148,7 @@ class TestDecisions:
         triage_record = idea.extra_metadata["triage"]
         assert triage_record["last_score"] == 2.5
         assert "reason" in triage_record
-        assert plan_repo.get_by_idea("i1") == []
+        assert session.query(Plan).count() == 0
 
     def test_middle_band_strikes_then_strikes_out(self, repos):
         idea_repo, plan_repo, trend_repo, session = repos
@@ -501,6 +498,9 @@ class TestSecondPassGatesTriagePromotion:
         assert stats["promoted"] == 1
         assert idea_repo.get_by_id("i1").status == "promoted"
         assert reviewer.seen  # it really was reviewed
+        # Production always passes a reviewer, so this is the path that must
+        # write no plan row. Raw query: PlanRepository leaves placeholders out.
+        assert session.query(Plan).count() == 0
 
     def test_demote_holds_the_idea_and_counts_a_strike(self, repos):
         from agentic_orchestrator.scoring import second_pass as sp
@@ -514,7 +514,7 @@ class TestSecondPassGatesTriagePromotion:
         assert stats["promoted"] == 0
         assert stats["strikes"] == 1  # a real verdict still drives convergence
         assert idea_repo.get_by_id("i1").status == "scored"
-        assert plan_repo.get_by_idea("i1") == []
+        assert session.query(Plan).count() == 0
 
     def test_reject_archives(self, repos):
         from agentic_orchestrator.scoring import second_pass as sp
@@ -696,3 +696,46 @@ class TestTheReviewAllowanceIsTheRealQuota:
 
         assert stats["examined"] == 6
         assert stats["deferred"] == 0
+
+
+class TestTheBacklogTickCallsTriage:
+    """``_process_backlog`` is triage's only production caller, and it turns any
+    exception into one WARNING. A keyword the signature no longer takes -- the
+    ``plan_repo=`` that triage used to accept -- would stop triage in production
+    while CI stayed green, so the call is bound against the real signature."""
+
+    def test_the_call_binds_to_the_signature(self, monkeypatch, tmp_path):
+        import inspect
+        from types import SimpleNamespace
+
+        import agentic_orchestrator.db as db_pkg
+        import agentic_orchestrator.llm as llm_pkg
+        import agentic_orchestrator.scheduler.backlog_triage as triage_mod
+        from agentic_orchestrator.scheduler import tasks as tasks_mod
+
+        engine = create_engine(f"sqlite:///{tmp_path / 'backlog.db'}")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine)
+        monkeypatch.setattr(
+            db_pkg, "get_database", lambda: SimpleNamespace(get_session=session_factory)
+        )
+        # TRANSITIONAL key: keeps the mirror retirement from reaching GitHub.
+        monkeypatch.setattr(
+            tasks_mod,
+            "_load_backlog_config",
+            lambda: {"triage": {"enabled": True}, "mirror_retirement": {"enabled": False}},
+        )
+        monkeypatch.setattr(llm_pkg, "HybridLLMRouter", lambda: object())
+
+        signature = inspect.signature(triage_mod.run_backlog_triage)
+        bound = []
+
+        async def bind_only(*args, **kwargs):
+            bound.append(signature.bind(*args, **kwargs))
+            return {}
+
+        monkeypatch.setattr(triage_mod, "run_backlog_triage", bind_only)
+
+        tasks_mod._process_backlog()
+
+        assert len(bound) == 1, "triage was not called with arguments its signature accepts"

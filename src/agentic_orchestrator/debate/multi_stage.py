@@ -48,6 +48,11 @@ logger = logging.getLogger(__name__)
 # come in under a fifth of it.
 REVISION_MIN_LENGTH_RATIO = 0.6
 
+# What the planning phase reports as ``final_plan`` when it wrote nothing. It is
+# a truthy string, so a reader asking "is there a plan document?" has to compare
+# against it rather than test for emptiness.
+NO_PLAN_GENERATED = "No plan generated"
+
 
 @dataclass
 class Idea:
@@ -257,7 +262,7 @@ class MultiStageDebate:
             self.on_phase_complete(planning_result)
 
         # Extract final plan
-        final_plan = planning_result.output.get("final_plan", "No plan generated")
+        final_plan = planning_result.output.get("final_plan", NO_PLAN_GENERATED)
 
         # Calculate totals
         total_duration = (utcnow() - start_time).total_seconds()
@@ -580,7 +585,7 @@ class MultiStageDebate:
             phase=DebatePhase.PLANNING,
             rounds=rounds,
             output={
-                "final_plan": draft_plan or "No plan generated",
+                "final_plan": draft_plan or NO_PLAN_GENERATED,
                 "approvals": approvals,
                 "total_votes": total_votes,
                 "approval_rate": approvals / total_votes if total_votes > 0 else 0,
@@ -1495,7 +1500,7 @@ Return the complete revised plan.
             # Clean at the boundary. The prompt no longer asks for a `## Idea:`
             # heading, but models still produce markdown in a JSON string value
             # often enough that the title must not be trusted raw -- it goes
-            # straight into an `<h3>` and into a GitHub issue title.
+            # straight into an `<h3>`.
             title = clean_title(idea_json.get("idea_title"))
             if title:
                 # Validate JSON-based idea
@@ -1664,7 +1669,7 @@ Return the complete revised plan.
 
         # Defensive cleanup: even when a scraped line passes the noise filter,
         # never ship JSON punctuation (wrapping quotes, trailing commas) as
-        # part of an issue title.
+        # part of a title.
         if title:
             title = title.strip().rstrip(",;").strip()
             if (

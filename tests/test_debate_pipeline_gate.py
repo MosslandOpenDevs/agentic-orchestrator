@@ -3,9 +3,9 @@
 `tests/test_idea_clustering.py` proves the clustering algorithm is sound in
 isolation. This file proves the *wiring* is: that
 `_auto_score_and_save_ideas` actually consults the gate, that only cluster
-representatives are scored and mirrored, that the losers are persisted
-rather than dropped, and that exactly one plan per debate carries the
-debate-wide `final_plan`.
+representatives are scored, that the losers are persisted rather than
+dropped, and that a plan row is written only for the one promotion that
+carries the debate-wide `final_plan`.
 
 That distinction matters here because every bug this gate exists to fix was
 a wiring bug, not an algorithm bug: `result.all_ideas` ignored the
@@ -13,21 +13,23 @@ already-computed `selected_ideas`, and the single `final_plan` document was
 copied byte-identically into every promoted plan (three plans of exactly
 16,453 characters on 2026-08-05).
 
-No LLM and no network: the scorer is scripted and the GitHub client is
-absent, which is also what lets these run while the shared GPU is busy.
+No LLM and no network: the scorer and translator are scripted, and recorders
+stand in for project generation and the GitHub client.
 """
 
 import asyncio
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func, or_
 from sqlalchemy.orm import sessionmaker
 
-from agentic_orchestrator.db.models import Base
+from agentic_orchestrator.db.models import Base, Idea, Plan
 from agentic_orchestrator.db.repositories import IdeaRepository, PlanRepository
+from agentic_orchestrator.debate.multi_stage import NO_PLAN_GENERATED
 from agentic_orchestrator.scheduler import tasks as tasks_mod
 
 GOLDEN_PATH = Path(__file__).parent / "data" / "golden_debate_x402.json"
@@ -87,13 +89,32 @@ def session():
 
 @pytest.fixture()
 def no_external(monkeypatch):
-    """Strip every LLM/GitHub/project dependency from the scoring task."""
+    """Strip every LLM/GitHub/project dependency from the scoring task.
+
+    The stand-ins RECORD rather than raise. The task wraps project generation
+    in its own ``except Exception``, so a guard that raised there was swallowed
+    and could never fail a test; tests assert on the record instead. The
+    GitHub stand-in also keeps a GITHUB_TOKEN in the environment from turning a
+    test run into real issues.
+    """
+    import agentic_orchestrator.github_client as github_client_mod
+
+    record = SimpleNamespace(project_calls=[], github_clients=[])
     monkeypatch.setattr(tasks_mod, "_load_project_config", lambda: {"auto_generate": {}})
 
-    async def _no_project(**kwargs):
-        raise AssertionError("project generation must not run in these tests")
+    async def _record_project(**kwargs):
+        record.project_calls.append(kwargs["plan_id"])
+        return False
 
-    monkeypatch.setattr(tasks_mod, "_auto_generate_project", _no_project)
+    monkeypatch.setattr(tasks_mod, "_auto_generate_project", _record_project)
+
+    class RecordingGitHubClient:
+        def __init__(self, *args, **kwargs):
+            record.github_clients.append(kwargs)
+            raise RuntimeError("the debate path must not construct a GitHub client")
+
+    monkeypatch.setattr(github_client_mod, "GitHubClient", RecordingGitHubClient)
+    return record
 
 
 def golden_ideas():
@@ -107,15 +128,36 @@ def golden_ideas():
     ]
 
 
-def run_scoring(session, ideas, scorer, monkeypatch, final_plan=FINAL_PLAN):
+def confirm_every_review(monkeypatch):
+    """Every second-pass review CONFIRMs, so a fixture that scores high promotes."""
+    from agentic_orchestrator.scoring import second_pass as sp
+
+    class AlwaysConfirm(sp.SecondPassReviewer):
+        async def review(self, title, content, local_score, context="", siblings=None):
+            self.reviews_used += 1
+            return sp.ReviewVerdict(sp.CONFIRM, reason="stub", score=8.0, model="m")
+
+    monkeypatch.setattr(sp, "SecondPassReviewer", AlwaysConfirm)
+
+
+def promoted_rows(session):
+    return session.query(Idea).filter(Idea.status == "promoted").all()
+
+
+def run_scoring(session, ideas, scorer, monkeypatch, final_plan=FINAL_PLAN, translator=None):
     """Drive _auto_score_and_save_ideas with everything external stubbed."""
     monkeypatch.setattr(tasks_mod, "IdeaScorer", lambda **kw: scorer, raising=False)
 
     import agentic_orchestrator.scoring as scoring_mod
+    import agentic_orchestrator.translation as translation_pkg
     import agentic_orchestrator.translation.translator as translator_mod
 
     monkeypatch.setattr(scoring_mod, "IdeaScorer", lambda **kw: scorer)
-    monkeypatch.setattr(translator_mod, "ContentTranslator", lambda **kw: PassthroughTranslator())
+    # The task imports ContentTranslator from the package, which bound its own
+    # name at import time; patching only the module left the real translator in.
+    stand_in = translator or PassthroughTranslator()
+    monkeypatch.setattr(translator_mod, "ContentTranslator", lambda **kw: stand_in)
+    monkeypatch.setattr(translation_pkg, "ContentTranslator", lambda **kw: stand_in)
 
     return asyncio.run(
         tasks_mod._auto_score_and_save_ideas(
@@ -160,7 +202,6 @@ class TestGateIsActuallyWired:
         assert duplicates, "the gate must keep near-duplicates for audit"
         for row in duplicates:
             assert row.extra_metadata["duplicate_of"]
-            assert row.github_issue_id is None  # never mirrored
 
     def test_duplicate_rows_point_at_a_real_representative(self, session, monkeypatch, no_external):
         run_scoring(session, golden_ideas(), ScriptedScorer({}), monkeypatch)
@@ -234,7 +275,7 @@ class TestSecondPassGatesPromotion:
         repo = IdeaRepository(session)
         assert repo.get_by_status("promoted", limit=100) == []
         assert repo.get_by_status("scored", limit=100), "held in the backlog, not lost"
-        assert PlanRepository(session).get_all(limit=50) == []
+        assert session.query(Plan).count() == 0
 
     def test_demote_holds_in_the_backlog(self, session, monkeypatch, no_external):
         from agentic_orchestrator.scoring import second_pass as sp
@@ -287,7 +328,7 @@ class TestThemeLimitsPromotions:
     one theme (measured live 2026-08-06: four OpenZeppelin/Slither contract
     scanners among 16). Theme grouping is the recoverable half of the
     problem: at most one promotion per theme per cycle, and the losers keep
-    their row, their issue and their backlog place.
+    their row and their backlog place.
     """
 
     def _confirm_everything(self, monkeypatch):
@@ -359,36 +400,94 @@ class TestThemeLimitsPromotions:
 
 
 class TestOnePlanPerDebate:
+    """A plan row exists only where a plan document exists.
+
+    Planning writes one document per debate. The first promotion carries it
+    into a plan row; later promotions stay ``promoted`` with no plan row.
+    Absence is counted with raw queries: PlanRepository leaves placeholder
+    rows out, so an absence read through it would prove less.
+    """
+
     def test_the_debate_plan_document_is_not_copied_into_every_promotion(
         self, session, monkeypatch, no_external
     ):
         # The 2026-08-05 signature: three plans, each 16,453 chars, all the
-        # same document. At most ONE plan may carry it.
-        ideas = golden_ideas()
-        # Force several promotions from distinct clusters.
-        scorer = ScriptedScorer({}, default=8.5)
+        # same document.
+        confirm_every_review(monkeypatch)
 
-        run_scoring(session, ideas, scorer, monkeypatch)
-
-        plans = PlanRepository(session).get_all(limit=100)
-        with_document = [p for p in plans if p.final_plan]
-        assert len(with_document) <= 1, (
-            "only one plan per debate may carry the debate-wide final_plan; "
-            f"got {len(with_document)}"
-        )
-        if with_document:
-            assert with_document[0].final_plan == FINAL_PLAN
-
-    def test_a_plan_without_the_document_is_never_auto_approved(
-        self, session, monkeypatch, no_external
-    ):
-        # Auto-approval is what triggers project generation; approving a
-        # plan with no document scaffolds a project from nothing.
         run_scoring(session, golden_ideas(), ScriptedScorer({}, default=8.5), monkeypatch)
 
-        for plan in PlanRepository(session).get_all(limit=100):
-            if not plan.final_plan:
-                assert plan.status != "approved"
+        promoted = promoted_rows(session)
+        assert len(promoted) >= 2, "the fixture must promote more than one idea"
+        plans = session.query(Plan).all()
+        assert len(plans) == 1, f"one plan document, one plan row; got {len(plans)}"
+        assert plans[0].final_plan == FINAL_PLAN
+        assert plans[0].idea_id in {row.id for row in promoted}
+        # 8.5 clears the auto-approval floor, so generation is requested for
+        # that plan and nothing else.
+        assert no_external.project_calls == [plans[0].id]
+
+    @pytest.mark.parametrize("final_plan", [None, "  \n", NO_PLAN_GENERATED])
+    def test_no_plan_document_means_no_plan_row(
+        self, session, monkeypatch, no_external, final_plan
+    ):
+        confirm_every_review(monkeypatch)
+
+        run_scoring(
+            session,
+            golden_ideas(),
+            ScriptedScorer({}, default=8.5),
+            monkeypatch,
+            final_plan=final_plan,
+        )
+
+        assert promoted_rows(session), "the fixture must promote"
+        assert session.query(Plan).count() == 0
+        assert no_external.project_calls == []
+
+    def test_no_plan_row_lacks_a_document(self, session, monkeypatch, no_external):
+        confirm_every_review(monkeypatch)
+
+        run_scoring(session, golden_ideas(), ScriptedScorer({}, default=8.5), monkeypatch)
+
+        assert len(promoted_rows(session)) >= 2, "later promotions must have been reached"
+        lacking = session.query(Plan).filter(
+            or_(Plan.final_plan.is_(None), func.trim(Plan.final_plan) == "")
+        )
+        assert lacking.count() == 0
+
+    def test_a_failed_translation_keeps_the_document(self, session, monkeypatch, no_external):
+        # A failed KO->EN translation returns "" rather than raising.
+        class EnglishLost(PassthroughTranslator):
+            async def ensure_bilingual(self, text):
+                return ("", text) if text == FINAL_PLAN else (text, text)
+
+        confirm_every_review(monkeypatch)
+
+        run_scoring(
+            session,
+            golden_ideas(),
+            ScriptedScorer({}, default=8.5),
+            monkeypatch,
+            translator=EnglishLost(),
+        )
+
+        plans = session.query(Plan).all()
+        assert len(plans) == 1, "the fixture must write the plan row"
+        assert plans[0].final_plan_ko == FINAL_PLAN, "the stand-in translator must be in use"
+        assert plans[0].final_plan == FINAL_PLAN
+
+
+class TestTheDebatePathHasNoGitHub:
+    def test_a_promoting_cycle_never_constructs_a_github_client(
+        self, session, monkeypatch, no_external
+    ):
+        confirm_every_review(monkeypatch)
+
+        run_scoring(session, golden_ideas(), ScriptedScorer({}, default=8.5), monkeypatch)
+
+        assert promoted_rows(session), "the fixture must promote"
+        assert no_external.github_clients == []
 
 
 class TestFailureModes:
@@ -491,3 +590,37 @@ class TestAPlanSurvivesTheNextIdeaFailing:
         assert len(promoted) == 1
         assert len(plans) == 1, "a promoted idea was left with no plan"
         assert plans[0].idea_id == promoted[0].id
+
+
+class TestAFailedPlanWriteDoesNotCostTheNextIdea:
+    """A failed plan flush is rolled back where it failed.
+
+    SQLAlchemy refuses every later statement on a session whose flush failed
+    until it is rolled back. Without the rollback in the plan block, the next
+    idea -- already scored, reviewed and translated -- meets that refusal at
+    its own insert, and the per-idea handler rolls its row away.
+    """
+
+    def test_the_next_idea_keeps_its_row(self, session, monkeypatch, no_external):
+        confirm_every_review(monkeypatch)
+        failed_writes = []
+        real_create = PlanRepository.create
+
+        def create_a_row_that_cannot_flush(self, plan_data):
+            failed_writes.append(plan_data["idea_id"])
+            # plans.title is NOT NULL, so this flush raises IntegrityError.
+            return real_create(self, {**plan_data, "title": None})
+
+        monkeypatch.setattr(PlanRepository, "create", create_a_row_that_cannot_flush)
+        ideas = [
+            FakeIdea(title="A first idea long enough to look like a real one", content="x"),
+            FakeIdea(title="A completely unrelated second idea, also long enough", content="y"),
+        ]
+        scorer = ScriptedScorer({}, default=8.5)
+
+        run_scoring(session, ideas, scorer, monkeypatch)
+
+        assert len(failed_writes) == 1, "the first promotion's plan write must have failed"
+        assert len(scorer.scored_titles) == 2, "the second idea has to have been reached"
+        assert session.query(Plan).count() == 0
+        assert {row.title for row in session.query(Idea).all()} == {idea.title for idea in ideas}

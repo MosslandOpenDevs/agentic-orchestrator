@@ -2,21 +2,26 @@
 
 This document describes the labels used in the Mossland Agentic Orchestrator workflow.
 
-> **Note**: The system is **DB-centric**. GitHub Issues and labels exist for visibility;
-> SQLite (`data/orchestrator.db`) is the source of truth. Closing an issue does not delete data.
+> **The per-item issue mirror is retired.** No scheduled process creates, labels, comments on or
+> closes issues any more. SQLite (`data/orchestrator.db`) is the record and https://ao.moss.land
+> renders it. This page documents the labels on existing issues and the manual `ao backlog` CLI,
+> which still reads and writes them. Closing an issue does not delete data.
 
 > **`promote:to-plan` is not a "future" label.** Its consumer is implemented
 > (`GitHubClient.find_ideas_to_promote` → `BacklogOrchestrator.run_cycle`) and last ran
 > successfully on 2026-01-04. What is missing is a *scheduler entry*: `run_cycle` is reachable
 > only from `ao backlog run` / `ao backlog process`, and no PM2 process invokes it. The PM2
-> `moss-ao-backlog` job runs a different function (`run_backlog_triage` + issue lifecycle + retention), not `run_cycle`. Note also that the
-> orchestrator adds this label **itself** to any idea scoring >= 7.0, so it is not purely a human
-> approval signal today — see [Known Ambiguity](#known-ambiguity-promoteto-plan-has-two-meanings).
+> `moss-ao-backlog` job runs a different function (`run_backlog_triage` + retention, plus the
+> temporary mirror retirement), not `run_cycle`. Until the mirror was retired, the orchestrator
+> also added this label **itself** to ideas it promoted — see
+> [Known Ambiguity](#known-ambiguity-promoteto-plan-had-two-meanings).
 
 ## Quick Reference
 
 Source of truth for this table is `Labels.ALL_LABELS` in
-[`github_client.py`](../src/agentic_orchestrator/github_client.py).
+[`github_client.py`](../src/agentic_orchestrator/github_client.py). Since the mirror was retired,
+"Orchestrator" below means the manual `ao backlog` CLI: no scheduled process adds or removes any
+of these labels.
 
 | Label | Purpose | Who Adds It | Status |
 |-------|---------|-------------|--------|
@@ -27,25 +32,25 @@ Source of truth for this table is `Labels.ALL_LABELS` in
 | `status:archived` | Low-scoring idea (<4.0) | Orchestrator | Defined; unused on this repo |
 | `status:in-dev` | Plan is being implemented | Orchestrator | Defined; unused on this repo |
 | `status:done` | Completed | Orchestrator | Defined; unused on this repo |
-| `generated:by-orchestrator` | Auto-generated content | Orchestrator | Active (all 65 open issues) |
+| `generated:by-orchestrator` | Auto-generated content | Orchestrator | Active |
 | `source:trend` | Generated from trend analysis | Orchestrator | Active |
-| `promote:to-plan` | Queue idea for planning | Orchestrator (score >= 7.0) **and** Human | Active |
+| `promote:to-plan` | Queue idea for planning | Human (the scheduled pipeline also added it until the mirror was retired) | Active |
 | `processed:to-plan` | Promotion consumed; plan created | Orchestrator | Active |
 | `reject:plan` | Reject a plan and regenerate | Human | Defined; unused on this repo |
 | `rejected` | Terminal marker written by `reject_plan()` | Orchestrator | Active (closed issues) |
 | `curated:keep` | Survived the 2026-06 issue-cleanup triage | Human | Active (12 issues) |
 | `promote:to-dev` | Start development from plan | Human | *Not implemented* |
 
-`curated:keep` is the only label in the set that the orchestrator neither adds nor reads. It is a
-human triage marker applied during the 2026-06 cleanup (2,803 issues closed) and is what any
-future bulk-close pass must exclude.
+`curated:keep` is the one label in the set that the orchestrator never adds. It is a human triage
+marker applied during the 2026-06 cleanup (2,803 issues closed), and the temporary mirror
+retirement leaves every issue carrying it open.
 
 `rejected` and `reject:plan` are **not** duplicates: `reject:plan` is the input a human adds, and
 `rejected` is the terminal marker `reject_plan()` writes afterwards. Do not retire either one.
 
 ## Current Workflow (DB-Centric)
 
-The current system uses SQLite as the primary data store. GitHub Issues are created for visibility but are not the source of truth.
+SQLite is the only record the scheduled pipeline writes, and https://ao.moss.land renders it. No GitHub issue is created.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -67,12 +72,6 @@ The current system uses SQLite as the primary data store. GitHub Issues are crea
 │   │              ideas table                 │                   │
 │   │              plans table                 │                   │
 │   └─────────────────────────────────────────┘                   │
-│                           │                                      │
-│                           ↓ (optional)                           │
-│   ┌─────────────────────────────────────────┐                   │
-│   │      GitHub Issues (For Visibility)      │                   │
-│   │   Labels: type:idea, status:backlog      │                   │
-│   └─────────────────────────────────────────┘                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -80,13 +79,13 @@ The current system uses SQLite as the primary data store. GitHub Issues are crea
 
 1. **Debate completes** → Ideas generated with scores
 2. **Auto-Scorer evaluates** → Assigns status based on score
-3. **DB storage** → Primary record in `ideas` table
-4. **GitHub Issue created** (optional) → For visibility and tracking
+3. **DB storage** → the record: the `ideas` table, and `plans` for the one promotion that carries the debate's plan document
+4. **Published** → on https://ao.moss.land; no GitHub issue
 
-### Status Mapping
+### Status Mapping (issues created before the retirement)
 
-Written by `_auto_score_and_save_ideas` in
-[`scheduler/tasks.py`](../src/agentic_orchestrator/scheduler/tasks.py).
+Was written by `_auto_score_and_save_ideas` in
+[`scheduler/tasks.py`](../src/agentic_orchestrator/scheduler/tasks.py), which no longer touches GitHub.
 
 | DB Status | GitHub Labels | Description |
 |-----------|---------------|-------------|
@@ -97,42 +96,33 @@ Written by `_auto_score_and_save_ideas` in
 
 Note that the `promoted` row carries **no** `status:` label. That is deliberate:
 `find_ideas_to_promote()` queries `[type:idea, promote:to-plan]`, and adding `status:backlog`
-would double-count the issue across two queues that are meant to be exclusive. The six open
-issues in that state are correct, not untagged.
+would double-count the issue across two queues that are meant to be exclusive.
 
 Archived ideas (score < 4.0) stopped getting GitHub issues in v0.6.15 — an issue
 that is dead on arrival is tracker noise; the DB row remains the record. Issues
 created before v0.6.15 with `status:archived` still exist in the closed set.
 
-### Issue Lifecycle (v0.6.15)
+### Issue Lifecycle (retired)
 
-The tracker is a mirror of the DB pipeline, and since v0.6.15 it **follows** the
-pipeline instead of only accumulating. Two mechanisms, both implemented in
-[`scheduler/issue_lifecycle.py`](../src/agentic_orchestrator/scheduler/issue_lifecycle.py)
-and run from the backlog cycle (every 4h in production), plus an inline close in
-the debate task:
+Scheduled closing stopped with the mirror: nothing closes an issue when its idea is promoted or
+archived, and there is no aging sweep. What remains is a **temporary transition**
+([`scheduler/mirror_retirement.py`](../src/agentic_orchestrator/scheduler/mirror_retirement.py),
+run from the backlog cycle; the follow-up PR deletes it once production is verified). It closes
+each open `generated:by-orchestrator` issue once, as `state_reason=not_planned`, with one comment
+linking the idea's page on https://ao.moss.land. It leaves open:
 
-1. **Pipeline-linked closes** (`state_reason=completed`)
-   - When an idea is promoted and its plan is created, the `[Idea]` issue gets a
-     comment linking the `[Plan]` issue, its labels move to
-     `status:planned` + `processed:to-plan`, and it closes. This happens inline
-     at promotion time; a reconciliation sweep retries any close GitHub dropped.
-   - When a project is generated from a plan (auto at score ≥ 8.0 or via
-     `POST /plans/{id}/approve`), the `[Plan]` issue gets a comment naming the
-     project, labels move to `status:done` + `processed:to-dev`, and it closes.
-2. **Aging sweep** (`state_reason=not_planned`)
-   - A `generated:by-orchestrator` issue that is older than
-     `backlog.issue_lifecycle.max_age_days` (default 30) with **zero comments**
-     is closed. The orchestrator never comments on open issues, so any comment
-     means a human showed interest and the issue is exempt.
-   - **`curated:keep` and `source:trend` issues are never aged out.** Add
-     `curated:keep` to any issue you want to pin open indefinitely.
+- issues labelled **`curated:keep`** or **`source:trend`** — add `curated:keep` to any issue you
+  want to keep open;
+- issues with a comment from an `OWNER`, `MEMBER`, `COLLABORATOR` or `CONTRIBUTOR`, not counting
+  the bot's own comments signed `_(automated issue lifecycle)_`. The bot account comments as a
+  member, so an older bot comment without that signature also keeps its issue open;
+- issues whose comments cannot be read.
 
-Closes are capped at `backlog.issue_lifecycle.max_closes_per_run` (default 50)
-per cycle, use the list API rather than the search API (the search index
-silently omits some issues), and are visibility-only: DB rows are untouched and
-any closed issue can be reopened. Disable the whole mechanism with
-`backlog.issue_lifecycle.enabled: false` in `config.yaml`.
+The comment carries a hidden `<!-- ao:issue-mirror-retired -->` marker, so an issue reopened by
+hand is not closed again. The pass never sends labels, uses the list API rather than search (the
+search index silently omits some issues), stops after three failed closes in a row, and is capped
+at `backlog.mirror_retirement.max_closes_per_run` (100) per cycle. Closing is visibility-only: DB
+rows are untouched, and any closed issue can be reopened.
 
 ## Label Categories
 
@@ -141,11 +131,11 @@ any closed issue can be reopened. Disable the whole mechanism with
 These indicate what kind of issue it is:
 
 - **`type:idea`** - An idea for a new micro Web3 service
-  - Created by: Orchestrator (auto-generated from debates)
+  - Created by: the manual `ao backlog` CLI; debate ideas got one until the mirror was retired
   - Contains: Idea summary, auto-score results, debate context
 
 - **`type:plan`** - A detailed planning document
-  - Created by: Orchestrator (when promoted idea gets a plan)
+  - Created by: the manual `ao backlog` CLI; promoted debate ideas got one until the mirror was retired
   - Contains: Full implementation plan with architecture, timeline, KPIs
 
 ### Status Labels
@@ -174,21 +164,19 @@ There is no `source:debate` label. Debate-originated ideas carry only
 
 ## Label-Based Promotion
 
-### Known Ambiguity: `promote:to-plan` has two meanings
+### Known Ambiguity: `promote:to-plan` had two meanings
 
 The docs and the issue template describe this label as a **human approval gate**
 (`.github/ISSUE_TEMPLATE/idea.yml`: "If selected, add the `promote:to-plan` label to start
-planning"). The code also has the orchestrator apply it **automatically** to every idea scoring
->= 7.0 (`scheduler/tasks.py`, the `status == "promoted"` branch). All six issues currently
-carrying it were labelled by the bot in the same second the issue was created; the only
+planning"). Until the mirror was retired, the orchestrator also applied it **automatically** to
+every idea it promoted (`scheduler/tasks.py`). When this was last checked, every open issue
+carrying it had been labelled by the bot in the same second the issue was created; the only
 human-applied instances are #7 and #11 from 2026-01-04.
 
-That matters before anyone puts `run_cycle` on a schedule: with both behaviours live, a
-high-scoring idea gets a plan generated automatically **and** gets queued for the label consumer,
-so plans are generated twice and the human approval gate disappears. Pick one before scheduling:
-
-- keep auto-promotion but give it its own label, leaving `promote:to-plan` purely human; or
-- accept that promotion is automatic and correct the docs and issue template instead.
+The retirement settles it for new labels: no scheduled code adds `promote:to-plan` any more, so
+from now on the label means a person asked. Issues the bot labelled still carry it, though, so
+before anyone puts `run_cycle` on a schedule, check which of those are still open — the consumer
+would queue them for a plan the pipeline may already have written.
 
 ### Promotion Labels
 
@@ -257,8 +245,7 @@ instead, which is idempotent and always matches `Labels.ALL_LABELS`:
 ao backlog setup
 ```
 
-`curated:keep` is deliberately **not** in the registry: it is a human triage marker, so
-`setup_labels()` will not recreate it if you delete it.
+`curated:keep` is in the registry too, so `ao backlog setup` creates it; only people apply it.
 
 ## Common Scenarios
 
@@ -270,9 +257,6 @@ sqlite3 data/orchestrator.db "SELECT id, title, status, score FROM ideas ORDER B
 
 # Via API
 curl https://ao.moss.land/api/ideas
-
-# Via GitHub
-# Filter issues by label:type:idea
 ```
 
 ### "I want to see high-quality ideas"
@@ -283,9 +267,6 @@ sqlite3 data/orchestrator.db "SELECT id, title, score FROM ideas WHERE status='p
 
 # Via API
 curl "https://ao.moss.land/api/ideas?status=promoted"
-
-# Via GitHub
-# Filter issues by label:promote:to-plan
 ```
 
 ### "I want to check plan details"
@@ -293,7 +274,4 @@ curl "https://ao.moss.land/api/ideas?status=promoted"
 ```bash
 # Via API
 curl https://ao.moss.land/api/plans/{plan_id}
-
-# Via GitHub
-# Look for issues with label:type:plan
 ```

@@ -1,49 +1,18 @@
-"""Tests for issue title/body rendering in the scheduler tasks.
+"""Tests for idea summary rendering in the scheduler tasks.
 
-Regression cover for two defects that were visible on the public tracker:
-
-* ``idea_content[:500]`` cut debate output mid-`````json`` block, leaving the fence
-  unclosed so every following section of the issue rendered inside a code
-  span. 12 open issues (7 of them ``curated:keep``) are still in that state.
-* Issue titles only had ``#`` stripped, so markdown emphasis survived into the
-  title, where GitHub renders no markdown — 27 open issues read
-  ``[IDEA] **Foo**`` with literal asterisks.
+Regression cover for a defect that was visible on the public tracker:
+``idea_content[:500]`` cut debate output mid-`````json`` block, leaving the fence
+unclosed so every following section rendered inside a code span. The summary is
+stored as ``ideas.summary`` and the site renders it as markdown, so the fence
+still has to close.
 """
 
 import json
 
 from agentic_orchestrator.scheduler.tasks import (
-    _clean_issue_title,
     _format_idea_summary,
     _truncate_markdown,
 )
-
-
-class TestCleanIssueTitle:
-    """Titles must survive into GitHub without literal markdown."""
-
-    def test_strips_bold_emphasis(self):
-        assert _clean_issue_title("**ETF Flow Alpha**") == "ETF Flow Alpha"
-
-    def test_strips_heading_markers_as_before(self):
-        assert _clean_issue_title("## Some Idea") == "Some Idea"
-
-    def test_strips_backticks_and_underscores(self):
-        assert _clean_issue_title("`MOC` __Volatility__") == "MOC Volatility"
-
-    def test_collapses_whitespace_left_behind(self):
-        assert _clean_issue_title("**A**  **B**") == "A B"
-
-    def test_plain_title_is_unchanged(self):
-        title = "Mossland Community Sentiment Dashboard"
-        assert _clean_issue_title(title) == title
-
-    def test_handles_none_and_empty(self):
-        assert _clean_issue_title(None) == ""
-        assert _clean_issue_title("") == ""
-
-    def test_keeps_korean_text(self):
-        assert _clean_issue_title("**MOC 변동성 완화**") == "MOC 변동성 완화"
 
 
 class TestFormatIdeaSummary:
@@ -99,7 +68,7 @@ class TestFormatIdeaSummary:
     def test_json_path_respects_the_limit(self):
         # The rendered markdown must be bounded too. An early version applied
         # ``limit`` only to the prose fallback, so a large idea object could
-        # produce an unbounded issue body.
+        # produce an unbounded summary.
         big = {"section_%02d" % i: "v" * 200 for i in range(40)}
         out = _format_idea_summary("```json\n" + json.dumps(big) + "\n```", limit=800)
         assert len(out) < 1000

@@ -96,7 +96,7 @@ export default function SystemPage() {
   const techStack = [
     { category: 'LLM Providers', items: ['Anthropic', 'OpenAI', 'Ollama (Local)'] },
     { category: 'Data Sources', items: ['RSS Feeds', 'GitHub API', 'Custom APIs'] },
-    { category: 'Storage', items: ['SQLite Database', 'GitHub Issues', 'Markdown Files'] },
+    { category: 'Storage', items: ['SQLite Database', 'Markdown Files'] },
     { category: 'Automation', items: ['PM2 Scheduler', 'Scheduled Signal Collection', 'Scheduled Debates'] },
   ];
 

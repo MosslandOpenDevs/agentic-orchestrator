@@ -243,19 +243,13 @@ llm:
       model: gpt-5.4-mini
 
 # =============================================================================
-# Backlog Controls (idea de-duplication + GitHub issue cap)
+# Backlog Controls (idea de-duplication, clustering, promotion review, triage)
 # =============================================================================
 backlog:
   # Skip creating an idea whose normalized title prefix already exists, so the
-  # same idea is not posted dozens of times (root cause of the 2026 issue flood).
+  # same idea is not stored dozens of times (root cause of the 2026 issue flood).
   dedup_enabled: true
   dedup_prefix_tokens: 6
-  # Stop posting NEW idea/plan issues to GitHub while this many ideas are OPEN
-  # (status scored/pending, i.e. awaiting a triage decision). Ideas are still
-  # scored and stored in SQLite (the source of truth); only the GitHub mirror
-  # is paused. With triage draining the backlog this is an emergency valve
-  # that should never trip. Set to 0 to disable the cap.
-  max_open_ideas: 800
 
   # Idea diversity gate (v0.6.20). A capable debate model given one topic
   # returns one idea many times over, in wordings distinct enough that the
@@ -263,9 +257,8 @@ backlog:
   # of which 8 were the same payment gateway, three of those were each
   # promoted, and each scaffolded a project whose plan document was
   # byte-identical to the others. Ideas are clustered per debate BEFORE
-  # scoring (so the LLM is not paid to score copies) and before GitHub (so
-  # the tracker mirrors decisions, not noise); only the representative of
-  # each cluster proceeds, the rest are stored as linked `duplicate` rows.
+  # scoring (so the LLM is not paid to score copies); only the representative
+  # of each cluster proceeds, the rest are stored as linked `duplicate` rows.
   #
   # TUNE ON PRECISION, NEVER ON CLUSTER COUNT. Measured on the 24 golden
   # ideas (tests/data/golden_debate_x402.json): threshold 0.18 is the lowest
@@ -280,14 +273,14 @@ backlog:
   # Two thresholds, because two different questions are being asked.
   #
   #   threshold (0.18)       "is this the SAME idea?" -> decides who gets
-  #                          externalized at all. A wrong merge here DELETES
+  #                          scored at all. A wrong merge here DELETES
   #                          an idea: only the representative proceeds. So it
   #                          is precision-first and deliberately under-merges.
   #   theme_threshold (0.12) "is this the same THEME?" -> only limits how
   #                          many siblings may be promoted in one cycle. A
   #                          wrong grouping costs a delayed promotion; the
-  #                          idea keeps its row, its issue and its backlog
-  #                          place. Recoverable, so it can afford recall.
+  #                          idea keeps its row and its backlog place.
+  #                          Recoverable, so it can afford recall.
   #
   # Measured on the live 2026-08-06 batch (16 representatives, every one
   # scored exactly 8.00 by the local scorer): 0.12 yields 9 themes and picks
@@ -378,9 +371,9 @@ backlog:
   # debates, about half deduplicated at birth, so ~50/day arrive here) with
   # terminal decisions. Every backlog cycle (4h in production)
   # re-scores the OLDEST 'scored' ideas against today's trends:
-  #   score >= 7 -> promoted + draft plan (human approves via
-  #                 POST /plans/{id}/approve); [Idea] issue closes `completed`
-  #   score < 4  -> archived; [Idea] issue closes `not_planned` with verdict
+  #   score >= 7 -> `promoted` after a second-pass CONFIRM, with no plan row
+  #                 (triage has no planning phase)
+  #   score < 4  -> `archived`
   #   middle     -> one strike; archived anyway after max_strikes touches
   # Every idea reaches promoted|archived within max_strikes decisive touches,
   # so the open backlog is bounded by production_rate x days_to_decision
@@ -393,14 +386,11 @@ backlog:
   # max_strikes reviews to reach archived. Floor at max_strikes=2 is ~60
   # terminal decisions/day against ~50 arriving: a 1.2x margin, thin enough
   # that raising max_strikes or per_run without raising the review allowance
-  # buys nothing. Triage writes only to the DB; the issue lifecycle below
-  # closes the mirrored issues.
-  # Tuned 2026-08-05 (v0.6.17) for a lower open-issue steady state: the
-  # original min_age_hours: 24 meant a whole day's ideas sat untouchable —
-  # the first live day consumed exactly zero. At 6h an idea still gets a
-  # meaningfully different trend context (trends refresh every 2h) but is
-  # decided the same day; expected in-flight window ~15-25 open [Idea]
-  # issues on top of the human-curated keep-set.
+  # buys nothing. Triage writes only to the DB.
+  # Tuned 2026-08-05 (v0.6.17): the original min_age_hours: 24 meant a whole
+  # day's ideas sat untouchable — the first live day consumed exactly zero.
+  # At 6h an idea still gets a meaningfully different trend context (trends
+  # refresh every 2h) but is decided the same day.
   triage:
     enabled: true
     per_run: 25
@@ -412,21 +402,20 @@ backlog:
     # moss-ao-backlog "online" for deploy.sh to trip over (2026-08-06).
     max_consecutive_scorer_failures: 3
 
-  # GitHub issue lifecycle (runs in the backlog cycle, every 4h in production).
-  # The tracker mirrors the DB pipeline instead of accumulating forever:
-  # - [Idea] issues close as `completed` once promoted and their plan exists
-  # - [Plan] issues close as `completed` once a project was generated
-  # - bot backlog issues with ZERO comments close as `not_planned` after
-  #   max_age_days (issues labeled curated:keep or source:trend are never
-  #   aged out; any human comment also exempts an issue)
-  # Closing is visibility-only: DB rows are untouched, issues can be reopened.
-  # max_age_days is the BACKSTOP only — with triage making decision-based
-  # closes, the timer mainly catches issues with no DB row behind them
-  # (e.g. pre-restore orphans). Tightened 30 -> 14 in v0.6.17.
-  issue_lifecycle:
+  # TRANSITIONAL: the follow-up PR deletes this block together with
+  # scheduler/mirror_retirement.py and its call site. The per-item GitHub
+  # issue mirror is retired, and each backlog cycle (4h in production)
+  # finishes the transition: draft plan rows with no plan document behind
+  # them (empty, a triage seed, a copy of the idea) become `placeholder`, and
+  # open bot issues are closed once as `not_planned` with a link to the
+  # idea's page on ao.moss.land. Issues labeled curated:keep or source:trend,
+  # or commented on by someone with standing in the repo, stay open.
+  # max_closes_per_run bounds one cycle's GitHub writes (a close plus a
+  # comment per issue, with a one-second pause after each); 92 issues
+  # qualified when measured on 2026-09-10, so one cycle covers them.
+  mirror_retirement:
     enabled: true
-    max_age_days: 14
-    max_closes_per_run: 50
+    max_closes_per_run: 100
 
 # Debate Configuration
 debate:

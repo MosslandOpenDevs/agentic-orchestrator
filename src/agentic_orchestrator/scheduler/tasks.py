@@ -11,7 +11,7 @@ import sys
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from ..textutil import clean_issue_title, clean_name, clean_title
+from ..textutil import clean_name, clean_title
 from ..timeutil import utcnow
 
 # Configure logging
@@ -547,7 +547,7 @@ def _generate_debate_topic(signals: list) -> str:
 
 
 def _load_backlog_config() -> dict:
-    """Load backlog-control settings (idea de-duplication + GitHub issue cap)."""
+    """Load the ``backlog`` section of config.yaml, with defaults filled in."""
     from pathlib import Path
 
     import yaml
@@ -558,7 +558,6 @@ def _load_backlog_config() -> dict:
     defaults = {
         "dedup_enabled": True,
         "dedup_prefix_tokens": 6,
-        "max_open_ideas": 800,
     }
     clustering_defaults = {
         "enabled": True,
@@ -568,10 +567,10 @@ def _load_backlog_config() -> dict:
         "max_df_ratio": 0.6,
         "min_shared_terms": 2,
     }
-    lifecycle_defaults = {
+    # TRANSITIONAL: goes with scheduler/mirror_retirement.py.
+    mirror_retirement_defaults = {
         "enabled": True,
-        "max_age_days": 14,
-        "max_closes_per_run": 50,
+        "max_closes_per_run": 100,
     }
     config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
     try:
@@ -580,10 +579,10 @@ def _load_backlog_config() -> dict:
         backlog_config = config.get("backlog", {}) or {}
         for key, value in defaults.items():
             backlog_config.setdefault(key, value)
-        lifecycle = backlog_config.get("issue_lifecycle") or {}
-        for key, value in lifecycle_defaults.items():
-            lifecycle.setdefault(key, value)
-        backlog_config["issue_lifecycle"] = lifecycle
+        mirror_retirement = backlog_config.get("mirror_retirement") or {}
+        for key, value in mirror_retirement_defaults.items():
+            mirror_retirement.setdefault(key, value)
+        backlog_config["mirror_retirement"] = mirror_retirement
         triage = backlog_config.get("triage") or {}
         for key, value in TRIAGE_DEFAULTS.items():
             triage.setdefault(key, value)
@@ -601,7 +600,7 @@ def _load_backlog_config() -> dict:
         logger.warning(f"Failed to load backlog config, using defaults: {e}")
         return {
             **defaults,
-            "issue_lifecycle": dict(lifecycle_defaults),
+            "mirror_retirement": dict(mirror_retirement_defaults),
             "triage": dict(TRIAGE_DEFAULTS),
             "clustering": dict(clustering_defaults),
             "second_pass": dict(SECOND_PASS_DEFAULTS),
@@ -621,15 +620,6 @@ def _idea_title_fingerprint(title: str, prefix_tokens: int = 6) -> str:
     text = re.sub(r"[^a-z0-9가-힣]+", " ", text).strip()
     tokens = text.split()
     return " ".join(tokens[:prefix_tokens])
-
-
-def _clean_issue_title(title: str) -> str:
-    """Strip markdown from a title before it becomes a GitHub issue title.
-
-    Delegates to the shared cleaner. Removing ``#`` here but not the word that
-    followed it is how 431 public issues came to read ``[Idea] Idea: ...``.
-    """
-    return clean_issue_title(title)
 
 
 def _render_json_idea(data: dict) -> str:
@@ -660,17 +650,17 @@ def _render_json_idea(data: dict) -> str:
 
 
 def _format_idea_summary(content: str, limit: int = 1500) -> str:
-    """Render an idea body into a summary that is safe to embed in an issue.
+    """Render an idea body into a markdown summary that never leaves a fence open.
 
-    Debate output arrives as a fenced ``json`` block. The previous
+    The result is stored as ``ideas.summary``, which the site renders as
+    markdown. Debate output arrives as a fenced ``json`` block. The previous
     ``content[:500]`` slice cut that block mid-object and left the fence open,
-    so every following section of the issue rendered inside a code span — 12
-    still-open issues (7 of them ``curated:keep``) are in that state. Parse the
-    JSON and lay it out as markdown; when there is no JSON to recover, truncate
-    on a boundary and never leave a fence unclosed.
+    so everything after it rendered inside a code span. Parse the JSON and lay
+    it out as markdown; when there is no JSON to recover, truncate on a
+    boundary and never leave a fence unclosed.
 
     ``limit`` bounds both paths: the rendered markdown is truncated too, so a
-    large idea object cannot produce an unbounded issue body.
+    large idea object cannot produce an unbounded summary.
     """
     import json
     import re
@@ -774,13 +764,13 @@ def _assign_themes(grouped: list, config: dict) -> None:
     Two different questions need two different thresholds, and conflating
     them is what made the tight one look wrong:
 
-    * "is this the SAME idea?" decides who gets externalized at all, and a
+    * "is this the SAME idea?" decides who gets scored at all, and a
       wrong merge there deletes an idea permanently — only the
       representative proceeds. That stays precision-first at 0.18.
     * "is this the same THEME?" only limits how many siblings may be
       promoted in one cycle. A wrong grouping there costs a delayed
-      promotion: the idea still gets its row, its issue, and its place in
-      the backlog. That is recoverable, so it can afford recall.
+      promotion: the idea still gets its row and its place in the backlog.
+      That is recoverable, so it can afford recall.
 
     Measured on the live 2026-08-06 batch (16 representatives, all scored
     exactly 8.00 by the local scorer): 0.12 groups them into 9 themes and
@@ -825,6 +815,19 @@ def _assign_themes(grouped: list, config: dict) -> None:
         logger.warning(f"Theme grouping failed, promotions will not be theme-limited: {e}")
 
 
+def _plan_document(final_plan: Optional[str]) -> Optional[str]:
+    """The debate's plan document, or None when planning wrote none.
+
+    Planning reports "nothing" as the ``NO_PLAN_GENERATED`` string rather than
+    as an empty value, so a truthiness test lets it through.
+    """
+    from ..debate.multi_stage import NO_PLAN_GENERATED
+
+    if not final_plan or final_plan.strip() in ("", NO_PLAN_GENERATED):
+        return None
+    return final_plan
+
+
 async def _auto_score_and_save_ideas(
     router,
     ideas: list,
@@ -840,9 +843,9 @@ async def _auto_score_and_save_ideas(
     """
     Auto-score debate ideas and save them to the ideas table.
 
-    Also creates GitHub Issues for tracking.
     Includes Korean translation for all saved ideas and plans.
-    For high-scoring plans, triggers automatic project generation.
+    A promoted idea gets a plan row only when it carries the debate's plan
+    document; for high-scoring plans, triggers automatic project generation.
 
     Args:
         router: HybridLLMRouter for scoring
@@ -851,7 +854,7 @@ async def _auto_score_and_save_ideas(
         context: Debate context
         debate_session_id: ID of the debate session
         db_session: SQLAlchemy session
-        final_plan_content: Final plan content from debate (for project generation)
+        final_plan_content: The debate's plan document (the first promotion carries it)
         promote_threshold: Score threshold for auto-promotion
         archive_threshold: Score below which to archive
         max_per_cycle: Maximum ideas to promote per cycle
@@ -859,7 +862,6 @@ async def _auto_score_and_save_ideas(
     import uuid
 
     from ..db import IdeaRepository, PlanRepository
-    from ..db.models import OPEN_IDEA_STATUSES
     from ..scoring import IdeaScorer
     from ..translation import ContentTranslator
 
@@ -876,64 +878,36 @@ async def _auto_score_and_save_ideas(
     plan_repo = PlanRepository(db_session)
     translator = ContentTranslator(router=router)
 
-    # Backlog controls: de-duplicate ideas and cap the GitHub mirror so the same
-    # idea isn't posted dozens of times and the tracker doesn't grow unbounded
-    # (root cause of the historical 2,800+ issue flood). SQLite stays the source
-    # of truth; only the GitHub mirror is paused when the cap is reached.
+    # De-duplication: fingerprints of every stored idea title, extended as
+    # this batch is processed.
     backlog_config = _load_backlog_config()
     dedup_enabled = bool(backlog_config.get("dedup_enabled", True))
     dedup_tokens = int(backlog_config.get("dedup_prefix_tokens", 6))
-    max_open_ideas = int(backlog_config.get("max_open_ideas", 800))
 
     seen_fingerprints: set[str] = set()
-    open_idea_count = 0
     try:
-        # The cap counts OPEN (undecided) ideas only. Counting every idea
-        # ever created — as this did before backlog triage existed — turns
-        # the cap into a one-way kill switch: ideas are never deleted, so at
-        # ~40/day the mirror would have gone permanently silent within weeks.
-        # With triage draining the backlog, the open count stays low and the
-        # cap becomes what it reads as: an emergency valve.
-        status_counts = idea_repo.count_by_status()
-        open_idea_count = sum(status_counts.get(s, 0) for s in OPEN_IDEA_STATUSES)
         for existing in idea_repo.get_all(limit=5000):
             fp = _idea_title_fingerprint(getattr(existing, "title", "") or "", dedup_tokens)
             if fp:
                 seen_fingerprints.add(fp)
     except Exception as e:
-        logger.warning(f"Could not load existing ideas for dedup/cap: {e}")
-
-    backlog_full = max_open_ideas > 0 and open_idea_count >= max_open_ideas
-    if backlog_full:
-        logger.warning(
-            f"Idea backlog at {open_idea_count} (cap {max_open_ideas}); new ideas "
-            f"will be scored and stored but NOT posted to GitHub this cycle."
-        )
+        logger.warning(f"Could not load existing ideas for dedup: {e}")
     dedup_skipped = 0
-
-    # Initialize GitHub client (optional - won't fail if not configured)
-    github_client = None
-    try:
-        from ..github_client import GitHubClient, Labels
-
-        github_client = GitHubClient()
-        logger.info("GitHub integration enabled")
-    except Exception as e:
-        logger.warning(f"GitHub integration disabled: {e}")
 
     promoted_count = 0
     archived_count = 0
     pending_count = 0
+    plans_written = 0
+    promoted_without_plan = 0
 
-    # ---- Diversity gate: cluster the batch, externalize representatives ---
+    # ---- Diversity gate: cluster the batch, score only representatives ----
     # A capable model given one topic and identical instructions returns one
     # idea 24 times over, in 24 distinct wordings that the title-prefix
     # fingerprint cannot see (2026-08-05: 24 ideas, 8 of them the same
     # payment-gateway, three of which were each promoted and each scaffolded
     # a near-identical project whose plan documents were byte-identical).
     # Clustering runs BEFORE scoring so the LLM is not paid to score eight
-    # copies of one idea, and before GitHub so the tracker mirrors decisions
-    # rather than noise. Non-representatives are NOT discarded: they are
+    # copies of one idea. Non-representatives are NOT discarded: they are
     # stored as `duplicate` rows pointing at their representative, so a bad
     # merge is auditable and reversible (they are also already in
     # debate_messages verbatim).
@@ -959,8 +933,11 @@ async def _auto_score_and_save_ideas(
     # Only ONE plan (and therefore one project) per debate: the planning phase
     # produced exactly one final_plan document, so copying it into every
     # promoted idea's plan manufactured identical plans. It goes to the
-    # first idea promoted this cycle; the rest are promoted without it and
-    # reach planning through the normal backlog-triage path.
+    # first idea promoted this cycle. A plan row is written only where a plan
+    # document exists, so the other promotions stay `promoted` with no plan
+    # row -- and backlog triage does not pick them up later, because it only
+    # takes undecided ideas.
+    debate_plan_document = _plan_document(final_plan_content)
     final_plan_claimed = False
 
     # Second-pass review: the local scorer proposes, a capable model
@@ -1056,61 +1033,6 @@ async def _auto_score_and_save_ideas(
                 pending_count += 1
                 logger.info(f"Scored (pending): {idea_title[:50]}... (score: {score.total:.1f})")
 
-            # Create GitHub Issue for the idea (if GitHub is configured and the
-            # backlog cap has not been reached). Archived ideas (score below
-            # the archive threshold) get NO issue: an issue that is dead on
-            # arrival is pure tracker noise — the DB row is the record.
-            github_issue_url = None
-            github_issue_id = None
-            # The GitHub call itself happens AFTER the DB row is committed
-            # (below). Creating the issue first — as this did until v0.6.20 —
-            # opens an orphan window: the row is only committed at the end of
-            # the whole loop, so a crash, a 30-minute Ollama translation
-            # timeout, or an operator kill leaves an issue on GitHub with no
-            # DB row behind it and nothing that can ever reconcile it
-            # (observed: issue #2965 on 2026-08-05). DB first means the worst
-            # case is a committed idea whose mirror issue is missing — which
-            # the DB, as the source of truth, can always re-mirror.
-            if github_client and not backlog_full and status != "archived":
-                try:
-                    # Build issue body
-                    issue_body = f"""## Idea Summary
-{idea_summary}
-
-## Auto-Score Results
-- **Total Score**: {score.total:.1f}/10
-- **Feasibility**: {score.feasibility:.1f}/10
-- **Relevance**: {score.relevance:.1f}/10
-- **Novelty**: {score.novelty:.1f}/10
-- **Impact**: {score.impact:.1f}/10
-
-## Decision: {decision.upper()}
-
-## Context
-**Debate Topic**: {topic}
-**Debate Session**: {debate_session_id}
-
----
-*Auto-generated by MOSS.AO Orchestrator*
-"""
-                    # Determine labels based on status
-                    issue_labels = [Labels.TYPE_IDEA, Labels.GENERATED_BY_ORCHESTRATOR]
-                    if status == "promoted":
-                        issue_labels.append(Labels.PROMOTE_TO_PLAN)
-                    else:
-                        issue_labels.append(Labels.STATUS_BACKLOG)
-
-                    pending_issue = {
-                        "title": f"[Idea] {_clean_issue_title(idea_title)[:100]}",
-                        "body": issue_body,
-                        "labels": issue_labels,
-                    }
-                except Exception as e:
-                    logger.warning(f"Failed to prepare GitHub Issue for idea: {e}")
-                    pending_issue = None
-            else:
-                pending_issue = None
-
             # Translate idea fields (bilingual: detect language, provide both EN and KO)
             try:
                 logger.info(f"Processing bilingual translation for idea: {idea_title[:50]}...")
@@ -1152,15 +1074,16 @@ async def _auto_score_and_save_ideas(
                     },
                 }
             )
-            # Commit the row BEFORE touching GitHub so the mirror can never
-            # outrun the source of truth.
+            # Commit the row at its own write: the awaits that follow must not
+            # hold SQLite's one writer, and the per-idea `except` below rolls
+            # back anything merely flushed.
             db_session.commit()
 
             # Keep this cluster's near-duplicates as linked rows. They get no
-            # GitHub issue (that was the noise) and no LLM score (they cannot
-            # be promoted), but they stay auditable, so a wrong merge is
-            # visible and reversible instead of a silent deletion. Status
-            # "duplicate" is outside backlog triage's queue by construction.
+            # LLM score (they cannot be promoted), but they stay auditable, so
+            # a wrong merge is visible and reversible instead of a silent
+            # deletion. Status "duplicate" is outside backlog triage's queue by
+            # construction.
             for dup in duplicates_by_rep.get(id(idea), []):
                 try:
                     dup_title = (getattr(dup, "title", "") or "")[:500]
@@ -1189,64 +1112,22 @@ async def _auto_score_and_save_ideas(
                     logger.warning(f"Could not store duplicate idea row: {e}")
             db_session.commit()
 
-            if pending_issue:
-                try:
-                    issue = github_client.create_issue(**pending_issue)
-                    github_issue_url = issue.html_url
-                    github_issue_id = issue.number
-                    idea_repo.update_fields(
-                        idea_id,
-                        {
-                            "github_issue_id": github_issue_id,
-                            "github_issue_url": github_issue_url,
-                        },
-                    )
-                    db_session.commit()
-                    logger.info(
-                        f"Created GitHub Issue #{issue.number} for idea: {idea_title[:50]}..."
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to create GitHub Issue for idea: {e}")
-
-            # If promoted, create a draft plan
-            if status == "promoted":
-                plan_github_url = None
-                plan_github_id = None
-
-                # Create GitHub Issue for the plan
-                if github_client and not backlog_full:
-                    try:
-                        plan_body = f"""## Plan for: {idea_title}
-
-### Source Idea
-{idea_summary}
-
-### Auto-Promotion Details
-- **Idea Score**: {score.total:.1f}/10
-- **Auto-promoted**: Yes (score >= {promote_threshold})
-
-### Idea Issue
-{f"Related to #{github_issue_id}" if github_issue_id else "No linked issue"}
-
----
-*Auto-generated by MOSS.AO Orchestrator*
-"""
-                        plan_labels = [
-                            Labels.TYPE_PLAN,
-                            Labels.GENERATED_BY_ORCHESTRATOR,
-                            Labels.STATUS_BACKLOG,
-                        ]
-                        plan_issue = github_client.create_issue(
-                            title=f"[Plan] {_clean_issue_title(idea_title)[:100]}",
-                            body=plan_body,
-                            labels=plan_labels,
-                        )
-                        plan_github_url = plan_issue.html_url
-                        plan_github_id = plan_issue.number
-                        logger.info(f"Created GitHub Issue #{plan_issue.number} for plan")
-                    except Exception as e:
-                        logger.warning(f"Failed to create GitHub Issue for plan: {e}")
-
+            # Exactly one plan per debate carries the debate-wide final_plan.
+            # Copying it into every promoted idea's plan produced
+            # byte-identical plan documents (three plans of 16,453 chars each
+            # on 2026-08-05) and therefore near-identical generated projects.
+            plan_document = (
+                debate_plan_document if status == "promoted" and not final_plan_claimed else None
+            )
+            if status == "promoted" and plan_document is None:
+                promoted_without_plan += 1
+                logger.info(f"Promoted idea {idea_id} has no plan document; no plan row written")
+            elif plan_document is not None:
+                # Claimed before the write: if the write fails, this debate
+                # ends without a plan row (the document stays on its debate
+                # session) instead of translating the document again for
+                # every later promotion.
+                final_plan_claimed = True
                 try:
                     # Translate plan title (bilingual)
                     plan_title_original = f"Plan: {clean_title(idea_title)[:200]}"
@@ -1266,38 +1147,20 @@ async def _auto_score_and_save_ideas(
                     auto_gen_min_score = project_config.get("auto_generate", {}).get(
                         "min_score", 8.0
                     )
-                    # Exactly one plan per debate carries the debate-wide
-                    # final_plan. Copying it into every promoted idea's plan
-                    # produced byte-identical plan documents (three plans of
-                    # 16,453 chars each on 2026-08-05) and therefore
-                    # near-identical generated projects. Later promotions this
-                    # cycle get a plan without it and are not auto-approved,
-                    # so they reach planning through backlog triage instead.
-                    plan_final_source = None if final_plan_claimed else final_plan_content
-                    if plan_final_source:
-                        final_plan_claimed = True
-                    plan_final_content_en = plan_final_source
                     plan_final_content_ko = None
-                    if plan_final_source:
-                        try:
-                            (
-                                plan_final_content_en,
-                                plan_final_content_ko,
-                            ) = await translator.ensure_bilingual(plan_final_source)
-                        except Exception as e:
-                            logger.warning(f"Final plan translation failed: {e}")
-                            plan_final_content_en = plan_final_source
+                    try:
+                        (
+                            plan_final_content_en,
+                            plan_final_content_ko,
+                        ) = await translator.ensure_bilingual(plan_document)
+                    except Exception as e:
+                        logger.warning(f"Final plan translation failed: {e}")
+                        plan_final_content_en = plan_document
+                    # A failed KO->EN translation comes back as an empty
+                    # string; the row still carries the document it is for.
+                    plan_final_content_en = plan_final_content_en or plan_document
 
-                    # Auto-approval (which is what triggers project
-                    # generation) requires BOTH a high score and the actual
-                    # plan document. Without the second condition a
-                    # second promoted idea would scaffold a project from an
-                    # empty plan.
-                    plan_status = (
-                        "approved"
-                        if score.total >= auto_gen_min_score and plan_final_content_en
-                        else "draft"
-                    )
+                    plan_status = "approved" if score.total >= auto_gen_min_score else "draft"
 
                     plan_repo.create(
                         {
@@ -1310,8 +1173,6 @@ async def _auto_score_and_save_ideas(
                             "status": plan_status,
                             "final_plan": plan_final_content_en,
                             "final_plan_ko": plan_final_content_ko,
-                            "github_issue_id": plan_github_id,
-                            "github_issue_url": plan_github_url,
                             "extra_metadata": {
                                 "auto_promoted": True,
                                 "promotion_score": score.total,
@@ -1325,38 +1186,24 @@ async def _auto_score_and_save_ideas(
                     # `promoted`. If the plan stays merely flushed, anything
                     # that raises later -- including the *next* idea's scorer,
                     # reviewer or translator, which all run before that idea
-                    # is created -- reaches the `except` below, and its
+                    # is created -- reaches the per-idea `except`, and its
                     # `rollback()` takes this plan with it. The result is a
                     # promoted idea with no plan. Measured on SQLite: without
                     # this commit the sequence "plan created, next idea's
                     # scoring fails" ends with 1 idea and 0 plans.
                     #
                     # Lock hold: it also closes the write transaction before
-                    # the GitHub call and `_auto_generate_project` below, so
-                    # the one SQLite writer is not held across them. That was
-                    # the second long hold named in CLAUDE.md's table.
+                    # `_auto_generate_project` below, so the one SQLite writer
+                    # is not held across it. That was the second long hold
+                    # named in CLAUDE.md's table.
                     db_session.commit()
+                    plans_written += 1
                     logger.info(
                         f"Created {plan_status} plan for promoted idea: {idea_id} (score: {score.total:.1f})"
                     )
-                    if plan_final_content_en:
-                        logger.info(
-                            f"Plan includes final_plan content: {len(plan_final_content_en)} chars"
-                        )
-
-                    # The plan now carries this idea forward — close the idea
-                    # issue so the tracker follows the pipeline instead of
-                    # keeping both open forever. Best-effort; the lifecycle
-                    # sweep in the backlog cycle retries missed ones.
-                    if github_client and github_issue_id:
-                        from .issue_lifecycle import close_idea_issue_for_plan
-
-                        close_idea_issue_for_plan(
-                            github_client,
-                            idea_issue_number=github_issue_id,
-                            plan_issue_number=plan_github_id,
-                            plan_id=plan_id,
-                        )
+                    logger.info(
+                        f"Plan includes final_plan content: {len(plan_final_content_en)} chars"
+                    )
 
                     # Auto-generate project for high-scoring plans
                     if plan_status == "approved":
@@ -1377,6 +1224,11 @@ async def _auto_score_and_save_ideas(
                             # Don't fail the whole process if project generation fails
 
                 except Exception as e:
+                    # A failed flush leaves the session refusing every later
+                    # statement until it is rolled back: without this the next
+                    # idea's insert fails, and the per-idea handler discards
+                    # that idea's row after its scoring and review were paid for.
+                    db_session.rollback()
                     logger.warning(f"Failed to create plan for idea {idea_id}: {e}")
 
         except Exception as e:
@@ -1395,13 +1247,6 @@ async def _auto_score_and_save_ideas(
 
     db_session.commit()
 
-    # Cleanup GitHub client
-    if github_client:
-        try:
-            github_client.close()
-        except Exception:
-            pass
-
     # The rolling window is what tells a weak batch apart from a stopped
     # gate; a failure to read it must not take the cycle down with it.
     try:
@@ -1414,10 +1259,10 @@ async def _auto_score_and_save_ideas(
         f"Auto-scoring complete: {promoted_count} promoted, {archived_count} archived, "
         f"{pending_count} pending, {dedup_skipped} duplicates skipped, "
         f"{duplicate_saved} clustered near-duplicates stored, "
-        f"{unreviewed_count} never reached the reviewer"
+        f"{unreviewed_count} never reached the reviewer, "
+        f"{plans_written} plan row(s) written, "
+        f"{promoted_without_plan} promoted without a plan document"
     )
-    if github_client:
-        logger.info("GitHub Issues created for all processed ideas")
 
 
 def _load_project_config() -> dict:
@@ -1984,9 +1829,11 @@ async def _run_debate_async(topic: Optional[str] = None):
         logger.info(f"Ideas selected: {len(result.selected_ideas)}")
 
         # Log final plan summary
-        if result.final_plan:
+        if _plan_document(result.final_plan):
             logger.info("Final plan generated successfully")
             logger.info(f"Plan length: {len(result.final_plan)} characters")
+        else:
+            logger.warning("Planning produced no plan document, so this debate wrote no plan row")
 
     except BaseException as e:
         # BaseException catches asyncio.CancelledError too. CancelledError is
@@ -2099,9 +1946,8 @@ def _process_backlog():
 
         # Backlog triage — the consumer that matches idea production.
         # Re-scores the oldest 'scored' ideas against today's trends and
-        # forces terminal decisions (promote → draft plan / archive), so the
-        # issue lifecycle right below closes their mirror issues in the same
-        # cycle. Best-effort: an LLM outage must not fail the backlog cycle.
+        # forces terminal decisions (promote / archive). Best-effort: an LLM
+        # outage must not fail the backlog cycle.
         backlog_config = _load_backlog_config()
         triage_config = backlog_config.get("triage") or {}
         if triage_config.get("enabled", True):
@@ -2121,7 +1967,6 @@ def _process_backlog():
                     stats["backlog_triage"] = asyncio.run(
                         run_backlog_triage(
                             idea_repo=IdeaRepository(triage_session),
-                            plan_repo=PlanRepository(triage_session),
                             trend_repo=TrendRepository(triage_session),
                             scorer=IdeaScorer(router=triage_router),
                             config=triage_config,
@@ -2135,29 +1980,19 @@ def _process_backlog():
             except Exception as e:
                 logger.warning(f"Backlog triage skipped: {e}")
 
-        # GitHub issue lifecycle — close idea/plan issues the pipeline has
-        # outgrown and age out untouched backlog issues. Best-effort: GitHub
-        # being down must not fail the backlog cycle.
-        lifecycle_config = backlog_config.get("issue_lifecycle", {})
-        if lifecycle_config.get("enabled", True):
-            try:
-                from ..db import ProjectRepository
-                from ..github_client import GitHubClient
-                from .issue_lifecycle import run_issue_lifecycle
+        # TRANSITIONAL: finish retiring the GitHub issue mirror (placeholder
+        # plan rows, open bot issues). Outside the triage gate, so switching
+        # triage off or an LLM outage cannot hold it back. It never raises;
+        # the try only keeps an import failure from failing the cycle. The
+        # follow-up PR deletes this call with scheduler/mirror_retirement.py.
+        try:
+            from .mirror_retirement import run_mirror_retirement
 
-                lifecycle_session = db.get_session()
-                try:
-                    stats["issue_lifecycle"] = run_issue_lifecycle(
-                        client=GitHubClient(),
-                        idea_repo=IdeaRepository(lifecycle_session),
-                        plan_repo=PlanRepository(lifecycle_session),
-                        project_repo=ProjectRepository(lifecycle_session),
-                        config=lifecycle_config,
-                    )
-                finally:
-                    lifecycle_session.close()
-            except Exception as e:
-                logger.warning(f"Issue lifecycle sweep skipped: {e}")
+            stats["mirror_retirement"] = run_mirror_retirement(
+                db.get_session, backlog_config.get("mirror_retirement") or {}
+            )
+        except Exception as e:
+            logger.warning(f"Issue mirror retirement skipped: {e}")
 
         duration = (utcnow() - start_time).total_seconds()
         logger.info(f"Backlog processing completed in {duration:.1f}s")

@@ -720,7 +720,6 @@ export async function fetchIdeas(): Promise<Idea[]> {
     status: i.status,
     source: i.source_type,
     created: i.created_at?.split('T')[0] || '',
-    issueUrl: i.github_issue_url || undefined,
   }));
 }
 
@@ -740,7 +739,6 @@ export async function fetchPlans(): Promise<Plan[]> {
     status: p.status,
     debateRounds: p.version,
     created: p.created_at?.split('T')[0] || '',
-    issueUrl: p.github_issue_url || undefined,
   }));
 }
 

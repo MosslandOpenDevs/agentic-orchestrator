@@ -17,7 +17,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from agentic_orchestrator.api.main import app, get_session
-from agentic_orchestrator.db.models import Base
+from agentic_orchestrator.db.models import Base, Plan
 from agentic_orchestrator.db.repositories import IdeaRepository, PlanRepository
 from agentic_orchestrator.timeutil import utcnow
 
@@ -174,99 +174,6 @@ class TestUsageEndpointReportsTheGate:
         assert body["promotion_review"]["verdicts"]["demote"] == 25
 
 
-class TestSeededPlanBody:
-    """A triage-promoted plan must not present an idea as a written plan.
-
-    Triage has no planning phase, so it cannot produce a plan — it copied
-    ``idea.description`` into ``final_plan``. That field is the raw model
-    response, a fenced JSON blob, so 35 of the 44 plans in production were
-    byte-identical to their idea and all 20 rows in the human approval queue
-    opened with ``{"idea_title": ...``. The row itself cannot simply be skipped:
-    ``run_issue_lifecycle`` closes a promoted idea's issue only once a plan
-    exists for it.
-    """
-
-    IDEA_JSON = (
-        '```json\n{"idea_title": "ERC-4337 Paymaster Budget Guard", '
-        '"core_analysis": "Sponsored transactions are routine now.", '
-        '"proposal": {"description": "A per-session spend ceiling."}}\n```'
-    )
-
-    def test_the_json_blob_becomes_readable_markdown(self):
-        from agentic_orchestrator.scheduler.backlog_triage import (
-            PLAN_SEED_NOTICE_EN,
-            _seed_plan_body,
-        )
-
-        body = _seed_plan_body(self.IDEA_JSON, PLAN_SEED_NOTICE_EN)
-
-        assert "```json" not in body
-        assert '"idea_title"' not in body
-        assert "Sponsored transactions are routine now." in body
-        assert "per-session spend ceiling" in body
-
-    def test_it_says_it_is_not_a_plan_yet(self):
-        from agentic_orchestrator.scheduler.backlog_triage import (
-            PLAN_SEED_NOTICE_EN,
-            _seed_plan_body,
-        )
-
-        body = _seed_plan_body(self.IDEA_JSON, PLAN_SEED_NOTICE_EN)
-
-        assert body.startswith(">")
-        assert "Not an authored plan yet" in body
-
-    def test_an_idea_with_no_body_still_yields_the_notice(self):
-        from agentic_orchestrator.scheduler.backlog_triage import (
-            PLAN_SEED_NOTICE_EN,
-            _seed_plan_body,
-        )
-
-        assert _seed_plan_body(None, PLAN_SEED_NOTICE_EN) == PLAN_SEED_NOTICE_EN
-        assert _seed_plan_body("", PLAN_SEED_NOTICE_EN) == PLAN_SEED_NOTICE_EN
-
-    def test_the_queue_reports_whether_a_plan_was_authored(self, client, session):
-        idea_repo = IdeaRepository(session)
-        plan_repo = PlanRepository(session)
-        idea_repo.create(
-            {
-                "id": "si",
-                "title": "Seeded",
-                "summary": "s",
-                "source_type": "debate",
-                "status": "promoted",
-            }
-        )
-        plan_repo.create(
-            {
-                "id": "seeded",
-                "idea_id": "si",
-                "title": "Plan: Seeded",
-                "status": "draft",
-                "version": 1,
-                "extra_metadata": {"plan_authored": False},
-            }
-        )
-        plan_repo.create(
-            {
-                "id": "legacy",
-                "idea_id": "si",
-                "title": "Plan: Legacy",
-                "status": "draft",
-                "version": 1,
-                "extra_metadata": {},
-            }
-        )
-        session.commit()
-
-        by_id = {p["id"]: p for p in client.get("/plans/pending-approval").json()["plans"]}
-
-        assert by_id["seeded"]["plan_authored"] is False
-        # Rows written before the flag existed report "unknown", not "authored":
-        # 35 of the 44 in production are in fact seeds.
-        assert by_id["legacy"]["plan_authored"] is None
-
-
 class TestPendingApprovalQueue:
     """The one endpoint whose whole job is telling a human how much is waiting."""
 
@@ -340,6 +247,27 @@ class TestPendingApprovalQueue:
 
         assert body["total"] == 3
 
+    def test_a_placeholder_is_not_in_the_queue(self, client, session):
+        """The queue is plans waiting on a human; a placeholder is not a plan."""
+        self._add_drafts(session, 3)
+        PlanRepository(session).create(
+            {
+                "id": "ph",
+                "idea_id": "pi0",
+                "title": "Plan: no document",
+                "status": "placeholder",
+                "version": 1,
+            }
+        )
+        session.commit()
+        # Guard: the row exists, so its absence below is the queue's doing.
+        assert session.query(Plan).filter(Plan.status == "placeholder").count() == 1
+
+        body = client.get("/plans/pending-approval").json()
+
+        assert "ph" not in {p["id"] for p in body["plans"]}
+        assert body["total"] == 3
+
 
 class TestActivityFeedTimestamps:
     """A feed that spans twelve days must not render every row as a clock time.
@@ -404,6 +332,43 @@ class TestActivityFeedTimestamps:
 
         assert plan_rows, "the feed should carry the plan row"
         assert stale.strftime("%m-%d") in plan_rows[0]["time"]
+
+
+class TestActivityFeedAnnouncesOnlyPlans:
+    def test_a_newer_placeholder_is_not_announced_while_the_draft_is(self, client, session):
+        """The feed says "Plan created"; a placeholder row is not a plan.
+
+        The placeholder is the newest row, so a feed that did not leave it out
+        would list it first rather than push it past the cut.
+        """
+        IdeaRepository(session).create(
+            {
+                "id": "fi",
+                "title": "Feed",
+                "summary": "s",
+                "source_type": "debate",
+                "status": "promoted",
+            }
+        )
+        plan_repo = PlanRepository(session)
+        draft = plan_repo.create(
+            {"id": "fd", "idea_id": "fi", "title": "Plan: Written", "status": "draft"}
+        )
+        placeholder = plan_repo.create(
+            {"id": "fp", "idea_id": "fi", "title": "Plan: Never written", "status": "placeholder"}
+        )
+        draft.created_at = utcnow() - timedelta(hours=1)
+        placeholder.created_at = utcnow()
+        session.commit()
+        # Guard: both rows exist and the placeholder really is the newer one.
+        assert session.query(Plan).count() == 2
+        assert placeholder.created_at > draft.created_at
+
+        rows = client.get("/activity").json()
+        messages = [r["message"] for r in rows.get("activities", rows) if r.get("type") == "plan"]
+
+        assert any("Plan: Written" in m for m in messages), messages
+        assert not any("Plan: Never written" in m for m in messages), messages
 
 
 class TestBothWritersOfTheVerdictAreCounted:

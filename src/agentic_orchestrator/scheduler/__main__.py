@@ -82,11 +82,6 @@ def main():
         help="write the changes (without this, only report what would change)",
     )
     clean_parser.add_argument(
-        "--issues",
-        action="store_true",
-        help="also rename affected open GitHub issues (outward-facing; opt in separately)",
-    )
-    clean_parser.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -152,13 +147,12 @@ def main():
     elif args.command == "clean-titles":
         from .clean_titles import clean_titles
 
-        stats = clean_titles(apply=args.apply, issues=args.issues, limit=args.limit)
+        stats = clean_titles(apply=args.apply, limit=args.limit)
         print(
             f"ideas={stats['ideas']} plans={stats['plans']} trends={stats['trends']} "
-            f"issues={stats['issues']} skipped={stats['skipped']} errors={stats['errors']}"
+            f"skipped={stats['skipped']}"
             + ("" if args.apply else "  (dry run — re-run with --apply to write)")
         )
-        sys.exit(1 if stats["errors"] else 0)
     elif args.command == "backup-db":
         # Exit codes are a contract with scripts/deploy.sh, which refuses to
         # deploy without a restore point:

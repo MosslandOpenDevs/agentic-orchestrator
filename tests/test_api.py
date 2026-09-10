@@ -202,6 +202,24 @@ def sample_plans(test_db, sample_ideas):
     return [plan]
 
 
+@pytest.fixture
+def placeholder_plan(test_db, sample_plans):
+    """A placeholder row on the same idea as the sample draft plan."""
+    draft = sample_plans[0]
+    placeholder = Plan(
+        id="placeholder-1",
+        idea_id=draft.idea_id,
+        title="Plan: promoted without a plan document",
+        status="placeholder",
+    )
+    test_db.add(placeholder)
+    test_db.commit()
+    # Guard: both rows exist, so every absence asserted below is a filter at
+    # work rather than an empty table.
+    assert test_db.query(Plan).count() == 2
+    return draft.id, placeholder.id, draft.idea_id
+
+
 class TestHealthEndpoint:
     """Tests for /health endpoint."""
 
@@ -413,6 +431,44 @@ class TestPlansEndpoint:
         data = response.json()
         assert data["title"] == "DeFi Dashboard Plan"
         assert "prd_content" in data
+
+
+class TestPlaceholderRowsAreNotPlans:
+    """A placeholder row is kept, but it is not a plan document.
+
+    Lists and counts leave it out by default; a read that names it -- by id,
+    or with ``?status=placeholder`` -- still returns it.
+    """
+
+    def test_the_plan_list_leaves_it_out(self, client, placeholder_plan):
+        draft_id, _, _ = placeholder_plan
+        data = client.get("/plans").json()
+        assert [p["id"] for p in data["plans"]] == [draft_id]
+        assert data["total"] == 1
+
+    def test_asking_for_its_status_returns_it(self, client, placeholder_plan):
+        _, placeholder_id, _ = placeholder_plan
+        data = client.get("/plans?status=placeholder").json()
+        assert [p["id"] for p in data["plans"]] == [placeholder_id]
+        assert data["total"] == 1
+
+    def test_it_is_readable_by_id(self, client, placeholder_plan):
+        _, placeholder_id, _ = placeholder_plan
+        response = client.get(f"/plans/{placeholder_id}")
+        assert response.status_code == 200
+        assert response.json()["status"] == "placeholder"
+
+    def test_the_idea_and_its_lineage_do_not_list_it(self, client, placeholder_plan):
+        draft_id, _, idea_id = placeholder_plan
+        detail = client.get(f"/ideas/{idea_id}").json()
+        assert [p["id"] for p in detail["plans"]] == [draft_id]
+        lineage = client.get(f"/ideas/{idea_id}/lineage").json()
+        assert [p["id"] for p in lineage["plans"]] == [draft_id]
+
+    def test_the_pipeline_does_not_count_it(self, client, placeholder_plan):
+        plans = client.get("/pipeline/live").json()["stages"]["plans"]
+        assert plans["count"] == 1
+        assert plans["rate"] == "+1/wk"
 
 
 class TestDebatesEndpoint:

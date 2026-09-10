@@ -145,6 +145,32 @@ class TestDebateSessionRetention:
         session.commit()
         assert session.query(DebateSession).count() == 1
 
+    def test_a_session_only_a_placeholder_plan_points_at_is_kept(self, session):
+        """A placeholder is not a plan, but it is still a reference.
+
+        Plan lists leave placeholder rows out; retention must not, or it deletes
+        a session the row still points at and hits ``FOREIGN KEY constraint
+        failed``.
+        """
+        _old_session(session, "d-used")
+        session.flush()
+        _idea(session, "i-1")
+        session.flush()
+        session.add(
+            Plan(
+                id="p-1",
+                idea_id="i-1",
+                title="Plan",
+                debate_session_id="d-used",
+                status="placeholder",
+            )
+        )
+        session.commit()
+
+        assert DebateRepository(session).delete_older_than(days=180) == 0
+        session.commit()
+        assert session.query(DebateSession).count() == 1
+
     def test_referenced_session_does_not_block_the_others(self, session):
         """The whole point: one referenced parent used to abort the sweep."""
         _old_session(session, "d-used")

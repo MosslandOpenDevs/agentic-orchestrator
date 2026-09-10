@@ -29,7 +29,7 @@ A Next.js CLI-style dashboard for monitoring the orchestrator in real time, live
 |------|-------------|
 | `/` | Dashboard with pipeline, activity feed, and statistics |
 | `/trends` | Trend analysis results from signal sources |
-| `/backlog` | Ideas and plans backlog with GitHub links |
+| `/backlog` | Ideas and plans backlog |
 | `/system` | System architecture and multi-agent debate visualization |
 | `/agents` | 34 AI agent personas across 3 debate phases |
 
@@ -272,9 +272,9 @@ Four more crypto feeds (Chainlink, Polygon, Paradigm, a16z Crypto) are kept with
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `GITHUB_TOKEN` | GitHub PAT (Issues, Labels) | **Yes** |
-| `GITHUB_OWNER` | Repository owner | **Yes** |
-| `GITHUB_REPO` | Repository name | **Yes** |
+| `GITHUB_TOKEN` | GitHub PAT for the manual `ao backlog` CLI and the temporary issue-mirror retirement; optional for the GitHub Events adapter and the deploy's CI query | For `ao backlog` |
+| `GITHUB_OWNER` | Repository owner | For `ao backlog` |
+| `GITHUB_REPO` | Repository name | For `ao backlog` |
 | `ANTHROPIC_API_KEY` | Claude API key | For cloud mode |
 | `OPENAI_API_KEY` | OpenAI API key | For cloud mode |
 | `GEMINI_API_KEY` | Gemini API key | For cloud mode |

@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 from ..adapters.signalmap import feed_report as signalmap_feed_report
 from ..db.connection import ensure_schema, get_db
+from ..db.models import NON_PLAN_STATUSES
 from ..db.repositories import (
     APIUsageRepository,
     DebateRepository,
@@ -375,8 +376,9 @@ async def system_status(session: Session = Depends(get_session)):
         # hours rather than a label that claims to.
         "signals_24h": 0,
         "debates_24h": 0,
-        # Lifetime totals. Ideas and plans are never deleted, so these only
-        # grow and say nothing about what the backlog is holding.
+        # Lifetime totals. Ideas and plans are never deleted, so these say
+        # nothing about what the backlog is holding. plans_created counts plan
+        # documents: placeholder rows (NON_PLAN_STATUSES) were never plans.
         "ideas_generated": 0,
         "plans_created": 0,
         # ...which is what these are for. Measured 2026-09-09, 3,282 ideas had
@@ -431,7 +433,7 @@ async def system_status(session: Session = Depends(get_session)):
         stats["debates_24h"] = int(debates_24h or 0)
 
         stats["ideas_generated"] = session.query(func.count(Idea.id)).scalar() or 0
-        stats["plans_created"] = session.query(func.count(Plan.id)).scalar() or 0
+        stats["plans_created"] = PlanRepository(session).count_all()
         stats["ideas_open"] = (
             session.query(func.count(Idea.id)).filter(Idea.status.in_(OPEN_IDEA_STATUSES)).scalar()
             or 0
@@ -964,7 +966,11 @@ async def get_plans(
     status: Optional[str] = None,
     session: Session = Depends(get_session),
 ):
-    """Get plans list with filtering."""
+    """Get plans list with filtering.
+
+    Without ``status`` this lists plan documents only. ``?status=placeholder``
+    returns the placeholder rows, which are kept but are not plans.
+    """
     repo = PlanRepository(session)
 
     if status:
@@ -992,7 +998,7 @@ async def get_pending_approval_plans(
     """
     Get plans that are pending approval (draft status, not yet approved).
 
-    These are typically lower-scoring plans (score < 8.0) that weren't auto-approved.
+    A draft is a plan that was not auto-approved.
     Users can manually approve these via POST /plans/{plan_id}/approve.
     """
     plan_repo = PlanRepository(session)
@@ -1019,13 +1025,6 @@ async def get_pending_approval_plans(
         # Check if auto-approval threshold info is available
         if metadata:
             plan_dict["promotion_score"] = metadata.get("promotion_score")
-
-        # Triage-promoted rows are seeds, not plans: triage has no planning
-        # phase. Always emitted, so a consumer can rely on the key -- and `None`
-        # rather than `True` when it is missing, because rows written before the
-        # flag existed are unknown, not authored, and 35 of the 44 in production
-        # are in fact seeds.
-        plan_dict["plan_authored"] = metadata.get("plan_authored")
 
         result.append(plan_dict)
 
@@ -1164,7 +1163,7 @@ async def get_activity(
     """
     from sqlalchemy import desc
 
-    from ..db.models import DebateSession, Idea, Plan, Signal, Trend
+    from ..db.models import DebateSession, Idea, Signal, Trend
 
     activities = []
 
@@ -1269,15 +1268,11 @@ async def get_activity(
                 }
             )
 
-    # Get recent plans
-    recent_plans = (
-        session.query(Plan)
-        .filter(Plan.created_at.isnot(None))
-        .order_by(desc(Plan.created_at))
-        .limit(10)
-        .all()
-    )
-    for plan in recent_plans:
+    # Recent plan documents. Through the repository, which leaves placeholder
+    # rows out: they were never plans, so "Plan created" would be false.
+    for plan in PlanRepository(session).get_all(limit=10):
+        if not plan.created_at:
+            continue
         activities.append(
             {
                 "timestamp": plan.created_at,
@@ -1617,7 +1612,6 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
         DebateSession,
         DebateSessionStatus,
         Idea,
-        Plan,
         Project,
         Signal,
         Trend,
@@ -1633,7 +1627,10 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
     total_signals = session.query(func.count(Signal.id)).scalar() or 0
     total_trends = session.query(func.count(Trend.id)).scalar() or 0
     total_ideas = session.query(func.count(Idea.id)).scalar() or 0
-    total_plans = session.query(func.count(Plan.id)).scalar() or 0
+    # Plan documents only: placeholder rows would inflate this count and skew
+    # both conversion rates built on it.
+    plan_repo = PlanRepository(session)
+    total_plans = plan_repo.count_all()
     total_projects = session.query(func.count(Project.id)).scalar() or 0
 
     # Get hourly rates
@@ -1647,9 +1644,7 @@ async def get_pipeline_live(session: Session = Depends(get_session)):
 
     ideas_today = session.query(func.count(Idea.id)).filter(Idea.created_at >= today).scalar() or 0
 
-    plans_last_7d = (
-        session.query(func.count(Plan.id)).filter(Plan.created_at >= last_7d).scalar() or 0
-    )
+    plans_last_7d = plan_repo.count_created_since(last_7d)
 
     projects_last_7d = (
         session.query(func.count(Project.id)).filter(Project.created_at >= last_7d).scalar() or 0
@@ -1955,7 +1950,8 @@ async def generate_project(
     Trigger project generation from an approved Plan.
 
     This endpoint starts an asynchronous project generation job.
-    Use GET /jobs/{job_id} to check the status.
+    Use GET /jobs/{job_id} to check the status. A placeholder row has no plan
+    document and is refused with 409, even with force_regenerate.
     """
     import uuid
 
@@ -1965,6 +1961,14 @@ async def generate_project(
 
     if not plan:
         raise HTTPException(status_code=404, detail=f"Plan not found: {plan_id}")
+
+    # Ahead of the force check: force_regenerate redoes a project, it does not
+    # turn a row with no plan document into something to scaffold from.
+    if plan.status in NON_PLAN_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Plan {plan_id} has no plan document (status: {plan.status}).",
+        )
 
     if plan.status != "approved" and not request.force_regenerate:
         raise HTTPException(
@@ -2137,6 +2141,8 @@ async def approve_plan(
     Use this for:
     - Plans with score < 8.0 that weren't auto-approved
     - Plans that need manual review before project generation
+
+    A placeholder row is not a plan and is refused with 409.
     """
     import uuid
 
@@ -2145,6 +2151,14 @@ async def approve_plan(
 
     if not plan:
         raise HTTPException(status_code=404, detail=f"Plan not found: {plan_id}")
+
+    # First, and leaving the row untouched: approval is what unlocks project
+    # generation, and a row with no plan document has nothing to approve.
+    if plan.status in NON_PLAN_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Plan {plan_id} has no plan document (status: {plan.status}).",
+        )
 
     if plan.status == "approved":
         message = "Plan is already approved."

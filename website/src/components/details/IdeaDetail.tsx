@@ -294,22 +294,6 @@ export function IdeaDetail({ data }: IdeaDetailProps) {
           </div>
         </div>
       )}
-
-      {/* Links */}
-      {idea.github_issue_url && (
-        <div className="card-cli p-4">
-          <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.links')}</div>
-          <a
-            href={idea.github_issue_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 text-[#00ffff] hover:underline text-sm"
-          >
-            <span>→</span>
-            {t('detail.viewOnGitHub')}
-          </a>
-        </div>
-      )}
     </motion.div>
   );
 }
