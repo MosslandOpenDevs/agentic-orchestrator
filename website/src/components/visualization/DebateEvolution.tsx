@@ -12,8 +12,6 @@ interface RoundSummary {
   keyPoints: string[];
   avgSentiment: 'positive' | 'neutral' | 'negative' | 'mixed';
   ideasProposed: number;
-  ideasFiltered: number;
-  consensusLevel: number; // 0-100
 }
 
 interface DebateEvolutionProps {
@@ -113,10 +111,6 @@ export function DebateEvolution({
                   <span className={`text-xs px-1.5 py-0.5 rounded ${getSentimentColor(summary.avgSentiment)}`}>
                     {summary.avgSentiment}
                   </span>
-                  {/* Consensus Level */}
-                  <span className="text-xs text-[#8b949e]">
-                    {t('debateEvolution.consensus')}: {summary.consensusLevel}%
-                  </span>
                 </div>
               </div>
 
@@ -151,11 +145,6 @@ export function DebateEvolution({
                 <span className="text-[#39ff14]">
                   +{summary.ideasProposed} {t('debateEvolution.proposed')}
                 </span>
-                {summary.ideasFiltered > 0 && (
-                  <span className="text-[#ff5555]">
-                    -{summary.ideasFiltered} {t('debateEvolution.filtered')}
-                  </span>
-                )}
               </div>
             </motion.div>
           ))}
@@ -163,7 +152,7 @@ export function DebateEvolution({
       )}
 
       {/* Evolution Metrics Summary */}
-      <div className="grid grid-cols-4 gap-2 pt-3 border-t border-[#21262d]">
+      <div className="grid grid-cols-3 gap-2 pt-3 border-t border-[#21262d]">
         <div className="text-center">
           <div className="text-lg font-bold text-[#ff6b35]">
             {evolutionMetrics.totalMessages}
@@ -178,15 +167,9 @@ export function DebateEvolution({
         </div>
         <div className="text-center">
           <div className="text-lg font-bold text-[#39ff14]">
-            {evolutionMetrics.ideasNet}
+            {evolutionMetrics.ideasProposed}
           </div>
-          <div className="text-[10px] text-[#8b949e]">{t('debateEvolution.netIdeas')}</div>
-        </div>
-        <div className="text-center">
-          <div className="text-lg font-bold text-[#bd93f9]">
-            {evolutionMetrics.avgConsensus}%
-          </div>
-          <div className="text-[10px] text-[#8b949e]">{t('debateEvolution.avgConsensus')}</div>
+          <div className="text-[10px] text-[#8b949e]">{t('debateEvolution.proposed')}</div>
         </div>
       </div>
     </div>
@@ -273,14 +256,16 @@ function analyzeRounds(messages: ApiDebateMessage[], maxRounds: number): RoundSu
       sentimentScore < -2 ? 'negative' :
       Math.abs(sentimentScore) <= 1 ? 'neutral' : 'mixed';
 
-    // Estimate ideas proposed/filtered
+    // Ideas proposed is counted from the messages. There is no counterpart
+    // for "filtered": `Math.floor(ideasProposed * 0.3)` was a fixed 30% of a
+    // real number, and `50 + round * 15 + Math.random() * 10` was a consensus
+    // percentage that re-rolled on every render and rose with the round index
+    // whatever the agents said. Both are removed rather than approximated --
+    // ScoreBreakdown.tsx and TrendSparkline.tsx already carry the same note
+    // about the same pattern.
     const ideasProposed = roundMessages.filter(
       (m) => m.message_type === 'proposal' || m.message_type === 'idea'
     ).length;
-    const ideasFiltered = round > 1 ? Math.floor(ideasProposed * 0.3) : 0;
-
-    // Consensus level (higher in later rounds)
-    const consensusLevel = Math.min(95, 50 + round * 15 + Math.random() * 10);
 
     summaries.push({
       round,
@@ -290,8 +275,6 @@ function analyzeRounds(messages: ApiDebateMessage[], maxRounds: number): RoundSu
       keyPoints: keyPoints.slice(0, 3),
       avgSentiment,
       ideasProposed,
-      ideasFiltered,
-      consensusLevel: Math.round(consensusLevel),
     });
   }
 
@@ -301,17 +284,13 @@ function analyzeRounds(messages: ApiDebateMessage[], maxRounds: number): RoundSu
 function calculateEvolutionMetrics(summaries: RoundSummary[]) {
   const totalMessages = summaries.reduce((sum, s) => sum + s.messageCount, 0);
   const allParticipants = new Set(summaries.flatMap((s) => s.participants));
-  const totalProposed = summaries.reduce((sum, s) => sum + s.ideasProposed, 0);
-  const totalFiltered = summaries.reduce((sum, s) => sum + s.ideasFiltered, 0);
-  const avgConsensus = summaries.length > 0
-    ? Math.round(summaries.reduce((sum, s) => sum + s.consensusLevel, 0) / summaries.length)
-    : 0;
-
+  // "Net ideas" was proposed minus a filtered count that was 30% of proposed,
+  // i.e. always 0.7x proposed dressed as a measurement. The proposed count is
+  // real -- it is counted from the messages -- so that is what is shown.
   return {
     totalMessages,
     uniqueParticipants: allParticipants.size,
-    ideasNet: totalProposed - totalFiltered,
-    avgConsensus,
+    ideasProposed: summaries.reduce((sum, s) => sum + s.ideasProposed, 0),
   };
 }
 

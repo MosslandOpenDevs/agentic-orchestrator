@@ -13,7 +13,6 @@ import { TerminalWindow, TerminalBadge } from '@/components/TerminalWindow';
 import { AdapterDetailModal } from '@/components/AdapterDetailModal';
 import { useModal } from '@/components/modals/useModal';
 import { clickableProps } from '@/lib/a11y';
-import { rssCategories, aiProviders } from '@/data/mock';
 import { fetchSystemStats, fetchActivity, fetchPipeline, fetchAdapters, ApiClient, type ApiProject } from '@/lib/api';
 import { formatLocalDateTime } from '@/lib/date';
 import type { SystemStats, ActivityItem, PipelineStage, AdapterInfo } from '@/lib/types';
@@ -44,15 +43,21 @@ export default function Dashboard() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [statsData, activityData, pipelineData, projectsRes] = await Promise.all([
-          fetchSystemStats(),
-          fetchActivity(),
-          fetchPipeline(),
-          ApiClient.getProjects({ limit: 5 }),
-        ]);
+        const [statsData, activityData, pipelineData, projectsRes, adapterData] =
+          await Promise.all([
+            fetchSystemStats(),
+            fetchActivity(),
+            fetchPipeline(),
+            ApiClient.getProjects({ limit: 5 }),
+            // Loaded here rather than only when the modal opens: the signals.conf
+            // panel below is built from it, and `total_adapters` rendered "—"
+            // until someone clicked. The endpoint is cached server-side for 60s.
+            fetchAdapters(),
+          ]);
         setStats(statsData);
         setActivity(activityData);
         setPipeline(pipelineData);
+        setAdapters(adapterData);
         if (projectsRes.data) {
           setProjects(projectsRes.data.projects);
         }
@@ -70,7 +75,17 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Load adapters when modal opens
+  // Grouped from what the backend reports, in a stable order, so the panel
+  // cannot drift from the fleet the way a hand-written table did.
+  const adapterCategories = Object.entries(
+    adapters.reduce<Record<string, number>>((acc, adapter) => {
+      acc[adapter.category] = (acc[adapter.category] ?? 0) + 1;
+      return acc;
+    }, {})
+  )
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
   const handleOpenAdapterModal = async () => {
     setIsAdaptersLoading(true);
     setIsAdapterModalOpen(true);
@@ -263,14 +278,22 @@ export default function Dashboard() {
                         [click for details]
                       </span>
                     </div>
-                    {rssCategories.map((cat) => (
+                    {/* These rows were a hand-copied table in src/data/mock.ts:
+                        five categories totalling 16 RSS feeds, against the 31
+                        active feeds config.yaml actually carries. A copy of a
+                        config file drifts from it the moment either changes,
+                        and this one had. Grouped from the adapters this page
+                        already fetches instead. */}
+                    {adapterCategories.map((cat) => (
                       <div key={cat.name} className="flex items-center justify-between py-1">
                         <span className="text-[#c0c0c0] text-xs">
                           <span className="text-[#00ffff]">[</span>
-                          {cat.name.toLowerCase().replace(/ /g, '_')}
+                          {cat.name}
                           <span className="text-[#00ffff]">]</span>
                         </span>
-                        <span className="tag tag-cyan">{cat.count} sources</span>
+                        <span className="tag tag-cyan">
+                          {cat.count} {cat.count === 1 ? 'adapter' : 'adapters'}
+                        </span>
                       </div>
                     ))}
                     <div className="border-t border-[#21262d] pt-3 mt-3">
@@ -318,33 +341,24 @@ export default function Dashboard() {
                     ))}
                   </div>
 
-                  {/* API Models */}
-                  <div>
-                    <div className="text-[#ff6b35] text-xs mb-2">
-                      <span className="text-[#bd93f9]">@</span> API Models (Budget Controlled)
-                    </div>
-                    {/* Also configuration. Nothing here checks whether these
-                        are reachable -- and MOSS_LOCAL_LLM_ONLY defaults to
-                        true, which stops the router instantiating them at
-                        all -- so no status indicator is shown. */}
-                    {aiProviders.map((provider) => (
-                      <div key={provider} className="flex items-center justify-between py-1 ml-4">
-                        <span className="text-[#c0c0c0] text-xs">{provider}</span>
-                        <span className="tag tag-orange">PAID</span>
-                      </div>
-                    ))}
-                  </div>
+                  {/* No "API Models" list here any more. It named three
+                      vendors (Claude / GPT / Gemini) from a constant in
+                      src/data/mock.ts -- one of which the router cannot even
+                      instantiate -- and nothing checked whether any of them
+                      was reachable or billing.
 
-                  <div className="border-t border-[#21262d] pt-3 mt-3">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-[#8b949e]">daily_budget:</span>
-                      <span className="text-[#f1fa8c]">$50.00</span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-[#8b949e]">used_today:</span>
-                      <span className="text-[#39ff14]">$12.45</span>
-                    </div>
-                  </div>
+                      Publishing vendor identity is also the one thing the
+                      backend deliberately strips from this same public
+                      surface: _public_router_view() in api/main.py removes
+                      `provider` and `model` from /status precisely so they do
+                      not leave the process. A hand-written copy on the front
+                      page put back what that redaction exists to remove. */}
+
+                  {/* Two dollar figures used to sit here as string literals:
+                      daily_budget $50.00 against a configured limit of $3.00,
+                      and used_today $12.45 against a measured $0.65. Nothing
+                      computed either of them. The real spend is on /system,
+                      which reads /usage. */}
                 </div>
               </TerminalWindow>
             </motion.div>

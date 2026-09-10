@@ -48,8 +48,6 @@ export function CostDashboard({ usage, showDetails = false }: CostDashboardProps
   }, [usage.today_by_provider]);
 
   const totalCost = usage.today.total_cost;
-  const monthlyBudget = 100; // Configurable budget
-  const budgetUsed = (totalCost / monthlyBudget) * 100;
 
   const formatCost = (cost: number) => {
     return cost < 1 ? `$${cost.toFixed(4)}` : `$${cost.toFixed(2)}`;
@@ -101,35 +99,17 @@ export function CostDashboard({ usage, showDetails = false }: CostDashboardProps
         </div>
       </div>
 
-      {/* Budget Progress */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-[#8b949e]">{t('costDashboard.budgetUsage')}</span>
-          <span className={`font-bold ${
-            budgetUsed >= 90 ? 'text-[#ff5555]' :
-            budgetUsed >= 70 ? 'text-[#ff6b35]' :
-            'text-[#39ff14]'
-          }`}>
-            {budgetUsed.toFixed(1)}%
-          </span>
-        </div>
-        <div className="h-3 bg-[#21262d] rounded-full overflow-hidden">
-          <motion.div
-            initial={{ width: 0 }}
-            animate={{ width: `${Math.min(100, budgetUsed)}%` }}
-            transition={{ duration: 0.8, ease: 'easeOut' }}
-            className={`h-full ${
-              budgetUsed >= 90 ? 'bg-[#ff5555]' :
-              budgetUsed >= 70 ? 'bg-[#ff6b35]' :
-              'bg-[#39ff14]'
-            }`}
-          />
-        </div>
-        <div className="flex items-center justify-between text-[10px] text-[#8b949e]">
-          <span>{formatCost(usage.month_total)} {t('costDashboard.used')}</span>
-          <span>{formatCost(monthlyBudget)} {t('costDashboard.budget')}</span>
-        </div>
-      </div>
+      {/* A "budget usage" bar used to sit here. Its ceiling was a literal
+          `const monthlyBudget = 100` -- a copy of config.yaml's
+          monthly_limit_usd that nothing kept in step with it -- and the bar
+          divided *today's* spend by that *monthly* ceiling while the caption
+          underneath it reported the month's total, so the percentage and the
+          numbers beside it were answers to different questions.
+
+          No endpoint publishes the configured limit, and /status deliberately
+          strips deployment detail from this same public surface, so the fix is
+          not to wire the ceiling up. Spend is measured and stays; the ceiling
+          was never measured and goes. */}
 
       {/* Provider Breakdown */}
       {providerStats.length > 0 && (

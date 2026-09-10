@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+
 import { motion } from 'framer-motion';
 import { useI18n } from '@/lib/i18n';
 
@@ -11,63 +11,19 @@ interface TimeSlot {
 }
 
 interface SignalTimelineProps {
-  data?: TimeSlot[];
+  data: TimeSlot[];
   totalSignals?: number;
   period?: '24h' | '7d';
   showDetails?: boolean;
 }
 
-// Generate mock hourly data for last 24 hours
-function generateHourlyData(): TimeSlot[] {
-  const now = new Date();
-  const slots: TimeSlot[] = [];
-
-  for (let i = 23; i >= 0; i--) {
-    const hour = (now.getHours() - i + 24) % 24;
-    // Simulate realistic signal collection patterns
-    // More signals during work hours, fewer at night
-    let baseCount = 5;
-    if (hour >= 9 && hour <= 18) baseCount = 15;
-    else if (hour >= 6 && hour <= 21) baseCount = 10;
-    else baseCount = 3;
-
-    const variance = Math.floor(Math.random() * baseCount * 0.5);
-    const count = baseCount + variance;
-
-    slots.push({
-      label: `${hour.toString().padStart(2, '0')}:00`,
-      count,
-      hour,
-    });
-  }
-
-  return slots;
-}
-
-// Generate mock daily data for last 7 days
-function generateDailyData(): TimeSlot[] {
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const now = new Date();
-  const slots: TimeSlot[] = [];
-
-  for (let i = 6; i >= 0; i--) {
-    const date = new Date(now);
-    date.setDate(date.getDate() - i);
-    const dayName = days[date.getDay()];
-
-    // Simulate realistic patterns - more signals on weekdays
-    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-    const baseCount = isWeekend ? 80 : 150;
-    const variance = Math.floor(Math.random() * 50);
-
-    slots.push({
-      label: dayName,
-      count: baseCount + variance,
-    });
-  }
-
-  return slots;
-}
+// The two "generate mock data" functions that used to live here built a
+// plausible 24-hour or 7-day chart out of Math.random() and an assumption
+// about work hours, and were used whenever `data` was absent. A chart is a
+// measurement; an outage that renders as a normal-looking histogram is worse
+// than one that renders as nothing. `data` is required instead -- the only
+// caller has always passed it, and its own loading state is the honest
+// placeholder.
 
 export function SignalTimeline({
   data,
@@ -77,10 +33,7 @@ export function SignalTimeline({
 }: SignalTimelineProps) {
   const { t } = useI18n();
 
-  const timelineData = useMemo(() => {
-    if (data) return data;
-    return period === '24h' ? generateHourlyData() : generateDailyData();
-  }, [data, period]);
+  const timelineData = data;
 
   const maxCount = Math.max(...timelineData.map(d => d.count), 1);
   const total = timelineData.reduce((sum, d) => sum + d.count, 0);
@@ -212,11 +165,8 @@ export function SignalTimeline({
 }
 
 // Mini version for embedding in cards
-export function SignalTimelineMini({ data, period = '24h' }: { data?: TimeSlot[]; period?: '24h' | '7d' }) {
-  const timelineData = useMemo(() => {
-    if (data) return data;
-    return period === '24h' ? generateHourlyData() : generateDailyData();
-  }, [data, period]);
+export function SignalTimelineMini({ data, period = '24h' }: { data: TimeSlot[]; period?: '24h' | '7d' }) {
+  const timelineData = data;
 
   const maxCount = Math.max(...timelineData.map(d => d.count), 1);
 

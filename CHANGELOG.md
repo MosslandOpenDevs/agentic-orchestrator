@@ -85,6 +85,31 @@ The adapter stays *registered*: the fleet is still twelve, and one of them now s
 #### Deliberately not changed
 
 `discord`, `lens` and `farcaster` have also stored nothing in 30 days, and they stay on. Zero yield is not the same finding as a dead upstream: these are unconfigured rather than broken, they no-op cheaply when their credentials are absent, and disabling a source because nobody has given it a key is a different decision from disabling one whose upstream has been taken down. The `BAIR` RSS feed times out on most cycles; a timeout is weaker evidence than a 410 or an NXDOMAIN, and the four feeds already disabled in `config.yaml` were each disabled on a definitive server answer.
+### Removed — numbers on the public dashboard that nothing measured
+
+Each of these renders as a measurement and is not one. Together they are the reason a reader cannot tell which figures on ao.moss.land to trust.
+
+**Two dollar amounts written as string literals.** `daily_budget: $50.00` against a configured limit of `$3.00`, and `used_today: $12.45` against a measured `$0.65` — a limit inflated 16x and a spend inflated 19x, on a public page, with nothing computing either. Deleted rather than wired: the real spend is already on `/system`, which reads `/usage`, and no endpoint publishes the configured limit. `CostDashboard`'s budget bar goes for the same reason — its ceiling was `const monthlyBudget = 100`, a copy of `config.yaml` nothing kept in step, and the bar divided *today's* spend by that *monthly* ceiling while the caption under it reported the month's total.
+
+**A consensus percentage from `Math.random()`.** `DebateEvolution` computed `50 + round * 15 + Math.random() * 10` per round, re-rolled on every render, and printed it as "Consensus: NN%". "Ideas filtered" beside it was `Math.floor(proposed * 0.3)` — a fixed fraction of a real number, which made "Net Ideas" always 0.7x proposed. Both removed; the proposed count is real and stays.
+
+**A chart that generated its own history.** `SignalTimeline` built a plausible 24-hour or 7-day histogram out of `Math.random()` and an assumption about work hours whenever `data` was absent. Its only caller has always passed real data, so the fallback could only ever have appeared during an outage — the moment when an invented chart is worst. `data` is now required.
+
+**The same four personality numbers for all 34 agents.** The agents page passed `{creativity: 7, analytical: 7, risk_tolerance: 5, collaboration: 7}` as literals — from both branches of a ternary, so the API's answer was discarded either way — and `AgentDetail` rendered them twice, as gauges and again as an ASCII "trait radar". The backend models personality as four *categorical* axes (thinking, decision, communication, action), which is what the modal now shows; the static fallback roster reports none, and absent renders as nothing rather than as a default.
+
+**A hand-copied feed table, two pages of it.** `src/data/mock.ts` held five RSS categories totalling 16 feeds, against the 31 `config.yaml` enables. The front page's `signals.conf` panel now groups the adapters it already fetches; the trends page's five tiles have no measured counterpart and are gone. The file is deleted, along with `DebateVisualization.tsx`, its only other consumer, which nothing imported.
+
+**An always-green RUNNING badge**, on every page, with no props and no fetch — so it read RUNNING while the API was unreachable, directly above the banner that reads `/status` and would be saying SYSTEM DEGRADED at the same moment. `SystemStatus` and `Pipeline` each had this defect and were each fixed by reading `/status`; there is nothing here for site-wide chrome to read that the banner is not already showing.
+
+**And an "API Models" list naming three vendors** from the same mock file, one of which the router cannot instantiate. Publishing vendor identity is the one thing `_public_router_view()` deliberately strips from `/status`; a hand-written copy on the front page put back exactly what that redaction exists to remove.
+
+Two of the stale strings on `/system` are corrected rather than deleted: "GPT-4 (OpenAI)" names a model the router has not used in a year and "45+ RSS Feeds" contradicts the 31 configured. Counts and model pins are removed rather than updated — nothing keeps a number here in step, and the measured ones are on `/adapters`.
+
+`website/src/lib/invented-numbers.test.ts` pins both patterns: no executable `Math.random()` anywhere under `src/`, and no hard-coded dollar figure in any `.tsx`.
+
+### Fixed — the transparency page was missing the one paused stage
+
+Its pipeline row read Signals → Trends → Ideas → Debates → Plans. Projects, which the site's own front page shows, was absent — and Projects is the single stage deliberately paused (`project.auto_generate.enabled: false`), so leaving it out hid exactly what a transparency page exists to show. The row and its arrow count are now derived from one list instead of from hard-coded indices.
 
 ### Fixed — the status endpoint published instants that did not say they were UTC
 

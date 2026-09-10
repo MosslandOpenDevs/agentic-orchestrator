@@ -165,19 +165,18 @@ export default function AgentsPage() {
       role: agent.role,
       phase: phase,
       handle: 'handle' in agent ? agent.handle : undefined,
-      personality: 'personality' in agent && typeof agent.personality === 'object'
-        ? {
-            creativity: 7,
-            analytical: 7,
-            risk_tolerance: 5,
-            collaboration: 7,
-          }
-        : {
-            creativity: 7,
-            analytical: 7,
-            risk_tolerance: 5,
-            collaboration: 7,
-          },
+      // Passed through, not replaced. Both branches of this ternary used to
+      // produce the same four literals -- {creativity: 7, analytical: 7,
+      // risk_tolerance: 5, collaboration: 7} -- so the "Personality Profile"
+      // panel showed identical bars for all 34 agents whether or not the API
+      // had answered. /agents reports four categorical axes (thinking,
+      // decision, communication, action); those are what the modal renders
+      // now, and the static fallback roster reports none, which the modal
+      // renders as nothing rather than as a default.
+      personality:
+        'personality' in agent && agent.personality && typeof agent.personality === 'object'
+          ? (agent.personality as Record<string, string>)
+          : undefined,
       description: `${agent.role} agent specialized in ${'expertise' in agent ? (Array.isArray(agent.expertise) ? agent.expertise.join(', ') : agent.expertise) : 'various domains'}`,
     };
     openModal('agent', agentData);

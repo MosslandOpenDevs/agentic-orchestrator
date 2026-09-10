@@ -67,27 +67,16 @@ export function Navigation() {
 
         {/* Right side */}
         <div className="flex items-center gap-4">
-          {/* System Status */}
-          <motion.div
-            className="hidden sm:flex items-center gap-2 px-2 py-1 border border-[#21262d] bg-[#0d1117]"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-          >
-            <motion.div
-              className="status-dot online"
-              animate={{
-                scale: [1, 1.2, 1],
-              }}
-              transition={{
-                duration: 2,
-                repeat: Infinity,
-                ease: 'easeInOut',
-              }}
-            />
-            <span className="text-[10px] text-[#39ff14] uppercase tracking-wider">
-              {t('nav.running')}
-            </span>
-          </motion.div>
+          {/* A green "RUNNING" pill used to sit here on every page. It was a
+              literal: no props, no fetch, nothing to make it say anything
+              else, so it read RUNNING while the API was unreachable -- and it
+              sat directly above the dashboard banner, which does read /status
+              and would be showing SYSTEM DEGRADED at the same moment. The
+              banner is the one that measures; this was the one that guessed.
+              (SystemStatus.tsx and Pipeline.tsx each had the same defect and
+              were each fixed by reading /status; there is nothing for a
+              site-wide chrome element to read that the banner is not already
+              showing.) */}
 
           <LanguageToggle />
 
