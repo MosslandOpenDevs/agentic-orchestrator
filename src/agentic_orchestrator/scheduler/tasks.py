@@ -1970,20 +1970,6 @@ def _process_backlog():
             except Exception as e:
                 logger.warning(f"Backlog triage skipped: {e}")
 
-        # TRANSITIONAL: finish retiring the GitHub issue mirror (placeholder
-        # plan rows, open bot issues). Outside the triage gate, so switching
-        # triage off or an LLM outage cannot hold it back. It never raises;
-        # the try only keeps an import failure from failing the cycle. The
-        # follow-up PR deletes this call with scheduler/mirror_retirement.py.
-        try:
-            from .mirror_retirement import run_mirror_retirement
-
-            stats["mirror_retirement"] = run_mirror_retirement(
-                db.get_session, backlog_config.get("mirror_retirement") or {}
-            )
-        except Exception as e:
-            logger.warning(f"Issue mirror retirement skipped: {e}")
-
         duration = (utcnow() - start_time).total_seconds()
         logger.info(f"Backlog processing completed in {duration:.1f}s")
         logger.info(f"Stats: {stats}")

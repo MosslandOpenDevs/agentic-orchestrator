@@ -20,8 +20,8 @@ this endpoint is what the links.moss.land registry points at, and its readers
 are not all enumerable from inside this repository.
 
 ``plans_created`` had one value corrected, and that is not a change of meaning:
-the key still means "plans created". It had also been counting placeholder
-rows, which were never plans, so it drops when those rows are reclassified.
+the key still means "plans created". It had also been counting rows that were
+never plans; rows with status ``placeholder`` are left out.
 """
 
 from datetime import timedelta

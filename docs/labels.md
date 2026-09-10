@@ -2,23 +2,19 @@
 
 This document describes the labels used in the Mossland Agentic Orchestrator workflow.
 
-> **The per-item issue mirror is retired.** No scheduled process creates or labels issues any
-> more; the only one that comments on or closes them is a temporary transition that closes open
-> bot-labelled issues ([Issue Lifecycle](#issue-lifecycle-retired)). SQLite
+> **The per-item issue mirror is retired.** No scheduled process creates, labels, comments on or
+> closes issues any more ([Issue Lifecycle](#issue-lifecycle-retired)). SQLite
 > (`data/orchestrator.db`) is the record and https://ao.moss.land renders it. This page documents
 > the labels on existing issues and the manual `ao backlog` CLI, which still reads and writes
-> them. While the transition is deployed, the backlog tick closes the `[IDEA]` issues that CLI
-> creates through `generate_ideas` if nobody has commented on them — a `promote:to-plan` label does
-> not spare them; its `source:trend` ideas and the issues it has commented on itself stay open. Add
-> `curated:keep` to keep one open. Closing an issue does not delete data.
+> them. Closing an issue does not delete data.
 
 > **`promote:to-plan` is not a "future" label.** Its consumer is implemented
 > (`GitHubClient.find_ideas_to_promote` → `BacklogOrchestrator.run_cycle`) and last ran
 > successfully on 2026-01-04. What is missing is a *scheduler entry*: `run_cycle` is reachable
 > only from `ao backlog run` / `ao backlog process`, and no PM2 process invokes it. The PM2
-> `moss-ao-backlog` job runs a different function (`run_backlog_triage` + retention, plus the
-> temporary mirror retirement), not `run_cycle`. Until the mirror was retired, the orchestrator
-> also added this label **itself** to ideas it promoted — see
+> `moss-ao-backlog` job runs a different function (`run_backlog_triage` + retention), not
+> `run_cycle`. Until the mirror was retired, the orchestrator also added this label **itself** to
+> ideas it promoted — see
 > [Known Ambiguity](#known-ambiguity-promoteto-plan-had-two-meanings).
 
 ## Quick Reference
@@ -47,8 +43,8 @@ of these labels.
 | `promote:to-dev` | Start development from plan | Human | *Not implemented* |
 
 `curated:keep` is a human-only triage marker: no code adds it (as with `reject:plan` and
-`promote:to-dev`). It was applied during the 2026-06 cleanup, and the temporary mirror retirement
-leaves every issue carrying it open.
+`promote:to-dev`). It was applied during the 2026-06 cleanup. Nothing on a schedule closes issues
+any more, so the label now records that decision rather than sparing an issue from a sweep.
 
 `rejected` and `reject:plan` are **not** duplicates: `reject:plan` is the input a human adds, and
 `rejected` is the terminal marker `reject_plan()` writes afterwards. Do not retire either one.
@@ -110,25 +106,8 @@ created before v0.6.15 with `status:archived` still exist in the closed set.
 ### Issue Lifecycle (retired)
 
 Scheduled closing stopped with the mirror: nothing closes an issue when its idea is promoted or
-archived, and there is no aging sweep. What remains is a **temporary transition**
-([`scheduler/mirror_retirement.py`](../src/agentic_orchestrator/scheduler/mirror_retirement.py),
-run from the backlog cycle; the follow-up PR deletes it once production is verified). It closes
-each open `generated:by-orchestrator` issue once, as `state_reason=not_planned`, with one comment
-linking the idea's page on https://ao.moss.land. It leaves open:
-
-- issues labelled **`curated:keep`** or **`source:trend`** — add `curated:keep` to any issue you
-  want to keep open;
-- issues with a comment from an `OWNER`, `MEMBER`, `COLLABORATOR` or `CONTRIBUTOR`, not counting
-  the bot's own comments signed `_(automated issue lifecycle)_`. The bot account comments as a
-  member, so an older bot comment without that signature also keeps its issue open;
-- issues whose comments cannot be read.
-
-The comment carries a hidden `<!-- ao:issue-mirror-retired -->` marker, so an issue reopened by
-hand is not closed again. The pass never sends labels, uses the list API rather than search (search
-has omitted issues here, and on 2026-09-10 both omitted open issue #36), pauses a second after
-every write request (the close
-and the comment, whether or not each succeeded), stops after three issues in a row whose close or
-comment failed, and is capped at `backlog.mirror_retirement.max_closes_per_run` (100) per cycle.
+archived, there is no aging sweep, and no scheduled process closes an issue for any other reason.
+An issue now closes by hand — directly, or through the manual `ao backlog` CLI a person runs.
 Closing is visibility-only: DB rows are untouched, and any closed issue can be reopened.
 
 ## Label Categories

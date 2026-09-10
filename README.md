@@ -272,7 +272,7 @@ Four more crypto feeds (Chainlink, Polygon, Paradigm, a16z Crypto) are kept with
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `GITHUB_TOKEN` | GitHub PAT for the manual `ao backlog` CLI and the temporary issue-mirror retirement; optional for the GitHub Events adapter and the deploy's CI query | For `ao backlog` |
+| `GITHUB_TOKEN` | GitHub PAT for the manual `ao backlog` CLI; optional for the GitHub Events adapter and the deploy's CI query | For `ao backlog` |
 | `GITHUB_OWNER` | Repository owner | For `ao backlog` |
 | `GITHUB_REPO` | Repository name | For `ao backlog` |
 | `ANTHROPIC_API_KEY` | Claude API key | For cloud mode |

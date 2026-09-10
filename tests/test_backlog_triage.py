@@ -722,8 +722,6 @@ class TestTheBacklogTickCallsTriage:
         monkeypatch.setattr(
             tasks_mod, "_load_backlog_config", lambda: {"triage": {"enabled": True}}
         )
-        # No test may reach GitHub, and GitHubClient refuses to construct without a token.
-        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         monkeypatch.setattr(llm_pkg, "HybridLLMRouter", lambda: object())
 
         signature = inspect.signature(triage_mod.run_backlog_triage)
@@ -738,3 +736,36 @@ class TestTheBacklogTickCallsTriage:
         tasks_mod._process_backlog()
 
         assert len(bound) == 1, "triage was not called with arguments its signature accepts"
+
+    def _tick_with_a_dead_llm(self, monkeypatch, tmp_path, triage_config):
+        """Run the tick with a router that cannot be built; return construction attempts."""
+        from types import SimpleNamespace
+
+        import agentic_orchestrator.db as db_pkg
+        import agentic_orchestrator.llm as llm_pkg
+        from agentic_orchestrator.scheduler import tasks as tasks_mod
+
+        engine = create_engine(f"sqlite:///{tmp_path / 'backlog.db'}")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine)
+        monkeypatch.setattr(
+            db_pkg, "get_database", lambda: SimpleNamespace(get_session=session_factory)
+        )
+        monkeypatch.setattr(tasks_mod, "_load_backlog_config", lambda: {"triage": triage_config})
+        attempts = []
+
+        def backend_down():
+            attempts.append("router")
+            raise RuntimeError("LLM backend down")
+
+        monkeypatch.setattr(llm_pkg, "HybridLLMRouter", backend_down)
+        tasks_mod._process_backlog()  # an LLM outage must not fail the backlog cycle
+        return attempts
+
+    def test_an_llm_outage_does_not_fail_the_tick(self, monkeypatch, tmp_path):
+        attempts = self._tick_with_a_dead_llm(monkeypatch, tmp_path, {"enabled": True})
+
+        assert attempts == ["router"], "triage must really have been attempted"
+
+    def test_disabled_triage_builds_no_router(self, monkeypatch, tmp_path):
+        assert self._tick_with_a_dead_llm(monkeypatch, tmp_path, {"enabled": False}) == []
