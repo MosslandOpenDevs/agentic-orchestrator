@@ -83,7 +83,7 @@ SignalMap
 
 - **가중치 평가**: 참신성 30%, 실현가능성 25%, 관련성 20%, 영향력 15%, 시급성 10%
 - **상세 기획안 필수 섹션**: 프로젝트 개요, 기술 아키텍처, 실행 계획, 리스크, KPI
-- **자동 점수화**: score ≥ 7.0 → 플랜 자동 생성, score < 4.0 → 아카이브
+- **자동 점수화**: score ≥ 7.0 + reviewer CONFIRM → `promoted` (플랜 행은 토론의 기획 문서를 실은 승격 하나에만 쓴다), score < 4.0 → 아카이브
 
 > **점수는 두 종류이고 서로 다른 것이다.** 위의 5차원 가중치는 **convergence
 > 평가 프롬프트**가 토론 에이전트에게 요구하는 기준이고(`debate/protocol.py`),
@@ -1191,11 +1191,11 @@ Signals (30분) → Trends (2시간) → Debate (6시간) → Ideas → Auto-Sco
 `scheduler/*.py` 중 GitHub 에 닿는 것은 `mirror_retirement.py` 뿐이고 `create_issue` 는
 어디에도 없음을 고정한다.
 
-**전환 작업 — 임시.** 운영에서 확인되면 후속 PR 이 `scheduler/mirror_retirement.py`,
-`tests/test_mirror_retirement.py`, `config.yaml` 의 `backlog.mirror_retirement` 블록,
-`tasks.py` 의 호출부를 함께 지운다. `moss-ao-backlog` 매 틱, 트리아지 스위치 밖에서 돈다 —
-배포가 곧 실행이라 서버에서 손댈 일이 없다. 두 단계는 각자 세션과 `try` 를 가지므로 GitHub
-이 안 닿거나 `GITHUB_TOKEN` 이 없어도 DB 단계는 커밋되고, 둘 다 멱등이다.
+**전환 작업 — 임시.** 운영에서 확인되면 후속 PR 이 지운다 — 함께 지울 것의 전체 목록은
+`scheduler/mirror_retirement.py` 모듈 docstring 한 곳에 있다. `moss-ao-backlog` 매 틱,
+트리아지 스위치 밖에서 돈다 — 배포가 곧 실행이라 서버에서 손댈 일이 없다. 두 단계는 각자
+세션과 `try` 를 가지므로 GitHub 이 안 닿거나 `GITHUB_TOKEN` 이 없어도 DB 단계는 커밋되고,
+둘 다 멱등이다.
 
 1. **placeholder 재분류.** 프로젝트가 없는 `draft` 중 기획 문서가 아닌 것 — `final_plan` 이
    비었거나(`empty`), 옛 트리아지 씨앗 안내문 `> **Not an authored plan yet.**` 으로
@@ -1211,16 +1211,23 @@ Signals (30분) → Trends (2시간) → Debate (6시간) → Ideas → Auto-Sco
      `_(automated issue lifecycle)_` 이 붙은 코멘트는 사람으로 치지 않는다 — 서명 없는 옛 봇
      코멘트는 사람과 구별되지 않아 그 이슈를 남긴다. 코멘트를 못 읽으면 남기는 쪽으로 실패한다.
    - 코멘트 안의 표식 `<!-- ao:issue-mirror-retired -->` 때문에 사람이 다시 연 이슈는 다시
-     닫히지 않는다. 라벨은 보내지 않는다(빈 목록을 보내면 `curated:keep` 까지 지워진다).
-   - 닫기 시도마다 1초 쉬고, 연속 3회 실패(레이트 리밋·장애)면 그 회차를 멈춘다. 회차당
-     상한은 `backlog.mirror_retirement.max_closes_per_run`(100).
+     닫히지 않는다. 라벨은 보내지 않는다(빈 목록은 라벨을 전부 지운다).
+   - 닫기 요청과 코멘트 요청 뒤마다 성공 여부와 상관없이 1초씩 쉬고, 닫기나 코멘트가 실패한
+     이슈가 연속 3개면(레이트 리밋·장애) 그 회차를 멈춘다. 회차당 상한은
+     `backlog.mirror_retirement.max_closes_per_run`(100).
 
 `placeholder` 는 플랜 목록·카운트(`/plans`, 승인 대기열, `/status` 의 `plans_created`·
 `plans_open`, `/pipeline/live`, `/activity`, `/ideas/{id}` 와 계보)에 나오지 않고
 `/plans/{id}`·`/plans?status=placeholder` 로만 조회되며, approve·generate-project 는 409 다.
 
 수동 `ao backlog` CLI 는 스케줄 밖이라 건드리지 않았다 — 사람이 돌리면 지금도 이슈를 만들고
-라벨을 붙인다. `GITHUB_TOKEN` 은 그 CLI, 전환 작업, 배포의 CI 상태 조회가 계속 읽는다.
+라벨을 붙인다. 다만 전환 작업이 배포돼 있는 동안에는, 그 CLI 가 `generate_ideas` 로 만든
+`[IDEA]` 이슈 중 아무도 코멘트하지 않은 것을 백로그 틱이 닫는다 — `promote:to-plan` 라벨이
+있어도 닫힌다. 트렌드 아이디어는 `source:trend` 가 붙어 남고, CLI 가 직접 코멘트한
+이슈(`[PLAN]` 이슈, 기획하거나 되돌린 아이디어)도 남는다 — 그 코멘트는 서명이 없고 지위 있는
+계정이 쓰기 때문이다. 남기려면 `curated:keep` 을 붙일 것.
+`GITHUB_TOKEN` 은 그 CLI, 전환 작업, 배포의 CI 상태 조회, 그리고 GitHub Events 시그널
+어댑터(선택, 레이트 리밋용)가 읽는다.
 
 ## 토론 시스템 (Multi-Stage Debate)
 
@@ -1539,8 +1546,12 @@ project:
 `moss-ao-backlog` 는 전혀 다른 함수를 돌린다.
 
 수동 `ao backlog run` / `process` 가 GitHub 이슈의 라벨을 읽어 처리한다. 스케줄된 코드는 더 이상
-이슈를 만들거나 라벨을 붙이지 않으므로(위 [GitHub 이슈 미러 은퇴](#github-이슈-미러-은퇴))
-이 흐름은 사람이 붙인 라벨로만 움직인다:
+라벨을 붙이지 않으므로(위 [GitHub 이슈 미러 은퇴](#github-이슈-미러-은퇴)) 새 `promote:to-plan`
+은 사람이 붙이거나, 사람이 플랜을 거절하면(`reject:plan` 라벨 또는 `ao backlog reject`) CLI 의
+`reject_plan()` 이 아이디어에 다시 붙인다. 그러나 전환 작업이 열어 두는 이슈에는 봇이 예전에
+붙인 라벨이 남아 있을 수 있다
+(2026-09-10 기준 #698) — `ao backlog run` / `process` 를 돌리거나 `run_cycle` 을 스케줄에
+올리기 전에 그런 이슈부터 확인할 것.
 
 - `promote:to-plan`: Idea → Plan 자동 생성 — **라벨과 소비자는 이미 구현돼 있다**
   (`GitHubClient.find_ideas_to_promote` → `BacklogOrchestrator.run_cycle`).

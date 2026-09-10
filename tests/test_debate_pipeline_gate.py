@@ -427,6 +427,21 @@ class TestOnePlanPerDebate:
         # that plan and nothing else.
         assert no_external.project_calls == [plans[0].id]
 
+    @pytest.mark.parametrize(("local_score", "status"), [(7.5, "draft"), (8.0, "approved")])
+    def test_a_plan_is_approved_only_at_the_auto_generation_floor(
+        self, session, monkeypatch, no_external, local_score, status
+    ):
+        # min_score defaults to 8.0. A draft waits for a person in
+        # /plans/pending-approval; only an approved plan requests generation.
+        confirm_every_review(monkeypatch)
+
+        run_scoring(session, golden_ideas(), ScriptedScorer({}, default=local_score), monkeypatch)
+
+        assert promoted_rows(session), "the fixture must promote"
+        plan = session.query(Plan).one()
+        assert plan.status == status
+        assert no_external.project_calls == ([plan.id] if status == "approved" else [])
+
     @pytest.mark.parametrize("final_plan", [None, "  \n", NO_PLAN_GENERATED])
     def test_no_plan_document_means_no_plan_row(
         self, session, monkeypatch, no_external, final_plan

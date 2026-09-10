@@ -402,17 +402,18 @@ backlog:
     # moss-ao-backlog "online" for deploy.sh to trip over (2026-08-06).
     max_consecutive_scorer_failures: 3
 
-  # TRANSITIONAL: the follow-up PR deletes this block together with
-  # scheduler/mirror_retirement.py and its call site. The per-item GitHub
-  # issue mirror is retired, and each backlog cycle (4h in production)
-  # finishes the transition: draft plan rows with no plan document behind
-  # them (empty, a triage seed, a copy of the idea) become `placeholder`, and
-  # open bot issues are closed once as `not_planned` with a link to the
+  # TRANSITIONAL: the follow-up PR removes this block; the docstring of
+  # scheduler/mirror_retirement.py lists everything that goes with it. The
+  # per-item GitHub issue mirror is retired, and each backlog cycle (4h in
+  # production) finishes the transition: draft plan rows with no plan document
+  # behind them (empty, a triage seed, a copy of the idea) become `placeholder`,
+  # and open bot issues are closed once as `not_planned` with a link to the
   # idea's page on ao.moss.land. Issues labeled curated:keep or source:trend,
-  # or commented on by someone with standing in the repo, stay open.
-  # max_closes_per_run bounds one cycle's GitHub writes (a close plus a
-  # comment per issue, with a one-second pause after each); 92 issues
-  # qualified when measured on 2026-09-10, so one cycle covers them.
+  # commented on by someone with standing in the repo, or whose comments cannot
+  # be read stay open. max_closes_per_run bounds the issues one cycle closes;
+  # each is a close request and a comment request, with a one-second pause
+  # after every request. 92 issues qualified when measured on 2026-09-10, so
+  # one cycle covers them.
   mirror_retirement:
     enabled: true
     max_closes_per_run: 100

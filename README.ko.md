@@ -264,7 +264,7 @@ RSS 피드는 `config.yaml`의 최상위 `feeds:` 섹션에 정의되며, 시그
 
 | 변수 | 설명 | 필수 |
 |------|------|------|
-| `GITHUB_TOKEN` | 수동 `ao backlog` CLI 와 임시 이슈 미러 은퇴 작업용 GitHub PAT. GitHub Events 어댑터·배포 CI 조회에는 선택 | `ao backlog` 사용 시 |
+| `GITHUB_TOKEN` | 수동 `ao backlog` CLI 와 이슈 미러 은퇴의 임시 전환 작업용 GitHub PAT. GitHub Events 어댑터·배포 CI 조회에는 선택 | `ao backlog` 사용 시 |
 | `GITHUB_OWNER` | 저장소 소유자 | `ao backlog` 사용 시 |
 | `GITHUB_REPO` | 저장소 이름 | `ao backlog` 사용 시 |
 | `ANTHROPIC_API_KEY` | Claude API 키 | 클라우드 모드용 |

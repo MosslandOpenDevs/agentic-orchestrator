@@ -10,17 +10,33 @@ the old rules are still live, and this module settles both:
   out of plan lists and counts.
 - ``retire_open_issues`` closes each open bot issue once, as ``not_planned``,
   with a comment linking the idea's live page on the site. Issues labeled
-  ``curated:keep`` or ``source:trend``, and any issue a person with standing in
-  this repo has commented on, stay open.
+  ``curated:keep`` or ``source:trend``, any issue a person with standing in
+  this repo has commented on, and any issue whose comments cannot be read stay
+  open.
 
 It runs from the backlog tick rather than as a manual command so the transition
 needs no step on the server: the deploy that ships it is what runs it. Both
 steps are idempotent, so repeating them every tick is harmless.
 
-Delete this module, tests/test_mirror_retirement.py, the
-``backlog.mirror_retirement`` config block and its call site in
-``scheduler/tasks.py`` in the follow-up PR, once the production transition has
-been verified.
+The follow-up PR, once the production transition has been verified, removes
+all of this:
+
+- this module;
+- tests/test_mirror_retirement.py, which holds every transitional test,
+  including the backlog-tick wiring;
+- the ``backlog.mirror_retirement`` block in config.yaml;
+- the TRANSITIONAL call in ``scheduler/tasks.py`` ``_process_backlog``;
+- ``GitHubClient.list_issues``, ``GitHubClient.list_comments``, the
+  ``state_reason`` parameter of ``GitHubClient.update_issue`` and the
+  ``GitHubIssue.comments`` field with its parsing -- this module is the only
+  caller of each -- with their tests in tests/test_backlog.py, each marked
+  "Deleted with"; ``TestClientEndpoints`` is empty after that and goes too;
+- in tests/test_issue_mirror_retired.py, ``users <= {"mirror_retirement.py"}``
+  tightens to ``users == set()``, and the module docstring and the name of
+  ``test_only_the_transitional_module_reaches_github`` stop naming this module;
+- every mention of the transition outside the CHANGELOG, superseded by a
+  CHANGELOG entry recording the measured outcome. This must come back empty:
+  ``git grep -nE 'mirror_retirement|mirror retirement|issue-mirror retirement|전환 작업|전환용' -- ':!CHANGELOG*'``
 
 Everything here is best-effort: a failure logs a warning and moves on; it must
 never break the backlog cycle that hosts it.
@@ -30,7 +46,7 @@ import time
 from typing import Any, Callable, Dict, Optional
 
 from ..db.models import Idea, Plan, PlanStatus
-from ..github_client import GitHubClient, GitHubIssue, Labels
+from ..github_client import GitHubClient, Labels
 from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -47,10 +63,11 @@ SEED_NOTICE_PREFIX = "> **Not an authored plan yet.**"
 # keep-set of trend-generated ideas.
 EXEMPT_LABELS = (Labels.CURATED_KEEP, Labels.SOURCE_TREND)
 
-# Carried by every comment the bot posts. The bot comments as an account with
-# standing in this repo, so this string is how has_human_engagement tells its
-# comments from a person's -- including the ones already on GitHub, which is
-# why it must not change.
+# Carried by the retired lifecycle's comments and by this module's own. The
+# bot comments as an account with standing in this repo, so this string is how
+# the engagement check discounts those comments; it must not change. Other bot
+# comments -- the 2026-01 debate records on #12, anything the manual
+# `ao backlog` CLI posts -- are unsigned and count as engagement.
 LIFECYCLE_SIGNATURE = "_(automated issue lifecycle)_"
 
 # Invisible on GitHub. An open issue that carries it was closed here and then
@@ -63,55 +80,54 @@ RETIREMENT_MARKER = "<!-- ao:issue-mirror-retired -->"
 # let any stranger pin a bot issue open forever.
 ENGAGED_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR"})
 
-# Failed closes in a row mean a rate limit or an outage, not bad luck with
-# individual issues. GitHub warns that continuing to send requests while
-# limited may get an integration banned, so the pass stops instead.
+# Issues in a row whose close or closing comment failed mean a rate limit or an
+# outage, not bad luck with individual issues. GitHub warns that continuing to
+# send requests while limited may get an integration banned, so the pass stops
+# instead. A failed comment counts: a limit that rejects only comments would
+# otherwise close every remaining issue without its link, for good.
 MAX_CONSECUTIVE_ERRORS = 3
 
 
-def has_human_engagement(client, issue) -> bool:
-    """True if a person with standing in this repo has commented.
+def _read_comments(client, issue) -> Optional[list]:
+    """The issue's comments; ``[]`` without a request when it has none.
 
-    ``issue.comments > 0`` was the test, and it handed the exemption to anyone
-    on the internet. Four archived ideas (#3309, #3311, #3312, #3529) were held
-    open on GitHub because a stranger dropped sales spam or a `/claim` bot reply
-    on them — two of those comments were byte-identical, posted 32 seconds
-    apart, by the same account.
-
-    Fails toward leaving the issue open: if the comments cannot be read, or the
-    API answers with something unexpected, the issue is treated as engaged. A
-    missed close costs one stale issue; a wrong close buries a real
-    conversation under a bot's verdict.
+    None means "cannot tell": the read raised, or the issue counts comments and
+    none came back (``GitHubClient.list_comments`` answers a failed request with
+    ``[]``). The caller leaves such an issue open. A missed close costs one
+    stale issue; a wrong close buries a real conversation under a bot's verdict.
     """
     if issue.comments <= 0:
-        return False
-
+        return []
     try:
         comments = client.list_comments(issue.number)
     except Exception as e:
-        # Includes a client that has no `list_comments` at all. Everything in
-        # this module is best-effort, and "cannot tell" must mean "leave it".
-        logger.warning(f"Could not read comments on #{issue.number}, sparing it: {e}")
-        return True
+        logger.warning(f"Could not read comments on #{issue.number}: {e}")
+        return None
+    return comments or None
 
-    if not comments:
-        # `comments > 0` but nothing came back: an error, or a permission
-        # problem. Do not close on a blank answer.
-        return True
 
+def _is_retired(comments: list) -> bool:
+    """True if a comment carries the retirement marker."""
+    return any(RETIREMENT_MARKER in (comment.get("body") or "") for comment in comments)
+
+
+def _is_engaged(comments: list) -> bool:
+    """True if a person with standing in this repo has commented.
+
+    Any comment used to count, which handed the exemption to anyone on the
+    internet: four archived ideas (#3309, #3311, #3312, #3529) were held open by
+    a stranger's sales spam or a `/claim` bot reply.
+    """
     for comment in comments:
         association = (comment.get("author_association") or "").upper()
         if association in ENGAGED_ASSOCIATIONS:
-            # Our own lifecycle comments carry the bot's association, so they
-            # would otherwise exempt every issue the bot has ever commented on.
+            # The bot's signed comments carry an association with standing
+            # too, so they would otherwise exempt every issue it commented on.
             # Test what the person WROTE, not what they quoted: GitHub's "Quote
             # reply" copies the quoted comment verbatim, so a maintainer
-            # answering the bot's verdict carries the signature inside their own
-            # body. A bare `in` read that as the bot talking to itself and closed
-            # the issue.
+            # answering the bot carries the signature inside their own body.
             if LIFECYCLE_SIGNATURE not in _without_quotes(comment.get("body") or ""):
                 return True
-
     return False
 
 
@@ -122,61 +138,33 @@ def _without_quotes(body: str) -> str:
     ).strip()
 
 
-def _already_retired(client, issue) -> bool:
-    """True if a comment on this issue carries the retirement marker.
+def _close_and_comment(
+    client, number: int, comment: str, pause: Callable[[float], Any], pause_seconds: float
+) -> str:
+    """Close an issue as ``not_planned``, then comment; ``pause`` after each request.
 
-    Fails toward leaving the issue open, like ``has_human_engagement``:
-    comments that cannot be read count as retired.
-    """
-    if issue.comments <= 0:
-        return False
+    Returns ``"commented"``, ``"closed"`` (the comment failed) or ``"failed"``
+    (the close failed, so nothing was commented).
 
-    try:
-        comments = client.list_comments(issue.number)
-    except Exception as e:
-        logger.warning(f"Could not read comments on #{issue.number}, leaving it open: {e}")
-        return True
-
-    if not comments:
-        return True
-
-    return any(RETIREMENT_MARKER in (comment.get("body") or "") for comment in comments)
-
-
-def _close_issue(
-    client: GitHubClient,
-    issue: GitHubIssue,
-    state_reason: str,
-    labels: Optional[list] = None,
-    comment: Optional[str] = None,
-) -> bool:
-    """Best-effort close with optional label replacement and comment.
-
-    The close PATCH goes FIRST. Commenting first would poison the retry: if
-    the comment lands and the close then fails (GitHub has no retry in
-    ``_request`` — one 5xx or rate-limit aborts), the still-open issue carries
-    the retirement marker, and every later pass skips it as already retired.
-    Commenting on a closed issue is fine, and a comment lost after a successful
-    close costs only context, never a stuck issue.
+    The close goes FIRST. A marker comment on an issue whose close then fails
+    (``_request`` has no retry: one 5xx or rate limit aborts) would leave it
+    open, and every later pass would skip it as already retired.
     """
     try:
-        client.update_issue(
-            issue.number,
-            state="closed",
-            state_reason=state_reason,
-            labels=labels,
-        )
+        client.update_issue(number, state="closed", state_reason="not_planned")
     except Exception as e:
-        logger.warning(f"Could not close issue #{issue.number}: {e}")
-        return False
-    if comment:
-        try:
-            client.add_comment(issue.number, comment)
-        except Exception as e:
-            logger.warning(
-                f"Closed issue #{issue.number} but could not add the closing comment: {e}"
-            )
-    return True
+        logger.warning(f"Could not close issue #{number}: {e}")
+        return "failed"
+    finally:
+        pause(pause_seconds)
+    try:
+        client.add_comment(number, comment)
+    except Exception as e:
+        logger.warning(f"Closed issue #{number} but could not add the closing comment: {e}")
+        return "closed"
+    finally:
+        pause(pause_seconds)
+    return "commented"
 
 
 def _live_record_link(session, number: int) -> str:
@@ -211,65 +199,80 @@ def retire_open_issues(
 ) -> Dict[str, int]:
     """Close each open bot issue once, oldest first, linking its live record.
 
-    ``pause`` runs after every close attempt: GitHub's REST guidance is to wait
-    at least a second between mutating requests, and a close here is a PATCH
-    followed by a comment POST.
+    ``pause`` runs after every write request -- the close and the comment, each
+    whether it succeeded or not -- because GitHub's REST guidance is to wait at
+    least a second between mutating requests. The pass stops after
+    ``MAX_CONSECUTIVE_ERRORS`` issues in a row whose close or comment failed.
+
+    ``retired`` counts closed issues, ``uncommented`` those among them whose
+    comment failed, and ``errors`` failed closes.
     """
     budget = int(max_closes_per_run)
     stats = {
         "retired": 0,
+        "uncommented": 0,
+        "errors": 0,
         "spared_curated": 0,
         "spared_engaged": 0,
+        "spared_unreadable": 0,
         "already_retired": 0,
-        "errors": 0,
     }
-    consecutive_errors = 0
+    consecutive_failures = 0
 
-    # The list endpoint, not search: the search index silently omits some
-    # issues in this repo, and a sweep that cannot see an issue can neither
-    # close it nor exempt it.
+    # The list endpoint, not search: search has omitted issues in this repo
+    # (CHANGELOG 0.6.15). Neither is complete -- both omitted open issue #36 on
+    # 2026-09-10 -- and a sweep that cannot see an issue can neither close it
+    # nor exempt it.
     issues = client.list_issues(labels=[Labels.GENERATED_BY_ORCHESTRATOR], state="open")
 
     for issue in sorted(issues, key=lambda i: i.number):
-        if budget <= 0:
-            break
         if issue.state != "open" or not issue.has_label(Labels.GENERATED_BY_ORCHESTRATOR):
             continue
         if issue.has_any_label(list(EXEMPT_LABELS)):
             stats["spared_curated"] += 1
             continue
-        if _already_retired(client, issue):
+        comments = _read_comments(client, issue)
+        if comments is None:
+            stats["spared_unreadable"] += 1
+            continue
+        if _is_retired(comments):
             stats["already_retired"] += 1
             continue
-        if has_human_engagement(client, issue):
+        if _is_engaged(comments):
             stats["spared_engaged"] += 1
             continue
+        if budget <= 0:
+            break
 
         comment = _retirement_comment(_live_record_link(session, issue.number))
-        # labels=None leaves the labels alone. An empty list would strip every
-        # label on the way out, curated markers included.
-        closed = _close_issue(client, issue, "not_planned", labels=None, comment=comment)
-        pause(pause_seconds)
-        if closed:
+        outcome = _close_and_comment(client, issue.number, comment, pause, pause_seconds)
+        if outcome == "failed":
+            stats["errors"] += 1
+        else:
             stats["retired"] += 1
             budget -= 1
-            consecutive_errors = 0
-            continue
+        if outcome == "closed":
+            stats["uncommented"] += 1
 
-        stats["errors"] += 1
-        consecutive_errors += 1
-        if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+        if outcome == "commented":
+            consecutive_failures = 0
+            continue
+        consecutive_failures += 1
+        if consecutive_failures >= MAX_CONSECUTIVE_ERRORS:
             logger.warning(
-                f"Issue mirror retirement stopped after {consecutive_errors} failed closes "
-                "in a row (rate limit or outage); the rest wait for the next backlog cycle"
+                f"Issue mirror retirement stopped after {consecutive_failures} issues in a row "
+                "whose close or comment failed (rate limit or outage); the rest wait for the "
+                "next backlog cycle"
             )
             break
 
     logger.info(
         "Issue mirror retirement: "
-        f"{stats['retired']} closed, {stats['spared_curated']} spared by label, "
+        f"{stats['retired']} closed ({stats['uncommented']} without the comment), "
+        f"{stats['errors']} failed to close, {stats['spared_curated']} spared by label, "
         f"{stats['spared_engaged']} spared by discussion, "
-        f"{stats['already_retired']} already retired, {stats['errors']} error(s)"
+        f"{stats['spared_unreadable']} spared as unreadable, "
+        f"{stats['already_retired']} already retired"
     )
     return stats
 
@@ -342,16 +345,6 @@ def _run_step(name: str, session_factory, step: Callable[[Any], Dict[str, Any]])
             session.close()
 
 
-def _retire_with_new_client(session, max_closes_per_run) -> Dict[str, int]:
-    client = GitHubClient()
-    try:
-        return retire_open_issues(client, session, max_closes_per_run=max_closes_per_run)
-    finally:
-        close = getattr(client, "close", None)
-        if callable(close):
-            close()
-
-
 def run_mirror_retirement(session_factory, config: Optional[dict] = None) -> Dict[str, Any]:
     """Reclassify placeholder plans, then retire open issues. Never raises.
 
@@ -363,13 +356,15 @@ def run_mirror_retirement(session_factory, config: Optional[dict] = None) -> Dic
     if not config.get("enabled", True):
         return {"skipped": True}
 
+    def retire(session) -> Dict[str, int]:
+        with GitHubClient() as client:
+            return retire_open_issues(
+                client, session, max_closes_per_run=config.get("max_closes_per_run", 100)
+            )
+
     return {
         "plans_reclassified": _run_step(
             "Placeholder plan reclassification", session_factory, reclassify_placeholder_plans
         ),
-        "issues": _run_step(
-            "Issue mirror retirement",
-            session_factory,
-            lambda session: _retire_with_new_client(session, config.get("max_closes_per_run", 100)),
-        ),
+        "issues": _run_step("Issue mirror retirement", session_factory, retire),
     }

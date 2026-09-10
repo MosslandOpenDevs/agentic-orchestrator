@@ -15,7 +15,7 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 
 함께 사라진 것: 토론 경로의 모든 GitHub 호출(`[Idea]`·`[Plan]` 이슈, 그 라벨, 승격 시점의 인라인 닫기), `scheduler/issue_lifecycle.py` 전체 — 파이프라인 연동 닫기, 아카이브 연동 닫기, 에이징 스위프, 효과라고는 미러를 멈추는 것뿐이던 캡 `backlog.max_open_ideas`, `clean-titles --issues` 와 `textutil.clean_issue_title`, `GET /plans/pending-approval` 의 `plan_authored` 필드(그 대기열이 돌려줄 수 있는 행은 이제 전부 작성된 플랜이다), 그리고 사이트의 아이템별 GitHub 링크 전부 — 클릭하면 사이트 밖으로 나가던 백로그 카드, 아이디어·플랜 행, 상세 모달의 Links 카드, 프로젝트 헤더의 Plan Issue 버튼 — 와 "View All Issues on GitHub", 스토리지 목록의 "GitHub Issues".
 
-`tests/test_issue_mirror_retired.py` 가 `scheduler/*.py` 를 훑는다: `github_client`·`GitHubClient` 를 언급해도 되는 것은 전환용 모듈 하나뿐이고 `create_issue` 는 어디에도 없다. 스캔이 파일을 다섯 개 이상 읽었고 전환용 모듈을 찾아냈다는 것도 확인하므로, 빈 디렉터리를 훑고 통과할 수 없다.
+`tests/test_issue_mirror_retired.py` 가 `scheduler/*.py` 를 훑는다: `github_client`·`GitHubClient` 를 언급해도 되는 것은 전환용 모듈 하나뿐이고 `create_issue` 는 어디에도 없다. 스캔이 파일을 다섯 개 이상 읽었고 매처가 GitHub import 를 잡아낸다는 것도 확인하므로, 아무것도 읽지 않거나 아무것도 잡지 않고는 통과할 수 없다.
 
 ### 변경 — 플랜 행이 있다는 것은 기획 문서가 있다는 뜻이다
 
@@ -27,13 +27,13 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 
 ### 추가 — 옛 규칙이 남긴 것을 정리하는 임시 전환 작업
 
-`scheduler/mirror_retirement.py` 가 백로그 틱마다, 트리아지 스위치 밖에서 돈다. 이것을 싣고 나가는 배포가 곧 실행이므로 서버에서 누가 손댈 일이 없다. 멱등한 두 단계이고 각자 세션과 `try` 를 따로 가지므로, GitHub 이 죽었거나 설정되지 않아도 DB 단계는 멈추지 않는다. **플랜:** 프로젝트가 없는 `draft` 중 `final_plan` 이 비었거나, 트리아지의 옛 씨앗 안내문으로 시작하거나, 아이디어의 description 과 바이트 단위로 같은 것이 `placeholder` 가 되고 메타데이터에 `reclassified_from`·`reclassified_reason` 이 더해진다. 아무것도 지우지 않으므로 되돌릴 수 있다. **이슈:** 열린 `generated:by-orchestrator` 이슈를 오래된 것부터 한 번씩 `not_planned` 로 닫고, ao.moss.land 의 해당 아이디어 페이지를 링크하는 코멘트 하나를 남긴다(이슈에 대응하는 행이 없으면 사이트 루트). `curated:keep`·`source:trend` 라벨이 있는 이슈는 남고, 저장소에 지위가 있는 사람(OWNER·MEMBER·COLLABORATOR·CONTRIBUTOR)이 코멘트한 이슈도 남는다 — 봇 자신의 서명된 라이프사이클 코멘트는 치지 않는다. 라벨은 보내지 않고, 코멘트 안의 표식이 사람이 다시 연 이슈를 또 닫지 않게 하며, 닫기를 시도할 때마다 1초 쉬고 연속 3회 실패하면 그 회차를 멈춘다. 스위치와 회차당 상한(100)은 `backlog.mirror_retirement` 에 있다. 운영에서 전환이 확인되면 후속 PR 이 모듈·테스트·그 설정 블록·호출부를 함께 지운다.
+`scheduler/mirror_retirement.py` 가 백로그 틱마다, 트리아지 스위치 밖에서 돈다. 이것을 싣고 나가는 배포가 곧 실행이므로 서버에서 누가 손댈 일이 없다. 멱등한 두 단계이고 각자 세션과 `try` 를 따로 가지므로, GitHub 이 죽었거나 설정되지 않아도 DB 단계는 멈추지 않는다. **플랜:** 프로젝트가 없는 `draft` 중 `final_plan` 이 비었거나, 트리아지의 옛 씨앗 안내문으로 시작하거나, 아이디어의 description 과 바이트 단위로 같은 것이 `placeholder` 가 되고 메타데이터에 `reclassified_from`·`reclassified_reason` 이 더해진다. 아무것도 지우지 않으므로 되돌릴 수 있다. **이슈:** 열린 `generated:by-orchestrator` 이슈를 오래된 것부터 한 번씩 `not_planned` 로 닫고, ao.moss.land 의 해당 아이디어 페이지를 링크하는 코멘트 하나를 남긴다(이슈에 대응하는 행이 없으면 사이트 루트). `curated:keep`·`source:trend` 라벨이 있는 이슈는 남고, 저장소에 지위가 있는 사람(OWNER·MEMBER·COLLABORATOR·CONTRIBUTOR)이 코멘트한 이슈도 남는다 — 봇 자신의 서명된 라이프사이클 코멘트는 치지 않는다. 코멘트를 읽을 수 없는 이슈도 남는다. 라벨은 보내지 않고, 코멘트 안의 표식이 사람이 다시 연 이슈를 또 닫지 않게 하며, 쓰기 요청마다 — 닫기든 코멘트든, 성공했든 아니든 — 1초 쉬고, 닫기나 코멘트가 실패한 이슈가 연속 셋이면 그 회차를 멈춘다. 스위치와 회차당 상한(100)은 `backlog.mirror_retirement` 에 있다. 운영에서 전환이 확인되면 후속 PR 이 이것을 지운다 — 함께 지울 것의 목록은 모듈 docstring 에 있다.
 
 머지 전에 읽기 전용으로 쟀다. 플랜 — 2026-09-10 12:50–12:51Z, 상태별 `GET /plans` 와 `GET /ideas/{id}`: 269행, draft 229·approved 40. draft 는 씨앗 147, 빈 것 38, 아이디어 복사 35, 작성된 플랜 9 로 나뉘고, approved 중 세 분류에 드는 행은 없었다. 이슈 — 12:52Z, GitHub GraphQL API: 열린 이슈 114개 전부 `generated:by-orchestrator`. 닫을 대상 92, 남는 것 22(`curated:keep` 12, `source:trend` 8, 멤버 코멘트로만 남는 것 2). 이 숫자는 전환이 실제로 다룰 숫자가 아니다. 규칙은 id 목록이 아니라 틱이 도는 시점의 행에 적용되고, 행은 계속 움직이고 있었다 — 같은 시간대의 앞선 스냅샷은 세 분류 합계를 216 으로 셌고 이 스냅샷은 220 이었으며, 12:45Z 백로그 틱에서 옛 라이프사이클이 이슈 13개를 닫았다.
 
 ### 일부러 건드리지 않은 것
 
-`github_issue_id`·`github_issue_url` 컬럼은 남기고 기존 행의 값도 그대로다. 쓰는 코드는 없고 사이트는 더 이상 링크하지 않는다. 수동 `ao backlog` CLI 는 스케줄 밖이라 건드리지 않았다 — 사람이 돌리면 지금도 이슈를 만들고 라벨을 붙이며, `ao backlog setup` 도 라벨 레지스트리를 그대로 만든다. `GITHUB_TOKEN` 은 계속 쓰인다: 그 CLI, 전환 작업, 배포의 CI 상태 조회가 읽는다. `.github/ISSUE_TEMPLATE/` 의 이슈 템플릿도 그대로다. 버전은 올리지 않는다 — 0.6.19 이후의 모든 변경과 같다.
+`github_issue_id`·`github_issue_url` 컬럼은 남기고 기존 행의 값도 그대로다. 쓰는 코드는 없고 사이트는 더 이상 링크하지 않는다. 수동 `ao backlog` CLI 는 스케줄 밖이라 건드리지 않았다 — 사람이 돌리면 지금도 이슈를 만들고 라벨을 붙이며, `ao backlog setup` 도 라벨 레지스트리를 그대로 만든다. 다만 전환 작업이 배포돼 있는 동안에는, 그 CLI 가 `generate_ideas` 로 만든(`ao backlog generate`, `run`, `process`) `[IDEA]` 이슈 중 아무도 코멘트하지 않은 것을 백로그 틱이 닫는다 — `promote:to-plan` 라벨이 있어도 닫힌다. 트렌드 아이디어는 `source:trend` 가 붙어 남고, CLI 가 직접 코멘트한 이슈(CLI 가 만드는 `[PLAN]` 이슈, 기획하거나 되돌린 아이디어)도 남는다 — 그 코멘트는 서명이 없고 지위 있는 계정이 쓰기 때문이다. 남기려면 `curated:keep` 을 붙일 것. `GITHUB_TOKEN` 은 계속 쓰인다: 그 CLI, 전환 작업, 배포의 CI 상태 조회, 그리고 GitHub Events 시그널 어댑터(선택, 레이트 리밋용)가 읽는다. `.github/ISSUE_TEMPLATE/` 의 이슈 템플릿도 그대로다. 버전은 올리지 않는다 — 0.6.19 이후의 모든 변경과 같다.
 
 ### 수정 — 트렌드 저장이 번역 왕복마다 SQLite 쓰기 잠금을 쥐고 있었고, 한 행이 실패하면 배치를 통째로 잃었다
 

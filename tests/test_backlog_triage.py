@@ -719,12 +719,11 @@ class TestTheBacklogTickCallsTriage:
         monkeypatch.setattr(
             db_pkg, "get_database", lambda: SimpleNamespace(get_session=session_factory)
         )
-        # TRANSITIONAL key: keeps the mirror retirement from reaching GitHub.
         monkeypatch.setattr(
-            tasks_mod,
-            "_load_backlog_config",
-            lambda: {"triage": {"enabled": True}, "mirror_retirement": {"enabled": False}},
+            tasks_mod, "_load_backlog_config", lambda: {"triage": {"enabled": True}}
         )
+        # No test may reach GitHub, and GitHubClient refuses to construct without a token.
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         monkeypatch.setattr(llm_pkg, "HybridLLMRouter", lambda: object())
 
         signature = inspect.signature(triage_mod.run_backlog_triage)

@@ -567,11 +567,6 @@ def _load_backlog_config() -> dict:
         "max_df_ratio": 0.6,
         "min_shared_terms": 2,
     }
-    # TRANSITIONAL: goes with scheduler/mirror_retirement.py.
-    mirror_retirement_defaults = {
-        "enabled": True,
-        "max_closes_per_run": 100,
-    }
     config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
     try:
         with open(config_path) as f:
@@ -579,10 +574,6 @@ def _load_backlog_config() -> dict:
         backlog_config = config.get("backlog", {}) or {}
         for key, value in defaults.items():
             backlog_config.setdefault(key, value)
-        mirror_retirement = backlog_config.get("mirror_retirement") or {}
-        for key, value in mirror_retirement_defaults.items():
-            mirror_retirement.setdefault(key, value)
-        backlog_config["mirror_retirement"] = mirror_retirement
         triage = backlog_config.get("triage") or {}
         for key, value in TRIAGE_DEFAULTS.items():
             triage.setdefault(key, value)
@@ -600,7 +591,6 @@ def _load_backlog_config() -> dict:
         logger.warning(f"Failed to load backlog config, using defaults: {e}")
         return {
             **defaults,
-            "mirror_retirement": dict(mirror_retirement_defaults),
             "triage": dict(TRIAGE_DEFAULTS),
             "clustering": dict(clustering_defaults),
             "second_pass": dict(SECOND_PASS_DEFAULTS),
