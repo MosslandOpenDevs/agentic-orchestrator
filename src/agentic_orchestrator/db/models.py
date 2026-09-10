@@ -133,10 +133,10 @@ OPEN_IDEA_STATUSES = ("pending", "scored")
 OPEN_PLAN_STATUSES = ("draft", "review")
 
 # Rows in `plans` that are not plan documents: a promotion wrote a plan row
-# with no plan behind it. Not open, not decided, not a plan. They are kept and
-# never deleted -- retention must still see the debate sessions they point at,
-# and the row carries what reclassification changed -- so this tuple is
-# permanent, not part of the transition that reclassified them.
+# with no plan behind it. Not open, not decided, not a plan. Nothing writes the
+# status any more, but the rows are kept and never deleted -- retention must
+# still see the debate sessions they point at, and each row's extra_metadata
+# carries what reclassification changed -- so this tuple is permanent.
 # PlanRepository leaves them out of its lists and counts by default.
 NON_PLAN_STATUSES = ("placeholder",)
 

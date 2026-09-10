@@ -134,8 +134,7 @@ agentic-orchestrator/
 │   ├── scheduler/               # PM2 스케줄 작업
 │   │   ├── __main__.py          # CLI 엔트리포인트
 │   │   ├── tasks.py             # 작업 구현 (signal, debate, backlog, project)
-│   │   ├── backlog_triage.py    # 백로그 소비자: scored 아이디어 재평가→종결 (v0.6.16)
-│   │   └── mirror_retirement.py # 전환용·후속 PR 에서 삭제: placeholder 재분류 + 열린 봇 이슈 1회 닫기
+│   │   └── backlog_triage.py    # 백로그 소비자: scored 아이디어 재평가→종결 (v0.6.16)
 │   ├── translation/             # 양방향 번역 모듈
 │   │   └── translator.py        # ContentTranslator (EN↔KO)
 │   ├── scripts/                 # 유틸리티 스크립트
@@ -543,7 +542,7 @@ moss-ao-api      # FastAPI 백엔드 (포트 3001) - 상시 실행
 moss-ao-signals  # 신호 수집기 (TEST·PROD 모두 30분 — 이 잡만 같다)
 moss-ao-trends   # 트렌드 분석 (TEST: 1시간, PROD: 2시간)
 moss-ao-debate   # 토론 스케줄러 (TEST: 1시간, PROD: 6시간)
-moss-ao-backlog  # 백로그 트리아지 + 리텐션 + 이슈 미러 은퇴(전환용) (TEST: 1시간, PROD: 4시간)
+moss-ao-backlog  # 백로그 트리아지 + 리텐션 (TEST: 1시간, PROD: 4시간)
 moss-ao-health   # 헬스체크 (5분마다)
 moss-ao-deploy   # 자동 배포 폴러 (5분마다, .env의 MOSS_AO_AUTO_DEPLOY=1일 때만 등록)
 
@@ -1185,48 +1184,23 @@ Signals (30분) → Trends (2시간) → Debate (6시간) → Ideas → Auto-Sco
 ### GitHub 이슈 미러 은퇴
 
 아이디어·플랜을 GitHub 이슈로 하나씩 미러링하던 일은 끝났다. **스케줄된 코드는 이슈를
-만들지도, 라벨·코멘트를 달지도, 닫지도 않는다** — 아래 전환 작업만 임시 예외다. 공개
-기록은 https://ao.moss.land 이고, `ideas`·`plans` 의 `github_issue_id`·`github_issue_url`
-은 기존 행 값 그대로 남는다(쓰는 코드는 없다). `tests/test_issue_mirror_retired.py` 가
-`scheduler/*.py` 중 GitHub 에 닿는 것은 `mirror_retirement.py` 뿐이고 `create_issue` 는
-어디에도 없음을 고정한다.
+만들지도, 라벨·코멘트를 달지도, 닫지도 않는다.** 공개 기록은 https://ao.moss.land 하나이고,
+`ideas`·`plans` 의 `github_issue_id`·`github_issue_url` 은 기존 행 값 그대로 남는다(쓰는 코드는
+없다). `tests/test_issue_mirror_retired.py` 가 `scheduler/*.py` 어디에도 GitHub 이슈 클라이언트(`github_client`·`GitHubClient`)를 쓰는 코드와
+`create_issue` 가 없음을 고정한다.
 
-**전환 작업 — 임시.** 운영에서 확인되면 후속 PR 이 지운다 — 함께 지울 것의 전체 목록은
-`scheduler/mirror_retirement.py` 모듈 docstring 한 곳에 있다. `moss-ao-backlog` 매 틱,
-트리아지 스위치 밖에서 돈다 — 배포가 곧 실행이라 서버에서 손댈 일이 없다. 두 단계는 각자
-세션과 `try` 를 가지므로 GitHub 이 안 닿거나 `GITHUB_TOKEN` 이 없어도 DB 단계는 커밋되고,
-둘 다 멱등이다.
-
-1. **placeholder 재분류.** 프로젝트가 없는 `draft` 중 기획 문서가 아닌 것 — `final_plan` 이
-   비었거나(`empty`), 옛 트리아지 씨앗 안내문 `> **Not an authored plan yet.**` 으로
-   시작하거나(`seed`), 아이디어 `description` 과 바이트 단위로 같은 것(`idea_copy`) — 을
-   `placeholder` 로 옮기고 `extra_metadata` 에 `reclassified_from`·`reclassified_reason` 을
-   남긴다. 행은 지우지 않으므로 되돌릴 수 있다. 규칙은 틱이 도는 시점의 행에 적용된다.
-2. **열린 봇 이슈 닫기.** `generated:by-orchestrator` 가 붙은 열린 이슈를 번호 순으로 한 번씩
-   `not_planned` 로 닫고, 코멘트 하나로 아이디어 페이지 `/ideas/<id>` 를 링크한다([Plan]
-   이슈도 원본 아이디어로 — placeholder 의 플랜 페이지엔 볼 것이 없다. 대응하는 행이 없으면
-   사이트 루트).
-   - **닫지 않는다:** `curated:keep`·`source:trend` 라벨이 있는 이슈, 그리고 OWNER·MEMBER·
-     COLLABORATOR·CONTRIBUTOR 의 코멘트가 있는 이슈. 봇 계정도 MEMBER 로 코멘트하므로 서명
-     `_(automated issue lifecycle)_` 이 붙은 코멘트는 사람으로 치지 않는다 — 서명 없는 옛 봇
-     코멘트는 사람과 구별되지 않아 그 이슈를 남긴다. 코멘트를 못 읽으면 남기는 쪽으로 실패한다.
-   - 코멘트 안의 표식 `<!-- ao:issue-mirror-retired -->` 때문에 사람이 다시 연 이슈는 다시
-     닫히지 않는다. 라벨은 보내지 않는다(빈 목록은 라벨을 전부 지운다).
-   - 닫기 요청과 코멘트 요청 뒤마다 성공 여부와 상관없이 1초씩 쉬고, 닫기나 코멘트가 실패한
-     이슈가 연속 3개면(레이트 리밋·장애) 그 회차를 멈춘다. 회차당 상한은
-     `backlog.mirror_retirement.max_closes_per_run`(100).
-
-`placeholder` 는 플랜 목록·카운트(`/plans`, 승인 대기열, `/status` 의 `plans_created`·
-`plans_open`, `/pipeline/live`, `/activity`, `/ideas/{id}` 와 계보)에 나오지 않고
-`/plans/{id}`·`/plans?status=placeholder` 로만 조회되며, approve·generate-project 는 409 다.
+**`placeholder` 는 옛 규칙이 남긴 행이고 영구히 남는다.** 플랜 행이 기획 문서 없이도 쓰이던
+시절의 `draft` 중 문서가 아니었던 행이며, 이 상태를 새로 쓰는 코드는 없다. `extra_metadata` 의
+`reclassified_from`(`draft`)·`reclassified_reason` 이 무엇이었는지 말한다 — `empty`(`final_plan`
+이 비어 있었다), `seed`(옛 트리아지 씨앗 안내문 `> **Not an authored plan yet.**` 으로 시작했다),
+`idea_copy`(아이디어 `description` 과 바이트 단위로 같았다). 프로젝트가 붙은 draft 는 본문과
+상관없이 옮기지 않았고, 행은 지우지 않았으므로 되돌릴 수 있다. `placeholder` 는 플랜
+목록·카운트(`/plans`, 승인 대기열, `/status` 의 `plans_created`·`plans_open`, `/pipeline/live`,
+`/activity`, `/ideas/{id}` 와 계보)에 나오지 않고 `/plans/{id}`·`/plans?status=placeholder` 로만
+조회되며, approve·generate-project 는 409 다.
 
 수동 `ao backlog` CLI 는 스케줄 밖이라 건드리지 않았다 — 사람이 돌리면 지금도 이슈를 만들고
-라벨을 붙인다. 다만 전환 작업이 배포돼 있는 동안에는, 그 CLI 가 `generate_ideas` 로 만든
-`[IDEA]` 이슈 중 아무도 코멘트하지 않은 것을 백로그 틱이 닫는다 — `promote:to-plan` 라벨이
-있어도 닫힌다. 트렌드 아이디어는 `source:trend` 가 붙어 남고, CLI 가 직접 코멘트한
-이슈(`[PLAN]` 이슈, 기획하거나 되돌린 아이디어)도 남는다 — 그 코멘트는 서명이 없고 지위 있는
-계정이 쓰기 때문이다. 남기려면 `curated:keep` 을 붙일 것.
-`GITHUB_TOKEN` 은 그 CLI, 전환 작업, 배포의 CI 상태 조회, 그리고 GitHub Events 시그널
+라벨을 붙인다. `GITHUB_TOKEN` 은 그 CLI, 배포의 CI 상태 조회, 그리고 GitHub Events 시그널
 어댑터(선택, 레이트 리밋용)가 읽는다.
 
 ## 토론 시스템 (Multi-Stage Debate)
@@ -1254,7 +1228,7 @@ Signals (30분) → Trends (2시간) → Debate (6시간) → Ideas → Auto-Sco
 | Signal Collection | 30분마다 | RSS/API에서 신호 수집 |
 | Trend Analysis | 2시간마다 | 신호 분석 → 트렌드 생성 (Ollama) |
 | Debate | 6시간마다 | 트렌드 기반 토론 → 아이디어 자동 점수화 (+ 기획 문서를 실은 승격 하나의 플랜) |
-| Backlog | 4시간마다 | 백로그 트리아지 + 리텐션 (+ 이슈 미러 은퇴 전환 작업, 임시) |
+| Backlog | 4시간마다 | 백로그 트리아지 + 리텐션 |
 | Health Check | 5분마다 | 시스템 상태 확인 |
 
 ## 개발 규칙
@@ -1382,7 +1356,7 @@ fail-closed하며, 별도 언어 sandbox가 추가되기 전에는 공개 자동
   - 승인 시 `generate_project=true` 옵션으로 즉시 프로젝트 생성 가능
   - `GET /plans/pending-approval` API로 승인 대기 목록 조회
 - **플랜 행은 기획 문서가 있는 승격에만 생긴다** — 토론 사이클당 최대 하나, 트리아지 승격은
-  0. 전환 전에 쓰인 문서 없는 draft 는 `placeholder` 로 옮겨져 대기열에 나오지 않는다
+  0. 이 규칙 이전에 문서 없이 쓰인 draft 중 프로젝트가 없는 것은 `placeholder` 라 대기열에 나오지 않는다
 
 ### 지원 기술 스택
 
@@ -1548,7 +1522,7 @@ project:
 수동 `ao backlog run` / `process` 가 GitHub 이슈의 라벨을 읽어 처리한다. 스케줄된 코드는 더 이상
 라벨을 붙이지 않으므로(위 [GitHub 이슈 미러 은퇴](#github-이슈-미러-은퇴)) 새 `promote:to-plan`
 은 사람이 붙이거나, 사람이 플랜을 거절하면(`reject:plan` 라벨 또는 `ao backlog reject`) CLI 의
-`reject_plan()` 이 아이디어에 다시 붙인다. 그러나 전환 작업이 열어 두는 이슈에는 봇이 예전에
+`reject_plan()` 이 아이디어에 다시 붙인다. 그러나 열린 채 남은 기존 이슈에는 봇이 예전에
 붙인 라벨이 남아 있을 수 있다
 (2026-09-10 기준 #698) — `ao backlog run` / `process` 를 돌리거나 `run_cycle` 을 스케줄에
 올리기 전에 그런 이슈부터 확인할 것.
@@ -1557,7 +1531,7 @@ project:
   (`GitHubClient.find_ideas_to_promote` → `BacklogOrchestrator.run_cycle`).
   없는 것은 **스케줄러 엔트리**다: `run_cycle` 은 수동 `ao backlog run` /
   `ao backlog process` 에서만 도달 가능하고, PM2 의 `moss-ao-backlog` 는 전혀
-  다른 함수(`run_backlog_triage` + 리텐션, 그리고 임시 이슈 미러 은퇴)를 돌린다.
+  다른 함수(`run_backlog_triage` + 리텐션)를 돌린다.
 - `promote:to-dev`: Plan → Project 스캐폴드 생성 — **이것도 구현돼 있다**
   (`GitHubClient.find_plans_to_promote` → `DevScaffolder.scaffold_from_plan`,
   같은 `run_cycle` 의 4단계). 스텁이 아니라 프로젝트 트리를 만들고 커밋하고

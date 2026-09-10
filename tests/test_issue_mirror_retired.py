@@ -1,7 +1,9 @@
 """The scheduler no longer mirrors ideas and plans into GitHub issues.
 
-Two source invariants over ``scheduler/*.py``: only the transitional
-``mirror_retirement.py`` may reach GitHub, and nothing creates an issue.
+Two source invariants over ``scheduler/*.py``: nothing uses the GitHub issue
+client (``github_client`` / ``GitHubClient``), and nothing creates an issue.
+The signals job still reaches GitHub through its events adapter; that is a
+signal source, not the issue mirror, and it does not use this client.
 """
 
 from pathlib import Path
@@ -20,18 +22,18 @@ def scheduler_sources() -> dict:
     return sources
 
 
-def reaches_github(text: str) -> bool:
+def uses_issue_client(text: str) -> bool:
     return "github_client" in text or "GitHubClient" in text
 
 
 class TestTheSchedulerDoesNotMirror:
-    def test_only_the_transitional_module_reaches_github(self):
-        # A matcher that matched nothing would pass the subset check below.
-        assert reaches_github("from ..github_client import GitHubClient")
+    def test_nothing_in_the_scheduler_uses_the_issue_client(self):
+        # A matcher that matched nothing would pass the emptiness check below.
+        assert uses_issue_client("from ..github_client import GitHubClient")
 
-        users = {name for name, text in scheduler_sources().items() if reaches_github(text)}
+        users = {name for name, text in scheduler_sources().items() if uses_issue_client(text)}
 
-        assert users <= {"mirror_retirement.py"}
+        assert users == set()
 
     def test_nothing_in_the_scheduler_creates_an_issue(self):
         creators = [name for name, text in scheduler_sources().items() if "create_issue" in text]

@@ -9,6 +9,16 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 
 ## [Unreleased]
 
+### 삭제 — 이슈 미러 은퇴의 임시 전환 작업
+
+`scheduler/mirror_retirement.py` 를 지우고, 그것 때문에만 있던 것을 함께 지웠다: 백로그 틱 연결을 포함해 전환용 테스트를 전부 담고 있던 `tests/test_mirror_retirement.py`, `_process_backlog` 안의 호출, `config.yaml` 의 `backlog.mirror_retirement` 블록, 그리고 이 모듈이 유일한 호출자였던 `GitHubClient` 기능 넷 — `list_issues`, `list_comments`, `update_issue` 의 `state_reason` 파라미터, `GitHubIssue.comments` 필드와 그 파싱 — 과 `tests/test_backlog.py` 의 해당 테스트(그러고 나면 비는 `TestClientEndpoints` 도 함께). 이 파일 밖에서 전환을 설명하던 곳도 모두 지웠다: `CLAUDE.md` 의 트리·PM2 행, `CLAUDE.md`·`docs/pipeline.md` 의 스케줄 행, `CLAUDE.md`·`docs/labels.md`·`docs/pipeline.md` 의 전환 작업 문단, 두 README 에서 그것을 적어 두던 `GITHUB_TOKEN` 행, 그리고 `db/models.py` 의 주석 한 곳. 그것을 추가한 아래 항목은 무엇을 하려던 것인지의 기록으로 남긴다.
+
+실제로 한 일, 돌고 난 뒤 읽기 전용으로 측정(2026-09-10 22:50Z). 새 코드의 첫 백로그 틱(20:45Z)이 draft 플랜 222건을 `placeholder` 로 옮겼다 — 내용 기준 seed 149·빈 본문 38·아이디어 복사본 35 로, 병합 전에 센 세 분류와 같다 — 남은 draft 는 9건이고 전부 작성된 기획서라 `/plans/pending-approval` 과 `/status` 의 `plans_open` 은 9, `plans_created` 는 50 이다. 같은 틱이 20:47:13Z~20:52:18Z 에 열린 봇 이슈 84건을 `not_planned` 로 닫았고, 모두 은퇴 코멘트가 달렸다. 열린 채 남은 이슈는 22건 — `curated:keep` 12, `source:trend` 8, 그리고 지위 있는 사람의 코멘트가 있는 #12·#698 이다. 새 코드의 첫 토론(18:25Z)은 아이디어 둘을 승격해 첫째에만 플랜 행(승인, 기획 문서 포함)을 쓰고 둘째에는 쓰지 않았으며, 이슈는 하나도 열지 않았다.
+
+지워도 안전한 이유는, 두 단계가 찾던 것을 이제 스케줄된 어떤 것도 쓰지 않기 때문이다. 재분류는 기획 문서 없는 `draft` 플랜 행을 찾았는데, 그런 행을 쓰는 코드는 이제 없다 — 플랜 행을 만드는 코드는 토론 사이클 하나이고 planning 이 문서를 만들었을 때만 만든다. 백로그 트리아지는 만들지 않는다. 이슈 닫기는 `generated:by-orchestrator` 라벨이 붙은 열린 이슈를 찾았는데, 이제 어떤 스케줄된 프로세스도 그 라벨을 붙이거나 이슈를 열거나 코멘트하거나 닫지 않는다 — 그 라벨을 붙이는 것은 수동 CLI 가 만드는 이슈뿐이다. 달라지는 동작은 하나다: 수동 `ao backlog` CLI 는 사람이 돌리면 지금도 이슈를 열고, 전환 작업이 배포돼 있는 동안에는 그 CLI 가 `generate_ideas` 로 만든 `[IDEA]` 이슈를, `curated:keep` 이 붙었거나 저장소에서 지위 있는 사람(OWNER·MEMBER·COLLABORATOR·CONTRIBUTOR)이 코멘트한 경우가 아니면 백로그 틱이 닫았을 것이다. 이제 그런 이슈는 열린 채 남는다. 전환 작업이 쓴 것은 아무것도 되돌리지 않는다. `placeholder` 행은 메타데이터의 `reclassified_from`·`reclassified_reason` 과 함께 영구히 남고, 그것을 읽는 것도 전부 남는다 — `PlanStatus.PLACEHOLDER`·`NON_PLAN_STATUSES`, `PlanRepository` 의 기본 필터, `approve`·`generate-project` 의 409, 플랜 모달의 placeholder 배지. 그 행의 설명도 `CLAUDE.md` 에 남는다.
+
+`tests/test_issue_mirror_retired.py` 는 "GitHub 이슈 클라이언트를 써도 되는 것은 전환용 모듈 하나"에서 "어떤 스케줄러 파일도 쓰지 않는다"로 조인다: `github_client`·`GitHubClient` 를 언급하는 스케줄러 파일의 집합이 이제 비어 있어야 하고, 테스트 이름도 `test_nothing_in_the_scheduler_uses_the_issue_client` 로 바꿨다. 우연히 통과하지 못하게 하는 두 가드 — 파일을 다섯 개 이상 읽었는지, 매처가 이슈 클라이언트 import 를 잡아내는지 — 는 그대로다. 백로그 틱에서 GitHub 에 닿을 수 있는 것이 없으므로 `TestTheBacklogTickCallsTriage` 는 더 이상 환경에서 `GITHUB_TOKEN` 을 지우지 않는다. 삭제 전 트리에서 확인했다: 조인 스캔은 `mirror_retirement.py` 를 지목하며 실패했고, `GitHubClient` 생성을 모두 기록하는 일회용 pytest 플러그인은 `TestTheBacklogTickCallsTriage` 동안 한 번을 셌다. 삭제 후에는 스캔이 통과하고 그 수는 0 이다.
+
 ### 삭제 — 아이디어·플랜별 GitHub 이슈 미러
 
 오케스트레이터는 아이디어마다, 승격된 플랜마다 이 저장소에 이슈를 하나씩 열었고, 그 트래커를 DB 와 맞추는 장치를 계속 돌렸다 — 승격·아카이브·14일 방치 시 닫기, 열린 아이디어가 많으면 미러를 멈추는 캡, 마크다운이 남은 제목을 고쳐 쓰는 옵션. 어느 것도 기록이 아니었다. 기록은 SQLite 이고 https://ao.moss.land 가 그것을 보여준다. 2026-09-10 오너 결정으로 미러를 은퇴시킨다. 스케줄된 파이프라인은 더 이상 어떤 이슈도 만들거나, 라벨·코멘트를 달거나, 닫지 않는다. 유일한 예외는 아래의 전환 작업이고 그것도 임시다.
