@@ -19,7 +19,7 @@ And the `except ... continue` was not recovery. SQLAlchemy locks a session after
 
 Both are fixed by committing at the write and rolling back before continuing. That also means a run in which every write fails now *reaches* its own summary line instead of dying at the commit — so it logs WARNING rather than reporting "Saved 0 trends to database" at INFO, quieter than the traceback it replaces.
 
-The same missing `rollback()` is in the debate cycle's idea loop (`scheduler/tasks.py`), where it can poison the rest of a batch the same way; it is fixed here too.
+The same missing `rollback()` is in the debate cycle's idea loop (`scheduler/tasks.py`), where it can poison the rest of a batch the same way — but adding it there is only safe once every row that loop means to keep is committed at its own write, and the plan was not. The idea is committed as `promoted`; the plan was merely flushed, so the *next* idea failing anywhere before its own row exists (the scorer, the second-pass reviewer and all three translations run first) would roll the plan back and leave a promoted idea without one. Measured on SQLite: one idea, zero plans. Both go in together, and committing the plan also closes the second long lock hold — the one spanning the GitHub call and `_auto_generate_project`.
 
 The tests check behaviour, not source shape: a second connection tries a real write during each translation await and must not be blocked, and a deliberately failing middle row must leave the other two committed. "There is a commit inside the loop" is a property a refactor slides past; "another connection can write while this loop is awaiting" is not.
 

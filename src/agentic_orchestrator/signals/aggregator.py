@@ -449,11 +449,12 @@ class SignalAggregator:
         - the 2-hourly trend save loop, which flushed each trend and then
           awaited two translation round-trips before committing anything.
           Fixed (``scheduler/tasks.py``): it now commits at the write.
-        - the debate cycle's own *idea* loop, which flushes a plan row and
-          does not commit until the next iteration, spanning a GitHub call,
-          ``_auto_generate_project`` and the next idea's LLM awaits
-          (``scheduler/tasks.py``, ``plan_repo.create`` -> the following
-          iteration's ``db_session.commit()``). **Still open.**
+        - the debate cycle's own *idea* loop, which flushed a plan row and
+          did not commit until the next iteration, spanning a GitHub call,
+          ``_auto_generate_project`` and the next idea's LLM awaits. Also
+          fixed (``scheduler/tasks.py``): the plan commits at its own write,
+          which additionally stops the next idea's failure from rolling it
+          back and leaving a promoted idea with no plan.
 
         The debate's per-message writer does commit per row; that is the part
         that was actually traced, and it is not the loop above.

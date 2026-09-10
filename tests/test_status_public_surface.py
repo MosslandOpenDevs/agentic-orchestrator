@@ -351,10 +351,16 @@ def seeded_client(tmp_path, monkeypatch):
     # A ledger row, so /usage's history has something to publish. Its `date` is
     # a calendar day rather than an instant and is the one field on the public
     # surface that must NOT carry a UTC marker.
+    #
+    # `date.today()`, not a literal: /usage looks back seven days by default,
+    # so a fixed date drops out of the window a week after it is written and
+    # `assert history` starts failing -- turning CI red and, per CLAUDE.md,
+    # stopping every deploy. `date.today()` is also exactly what the production
+    # writer uses (db/repositories.py), so this row is shaped like a real one.
     session.add(
         APIUsage(
             id="usage-1",
-            date=date(2026, 9, 9),
+            date=date.today(),
             provider="openai",
             model="seeded-model",
             input_tokens=100,

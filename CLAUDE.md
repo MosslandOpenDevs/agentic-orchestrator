@@ -422,7 +422,7 @@ pm2 restart all
 > | writer | 상태 |
 > |--------|------|
 > | 2시간 주기 트렌드 저장 루프 (`TrendRepository.create()` flush → 다음 트렌드의 번역 왕복 2회 await → 커밋) | **수정됨** — 쓰기 지점에서 커밋. `tests/test_trend_save_isolation.py` 가 동작으로 고정한다(번역 await 동안 다른 커넥션이 실제로 쓸 수 있는지, 가운데 한 행이 실패해도 나머지가 커밋된 채 남는지) |
-> | 토론 사이클의 **아이디어 루프** (`plan_repo.create()` flush → GitHub 호출 → `_auto_generate_project` await → *다음 반복*의 `db_session.commit()`) | **열려 있음** — 잠금이 아이디어 하나를 통째로 가로지른다 |
+> | 토론 사이클의 **아이디어 루프** (`plan_repo.create()` flush → GitHub 호출 → `_auto_generate_project` await → *다음 반복*의 `db_session.commit()`) | **수정됨** — plan 도 자기 쓰기 지점에서 커밋한다. 이 루프의 `except` 에는 `rollback()` 이 있으므로, flush 만 된 채 다음 반복으로 넘어간 행은 **다음 아이디어의 실패에 함께 취소된다** — 아이디어는 이미 `promoted` 로 커밋돼 있으므로 플랜 없는 아이디어가 남는다. `tests/test_debate_pipeline_gate.py::TestAPlanSurvivesTheNextIdeaFailing` 이 고정한다 |
 >
 > 토론의 *메시지* writer 는 행마다 커밋한다. 실제로 확인된 것은 그 부분이고,
 > 위 표의 두 번째 항목과는 다른 코드다.

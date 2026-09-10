@@ -1319,6 +1319,23 @@ async def _auto_score_and_save_ideas(
                             },
                         }
                     )
+                    # Commit the plan here, not at the end of the loop.
+                    #
+                    # Durability: the idea above is already committed as
+                    # `promoted`. If the plan stays merely flushed, anything
+                    # that raises later -- including the *next* idea's scorer,
+                    # reviewer or translator, which all run before that idea
+                    # is created -- reaches the `except` below, and its
+                    # `rollback()` takes this plan with it. The result is a
+                    # promoted idea with no plan. Measured on SQLite: without
+                    # this commit the sequence "plan created, next idea's
+                    # scoring fails" ends with 1 idea and 0 plans.
+                    #
+                    # Lock hold: it also closes the write transaction before
+                    # the GitHub call and `_auto_generate_project` below, so
+                    # the one SQLite writer is not held across them. That was
+                    # the second long hold named in CLAUDE.md's table.
+                    db_session.commit()
                     logger.info(
                         f"Created {plan_status} plan for promoted idea: {idea_id} (score: {score.total:.1f})"
                     )
@@ -1367,8 +1384,11 @@ async def _auto_score_and_save_ideas(
             # above does: SQLAlchemy locks a session after a failed flush, so
             # `continue` alone leaves every later idea of this batch raising
             # `PendingRollbackError` and takes the closing commit with it.
-            # Rows already committed earlier in the loop survive either way;
-            # this is about the ones after the failure.
+            #
+            # This discards whatever is still merely flushed, which is why
+            # every row this loop means to keep is committed at its own write
+            # -- the idea above, and the plan with it. A rollback here must be
+            # able to throw away only the failed iteration's work.
             db_session.rollback()
             logger.warning(f"Failed to score/save idea: {e}")
             continue
