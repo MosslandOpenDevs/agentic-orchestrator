@@ -1,10 +1,16 @@
 """
-Social Media adapter for signal collection.
+Reddit adapter for signal collection.
 
-Collects signals from social platforms:
-- Reddit (via API)
-- Twitter/X (via Nitter RSS)
-- Farcaster (via public API)
+Named "social" for its adapter id and its signal ``source`` value, which are
+stored in every row it has ever written.
+
+It used to carry a second path that read the same three dead Nitter mirrors as
+adapters/twitter.py -- five accounts x three mirrors x 48 cycles a day, storing
+nothing. That path is deleted rather than switched off: turning off this
+adapter would have taken Reddit with it, and the twitter adapter (now disabled)
+is where a Nitter path belongs if one is ever wanted again. The docstring also
+claimed a Farcaster path, which no code in this module ever implemented;
+adapters/farcaster.py is the real one.
 """
 
 import asyncio
@@ -27,13 +33,12 @@ class SocialMediaAdapter(BaseAdapter):
     """
     Social Media adapter.
 
-    Fetches signals from Reddit, Twitter (via Nitter), and Farcaster.
+    Fetches signals from Reddit.
     """
 
     # Minimum engagement thresholds for quality filtering
     MIN_ENGAGEMENT = {
         "reddit": {"score": 10, "num_comments": 3},
-        "twitter": {"likes": 5, "retweets": 2},  # Note: Nitter doesn't provide these
     }
 
     # Subreddits to monitor
@@ -49,24 +54,6 @@ class SocialMediaAdapter(BaseAdapter):
         "MachineLearning",
         "LocalLLaMA",
         "artificial",
-    ]
-
-    # Twitter/X accounts to monitor (via Nitter)
-    TWITTER_ACCOUNTS: List[str] = [
-        "VitalikButerin",
-        "caborinho",
-        "punk6529",
-        "MessariCrypto",
-        "DefiLlama",
-        "a16zcrypto",
-        "hasufl",
-    ]
-
-    # Nitter instances
-    NITTER_INSTANCES: List[str] = [
-        "nitter.net",
-        "nitter.privacydev.net",
-        "nitter.poast.org",
     ]
 
     def __init__(
@@ -91,10 +78,11 @@ class SocialMediaAdapter(BaseAdapter):
         signals: List[SignalData] = []
         errors: List[str] = []
 
-        # Fetch from different platforms concurrently
+        # Kept as a gather over a one-element list: this adapter has held more
+        # than one source before and the error accounting below is what makes a
+        # partial failure visible.
         tasks = [
             self._fetch_reddit(),
-            self._fetch_twitter_nitter(),
         ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -115,7 +103,6 @@ class SocialMediaAdapter(BaseAdapter):
             duration_ms=duration_ms,
             metadata={
                 "subreddits_count": len(self.SUBREDDITS),
-                "twitter_accounts_count": len(self.TWITTER_ACCOUNTS),
             },
         )
 
@@ -269,48 +256,6 @@ class SocialMediaAdapter(BaseAdapter):
 
         return signals
 
-    async def _fetch_twitter_nitter(self) -> List[SignalData]:
-        """Fetch Twitter/X via Nitter RSS."""
-        signals: List[SignalData] = []
-
-        async with httpx.AsyncClient(timeout=30) as client:
-            for account in self.TWITTER_ACCOUNTS[:5]:  # Limit
-                # Try different Nitter instances
-                for instance in self.NITTER_INSTANCES:
-                    try:
-                        response = await client.get(
-                            f"https://{instance}/{account}/rss", follow_redirects=True
-                        )
-
-                        if response.status_code == 200:
-                            parsed = feedparser.parse(response.text)
-
-                            for entry in parsed.entries[:5]:
-                                signal = SignalData(
-                                    source=self.name,
-                                    category="crypto",  # Most followed accounts are crypto-related
-                                    title=f"@{account}: {entry.get('title', '')[:200]}",
-                                    summary=self._clean_html(entry.get("description", ""))[:500],
-                                    url=entry.get("link"),
-                                    raw_data={
-                                        "type": "twitter",
-                                        "account": account,
-                                        "nitter_instance": instance,
-                                    },
-                                    metadata={"platform": "twitter", "account": account},
-                                )
-                                signals.append(signal)
-
-                            break  # Success, move to next account
-
-                    except Exception as e:
-                        logger.warning(f"Error fetching @{account} from {instance}: {e}")
-                        continue
-
-                await asyncio.sleep(1)
-
-        return signals
-
     def _meets_engagement_threshold(
         self,
         raw_data: Dict[str, Any],
@@ -321,7 +266,7 @@ class SocialMediaAdapter(BaseAdapter):
 
         Args:
             raw_data: Raw data from the platform
-            platform: Platform name ('reddit', 'twitter')
+            platform: Platform name ('reddit')
 
         Returns:
             True if meets threshold
@@ -373,6 +318,5 @@ class SocialMediaAdapter(BaseAdapter):
             self.reddit_client_id and self.reddit_client_secret
         )
         base_health["subreddits"] = len(self.SUBREDDITS)
-        base_health["twitter_accounts"] = len(self.TWITTER_ACCOUNTS)
 
         return base_health

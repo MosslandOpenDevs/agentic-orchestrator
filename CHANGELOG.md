@@ -68,6 +68,23 @@ The "processing now" list filtered on `DebateSession.status == "in-progress"`. T
 `fetchPipeline` derived stage liveness from `ideas_generated`/`plans_created`, monotonic lifetime counts that have been above zero for months, so the Plans stage rendered "active" permanently — and the ternary meant to say otherwise returned `'idle'` from both of its branches. Stages now read the open counts, and a stage holding undecided work while nothing runs it reports `pending` rather than borrowing the word for "running right now".
 
 `StatsDetail` rendered a four-box "Ideas breakdown by status" in which the lifetime total was labelled "Pending" and the other three boxes were literal zeros; Plans had the same shape. `/status` knows two things about ideas — how many have ever existed and how many are still open — so those are the two boxes. A breakdown the endpoint cannot supply is not a breakdown. The system page's `TODAY_STATS` panel, in which only two of five tiles were about today, becomes `PIPELINE` and uses the rolling windows.
+### Changed — the twitter adapter is switched off, and the second Nitter path is deleted
+
+Every Nitter mirror the adapter can reach is gone. Re-probed 2026-09-10: `nitter.net` answers HTTP 410 Gone, `nitter.privacydev.net` resolves to `disabled.privacydev.net` and refuses the connection, `nitter.poast.org` does not resolve at all.
+
+The status codes are the weaker evidence — they move, and this repository already records `nitter.net` answering 200 to roughly 1,008 requests a day between 2026-08-11 and 08-26. What justifies the switch is the yield, which is the same under both regimes: this source has stored **zero rows in the entire 30 days the signals table retains**, while emitting about 1,440 `Error fetching` lines a day. A feed that answers 200 with nothing in it and a feed that answers 410 are indistinguishable downstream; the row count is not. Cite the rows, not the status code.
+
+It is one line, at the root: `AdapterConfig.enabled`, which `BaseAdapter.is_enabled()` is the single reader of. The aggregator skips a disabled adapter before any network call, and `GET /adapters` publishes the same field — which matters, because the endpoint builds its own instances from its own hardcoded list, so a disable that lived in `_default_adapters()` alone would have left it reporting `enabled: true` about an adapter that never runs. No config schema, no new fail-open decision, no per-adapter registry. Re-enabling is deleting `enabled=False`.
+
+The adapter stays *registered*: the fleet is still twelve, and one of them now says no. Deleting it would make the system silent about a source it used to have, and `/adapters` is where an operator goes to find out what happened to it. Note for whoever re-enables it: a `TWITTER_BEARER_TOKEN` alone is not enough — `fetch()` runs the Nitter path unconditionally and the API search is additive, never a replacement.
+
+**`SocialMediaAdapter` carried a second copy of the same three dead mirrors**, five accounts deep, on every cycle — so switching off the twitter adapter would have removed half the noise. That adapter could not be disabled with it (Reddit is the rest of it), so the Nitter path is deleted outright along with the docstring's claim of a Farcaster path this module never implemented. A source-invariant test keeps it from growing back.
+
+**`signalmap.enabled: false` was half-wired.** The guard lived inside `fetch()`, so a switched-off feed was still dispatched every cycle to return an empty result, and `is_enabled()` — which is what `/adapters` publishes — still said `true`. Two lines, currently latent since the shipped config has it on.
+
+#### Deliberately not changed
+
+`discord`, `lens` and `farcaster` have also stored nothing in 30 days, and they stay on. Zero yield is not the same finding as a dead upstream: these are unconfigured rather than broken, they no-op cheaply when their credentials are absent, and disabling a source because nobody has given it a key is a different decision from disabling one whose upstream has been taken down. The `BAIR` RSS feed times out on most cycles; a timeout is weaker evidence than a 410 or an NXDOMAIN, and the four feeds already disabled in `config.yaml` were each disabled on a definitive server answer.
 
 ### Fixed — the status endpoint published instants that did not say they were UTC
 

@@ -59,7 +59,7 @@ import json
 import logging
 import os
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -300,6 +300,15 @@ class SignalMapAdapter(BaseAdapter):
         # stamps last_success_at.
         super().__init__(config or AdapterConfig(timeout=180, max_retries=1))
         self.cfg = signalmap_config or SignalMapConfig.load()
+        # One switch, one answer. `signalmap.enabled: false` already stopped the
+        # fetch (the guard in fetch() below), but it never reached
+        # AdapterConfig.enabled -- so GET /adapters and the aggregator's own
+        # enabled filter would have reported a switched-off feed as enabled,
+        # and the disabled run would still have been dispatched just to return
+        # an empty result. The guard in fetch() stays for direct callers that
+        # build the adapter themselves.
+        if not self.cfg.enabled:
+            self.config = replace(self.config, enabled=False)
         # Named for the TRACKED_* convention GET /adapters uses to describe what
         # an adapter watches; configurable here, so it is set per instance.
         self.TRACKED_KINDS = list(self.cfg.kinds)

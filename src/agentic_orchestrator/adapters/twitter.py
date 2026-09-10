@@ -103,7 +103,35 @@ class TwitterAdapter(BaseAdapter):
         config: Optional[AdapterConfig] = None,
         twitter_bearer_token: Optional[str] = None,
     ):
-        super().__init__(config or AdapterConfig(timeout=60))
+        # DISABLED 2026-09-10. Every Nitter mirror this adapter can reach is
+        # gone, re-probed on the day of this change:
+        #   nitter.net             HTTP 410 Gone
+        #   nitter.privacydev.net  DNS resolves to disabled.privacydev.net,
+        #                          connection refused
+        #   nitter.poast.org       NXDOMAIN
+        #
+        # The status codes are the weaker evidence -- they move -- and the repo
+        # already records nitter.net answering 200 to ~1,008 requests a day
+        # between 2026-08-11 and 08-26 (see _signal_yield_by_source in
+        # api/main.py). What justifies the switch is the yield: this source has
+        # stored ZERO rows in the entire 30 days the signals table retains,
+        # across both regimes, while emitting ~1,440 "Error fetching" lines a
+        # day. A feed that answers 200 with nothing in it and a feed that
+        # answers 410 are indistinguishable downstream; the row count is not.
+        #
+        # This is the whole switch. `enabled` is read in exactly one place --
+        # BaseAdapter.is_enabled() -- and both the fetch loop
+        # (signals/aggregator.py, which skips disabled adapters before any
+        # network call) and GET /adapters read it from there, so the endpoint
+        # and the loop cannot disagree about it. The adapter stays registered
+        # and stays visible on /adapters, reporting enabled: false; deleting it
+        # would make the system silent about a source it used to have.
+        #
+        # To re-enable: delete `enabled=False`. Do that when a working mirror
+        # exists -- note that a TWITTER_BEARER_TOKEN alone is not enough, since
+        # fetch() runs the Nitter path unconditionally and the API search is
+        # additive, never a replacement.
+        super().__init__(config or AdapterConfig(timeout=60, enabled=False))
         self.twitter_bearer_token = twitter_bearer_token or os.getenv("TWITTER_BEARER_TOKEN")
         self._working_instances: List[str] = []
         self._last_instance_check: Optional[datetime] = None

@@ -11,7 +11,7 @@
 
 ## 핵심 철학
 
-### 1. 다양한 시그널 소스 (12개 어댑터)
+### 1. 다양한 시그널 소스 (12개 어댑터, 11개 활성)
 
 **목적:** 최신 트렌드를 빠르게 파악 → 신선한 아이디어의 기반 마련
 
@@ -45,6 +45,21 @@ SignalMap
 > 한 행도 저장하지 않았다(그 이전은 정리돼 있어 "한 번도"는 확인할 수 없다).
 > 그래서 `GET /adapters`는 행에서 직접 잰 `last_signal_at`·`signals_24h`를 함께
 > 낸다(`adapter.name == signals.source` 조인).
+>
+> **twitter 는 2026-09-10 부로 꺼져 있다** (`adapters/twitter.py` 의
+> `AdapterConfig(..., enabled=False)`). 미러 3곳 재실측 결과 410 Gone / 연결 거부 /
+> NXDOMAIN 이지만, 근거로 적을 것은 상태 코드가 아니라 **30일간 0행**이다 —
+> 상태 코드는 움직이고(같은 호스트가 8월엔 200 을 냈다) 빈 200 과 410 은 하류에서
+> 구별되지 않는다. 어댑터는 **등록된 채로** 남아 `/adapters`에 `enabled: false`
+> 로 나온다. 지우면 한때 있던 소스에 대해 시스템이 침묵한다.
+>
+> **어댑터를 켜고 끄는 스위치는 `AdapterConfig.enabled` 하나뿐이고, 읽는 곳도
+> `BaseAdapter.is_enabled()` 하나다.** `/adapters`는 `_default_adapters()`와
+> 별개로 자기 목록에서 인스턴스를 새로 만들므로, 비활성화를 수집기 쪽에만 두면
+> 엔드포인트가 "돌지 않는 어댑터"를 enabled 로 보고한다.
+> `discord`·`lens`·`farcaster` 는 0행이지만 **켜 둔다** — 고장난 게 아니라
+> 설정되지 않은 것이고, 크리덴셜이 없으면 값싸게 no-op 한다.
+> `tests/test_adapter_enablement.py`가 고정한다.
 >
 > **`0`과 `null`은 다르다.** `0`은 "쟀고, 아무것도 없다"는 발견이고 `null`은
 > "재지 못했다"뿐이다. DB 를 못 읽으면 `null`을 내고 엔드포인트는 200 을 유지한다 —
@@ -89,9 +104,9 @@ agentic-orchestrator/
 │   │   ├── rss.py               # RSS 피드 (config.yaml `feeds`에서 로드)
 │   │   ├── github_events.py     # GitHub Trending/Releases
 │   │   ├── onchain.py           # DefiLlama, Whale Alert, DEX
-│   │   ├── social.py            # Reddit, Nitter
+│   │   ├── social.py            # Reddit (Nitter 경로는 2026-09-10 삭제)
 │   │   ├── news.py              # NewsAPI, Cryptopanic, HN
-│   │   ├── twitter.py           # Twitter/X (Nitter RSS 풀)
+│   │   ├── twitter.py           # Twitter/X (Nitter RSS 풀) — 2026-09-10 비활성
 │   │   ├── discord.py           # Discord 서버 공지
 │   │   ├── lens.py              # Lens Protocol (GraphQL)
 │   │   ├── farcaster.py         # Farcaster (Neynar API)
