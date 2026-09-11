@@ -41,7 +41,9 @@ class LLMHierarchy:
 
     Tier 2 (Paid - API):
     - Claude, OpenAI, Gemini
-    - Used for critical/final outputs
+    - The router reaches Claude and OpenAI only through an enabled paid tier
+      (config.yaml `llm.paid_tiers`) or an explicit `model`; it has no Gemini
+      provider, and no task in TASK_MODEL_MAP maps to an API model
     - Budget controlled
     """
 
@@ -155,10 +157,10 @@ class LLMHierarchy:
         ),
     }
 
-    # Task to model mapping. All chat/generation tasks resolve to gemma3:4b
-    # — the shared remote Ollama (~8GB GPU) keeps that model and the
-    # qwen3-embedding:0.6b embedder co-resident, so there is no VRAM swap.
-    # Anything else will 404 on the server until it's pulled again.
+    # Task to model mapping. All chat/generation tasks resolve to gemma3:4b,
+    # the only local model AO calls. The "embedding" entry is a reserved slot
+    # (see LOCAL_MODELS above): nothing calls it and the model is not pulled
+    # on the production Ollama host.
     TASK_MODEL_MAP: Dict[str, List[str]] = {
         # Divergence phase
         "idea_generation": ["gemma3:4b"],
@@ -182,7 +184,7 @@ class LLMHierarchy:
         "quality_check": ["gemma3:4b"],
         "technical_review": ["gemma3:4b"],
         "public_output": ["gemma3:4b"],
-        # Embedding (separate model — kept resident alongside the chat model)
+        # Embedding (reserved slot: no callers, model not pulled)
         "embedding": ["qwen3-embedding:0.6b"],
     }
 
@@ -262,7 +264,7 @@ class LLMHierarchy:
                     if candidate in self.LOCAL_MODELS:
                         return candidate
 
-        # Default fallback — 9B is the only always-warm local model.
+        # Default fallback: gemma3:4b, the one local chat model AO calls.
         return "gemma3:4b"
 
     def estimate_task_tokens(self, task: str) -> Dict[str, int]:

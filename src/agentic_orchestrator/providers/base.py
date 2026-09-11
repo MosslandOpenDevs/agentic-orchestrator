@@ -116,7 +116,7 @@ class BudgetExhaustedError(QuotaExhaustedError):
     Deliberately a ``QuotaExhaustedError``: the legacy state machine already
     treats that as "pause and alert the operator" rather than "crash", and a
     spent budget wants exactly that handling. Unlike the router — which can
-    silently degrade a task to local Ollama — the legacy path has no local
+    degrade a task to local Ollama — the legacy path has no local
     alternative, so refusing is the only way to hold the cap.
     """
 

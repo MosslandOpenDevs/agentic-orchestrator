@@ -37,9 +37,12 @@ def describe_paid_tier(
 ) -> Dict[str, Any]:
     """Effective state of one paid tier: active, or *why* it is not.
 
-    A paid tier that cannot reach its provider degrades to local Ollama by
-    design — an API outage must not kill the debate. The failure mode that
-    design creates is that a tier which was never enabled is indistinguishable
+    A paid tier whose preconditions are not met (kill switch, tier disabled,
+    no model or provider, no API key, no budget) degrades to local Ollama by
+    design, so a missing key or a spent budget does not stop the debate. An
+    API error after the tier has engaged is not degraded: route() retries the
+    same tier and raises if the retries fail too. The failure mode the
+    degradation creates is that a tier which was never enabled is indistinguishable
     from one working perfectly: no error, no alert, `/status` healthy, and the
     only evidence is an empty `api_usage` ledger nobody watches. That is
     exactly what happened between 2026-08-05 and 2026-08-06, when PM2 served
@@ -47,7 +50,8 @@ def describe_paid_tier(
     ran on gemma3:4b — the quality ceiling v0.6.19 shipped to remove.
 
     So the degradation stays, but it is never silent: route() logs the reason
-    at WARNING, and the API reports it on /status and /usage. This function is
+    at WARNING, and the API reports it on /usage and, for every reason but a
+    spent budget (which /status does not read), on /status. This function is
     the single place the reason is derived, so the runtime path and the
     endpoints can never disagree about whether spending is possible.
 
@@ -199,7 +203,8 @@ class HybridLLMRouter:
 
     Routing strategy:
     1. Default to local models (free)
-    2. Use API for critical/final outputs
+    2. Paid API only via an enabled paid tier (config.yaml `llm.paid_tiers`)
+       or an explicit API `model`; `quality` never selects a paid model
     3. Automatic fallback when API budget exceeded
     4. Task-based model selection
     """
@@ -385,8 +390,10 @@ class HybridLLMRouter:
                 this becomes the ``format`` field (grammar-constrained
                 decoding, supported since v0.5.0) — the model physically
                 cannot emit smart-quote delimiters, prose preambles, or
-                markdown fences. Ignored on the Claude/OpenAI paths, which
-                are unused in local-only production.
+                markdown fences. Ignored on the Claude/OpenAI paths. Both
+                paid tiers (debate, review) route to OpenAI in production, so
+                a schema passed there (the second-pass reviewer's) constrains
+                nothing and the caller parses the reply itself.
             num_ctx: Per-call Ollama context override. Each distinct value
                 is its own model instance server-side; tasks whose prompt
                 fits a small context should pass one so they use the
@@ -407,10 +414,14 @@ class HybridLLMRouter:
                 is enabled, its provider is initialized (needs
                 MOSS_LOCAL_LLM_ONLY=false plus an API key), the caller did
                 not pass an explicit `model` or `force_local`, and the
-                budget has headroom. Any missing precondition silently
-                falls back to the normal local selection — an API outage or
-                an exhausted budget must degrade the tier's task to local,
-                never kill it.
+                budget has headroom. A missing precondition falls back to
+                the normal local selection and says so: a WARNING the first
+                time per tier on this router, DEBUG when the caller opted out
+                via `model`/`force_local`. An exhausted budget therefore
+                degrades the task to local. An API error does not: once the
+                tier is engaged, a failed call is retried
+                (MOSS_PAID_TIER_RETRIES, default 2) and then raised, never
+                run on local.
 
         Returns:
             LLMResponse with generated content
@@ -450,7 +461,8 @@ class HybridLLMRouter:
                 force_api=force_api,
             )
             # Paid-tier override — the ONLY doorway to paid models besides
-            # an explicit force_api/model. Note force_local has already
+            # an explicit API `model` (force_api resolves through
+            # TASK_MODEL_MAP, which lists only local models). Note force_local has already
             # absorbed local-only mode above, so the env kill-switch also
             # kills tiers. If the provider object is missing (no key /
             # local-only) the provider branch below falls back to local by

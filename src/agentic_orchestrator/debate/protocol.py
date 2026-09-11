@@ -106,7 +106,7 @@ class DebatePhase(Enum):
     """Debate phase types."""
 
     DIVERGENCE = "divergence"  # Generate diverse ideas
-    CONVERGENCE = "convergence"  # Filter and merge ideas
+    CONVERGENCE = "convergence"  # Score ideas; the top ones feed planning
     PLANNING = "planning"  # Create actionable plans
 
 
@@ -220,7 +220,7 @@ class DebateProtocolConfig:
     convergence_rounds: int = 2
     convergence_agents_per_round: int = 4
     top_ideas_to_keep: int = 5
-    merge_threshold: float = 0.7  # Similarity threshold for merging
+    merge_threshold: float = 0.7  # Unused (only serialized); nothing merges ideas
 
     # Planning phase
     planning_rounds: int = 2

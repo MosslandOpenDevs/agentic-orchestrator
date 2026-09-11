@@ -12,7 +12,7 @@ An autonomous multi-agent orchestration system for discovering, planning, and im
 
 - **Multi-Stage Debate**: 34 AI agents with diverse personas debate through 3 phases (Divergence → Convergence → Planning)
 - **[Diverse Signal Sources](#signal-sources)**: 12 adapters across RSS, GitHub, on-chain, social, news, market data, and SignalMap's canonical narrative store
-- **Hybrid LLM Routing**: Local Ollama models + Cloud API fallback with intelligent routing
+- **Hybrid LLM Routing**: local Ollama models, plus opt-in paid API tiers for the debate and the second-pass promotion review
 - **Human-in-the-Loop**: plans below the auto-approval score are saved as drafts and wait for a person to approve them (`POST /plans/{id}/approve`)
 - **PM2 Scheduling**: Automated task scheduling with PM2 (signals, trends, debates, backlog, health checks)
 - **CLI-Style Dashboard**: Retro terminal-themed web interface at https://ao.moss.land
@@ -57,8 +57,8 @@ A Next.js CLI-style dashboard for monitoring the orchestrator in real time, live
 ├─────────────────────────────────────────────────────────────────────────┤
 │                   LLM ROUTER (Ollama-only by default)                   │
 │  ┌─────────────────────────────┐    ┌────────────────────────────────┐  │
-│  │ Local (Ollama)              │    │ Cloud API (opt-in via flag)    │  │
-│  │ - gemma3:4b (all tasks)     │    │ - Claude / OpenAI / Gemini     │  │
+│  │ Local (Ollama)              │    │ Paid tiers (opt-in via flag)   │  │
+│  │ - gemma3:4b (other tasks)   │    │ - debate, review: gpt-5.4-mini │  │
 │  │ - JSON schemas enforced     │    │ Disabled when                  │  │
 │  │   at decode time (format)   │    │ MOSS_LOCAL_LLM_ONLY=true       │  │
 │  └─────────────────────────────┘    └────────────────────────────────┘  │
@@ -195,26 +195,34 @@ by `debate.normal.*_agents_per_round` in `config.yaml`.
 | Phase | Pool | Per round | Purpose | Personas |
 |-------|------|-----------|---------|----------|
 | 1. Divergence | 16 | 8 | Generate diverse ideas and perspectives | Frontend / Backend / Blockchain engineers, Security Researcher, DevOps, Product and UX Designers, Product Managers, Growth Marketer, Brand Strategist, Business Analyst, Community Manager |
-| 2. Convergence | 8 | 4 | Synthesize and evaluate ideas | Crypto VC and Traditional VC partners, two Accelerator Mentors, serial and first-time founders, Tech and Market Domain Experts |
+| 2. Convergence | 8 | 4 | Score ideas; the top 5 feed planning | Crypto VC and Traditional VC partners, two Accelerator Mentors, serial and first-time founders, Tech and Market Domain Experts |
 | 3. Planning | 10 | 3 | Create actionable implementation plans | CPO, Senior PM, Technical Lead, Frontend / Backend / Blockchain Leads, UX Researcher, QA Lead, Developer Relations, Project Manager |
 
 ### Which model runs a debate
 
-The debate is the one task allowed onto a paid API, and it takes **two
-independent switches** to get there. Both must be on before a cent is spent:
+The debate is one of two paid-API tiers in `llm.paid_tiers` (the other,
+`review`, is the second-pass promotion review), and it takes **two
+independent switches** to get there. Both must be on before a cent is spent on the debate:
 
 1. `MOSS_LOCAL_LLM_ONLY=false` in `.env` — while it is unset or true (the
    default) the router does not even construct the paid providers, and a caller
    asking for `force_api` is ignored.
 2. `llm.paid_tiers.debate.enabled: true` in `config.yaml`, which names the model
-   (currently `gpt-5.4-mini`). The four debate call sites carry
+   (currently `gpt-5.4-mini`). The five debate call sites (divergence,
+   convergence, planning draft, planning review, plan revision) carry
    `paid_tier=debate`; nothing else does.
 
-With both on, divergence / convergence / planning / scoring run on that model.
-With either off — or no provider configured, or the budget spent, or an explicit
-local model requested — the debate **degrades to local `gemma3:4b` rather than
-failing**. Everything else in the pipeline (trends, translation, triage scoring)
-is local regardless.
+With both on, divergence / convergence / planning run on that model; the idea
+scoring that follows the debate stays local. With either off — or no provider
+configured, or the budget spent, or an explicit local model requested — the
+debate **degrades to local `gemma3:4b` rather than failing**. An API error after
+the tier has engaged is different: the call is retried and then fails, and the
+debate goes on without that response. Everything else in the pipeline (trends,
+translation, idea scoring) is local regardless, with one exception: the
+second-pass review that must confirm every promotion, in both the debate cycle
+and backlog triage, runs on its own tier, `llm.paid_tiers.review`, behind the
+same `MOSS_LOCAL_LLM_ONLY` switch. When that tier is not active or its call
+fails, the review counts as no verdict and the idea is held rather than promoted.
 
 Two consequences worth knowing:
 
@@ -224,8 +232,8 @@ Two consequences worth knowing:
 - **On local, throughput is bounded by one GPU.** `throttling.ollama`
   (`min_request_interval`, `max_concurrent_requests`) decides how fast a round
   may issue requests, and both are enforced — so a local-mode debate is
-  materially slower than a paid one. If it approaches the 90-minute cycle
-  budget, those are the knobs.
+  materially slower than a paid one. If it approaches the 90-minute cap on
+  the debate phases, those are the knobs.
 
 Every persona also carries a 4-axis personality profile scored 0-10. Balancing a round's
 subset across these axes is what stops it from being eight agents of one temperament.

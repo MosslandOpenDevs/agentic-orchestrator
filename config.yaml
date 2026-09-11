@@ -68,19 +68,19 @@ throttling:
     # saying 1 the GPU could be hit by every agent in a round at once. Now that
     # both guards are real, a debate takes longer than it used to -- the change
     # is in wall clock, not in output. If debates start approaching the 90-minute
-    # cycle budget, this is the knob: raise it to let a couple of requests
-    # overlap, or lower min_request_interval.
+    # cap on the debate phases, this is the knob: raise it to let a couple of
+    # requests overlap, or lower min_request_interval.
     max_concurrent_requests: 1
     # Cooling period after N requests (seconds)
     cooling_period_seconds: 60
     # Number of requests before cooling
     requests_before_cooling: 10
-    # Request timeout (seconds) - increased for queued requests +
-    # large prompts. Planning prompts on the 14B fallback can hit
-    # ~25 min for the slowest agent under concurrency, so 1800s
-    # (30 min) gives a meaningful safety margin without making the
-    # whole debate-cycle timeout (90 min) trivially reachable from
-    # a single hung request.
+    # Request timeout (seconds) for one Ollama call. 1800s (30 min) keeps a
+    # single hung request well short of the 90-minute cap on the three debate
+    # phases (DEBATE_TIMEOUT_SECONDS in debate/multi_stage.py). The value was
+    # set on 2026-05-02 (eebd8e7) for planning prompts on a 14B fallback model,
+    # which a3cd1ae removed 14 minutes later; the debate now runs on its paid
+    # tier and uses local gemma3:4b only when that tier is not engaged.
     request_timeout: 1800
     # Batch delay between multiple generations
     batch_delay_seconds: 10
@@ -110,8 +110,9 @@ throttling:
 #      here, so debates always saw the full budget
 # The router reads `can_use_api` from this same ledger, so spend from a manual
 # run subtracts from what the debate tier has left, and once the cap is
-# crossed the debate SILENTLY degrades to local gemma3:4b for the rest of the
-# period (the legacy path gets a loud BudgetExhaustedError; the tier does
+# crossed the debate degrades to local gemma3:4b for the rest of the period:
+# one WARNING per run and `/usage` -> `llm_routing` report it, but nothing
+# fails (the legacy path gets a loud BudgetExhaustedError; the tier does
 # not). Legacy runs default to gpt-5.2-chat-latest at $2.50/$10.00 per M —
 # 3.3x the debate model — so they eat the headroom fast. Raise the daily
 # limit before doing manual `ao` work on a day that also runs debates.
@@ -174,10 +175,11 @@ project:
     # Maximum concurrent project generations
     max_concurrent: 1
 
-  # LLM model selection for different tasks.
-  # Consolidated to gemma3:4b: the shared remote Ollama (~8GB GPU) can only keep
-  # one generation model resident (plus the qwen3-embedding:0.6b embedder), so a
-  # single chat model is used everywhere to avoid VRAM swap stalls.
+  # LLM model per project-generation task. Nothing uses these keys today:
+  # project/generator.py and project/parser.py hardcode the same gemma3:4b,
+  # the one chat model AO calls on the shared remote Ollama. AO loads no
+  # embedding model (qwen3-embedding:0.6b is a reserved slot in
+  # llm/hierarchy.py, not pulled on the server).
   llm:
     parsing: "gemma3:4b"
     code_generation: "gemma3:4b"
@@ -220,8 +222,10 @@ project:
 # =============================================================================
 # The debate was the one task where local gemma3:4b visibly capped quality
 # (score inflation, generic titles) AND the one most exposed to the shared
-# GPU's congestion (needs 16k context locally). Everything else (scoring,
-# translation, trends, project generation) stays on local Ollama.
+# GPU's congestion (needs 16k context locally). The second-pass promotion
+# review (tier `review` below) is the other tier that may spend money;
+# everything else the scheduler runs (idea scoring, translation, trends,
+# project generation) stays on local Ollama.
 #
 # TWO switches must both be on before a single cent is spent:
 #   1. server .env: MOSS_LOCAL_LLM_ONLY=false  (enables paid providers at all)

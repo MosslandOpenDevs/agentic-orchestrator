@@ -237,7 +237,8 @@ ci_unknown_streak() {
   echo "${prev_n}"
 }
 
-# A debate takes ~30 min and runs as its own PM2 cron process. Reinstalling
+# A debate cycle takes about 10-21 min (92 production runs, 2026-08-19 06:25
+# to 2026-09-11 00:25 UTC) and runs as its own PM2 cron process. Reinstalling
 # Python packages underneath it can break a live import, so back-end changes
 # wait for the next tick; a website-only change cannot affect it and proceeds.
 #
@@ -274,7 +275,7 @@ LIMITS = {
     "moss-ao-signals": 20,    # cron every 30m
     "moss-ao-trends": 45,     # cron every 2h (1h in TEST_MODE)
     "moss-ao-backlog": 90,    # cron every 4h
-    "moss-ao-debate": 120,    # cron every 6h; healthy run is ~30-40 min
+    "moss-ao-debate": 120,    # cron every 6h; healthy run is about 10-21 min
 }
 
 
