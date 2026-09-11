@@ -66,18 +66,32 @@
 토픽 선택 → 3단계 토론 → 아이디어 리스트 생성
    │      │
    │      ├─ Divergence: 다양한 아이디어 생성
-   │      ├─ Convergence: 평가/병합/필터링
+   │      ├─ Convergence: 채점 — 점수 상위 5개(top_ideas_to_keep)가 Planning 의 입력.
+   │      │               병합하거나 버리지 않는다 (아이디어는 전부 결과에 남는다)
    │      └─ Planning: 실행 계획 작성
    │
    └─ 최근 8세션에 다룬 주제와 유사한 트렌드는 건너뛰고 차순위를 고른다
       (`_select_debate_trend`). 트렌드는 2시간마다 재분석되므로 이 기억이
       없으면 시끄러운 헤드라인 하나가 하루치 토론을 전부 가져간다 —
-      2026-08-22에는 네 슬롯 전부가 같은 뉴스였다.
+      2026-08-21(UTC)에는 네 슬롯 전부가 같은 뉴스(GPT-5 Agent SDK)였다.
 ```
 
 - **스케줄**: PM2 (TEST: 1시간마다, PROD: 6시간마다)
-- **LLM**: Ollama (원격) - gemma3:4b (채팅) + qwen3-embedding:0.6b (임베딩)
-- **출력**: `Idea` 객체 리스트
+- **LLM**: `gpt-5.4-mini` — 유료 티어 `config.yaml`의 `llm.paid_tiers.debate`. 토론의 에이전트
+  호출은 전부 `paid_tier="debate"`로 라우터(`llm/router.py`)를 거친다. 임베딩은 쓰지 않는다
+  - **강등은 호출마다 판정한다.** 프로세스 환경의 `MOSS_LOCAL_LLM_ONLY=false`, 티어의 `enabled`,
+    API 키, 예산 여유 중 하나라도 없으면 그 호출은 로컬 Ollama `gemma3:4b`로 간다. 예산은 호출마다
+    다시 읽으므로 토론 도중 한도를 넘으면 그 뒤의 호출부터 gemma로 돈다. 실행 중인 PM2 앱은
+    `pm2 start` 때의 환경을 들고 있어 `.env`만 고쳐서는 바뀌지 않는다
+    ([deployment.md](deployment.md#env를-고쳤는데-프로세스가-옛-값을-들고-있다-2026-08-06-사고))
+  - 강등되면 원인을 담은 WARNING이 토론 로그에 토론 실행당 한 번 찍힌다. 유료 티어로 라우팅된
+    호출은 호출마다 INFO `Paid tier 'debate' active` 줄을 남긴다. 엔드포인트 중에서는 `/usage`의
+    `llm_routing`이 네 원인을 모두 판정한다. `/status`의 `components.llm_router`는 예산을 읽지
+    않으므로 예산 소진으로 인한 강등은 거기 나오지 않는다 (둘 다 API 프로세스의 환경 기준)
+  - 티어가 잡힌 뒤의 API 오류는 강등하지 않는다 — 재시도(기본 2회)해도 실패하면 그 에이전트의
+    응답만 빠진다
+- **출력**: `MultiStageDebateResult` — 아이디어(`all_ideas`·`selected_ideas`)와 planning 단계가
+  쓴 기획 문서 하나(`final_plan`; 비어 있지 않은 초안이 하나도 없으면 `NO_PLAN_GENERATED` 문자열)
 - **특징**: 다양한 페르소나가 토론
 
 #### TEST 모드 vs PRODUCTION 모드
@@ -88,9 +102,9 @@
 | Divergence 라운드 | 2 | 3 |
 | Convergence 에이전트/라운드 | 2 | 4 |
 | Convergence 라운드 | 1 | 2 |
-| Planning 에이전트/라운드 | 2 | 5 |
+| Planning 에이전트/라운드 | 2 | 3 |
 | Planning 라운드 | 1 | 2 |
-| **예상 시간** | ~7분 | ~30분+ |
+| **예상 시간** | 미측정 | 토론 3단계 약 2–4분, 채점·2차 심사·번역·저장까지 포함한 한 사이클 약 10–21분 (운영 92회 실측, 2026-08-19 06:25 UTC부터 2026-09-11 00:25 UTC까지) |
 
 `config.yaml`의 `debate.test_mode`로 전환 (현재: `false` - 프로덕션 모드)
 

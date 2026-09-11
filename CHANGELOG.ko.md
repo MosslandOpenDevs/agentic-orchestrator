@@ -9,6 +9,14 @@ Mossland Agentic Orchestrator의 모든 주요 변경 사항을 이 파일에 �
 
 ## [Unreleased]
 
+### 수정 — `docs/pipeline.md` 가 토론이 로컬 gemma3:4b 로, planning 은 라운드당 5명으로 돈다고 적고 있었다
+
+#5094 를 리뷰하다 찾았고, 그 PR 의 범위 밖이었다. Multi-Stage Debate 절은 토론 LLM 을 원격 Ollama `gemma3:4b` 와 `qwen3-embedding:0.6b` 로 적고 있었다. `debate/multi_stage.py` 의 에이전트 호출은 전부 `paid_tier="debate"` 로 라우팅되고, `config.yaml` 의 `llm.paid_tiers.debate` 는 `openai` `gpt-5.4-mini` 로 켜져 있으며, 임베딩 모델을 호출하는 코드는 없다. 2026-09-09 00:25 ~ 2026-09-11 00:25 UTC 에 시작한 운영 토론 9회는 `Paid tier 'debate' active: routing to openai:gpt-5.4-mini` 줄을 토론당 39개씩 351개 남겼고 `NOT active` 경고는 없었다. 이 줄의 `gemma3:4b` 쪽은 유료 티어가 들어온 ba3e4fd(2026-08-06) 이후로 틀려 있었고, 임베딩 쪽은 한 번도 맞은 적이 없다: 1a47bc9(2026-05-02)가 그 모델을 적었고, 그것을 호출하는 코드를 넣은 커밋은 없다. 이제 이 줄은 티어를 적고 네 가지를 적는다. 프로세스 환경에 `MOSS_LOCAL_LLM_ONLY=false` 가 없거나 티어의 `enabled`·API 키·예산 여유 중 하나라도 빠지면 호출이 로컬 `gemma3:4b` 로 강등된다. 이 판정은 호출마다 하므로 토론 도중 예산을 넘으면 그 뒤의 호출만 옮겨 가고, 실행 중인 PM2 앱은 `.env` 만 고쳐서는 바뀌지 않는다. 그것을 알리는 WARNING 은 토론 실행당 한 번이고, 티어로 라우팅된 호출은 호출마다 INFO 줄을 남긴다. `/usage` 의 `llm_routing` 은 네 원인을 모두 판정하지만 `/status` 의 `components.llm_router` 는 예산을 읽지 않아 예산으로 인한 강등을 보여 주지 않는다. 티어가 잡힌 뒤의 API 오류는 강등하지 않고 최대 2회(기본값) 재시도하며, 그래도 실패하면 그 에이전트의 응답만 빠진다.
+
+다른 다섯 줄도 틀려 있었다. 라운드당 인원 표의 PRODUCTION 열은 planning 을 5명으로 적고 있었는데, `debate.normal.planning_agents_per_round` 는 eebd8e7(2026-05-02) 이후 3이고, 5는 그 키가 없을 때의 코드 기본값으로 남아 있다(`scheduler/tasks.py` 의 `_debate_config_from_dict`). `Idea` 객체 리스트라고 적던 출력 줄은 `final_plan`(비어 있지 않은 초안이 하나도 남지 않으면 `NO_PLAN_GENERATED` 문자열)도 함께 싣는 `MultiStageDebateResult` 를 적는다. convergence 줄은 평가·병합·필터링을 적고 있었지만, 이 단계는 아이디어를 채점해 상위 5개(`top_ideas_to_keep`)를 planning 에 넘길 뿐이고, `merged_from` 을 채우거나 `merge_threshold` 를 읽는 코드는 없으며, 아이디어는 전부 결과에 남는다. 주제 기억의 예시는 2026-08-22 의 네 슬롯이 전부 같은 뉴스였다고 적었지만 같은 뉴스(Nvidia AVO)는 세 슬롯이었고, 네 슬롯 전부가 같은 뉴스(GPT-5 Agent SDK 출시)였던 날은 그 기억이 생기기 전(#4073, 2026-08-26)인 2026-08-21 UTC 여서 예시를 그날로 바꿨다. 예상 시간 행은 PRODUCTION 을 ~30분+ 로 적고 있었지만, #3660 이 planning 수정 호출과 convergence 토큰 예산을 넣은 뒤 첫 토론인 2026-08-19 06:25 UTC 부터 2026-09-11 00:25 UTC 까지의 운영 토론 92회는 3단계가 113–232초, 채점·2차 심사·번역·저장까지 포함한 한 사이클이 576–1,250초였으므로 약 2–4분과 약 10–21분으로 적는다. 두 옛 수치는 d079895(2026-01-24)가 당시 로컬 모델 구성에서 적은 것이고, 2026-08-05 부터 남아 있는 운영 토론 로그에는 TEST 모드 실행이 없어서 TEST 칸은 미측정으로 적는다.
+
+절의 나머지는 코드·설정과 맞다: 발산·수렴 라운드당 8·4명, 라운드 수 3/2/2, TEST 열의 인원·라운드 수, 1시간·6시간 스케줄, 최근 8세션 주제 기억. 절 바로 위 개요 다이어그램과 메모의 풀 정원 16/8/10(`personas/catalog.py`)도 맞다. 이 절은 토큰 예산을 적지 않는다. 문서만 바꿨고 버전은 올리지 않는다.
+
 ### 정리 (GitHub 트래커, 코드 변경 없음)
 
 2026-09-11: 오너가 2026-06-26 에 손으로 남겼던 `curated:keep` 이슈 12건(#1, #5, #59, #62, #529, #570, #730, #731, #750, #762, #1011, #2820)도 not planned 로 닫았다. 각각에 GitHub 이슈는 이제 이 저장소의 기록이 아니고, 라벨은 그 선택의 기록으로 남으며, 다시 열 수 있다는 코멘트를 달았다. 열린 이슈는 없다(2026-09-11 확인). `CLAUDE.md`·`docs/labels.md` 도 그렇게 고쳤다.
