@@ -8,18 +8,18 @@ paid model, and only one of them used to be governed:
 
     router path   HybridLLMRouter.route() -> provider.generate()
                   -> _make_request()            [gated + metered by the router]
-    legacy path   stage/backlog @property -> provider.complete()
+    legacy path   stage @property -> provider.complete()
                   -> _complete_with_retry() -> _make_request()
 
-The legacy path is the state-machine pipeline (``ao step`` / ``ao loop``) and
-the GitHub backlog orchestrator (``ao backlog run`` / ``process``). It builds
-Claude/OpenAI/Gemini providers straight from the ``create_*_provider``
-factories, so it consulted neither ``MOSS_LOCAL_LLM_ONLY`` nor the budget:
-no kill switch, no ``record_usage``, invisible to ``/usage``. No scheduled
-job *calls* it — ``Orchestrator`` and ``BacklogOrchestrator`` are constructed
-only in ``cli.py`` — but both API keys live in the server's ``.env``, so a
-manual ``ao`` invocation on the box could spend without limit or trace, on
-``gpt-5.2-chat-latest`` ($2.50/$10.00 per M), 3.3x the debate tier's model.
+The legacy path is the state-machine pipeline (``ao step`` / ``ao loop`` /
+``ao resume``). It builds Claude/OpenAI/Gemini providers straight from the
+``create_*_provider`` factories, so it consulted neither
+``MOSS_LOCAL_LLM_ONLY`` nor the budget: no kill switch, no ``record_usage``,
+invisible to ``/usage``. No scheduled job *calls* it — ``Orchestrator`` is
+constructed only in ``cli.py`` — but both API keys live in the server's
+``.env``, so a manual ``ao`` invocation on the box could spend without limit or
+trace, on ``gpt-5.2-chat-latest`` ($2.50/$10.00 per M), 3.3x the debate tier's
+model.
 
 Governing it at the factory (kill switch) and at ``_complete_with_retry``
 (budget check + ledger write) covers all three paid providers, including

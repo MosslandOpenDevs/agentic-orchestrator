@@ -438,7 +438,7 @@ class TestCanonicalFeedConfig:
 
     Before 0.6.11 signal collection used 32 feeds hardcoded in
     adapters/rss.py while trend analysis used 16 feeds in config.yaml.
-    Both now read the top-level ``feeds`` section of config.yaml.
+    Signal collection now reads the top-level ``feeds`` section of config.yaml.
     """
 
     @staticmethod
@@ -470,7 +470,6 @@ class TestCanonicalFeedConfig:
     def test_disabled_feeds_are_skipped(self, tmp_path, monkeypatch):
         """`enabled: false` feeds never reach the fetch loop."""
         from agentic_orchestrator.adapters.rss import RSSAdapter
-        from agentic_orchestrator.trends.feeds import FeedFetcher
 
         self._write_config(
             tmp_path,
@@ -485,28 +484,6 @@ class TestCanonicalFeedConfig:
         monkeypatch.chdir(tmp_path)
 
         assert [f.name for f in RSSAdapter().feeds] == ["Live"]
-        assert [f.name for f in FeedFetcher().feed_configs] == ["Live"]
-
-    def test_both_consumers_load_the_same_feeds(self, tmp_path, monkeypatch):
-        """Signal collection and trend analysis must not diverge again."""
-        from agentic_orchestrator.adapters.rss import RSSAdapter
-        from agentic_orchestrator.trends.feeds import FeedFetcher
-
-        self._write_config(
-            tmp_path,
-            "feeds:\n"
-            "  ai:\n"
-            '    - name: "Shared A"\n'
-            '      url: "https://example.com/a.xml"\n'
-            "  security:\n"
-            '    - name: "Shared B"\n'
-            '      url: "https://example.com/b.xml"\n',
-        )
-        monkeypatch.chdir(tmp_path)
-
-        adapter_feeds = {(f.name, f.url, f.category) for f in RSSAdapter().feeds}
-        trend_feeds = {(f.name, f.url, f.category) for f in FeedFetcher().feed_configs}
-        assert adapter_feeds == trend_feeds
 
     def test_legacy_trends_feeds_still_read(self, tmp_path, monkeypatch):
         """Deployments with a pre-0.6.11 config.yaml keep working."""
@@ -543,7 +520,6 @@ class TestCanonicalFeedConfig:
         from collecting — not just RSS.
         """
         from agentic_orchestrator.adapters.rss import RSSAdapter
-        from agentic_orchestrator.trends.feeds import FeedFetcher
 
         # Flat list instead of category -> list mapping.
         self._write_config(
@@ -553,18 +529,15 @@ class TestCanonicalFeedConfig:
         monkeypatch.chdir(tmp_path)
 
         assert len(RSSAdapter().feeds) == len(RSSAdapter.FALLBACK_FEEDS)
-        assert FeedFetcher().feed_configs == []
 
     def test_scalar_feeds_section_does_not_crash(self, tmp_path, monkeypatch):
         """Same guard, for a scalar `feeds:` value."""
         from agentic_orchestrator.adapters.rss import RSSAdapter
-        from agentic_orchestrator.trends.feeds import FeedFetcher
 
         self._write_config(tmp_path, 'feeds: "see the docs"\n')
         monkeypatch.chdir(tmp_path)
 
         assert len(RSSAdapter().feeds) == len(RSSAdapter.FALLBACK_FEEDS)
-        assert FeedFetcher().feed_configs == []
 
     def test_aggregator_survives_malformed_feeds(self, tmp_path, monkeypatch):
         """The whole adapter fleet still constructs when `feeds:` is malformed."""

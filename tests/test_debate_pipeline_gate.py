@@ -13,8 +13,8 @@ already-computed `selected_ideas`, and the single `final_plan` document was
 copied byte-identically into every promoted plan (three plans of exactly
 16,453 characters on 2026-08-05).
 
-No LLM and no network: the scorer and translator are scripted, and recorders
-stand in for project generation and the GitHub client.
+No LLM and no network: the scorer and translator are scripted, and a recorder
+stands in for project generation.
 """
 
 import asyncio
@@ -89,17 +89,13 @@ def session():
 
 @pytest.fixture()
 def no_external(monkeypatch):
-    """Strip every LLM/GitHub/project dependency from the scoring task.
+    """Strip every LLM/project dependency from the scoring task.
 
     The stand-ins RECORD rather than raise. The task wraps project generation
     in its own ``except Exception``, so a guard that raised there was swallowed
-    and could never fail a test; tests assert on the record instead. The
-    GitHub stand-in also keeps a GITHUB_TOKEN in the environment from turning a
-    test run into real issues.
+    and could never fail a test; tests assert on the record instead.
     """
-    import agentic_orchestrator.github_client as github_client_mod
-
-    record = SimpleNamespace(project_calls=[], github_clients=[])
+    record = SimpleNamespace(project_calls=[])
     monkeypatch.setattr(tasks_mod, "_load_project_config", lambda: {"auto_generate": {}})
 
     async def _record_project(**kwargs):
@@ -107,13 +103,6 @@ def no_external(monkeypatch):
         return False
 
     monkeypatch.setattr(tasks_mod, "_auto_generate_project", _record_project)
-
-    class RecordingGitHubClient:
-        def __init__(self, *args, **kwargs):
-            record.github_clients.append(kwargs)
-            raise RuntimeError("the debate path must not construct a GitHub client")
-
-    monkeypatch.setattr(github_client_mod, "GitHubClient", RecordingGitHubClient)
     return record
 
 
@@ -491,18 +480,6 @@ class TestOnePlanPerDebate:
         assert len(plans) == 1, "the fixture must write the plan row"
         assert plans[0].final_plan_ko == FINAL_PLAN, "the stand-in translator must be in use"
         assert plans[0].final_plan == FINAL_PLAN
-
-
-class TestTheDebatePathHasNoGitHub:
-    def test_a_promoting_cycle_never_constructs_a_github_client(
-        self, session, monkeypatch, no_external
-    ):
-        confirm_every_review(monkeypatch)
-
-        run_scoring(session, golden_ideas(), ScriptedScorer({}, default=8.5), monkeypatch)
-
-        assert promoted_rows(session), "the fixture must promote"
-        assert no_external.github_clients == []
 
 
 class TestFailureModes:

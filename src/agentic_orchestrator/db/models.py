@@ -257,7 +257,7 @@ class Idea(Base):
     summary_ko = Column(Text)  # Korean translation
     description = Column(Text)
     description_ko = Column(Text)  # Korean translation
-    source_type = Column(String(20), nullable=False)  # traditional, trend_based
+    source_type = Column(String(20), nullable=False)  # debate
     source_trend_id = Column(String(36), ForeignKey("trends.id"))
     source_signals = Column(JSON)  # List of signal IDs
     debate_session_id = Column(

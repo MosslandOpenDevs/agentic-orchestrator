@@ -1,9 +1,9 @@
-"""The scheduler no longer mirrors ideas and plans into GitHub issues.
+"""The scheduler must not reintroduce the GitHub issue mirror.
 
-Two source invariants over ``scheduler/*.py``: nothing uses the GitHub issue
-client (``github_client`` / ``GitHubClient``), and nothing creates an issue.
-The signals job still reaches GitHub through its events adapter; that is a
-signal source, not the issue mirror, and it does not use this client.
+No ``scheduler/*.py`` file may mention the deleted issue client
+(``github_client`` / ``GitHubClient``) or ``create_issue``. The signals job
+still reaches GitHub through its events adapter; that is a signal source, not
+the issue mirror.
 """
 
 from pathlib import Path

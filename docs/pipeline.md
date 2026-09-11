@@ -20,15 +20,8 @@
 │                                    │    (Ollama)       │         │
 │                                    └─────────┬─────────┘         │
 │                                              │                   │
-│                                              ▼                   │
-│   ┌───────────────┐              ┌───────────────────┐           │
-│   │ IdeaGenerator │              │ TrendBased Ideas  │           │
-│   │   (Claude)    │              │    (Claude)       │           │
-│   └───────┬───────┘              └─────────┬─────────┘           │
-│           │                                │                     │
-│           │    ┌───────────────────────────┘                     │
-│           │    │                                                 │
-│           ▼    ▼                                                 │
+│                             ┌────────────────┘                   │
+│                             ▼                                    │
 │   ┌─────────────────────────────────────────────────────┐        │
 │   │               Multi-Stage Debate                     │        │
 │   │  ┌──────────┐  ┌──────────┐  ┌──────────┐           │        │
@@ -65,36 +58,7 @@
 
 ## 아이디어 생성 방법
 
-> 1·2는 스케줄 밖의 수동 CLI 경로이고, 사람이 돌리면 지금도 GitHub 이슈를 만든다.
-> 스케줄된 파이프라인(3·4)은 이슈를 만들지 않는다 — 아래 [GitHub 이슈 (은퇴)](#github-이슈-은퇴).
-
-### 1. IdeaGenerator (수동 생성)
-
-**파일**: `src/agentic_orchestrator/backlog.py:36-200`
-
-```
-CLI 명령 → ClaudeProvider → GitHub Issue 생성
-```
-
-- **CLI**: `agentic-orchestrator backlog generate --count 3`
-- **LLM**: Claude API 사용
-- **출력**: GitHub Issue (`type:idea`, `status:backlog`)
-- **특징**: Mossland 생태계 맞춤 프롬프트, 1-2주 MVP 가능한 아이디어
-
-### 2. TrendBasedIdeaGenerator (트렌드 기반)
-
-**파일**: `src/agentic_orchestrator/backlog.py:419-530`
-
-```
-RSS 피드 → 트렌드 분석 → Claude로 아이디어 생성 → GitHub Issue
-```
-
-- **CLI**: `agentic-orchestrator backlog run-cycle`
-- **LLM**: Claude API
-- **출력**: GitHub Issue + `source:trend` 라벨
-- **특징**: 최신 트렌드에서 영감을 얻은 아이디어
-
-### 3. Multi-Stage Debate (에이전트 토론)
+### 1. Multi-Stage Debate (에이전트 토론)
 
 **파일**: `src/agentic_orchestrator/debate/multi_stage.py`
 
@@ -130,7 +94,7 @@ RSS 피드 → 트렌드 분석 → Claude로 아이디어 생성 → GitHub Iss
 
 `config.yaml`의 `debate.test_mode`로 전환 (현재: `false` - 프로덕션 모드)
 
-### 4. Auto-Scoring System (자동 점수화)
+### 2. Auto-Scoring System (자동 점수화)
 
 **파일**: `src/agentic_orchestrator/scheduler/tasks.py:207-426`
 
@@ -157,7 +121,7 @@ RSS 피드 → 트렌드 분석 → Claude로 아이디어 생성 → GitHub Iss
 - **특징**: 점수 기반 자동 승격/아카이브. `scored`는 종착역이 아니다 —
   아래 백로그 트리아지가 며칠 안에 promoted 또는 archived로 종결시킨다.
 
-### 5. IdeationStage (레거시)
+### 3. IdeationStage (레거시)
 
 **파일**: `src/agentic_orchestrator/stages/ideation.py`
 
@@ -165,7 +129,7 @@ RSS 피드 → 트렌드 분석 → Claude로 아이디어 생성 → GitHub Iss
 스테이트 시작 → Claude로 3개 아이디어 생성 → 최적 선택 → 문서 저장
 ```
 
-- **CLI**: `agentic-orchestrator run --stage ideation`
+- **CLI**: `ao step` (새 프로젝트의 첫 단계)
 - **LLM**: Claude API
 - **출력**: Markdown 문서 (`ideas.md`, `selected_idea.md`)
 - **특징**: 단일 프로젝트 워크플로우용 (구버전)
@@ -357,18 +321,14 @@ scored (6h 이상 경과, 오래된 순 per_run개)
 
 ## GitHub 이슈 (은퇴)
 
-스케줄된 파이프라인은 아이디어·플랜을 GitHub 이슈로 미러링하지 않는다 — 이슈를 만들지도,
-라벨·코멘트를 달지도, 닫지도 않는다. 공개 기록은 https://ao.moss.land 이다. 플랜 행이 기획
-문서 없이도 쓰이던 시절의 draft 중 문서가 아니었던 행은 `placeholder` 로 남아 플랜 목록·카운트에서
-빠진다 — `CLAUDE.md` 의 "GitHub 이슈 미러 은퇴" 절 참조. 기존 이슈의 라벨과, 지금도 이슈를 읽고
-쓰는 수동 `ao backlog` CLI 는 [labels.md](labels.md) 참조.
+이 저장소의 어떤 코드도 GitHub 이슈를 만들지도, 읽지도, 라벨·코멘트를 달지도, 닫지도 않는다.
+공개 기록은 https://ao.moss.land 이다. 플랜 행이 기획 문서 없이도 쓰이던 시절의 draft 중 문서가
+아니었던 행은 `placeholder` 로 남아 플랜 목록·카운트에서 빠진다 — `CLAUDE.md` 의 "GitHub 이슈
+미러 은퇴" 절 참조. 기존 이슈의 라벨이 무슨 뜻이었는지는 [labels.md](labels.md) 참조.
 
 ## CLI 명령어
 
 ```bash
-# 수동 아이디어 생성
-agentic-orchestrator backlog generate --count 3
-
 # 트렌드 분석 실행
 PYTHONPATH=./src .venv/bin/python -m agentic_orchestrator.scheduler analyze-trends
 

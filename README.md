@@ -13,7 +13,7 @@ An autonomous multi-agent orchestration system for discovering, planning, and im
 - **Multi-Stage Debate**: 34 AI agents with diverse personas debate through 3 phases (Divergence → Convergence → Planning)
 - **[Diverse Signal Sources](#signal-sources)**: 12 adapters across RSS, GitHub, on-chain, social, news, market data, and SignalMap's canonical narrative store
 - **Hybrid LLM Routing**: Local Ollama models + Cloud API fallback with intelligent routing
-- **Human-in-the-Loop**: Humans select which ideas to develop via label promotion
+- **Human-in-the-Loop**: plans below the auto-approval score are saved as drafts and wait for a person to approve them (`POST /plans/{id}/approve`)
 - **PM2 Scheduling**: Automated task scheduling with PM2 (signals, trends, debates, backlog, health checks)
 - **CLI-Style Dashboard**: Retro terminal-themed web interface at https://ao.moss.land
 - **REST API**: FastAPI backend for programmatic access
@@ -244,7 +244,7 @@ credential an adapter needs; `—` means it works with no credential at all.
 | Adapter | What it pulls | Tracked scope | Auth |
 |---------|---------------|---------------|------|
 | RSS | Feed articles across AI, Crypto, Finance, Security, Dev | 31 active feeds (listed below) | — |
-| GitHub Events | Repository activity, trending projects, issue and PR analysis | — | — |
+| GitHub Events | Trending repositories and releases | — | — |
 | On-Chain | Whale transaction alerts, DEX volume and stablecoin flows (DefiLlama), DeFi protocol metrics | — | — |
 | Social Media | Reddit posts, community sentiment analysis | 11 subreddits | — |
 | News API | Real-time news aggregation, keyword-based filtering | — | — |
@@ -256,8 +256,8 @@ credential an adapter needs; `—` means it works with no credential at all.
 | Threads | Public profile scraping of Meta Threads accounts | 3 accounts | — |
 | SignalMap | Published export feed of another Mossland service — Korean YouTube narrative summaries and market pulses, carrying **canonical** topic/entity/event IDs that AO consumes and never mints | 6,747 signals + 5,112 pulses, cursor-paged | `SIGNALMAP_EXPORT_TOKEN` (optional — the export is currently open) |
 
-RSS feeds live in the top-level `feeds:` section of `config.yaml` — the single list shared by
-signal collection and trend analysis. Add or fix feeds there; no code change is needed.
+RSS feeds live in the top-level `feeds:` section of `config.yaml`, which signal collection
+reads. Add or fix feeds there; no code change is needed.
 
 - **AI** (9): OpenAI News, Google AI, arXiv AI, TechCrunch AI, Hacker News, Hugging Face, DeepMind, BAIR, Lil'Log
 - **Crypto** (7): CoinDesk, Cointelegraph, Decrypt, The Defiant, CryptoSlate, Ethereum Blog, Solana
@@ -272,9 +272,7 @@ Four more crypto feeds (Chainlink, Polygon, Paradigm, a16z Crypto) are kept with
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `GITHUB_TOKEN` | GitHub PAT for the manual `ao backlog` CLI; optional for the GitHub Events adapter and the deploy's CI query | For `ao backlog` |
-| `GITHUB_OWNER` | Repository owner | For `ao backlog` |
-| `GITHUB_REPO` | Repository name | For `ao backlog` |
+| `GITHUB_TOKEN` | Raises GitHub's rate limit for the deploy's CI status query and the GitHub Events signal adapter. Both only read public data, so the token needs no write access | On an auto-deploy server (`DEPLOY_REQUIRE_CI=1`, the default) |
 | `ANTHROPIC_API_KEY` | Claude API key | For cloud mode |
 | `OPENAI_API_KEY` | OpenAI API key | For cloud mode |
 | `GEMINI_API_KEY` | Gemini API key | For cloud mode |

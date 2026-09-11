@@ -13,16 +13,15 @@ from ..timeutil import utcnow
 @dataclass
 class FeedItem:
     """
-    Single RSS/Atom feed item.
-
-    Represents a news article or blog post from an RSS feed.
+    One item for TrendAnalyzer; the scheduled trend task builds these from
+    collected signals.
     """
 
     title: str
     link: str
     published: datetime
     summary: str
-    source: str  # Feed source name (e.g., "OpenAI News")
+    source: str  # Signal source (adapter name)
     category: str  # Category (ai, crypto, finance, dev, security)
 
     def __post_init__(self):
@@ -48,8 +47,8 @@ class Trend:
     topic: str  # Main topic/theme (3-5 words)
     keywords: list[str]  # Related keywords
     score: float  # Relevance/heat score (0-10)
-    time_period: str  # Analysis period: 24h, 1w, 1m
-    sources: list[str]  # Which feeds mentioned this trend
+    time_period: str  # Analysis period label, e.g. 24h
+    sources: list[str]  # Signal sources the model cited for this trend
     article_count: int  # Number of articles about this trend
     sample_headlines: list[str]  # Sample headlines for context
     category: str  # Primary category (ai, crypto, etc.)
@@ -78,10 +77,10 @@ class TrendAnalysis:
     """
 
     date: datetime  # When analysis was performed
-    period: str  # Time period analyzed: 24h, 1w, 1m
+    period: str  # Analysis period label, e.g. 24h
     trends: list[Trend]  # Identified trends, sorted by score
     raw_article_count: int  # Total articles analyzed
-    sources_analyzed: list[str]  # List of feed sources used
+    sources_analyzed: list[str]  # Signal sources (adapter names) in the batch
     categories_analyzed: list[str] = field(default_factory=list)  # Categories covered
 
     def __post_init__(self):
@@ -99,65 +98,3 @@ class TrendAnalysis:
     def get_trends_by_category(self, category: str) -> list[Trend]:
         """Filter trends by category."""
         return [t for t in self.trends if t.category == category]
-
-
-@dataclass
-class TrendIdeaLink:
-    """
-    Links a generated idea to its source trend.
-
-    Maintains traceability between trends and the ideas they inspired.
-    """
-
-    idea_issue_number: int  # GitHub Issue number of the generated idea
-    trend_topic: str  # Topic of the trend that inspired this idea
-    trend_category: str  # Category of the source trend
-    analysis_date: datetime  # When the trend was analyzed
-    created_at: datetime = field(default_factory=utcnow)
-
-    def to_dict(self) -> dict:
-        """Convert to dictionary for serialization."""
-        return {
-            "idea_issue_number": self.idea_issue_number,
-            "trend_topic": self.trend_topic,
-            "trend_category": self.trend_category,
-            "analysis_date": self.analysis_date.isoformat(),
-            "created_at": self.created_at.isoformat(),
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "TrendIdeaLink":
-        """Create from dictionary."""
-        return cls(
-            idea_issue_number=data["idea_issue_number"],
-            trend_topic=data["trend_topic"],
-            trend_category=data["trend_category"],
-            analysis_date=datetime.fromisoformat(data["analysis_date"]),
-            created_at=datetime.fromisoformat(data.get("created_at", utcnow().isoformat())),
-        )
-
-
-@dataclass
-class FeedConfig:
-    """
-    Configuration for a single RSS feed.
-
-    Loaded from the canonical top-level config.yaml `feeds` section.
-    """
-
-    name: str
-    url: str
-    category: str
-    weight: float = 1.0  # Optional weight for trend scoring
-    enabled: bool = True
-
-    @classmethod
-    def from_dict(cls, data: dict, category: str) -> "FeedConfig":
-        """Create from config dictionary."""
-        return cls(
-            name=data["name"],
-            url=data["url"],
-            category=category,
-            weight=data.get("weight", 1.0),
-            enabled=data.get("enabled", True),
-        )

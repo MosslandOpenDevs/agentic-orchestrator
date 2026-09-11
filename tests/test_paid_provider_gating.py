@@ -4,16 +4,15 @@ Two disjoint paths reach a paid model, and until now only one was governed::
 
     router path   HybridLLMRouter.route() -> provider.generate()
                   -> _make_request()                    [gated + metered]
-    legacy path   stage/backlog @property -> provider.complete()
+    legacy path   stage @property -> provider.complete()
                   -> _complete_with_retry() -> _make_request()   [neither]
 
-The legacy path is the state machine (``ao step`` / ``ao loop``) and the
-GitHub backlog orchestrator (``ao backlog run`` / ``process``). It builds
-providers straight from ``create_*_provider``, so it consulted neither
-``MOSS_LOCAL_LLM_ONLY`` nor ``BudgetController``. No PM2 job reaches it, but
-both API keys sit in the server's ``.env``, so a manual ``ao`` run could
-spend without limit or trace — on ``gpt-5.2-chat-latest`` ($2.50/$10.00 per
-M), 3.3x the debate tier's ``gpt-5.4-mini``.
+The legacy path is the state machine (``ao step`` / ``ao loop`` /
+``ao resume``). It builds providers straight from ``create_*_provider``, so
+it consulted neither ``MOSS_LOCAL_LLM_ONLY`` nor ``BudgetController``. No PM2
+job reaches it, but both API keys sit in the server's ``.env``, so a manual
+``ao`` run could spend without limit or trace — on ``gpt-5.2-chat-latest``
+($2.50/$10.00 per M), 3.3x the debate tier's ``gpt-5.4-mini``.
 
 These tests pin the contract: the kill switch stops construction, every
 billed completion on the legacy path lands in the ledger exactly once, the
@@ -246,7 +245,7 @@ class TestLegacyPathIsMetered:
 
     def test_ledger_write_failure_does_not_break_the_call(self, monkeypatch):
         # Metering is observability, not correctness: a broken api_usage
-        # table must not take down `ao backlog run`.
+        # table must not take down `ao step`.
         broken = FakeLedger(record_raises=True)
         monkeypatch.setattr(BaseProvider, "_budget_controller", staticmethod(lambda: broken))
 
@@ -439,12 +438,11 @@ class TestSourceInvariants:
         assert "if self.local_only:" in init
         assert "return" in init
 
-    def test_the_three_reported_call_sites_are_covered(self):
-        # The sites pre-merge review of PR #2957 flagged. They reach paid
+    def test_the_reported_stage_call_sites_are_covered(self):
+        # The stage sites pre-merge review of PR #2957 flagged. They reach paid
         # models only through the factories, so the gate covers them; this
         # fails loudly if one is rewritten to construct a provider directly.
         for path in (
-            "src/agentic_orchestrator/backlog.py",
             "src/agentic_orchestrator/stages/planning.py",
             "src/agentic_orchestrator/stages/quality.py",
         ):
