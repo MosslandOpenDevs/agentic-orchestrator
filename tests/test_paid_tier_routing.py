@@ -1,12 +1,14 @@
 """Tests for the paid-tier LLM routing (v0.6.19).
 
-The debate is the one task allowed to spend money (config
-``llm.paid_tiers.debate`` → gpt-5.4-mini); everything else stays on local
-Ollama. These tests pin the safety contract: flipping
-``MOSS_LOCAL_LLM_ONLY=false`` alone spends nothing, every missing
-precondition (tier disabled, provider absent, budget exhausted,
-force_local, explicit model) degrades to local rather than failing, and
-the four debate call sites actually carry the tier tag.
+Two tiers may spend money: the debate (config ``llm.paid_tiers.debate`` →
+gpt-5.4-mini) and the second-pass promotion review
+(``llm.paid_tiers.review``); every other call through the router stays on
+local Ollama (the manual ``ao`` CLI path is gated separately, in
+``test_paid_provider_gating.py``). These tests pin the safety contract:
+flipping ``MOSS_LOCAL_LLM_ONLY=false`` alone spends nothing, every missing
+precondition (tier disabled, provider absent, budget exhausted, force_local,
+explicit model) degrades to local rather than failing, and the five debate
+call sites actually carry the tier tag.
 
 The degradation is deliberate but no longer silent: see
 ``TestDegradationIsVisible`` for the WARNING contract added after the
@@ -301,8 +303,9 @@ class TestOpenAIProviderParams:
     def test_generate_sends_max_completion_tokens_not_max_tokens(self):
         # GPT-5-family models 400 on the legacy `max_tokens` ("Use
         # 'max_completion_tokens' instead" — verified live 2026-08-06).
-        # With the wrong parameter the router silently falls back to local
-        # gemma and the paid debate tier becomes a no-op.
+        # With the wrong parameter every call on the paid tier fails: the
+        # router retries a pinned tier and then raises, never falling back to
+        # local.
         from agentic_orchestrator.providers.openai import OpenAIProvider
 
         captured = {}
@@ -375,7 +378,8 @@ class TestOpenAIProviderParams:
         # GPT-5-family models spend reasoning tokens against
         # max_completion_tokens and can return finish_reason="length" with
         # no text — billed all the same. Returning it silently would feed an
-        # empty turn into the debate; raising lets the router fall back.
+        # empty turn into the debate; raising makes the router retry the
+        # pinned tier and then fail the call rather than degrade it to local.
         from agentic_orchestrator.providers.base import ProviderError
         from agentic_orchestrator.providers.openai import OpenAIProvider
 

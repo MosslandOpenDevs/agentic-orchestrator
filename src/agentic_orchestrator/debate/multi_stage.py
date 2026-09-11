@@ -3,7 +3,7 @@ Multi-stage debate system with diverse agent personas.
 
 Orchestrates debates through three phases:
 1. Divergence: Generate diverse ideas (16 agents)
-2. Convergence: Filter and merge ideas (8 agents)
+2. Convergence: Score ideas; the top 5 feed planning (8 agents)
 3. Planning: Create actionable plans (10 agents)
 """
 
@@ -146,10 +146,9 @@ class MultiStageDebate:
        - Goal: Generate 20+ diverse ideas
 
     2. Convergence Phase (2 rounds)
-       - 8 analyst agents evaluate and filter ideas
-       - Score ideas on multiple criteria
-       - Merge similar ideas
-       - Select top 5 ideas
+       - 8 analyst agents score ideas on multiple criteria
+       - The top 5 become the planning phase's input
+       - Nothing is merged or dropped: every idea stays in all_ideas
 
     3. Planning Phase (2 rounds)
        - 10 planning agents create and review plans
@@ -190,11 +189,13 @@ class MultiStageDebate:
         self.total_tokens = 0
         self.total_cost = 0.0
 
-    # Maximum debate duration in seconds (90 minutes).
-    # Production runs (8/3 divergence + 4/2 convergence + 5/2 planning, all on
-    # local Ollama with 5s throttle) settle around 45-50 min once Ollama
-    # actually responds — the previous 45-min cap was set when every model
-    # call was 404'ing and a "completed" debate took 4 minutes by failing fast.
+    # Maximum duration of the three debate phases in seconds (90 minutes).
+    # The cap dates from debates on local Ollama — the previous 45-min cap was
+    # set when every model call was 404'ing and a "completed" debate took 4
+    # minutes by failing fast. On the paid debate tier the phases took
+    # 113-232 s over 92 production runs (2026-08-19 06:25 to 2026-09-11 00:25 UTC). On
+    # local gemma3:4b, two runs on 2026-08-05 took 572 s and 646 s and the
+    # next three hit this cap.
     DEBATE_TIMEOUT_SECONDS = 90 * 60
 
     async def run_debate(
@@ -383,7 +384,7 @@ class MultiStageDebate:
         )
 
     async def _run_convergence_phase(self, topic: str) -> PhaseResult:
-        """Run convergence phase to filter and score ideas."""
+        """Run convergence phase to score ideas and pick the top ones for planning."""
         phase_start = utcnow()
         rounds: List[DebateRound] = []
         phase_tokens = 0

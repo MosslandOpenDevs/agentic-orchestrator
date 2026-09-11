@@ -3,9 +3,9 @@ LLM-based code generation for project scaffolding.
 
 Enhanced for high-quality, production-ready code generation.
 
-All chat tasks resolve to gemma3:4b — the shared remote Ollama keeps that
-model + qwen3-embedding:0.6b co-resident on the ~8GB GPU, so any other
-model name will 404 against the server.
+All chat tasks resolve to gemma3:4b, the only model AO calls on the shared
+remote Ollama. qwen3-embedding:0.6b is a reserved slot with no callers and
+is not installed on that server.
 """
 
 import json

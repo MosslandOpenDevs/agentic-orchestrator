@@ -136,7 +136,7 @@ export default function DebatesPage() {
           <div className="flex flex-col md:flex-row justify-center gap-4 py-4">
             {[
               { phase: 'Divergence', desc: 'Explore all possibilities', color: 'cyan' },
-              { phase: 'Convergence', desc: 'Find common ground', color: 'orange' },
+              { phase: 'Convergence', desc: 'Score ideas, pick top 5', color: 'orange' },
               { phase: 'Planning', desc: 'Create actionable plan', color: 'purple' },
             ].map((item, idx) => (
               <div key={item.phase} className="flex items-center">

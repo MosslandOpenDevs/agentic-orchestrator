@@ -1440,9 +1440,10 @@ def _select_debate_trend(trends, recent_topics=(), repeat_threshold=None):
 
     Score alone was still not enough, because it has no memory. Trends are
     re-analysed every two hours and a loud story keeps re-entering the batch
-    at the top, so the same headline seeded four consecutive debates on
-    2026-08-22 (Nvidia AVO), three on 08-23 (Faraday) and eight across a week
-    (GPT-5 Agent SDK) — while ~45 distinct trends were available each day.
+    at the top, so one story took all four debates of 2026-08-21 UTC (GPT-5
+    Agent SDK), three in a row on 08-22 (Nvidia AVO) and three on 08-23
+    (Faraday), and the SDK story seeded nine debates from 08-19 to 08-25 —
+    while ~45 distinct trends were available each day.
     Every one of those debates then spent a paid tier restating the previous
     one, and the promotion reviewer, correctly, called the results
     re-expressions of a single axis.

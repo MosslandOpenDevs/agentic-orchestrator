@@ -211,14 +211,10 @@ export default function ProjectsPage() {
           <span className="text-[#8b949e]">→</span>
           <span className="text-[#39ff14]">{locale === 'ko' ? '프로젝트' : 'Project'}</span>
         </div>
-        <div className="mt-3 grid grid-cols-2 md:grid-cols-2 gap-2 text-xs">
+        <div className="mt-3 grid grid-cols-1 gap-2 text-xs">
           <div className="p-2 border border-[#21262d] rounded">
             <div className="text-[#8b949e]">{locale === 'ko' ? '채팅 / 생성' : 'Chat / Gen'}</div>
             <div className="text-[#bd93f9] font-mono">gemma3:4b</div>
-          </div>
-          <div className="p-2 border border-[#21262d] rounded">
-            <div className="text-[#8b949e]">{locale === 'ko' ? '임베딩' : 'Embedding'}</div>
-            <div className="text-[#00ffff] font-mono">qwen3-embedding:0.6b</div>
           </div>
         </div>
       </div>

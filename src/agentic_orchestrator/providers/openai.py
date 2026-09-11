@@ -96,9 +96,12 @@ class OpenAIProvider(BaseProvider):
             # on timeouts and 429/5xx, and OpenAI bills every server-side
             # attempt — but only the returned attempt's tokens reach
             # record_usage, so the budget ledger (the one spend control)
-            # would under-count real billing. The router already implements
-            # retry-once-then-fall-back-to-local around this call, so the
-            # SDK's own loop is redundant as well as invisible.
+            # would under-count real billing. Both callers already retry
+            # visibly: the router retries a pinned paid tier
+            # (MOSS_PAID_TIER_RETRIES) and then raises instead of falling
+            # back to local, and the legacy `ao` path retries in
+            # BaseProvider._complete_with_retry. So the SDK's own loop is
+            # redundant as well as invisible.
             self._client = OpenAI(api_key=self.api_key, max_retries=0)
         return self._client
 
@@ -234,10 +237,10 @@ class OpenAIProvider(BaseProvider):
         # 400 ("Use 'max_completion_tokens' instead") — verified live against
         # gpt-5.4-mini on 2026-08-06; temperature is accepted. The modern
         # parameter is accepted by every model this provider targets, so it
-        # is used unconditionally. A 400 here would not crash the pipeline —
-        # the router would silently fall back to local gemma — which is
-        # exactly why it must not happen: the paid debate tier would become
-        # a silent no-op.
+        # is used unconditionally. A 400 here would not be degraded to local:
+        # the router retries a pinned paid tier and then raises, so every call
+        # on the tier would fail (ERROR in the log) — which is exactly why it
+        # must not happen.
         #
         # to_thread: the OpenAI SDK client is synchronous, so calling it
         # directly from this coroutine blocks the whole event loop. The
@@ -257,8 +260,9 @@ class OpenAIProvider(BaseProvider):
         # An empty completion is billed like any other: GPT-5-family models
         # spend reasoning tokens against max_completion_tokens and can
         # return finish_reason="length" with no text at all. Returning that
-        # silently would feed an empty agent turn into the debate, so raise
-        # and let the router fall back to local for this call.
+        # silently would feed an empty agent turn into the debate, so raise:
+        # the router retries a pinned tier and then fails this call rather
+        # than degrading it to local.
         if not (response.content or "").strip():
             raise ProviderError(
                 f"{target_model} returned an empty completion "

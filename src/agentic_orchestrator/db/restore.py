@@ -91,7 +91,7 @@ def _writer_active(target: Path) -> bool:
     """True when another connection currently holds the write lock.
 
     A best-effort check, not a guarantee: it catches the scheduler mid-write
-    (the realistic case -- signals every 30 min, a debate for ~30 min) but not
+    (the realistic case -- signals every 30 min, a debate cycle for 10-21 min) but not
     a process that is merely idle with the database open. It is a guard against
     the common mistake, which is why ``--force`` exists.
     """
