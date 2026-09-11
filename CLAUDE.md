@@ -144,10 +144,8 @@ agentic-orchestrator/
 │   │   ├── scorer.py            # 신호 점수화
 │   │   └── storage.py           # 신호 DB 저장
 │   └── trends/                  # 트렌드 분석
-│       ├── feeds.py             # RSS 페치 (config.yaml `feeds`에서 로드)
 │   │   ├── analyzer.py          # 트렌드 분석 (Ollama)
-│   │   ├── models.py            # FeedConfig / FeedItem
-│   │   └── storage.py           # 트렌드 마크다운 저장
+│   │   └── models.py            # FeedItem / Trend / TrendAnalysis
 │   └── pathutil.py              # 공개 응답용 경로 축약 (호스트 접두사 제거)
 ├── website/                     # Next.js 프론트엔드 (포트 3000)
 │   ├── src/app/                 # App Router 페이지
@@ -166,13 +164,12 @@ agentic-orchestrator/
 │       ├── markdown-html.ts     # renderMarkdown(sanitize) / stripMarkdown(평문)
 │       └── metadata.ts          # 통합 title/공유(OG·Twitter) 규칙 단일 소스
 ├── data/                        # 데이터 디렉토리
-│   ├── orchestrator.db          # SQLite 데이터베이스
-│   └── trends/                  # 트렌드 분석 결과 (마크다운)
+│   └── orchestrator.db          # SQLite 데이터베이스
 ├── projects/                    # 자동 생성된 프로젝트
 │   └── {project-name}/          # LLM 생성 프로젝트 스캐폴드
 ├── docs/                        # 설계 문서
 │   ├── pipeline.md              # 아이디어 생성 파이프라인
-│   ├── labels.md                # GitHub 라벨 가이드 (미러 은퇴 후: 기존 이슈·수동 ao CLI)
+│   ├── labels.md                # 기존 GitHub 이슈의 라벨 (이슈는 기록이 아니다)
 │   ├── projects.md              # 프로젝트 관리 가이드
 │   ├── deployment.md            # 자동 배포 절차·가드·문제 해결
 │   ├── signalmap.md             # SignalMap 피드 소비자 계약
@@ -455,12 +452,8 @@ NEXT_PUBLIC_API_URL=/api
 
 **단일 소스: `config.yaml`의 최상위 `feeds:` 섹션.** 코드에 피드를 하드코딩하지 말 것.
 
-두 경로가 같은 리스트를 읽는다:
-
-| 소비자 | 파일 | 용도 |
-|--------|------|------|
-| 시그널 수집 | `adapters/rss.py` `RSSAdapter` (via `signals/aggregator.py`) | 30분마다 신호 수집 |
-| 트렌드 분석 | `trends/feeds.py` `FeedFetcher` | 2시간마다 트렌드 생성 |
+이 목록을 읽는 것은 시그널 수집(`adapters/rss.py` `RSSAdapter`, `signals/aggregator.py` 경유, 30분마다)이고,
+트렌드 분석(2시간마다)은 그렇게 모인 시그널을 읽는다.
 
 현재 등록: **35개 항목 중 31개 활성** (ai 9, crypto 7+4비활성, finance 3, security 4, dev 8).
 
@@ -477,11 +470,9 @@ feeds:
 - 키: `name`(필수), `url`(필수), `enabled`(기본 true)
 - `feeds` 값은 반드시 `카테고리 → 피드 리스트` 매핑이어야 한다. 플랫 리스트나 문자열로
   잘못 쓰면 로드 시 거부되고 `FALLBACK_FEEDS`로 강등된다 (예외로 죽지 않음)
-- `trends/models.py`의 `FeedConfig`에 `weight` 필드가 남아 있지만 **읽는 코드가 없다** —
-  설정해도 아무 효과 없음. 트렌드 가중치를 실제로 쓰려면 먼저 소비 코드를 구현할 것
 - 피드 추가/수정은 config.yaml만 편집 → 코드 변경·재배포 불필요 (프로세스 재시작은 필요)
 - `RSSAdapter.FALLBACK_FEEDS`(5개)는 config.yaml을 못 읽을 때만 쓰는 비상용 — 여기에 피드를 추가하지 말 것
-- 구버전 `trends.feeds` 위치도 하위 호환으로 계속 읽지만 deprecated 경고를 남긴다
+- `feeds`가 없으면 `RSSAdapter`는 구버전 `trends.feeds` 위치를 하위 호환으로 읽는다
 
 > **배경 (v0.6.11 이전):** 리스트가 두 벌로 갈라져 있었다. `config.yaml`의 `trends.feeds`(16개)는
 > 트렌드 분석만 사용했고, 실제 신호 수집은 `adapters/rss.py`에 하드코딩된 32개를 사용했다
@@ -1084,10 +1075,8 @@ Signals (30분) → Trends (2시간) → Debate (6시간) → Ideas → Auto-Sco
 
 ### 아이디어 소스 유형
 
-| 소스 | 설명 | LLM |
-|------|------|-----|
-| `trend_based` | 트렌드 분석 기반 생성 | Claude API |
-| `debate` | 멀티에이전트 토론에서 생성 | Ollama (로컬) |
+아이디어를 만드는 스케줄된 경로는 멀티에이전트 토론 하나이고 `ideas.source_type` 은
+`debate` 다 (2026-09-11 운영 DB: 3,467건 전부).
 
 ### 자동 점수화 및 프로젝트 생성 시스템
 
@@ -1131,8 +1120,8 @@ Signals (30분) → Trends (2시간) → Debate (6시간) → Ideas → Auto-Sco
 
 > **리뷰어에게 Mossland 가 무엇인지 알려주는 것은 `config.yaml` 의
 > `backlog.second_pass.org_profile` 뿐이다.** 스케줄된 경로 어디에서도 조직 설명이
-> 리뷰어에 도달하지 않는다 (`stages/ideation.py`·`backlog.py` 에 설명이 있지만
-> 둘 다 수동 `ao` CLI 전용). 그런데 프롬프트는 "Mossland 적합도"를 채점 기준으로
+> 리뷰어에 도달하지 않는다 (`stages/ideation.py` 에 설명이 있지만 수동 `ao` CLI
+> 전용이다). 그런데 프롬프트는 "Mossland 적합도"를 채점 기준으로
 > 요구한다 — 근거 없이 물으면 답은 "불분명"이고 그것은 demote 로 착지한다
 > (실측: demote 사유의 45.9%). 비워 두면 프롬프트가 그 사실을 밝히고 **해당 기준을
 > 채점에서 빼라고 지시**하므로 안전하게 실패하지만, 채워 넣는 편이 낫다.
@@ -1183,11 +1172,11 @@ Signals (30분) → Trends (2시간) → Debate (6시간) → Ideas → Auto-Sco
 
 ### GitHub 이슈 미러 은퇴
 
-아이디어·플랜을 GitHub 이슈로 하나씩 미러링하던 일은 끝났다. **스케줄된 코드는 이슈를
-만들지도, 라벨·코멘트를 달지도, 닫지도 않는다.** 공개 기록은 https://ao.moss.land 하나이고,
+아이디어·플랜을 GitHub 이슈로 하나씩 미러링하던 일은 끝났다. **이 저장소의 어떤 코드도 이슈를
+만들지도, 읽지도, 라벨·코멘트를 달지도, 닫지도 않는다.** 공개 기록은 https://ao.moss.land 하나이고,
 `ideas`·`plans` 의 `github_issue_id`·`github_issue_url` 은 기존 행 값 그대로 남는다(쓰는 코드는
-없다). `tests/test_issue_mirror_retired.py` 가 `scheduler/*.py` 어디에도 GitHub 이슈 클라이언트(`github_client`·`GitHubClient`)를 쓰는 코드와
-`create_issue` 가 없음을 고정한다.
+없다). `tests/test_issue_mirror_retired.py` 는 `scheduler/*.py` 에 지워진 이슈 클라이언트의
+이름(`github_client`·`GitHubClient`)이나 `create_issue` 가 다시 들어오지 않음을 고정한다.
 
 **`placeholder` 는 옛 규칙이 남긴 행이고 영구히 남는다.** 플랜 행이 기획 문서 없이도 쓰이던
 시절의 `draft` 중 문서가 아니었던 행이며, 이 상태를 새로 쓰는 코드는 없다. `extra_metadata` 의
@@ -1199,9 +1188,13 @@ Signals (30분) → Trends (2시간) → Debate (6시간) → Ideas → Auto-Sco
 `/activity`, `/ideas/{id}` 와 계보)에 나오지 않고 `/plans/{id}`·`/plans?status=placeholder` 로만
 조회되며, approve·generate-project 는 409 다.
 
-수동 `ao backlog` CLI 는 스케줄 밖이라 건드리지 않았다 — 사람이 돌리면 지금도 이슈를 만들고
-라벨을 붙인다. `GITHUB_TOKEN` 은 그 CLI, 배포의 CI 상태 조회, 그리고 GitHub Events 시그널
-어댑터(선택, 레이트 리밋용)가 읽는다.
+2026-09-11 기준 열린 이슈 12건은 오너가 2026-06-26 에 `curated:keep` 으로 남긴 것이고, 기존
+이슈의 라벨이 무슨 뜻이었는지는 `docs/labels.md` 에 있다. `GITHUB_TOKEN` 을 읽는 곳은 배포의
+CI 상태 조회(`scripts/deploy.sh`)와 GitHub Events 시그널 어댑터 둘이고, 둘 다 공개 데이터에
+대한 GET 이라 토큰은 레이트 리밋을 올릴 뿐이다 — 쓰기 권한은 필요 없다. 단
+`scripts/deploy.sh` 는 CI 조회의 401/403 을 배포 차단으로 처리하므로 자동 배포 서버에는 넣어
+둔다 — 토큰이 없으면 서버 IP 의 익명 한도(시그널 어댑터도 같은 한도를 쓴다)가 찬 동안, 거부된
+토큰이면 매 틱 막힌다.
 
 ## 토론 시스템 (Multi-Stage Debate)
 
@@ -1388,16 +1381,16 @@ GPU(~8 GB)에 상주하는 모델은 두 개뿐이며 스왑이 발생하지 않
 | 경로 | 흐름 | 누가 통제하나 |
 |------|------|--------------|
 | **라우터** (파이프라인 전체) | `HybridLLMRouter.route()` → `provider.generate()` → `_make_request()` | 라우터 자신: 로컬 온리 플래그, `paid_tiers` 허용목록, 예산 확인, `record_usage` |
-| **레거시** (`ao` CLI 전용) | 스테이지·백로그의 `@property` → `provider.complete()` / `.chat()` → `_complete_with_retry()` → `_make_request()` | 팩토리의 `enforce_local_only()` + `BaseProvider._complete_with_retry`의 예산 확인·원장 기록 |
+| **레거시** (`ao` CLI 전용) | 스테이지의 `@property` → `provider.complete()` / `.chat()` → `_complete_with_retry()` → `_make_request()` | 팩토리의 `enforce_local_only()` + `BaseProvider._complete_with_retry`의 예산 확인·원장 기록 |
 
 - **레거시 경로는 스케줄된 곳 어디에서도 _호출되지_ 않는다.** 단, **import는 된다** —
   `agentic_orchestrator/__init__.py`가 `orchestrator.py`를 무조건 import하고 그것이
   다시 `stages/*`를 끌어오므로, 패키지의 어떤 서브모듈을 import하든(uvicorn의
   `api.main`, 모든 scheduler 태스크) `stages/*`가 로드된다. import는 과금과 무관하다:
   게이트는 import 시점이 아니라 팩토리 **호출** 시점에 작동한다. 실제 진입점은
-  `Orchestrator`·`BacklogOrchestrator`의 생성 지점이며 이는 `cli.py`에만 있다 —
-  즉 서버에서 사람이 치는 `ao step` / `ao loop` / `ao backlog run` / `process`뿐이다
-  (`docs/labels.md` 참조). **"import 안 된다"고 쓰지 말 것 — 틀린 문장이다.**
+  `Orchestrator`의 생성 지점이며 이는 `cli.py`의 `create_orchestrator()`에만 있다 —
+  즉 서버에서 사람이 치는 `ao` 명령뿐이고, 그중 스테이지를 실행해 유료 모델에 닿는 것은
+  `ao step` / `ao loop` / `ao resume`이다. **"import 안 된다"고 쓰지 말 것 — 틀린 문장이다.**
 - **`create_claude_provider` / `create_openai_provider` / `create_gemini_provider`는
   `MOSS_LOCAL_LLM_ONLY`가 켜져 있으면 생성 자체를 거부한다** (`PaidProviderBlockedError`).
   `dry_run=True`만 면제 — 리허설은 네트워크에 나가지 않기 때문. 플래그가 미설정이거나
@@ -1510,35 +1503,6 @@ project:
     fallback: "gemma3:4b"
   output_dir: "projects"
 ```
-
-## 스케줄러에 연결되지 않은 기능
-
-### GitHub 라벨 기반 승격 워크플로우
-
-**두 라벨 다 소비자는 구현돼 있고, 둘 다 PM2 에서 호출되지 않는다.**
-`run_cycle` 은 수동 `ao backlog run` / `ao backlog process` 로만 도달하며,
-`moss-ao-backlog` 는 전혀 다른 함수를 돌린다.
-
-수동 `ao backlog run` / `process` 가 GitHub 이슈의 라벨을 읽어 처리한다. 스케줄된 코드는 더 이상
-라벨을 붙이지 않으므로(위 [GitHub 이슈 미러 은퇴](#github-이슈-미러-은퇴)) 새 `promote:to-plan`
-은 사람이 붙이거나, 사람이 플랜을 거절하면(`reject:plan` 라벨 또는 `ao backlog reject`) CLI 의
-`reject_plan()` 이 아이디어에 다시 붙인다. 그러나 열린 채 남은 기존 이슈에는 봇이 예전에
-붙인 라벨이 남아 있을 수 있다
-(2026-09-10 기준 #698) — `ao backlog run` / `process` 를 돌리거나 `run_cycle` 을 스케줄에
-올리기 전에 그런 이슈부터 확인할 것.
-
-- `promote:to-plan`: Idea → Plan 자동 생성 — **라벨과 소비자는 이미 구현돼 있다**
-  (`GitHubClient.find_ideas_to_promote` → `BacklogOrchestrator.run_cycle`).
-  없는 것은 **스케줄러 엔트리**다: `run_cycle` 은 수동 `ao backlog run` /
-  `ao backlog process` 에서만 도달 가능하고, PM2 의 `moss-ao-backlog` 는 전혀
-  다른 함수(`run_backlog_triage` + 리텐션)를 돌린다.
-- `promote:to-dev`: Plan → Project 스캐폴드 생성 — **이것도 구현돼 있다**
-  (`GitHubClient.find_plans_to_promote` → `DevScaffolder.scaffold_from_plan`,
-  같은 `run_cycle` 의 4단계). 스텁이 아니라 프로젝트 트리를 만들고 커밋하고
-  `processed:to-dev` 를 달고 이슈에 코멘트한다. 없는 것은 위와 똑같이
-  스케줄러 엔트리뿐이다.
-
-자세한 내용: `docs/labels.md`
 
 ## 참고 링크
 

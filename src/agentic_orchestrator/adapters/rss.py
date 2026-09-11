@@ -8,8 +8,8 @@ Collects signals from RSS feeds across multiple categories:
 - Security
 - Dev/Tech
 
-The feed list is read from config.yaml's top-level `feeds` section, which is
-the single source of truth shared with trend analysis (trends/feeds.py).
+The feed list is read from config.yaml's top-level `feeds` section, the single
+source of truth for every RSS feed the system reads.
 """
 
 import asyncio

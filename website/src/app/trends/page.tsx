@@ -133,17 +133,6 @@ export default function TrendsPage() {
             ))
           )}
         </div>
-
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-          className="mt-8 rounded-lg border border-zinc-800 bg-zinc-900/50 p-6 text-center"
-        >
-          <div className="font-mono text-sm text-zinc-500">{t('trends.schedule')}</div>
-          <div className="mt-2 text-white">{t('trends.scheduleTime')}</div>
-          <div className="mt-1 text-sm text-zinc-500">{t('trends.scheduleDesc')}</div>
-        </motion.div>
       </div>
     </div>
   );

@@ -103,13 +103,6 @@ export function AgentDetail({ data }: AgentDetailProps) {
     planning: 'purple',
   };
 
-  const roleColors: Record<string, 'green' | 'cyan' | 'orange' | 'purple'> = {
-    founder: 'green',
-    vc: 'cyan',
-    accelerator: 'orange',
-    founder_friend: 'purple',
-  };
-
   const axisValues = PERSONALITY_AXES.map((axis) => ({
     axis,
     value: agent.personality?.[axis],
@@ -133,7 +126,7 @@ export function AgentDetail({ data }: AgentDetailProps) {
           <div className="text-sm text-[#00ffff]">@{agent.handle}</div>
         )}
         <div className="flex items-center justify-center gap-2 mt-2">
-          <TerminalBadge variant={roleColors[agent.role] || 'green'}>
+          <TerminalBadge variant="green">
             {agent.role}
           </TerminalBadge>
           <TerminalBadge variant={phaseColors[agent.phase] || 'cyan'}>
@@ -179,15 +172,6 @@ export function AgentDetail({ data }: AgentDetailProps) {
           </div>
         </div>
       )}
-
-      {/* Role Perspective */}
-      <div className="card-cli p-4">
-        <div className="text-xs text-[#8b949e] uppercase mb-2">{t('detail.rolePerspective')}</div>
-        <div className="text-sm text-[#c0c0c0]">
-          {t(`role.${agent.role}.perspective`)}
-        </div>
-      </div>
-
     </motion.div>
   );
 }

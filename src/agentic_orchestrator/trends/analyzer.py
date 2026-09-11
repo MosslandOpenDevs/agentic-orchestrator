@@ -119,7 +119,7 @@ Prioritize trends with:
 
         Args:
             items: List of feed items to analyze.
-            period: Time period being analyzed (24h, 1w, 1m).
+            period: Analysis period label for the prompt, e.g. "24h".
             max_trends: Maximum number of trends to identify.
 
         Returns:
@@ -254,8 +254,6 @@ Prioritize trends with:
         # Map period to human-readable
         period_labels = {
             "24h": "last 24 hours",
-            "1w": "past week",
-            "1m": "past month",
         }
         period_label = period_labels.get(period, period)
 
@@ -582,34 +580,3 @@ Focus on actionable insights and Web3 opportunities. Be specific and detailed. W
             sources_analyzed=sources,
             categories_analyzed=categories,
         )
-
-    async def analyze_all_periods(
-        self,
-        items: list[FeedItem],
-    ) -> dict[str, TrendAnalysis]:
-        """
-        Analyze trends across all configured time periods.
-
-        Args:
-            items: All fetched feed items.
-
-        Returns:
-            Dictionary mapping period to TrendAnalysis.
-        """
-        from .feeds import FeedFetcher
-
-        fetcher = FeedFetcher(self.config)
-        results: dict[str, TrendAnalysis] = {}
-
-        periods = self.config.get("trends", "periods", default=["24h", "1w", "1m"])
-
-        for period in periods:
-            filtered_items = fetcher.filter_by_period(items, period)
-            analysis = await self.analyze_trends(filtered_items, period)
-            results[period] = analysis
-            logger.info(
-                f"Analyzed {period}: {len(analysis.trends)} trends from "
-                f"{analysis.raw_article_count} articles"
-            )
-
-        return results

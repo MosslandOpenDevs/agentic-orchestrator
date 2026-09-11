@@ -216,7 +216,7 @@ tail -f logs/deploy.log
 | `DEPLOY_REQUIRE_CI` | `1` | `0`이면 CI 결과와 무관하게 배포 |
 | `DEPLOY_REQUIRE_CI_JOBS` | (없음) | 반드시 통과해야 할 check-run 이름들(쉼표 구분). 예: `test (3.12),test (3.13),lint,website` |
 | `DEPLOY_ALERT_WEBHOOK` | (없음) | 실패·롤백 시 알릴 Slack/Discord 웹훅 |
-| `GITHUB_TOKEN` | (없음) | 선택. CI 상태 조회의 rate limit 완화용 |
+| `GITHUB_TOKEN` | (없음) | 자동 배포 서버에는 넣어 둘 것. CI 조회가 401/403 이면 배포가 막힌다 — 토큰이 없으면 서버 IP 의 익명 한도(시그널 어댑터도 같은 한도를 쓴다)가 찬 동안, 거부된 토큰이면 매 틱. 공개 데이터 GET 뿐이라 쓰기 권한은 필요 없다 |
 | `DEPLOY_VERBOSE` | `0` | `1`이면 변경 없는 틱도 로그에 남김 |
 | `DEPLOY_RETRY_BASE_MIN` | `5` | 첫 실패 후 재시도 대기(분). 실패마다 2배 |
 | `DEPLOY_RETRY_MAX_MIN` | `60` | 백오프 상한(분) |
@@ -307,7 +307,7 @@ python -m agentic_orchestrator.scheduler restore-db
 | `backing off (retry Nm ...)` 반복 | 같은 커밋이 계속 실패해 재시도 간격을 늘리는 중. 원인 수정 커밋을 머지하면 즉시 재개, 급하면 `--force` |
 | `lock owner (pid N) is gone -- reclaiming` | 이전 폴러가 SIGKILL로 죽어 락을 못 지웠음. 자동 회수 — 정보성 로그 |
 | `CI: still running -- deferring` 반복 | CI가 아직 진행 중이거나 멈춤. Actions 탭 확인 |
-| `CI: status unavailable` 반복 | GitHub API 접근 실패(레이트 리밋 등). `GITHUB_TOKEN` 설정 검토 |
+| `CI: status unavailable` 반복 | GitHub API 접근 실패(네트워크 오류, 401/403 이외의 HTTP 응답). 401/403 은 `DEPLOYS ARE BLOCKED` 로 따로 뜬다 |
 | `scheduler busy` 로 계속 밀림 | 토론이 오래 걸리는 중. 급하면 `--force` |
 | `REMINDER ecosystem.config.js changed ...` 반복 | PM2 프로세스 정의(cron·env)는 자동 재등록되지 않음. **로그인 셸에서 삭제 후 재등록** 후 `rm logs/.ecosystem-pending` — 명령과 주의사항은 아래 [`.env`를 고쳤는데 프로세스가 옛 값을 들고 있다](#env를-고쳤는데-프로세스가-옛-값을-들고-있다-2026-08-06-사고) 참조. **`pm2 restart ecosystem.config.js --update-env`로는 안 된다** (설정 파일 형태는 `.env` 키를 갱신하지 못함). PM2 관리 프로세스 안에서 실행 금지 ([cron_restart 오염](#pm2-cron_restart-오염-2026-08-05-사고)). 이 알림은 파일을 지울 때까지 매 틱 반복됩니다 — 예전에는 배포 한 번만 안내하고 사라져서 변경이 무기한 미적용으로 남을 수 있었습니다 |
 | `CRITICAL rollback ... unhealthy` | 배포도 롤백도 헬스체크 실패. `pm2 logs moss-ao-api` 확인 후 수동 개입 |

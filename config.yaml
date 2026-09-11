@@ -105,7 +105,7 @@ throttling:
 #
 # ONE POT, TWO CONSUMERS. This ledger (`api_usage`) is now shared:
 #   1. the scheduled paid debate tier (llm.paid_tiers.debate), via the router
-#   2. manual `ao` CLI runs (`ao step` / `ao loop` / `ao backlog run`), which
+#   2. manual `ao` CLI runs (`ao step` / `ao loop` / `ao resume`), which
 #      were unmetered before the legacy paths were gated — they wrote nothing
 #      here, so debates always saw the full budget
 # The router reads `can_use_api` from this same ledger, so spend from a manual
@@ -500,37 +500,6 @@ logging:
   file: logs/orchestrator.log
 
 # =============================================================================
-# Trend Analysis Configuration
-# =============================================================================
-trends:
-  # Idea generation mix
-  ideas:
-    traditional_count: 1  # Mossland-focused ideas
-    trend_based_count: 2  # Trend-based ideas
-
-  # Time periods to analyze
-  periods:
-    - 24h
-    - 1w
-    - 1m
-
-  # Feed fetching settings
-  fetch:
-    timeout_seconds: 30
-    max_retries: 3
-    user_agent: "Agentic-Orchestrator/1.0"
-
-  # Storage settings
-  storage:
-    directory: data/trends
-    retention_days: 90
-
-  # RSS feed sources moved to the top-level `feeds:` section below, which is
-  # now the single source of truth shared by trend analysis AND signal
-  # collection. `trends.feeds` is still read as a fallback for deployments
-  # carrying a locally modified config.yaml, but should be considered removed.
-
-# =============================================================================
 # SignalMap export feed (v0.6.24)
 # =============================================================================
 # The 12th signal adapter, and the only one reading another Mossland service
@@ -591,19 +560,19 @@ signalmap:
 # =============================================================================
 # RSS Feed Sources (canonical)
 # =============================================================================
-# SINGLE SOURCE OF TRUTH for every RSS feed the system reads. Consumed by:
-#   - signal collection: adapters/rss.py RSSAdapter (via signals/aggregator.py)
-#   - trend analysis:    trends/feeds.py FeedFetcher
+# SINGLE SOURCE OF TRUTH for every RSS feed the system reads. Consumed by
+# signal collection: adapters/rss.py RSSAdapter (via signals/aggregator.py).
+# When this section is absent, RSSAdapter still falls back to the pre-0.6.11
+# `trends.feeds` location, which should be considered removed.
 #
-# Before 0.6.11 these two paths used two divergent lists (16 feeds here vs 32
-# hardcoded in adapters/rss.py); this section is their merged union. Edit feeds
-# here only — no code change or redeploy required.
+# Before 0.6.11 signal collection and trend analysis used two divergent lists
+# (32 hardcoded in adapters/rss.py vs 16 here under `trends.feeds`); this
+# section is their merged union. Edit feeds here only — no code change or
+# redeploy required.
 #
 # Per-feed keys: name (required), url (required), enabled (default true).
 # The `feeds` value must be a mapping of category -> list of feeds; a flat list
 # or scalar is rejected at load time and falls back to the built-in defaults.
-# (trends/models.py FeedConfig also parses a `weight` field, but no code reads
-#  it today — setting it has no effect.)
 feeds:
   # AI / Research / Big Tech
   ai:

@@ -72,34 +72,6 @@ export default function DebatesPage() {
           </p>
         </motion.div>
 
-        {/* Debate Explanation */}
-        <TerminalWindow title="MULTI_AGENT_DEBATE_SYSTEM" className="mb-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-            {['Founder', 'VC', 'Accelerator', 'Founder Friend'].map((role, idx) => (
-              <motion.div
-                key={role}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.1 }}
-                className="p-3 rounded bg-black/20"
-              >
-                <div className="text-2xl mb-1">
-                  {['🚀', '💰', '🎯', '🤝'][idx]}
-                </div>
-                <div className={`text-xs font-bold ${['text-[#39ff14]', 'text-[#00ffff]', 'text-[#ff6b35]', 'text-[#bd93f9]'][idx]}`}>
-                  {role}
-                </div>
-                <div className="text-[10px] text-[#8b949e] mt-1">
-                  {t(`role.${role.toLowerCase().replace(' ', '')}.perspective`)}
-                </div>
-              </motion.div>
-            ))}
-          </div>
-          <div className="text-center text-xs text-[#8b949e] mt-4">
-            {t('debates.rotationInfo')}
-          </div>
-        </TerminalWindow>
-
         {/* Filters */}
         <TerminalWindow title="FILTERS" className="mb-6">
           <div className="flex flex-wrap gap-4">

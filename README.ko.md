@@ -11,7 +11,7 @@
 - **멀티 스테이지 토론**: 34개 AI 에이전트가 3단계(발산 → 수렴 → 기획)를 거쳐 토론
 - **[다양한 시그널 소스](#시그널-소스)**: RSS, GitHub, 온체인, 소셜, 뉴스, 마켓 데이터에 SignalMap canonical 내러티브 스토어를 더한 12개 어댑터
 - **하이브리드 LLM 라우팅**: 로컬 Ollama 모델 + 클라우드 API 폴백 지능형 라우팅
-- **휴먼 인 더 루프**: 라벨 프로모션을 통해 개발할 아이디어를 사람이 선택
+- **휴먼 인 더 루프**: 자동 승인 점수에 못 미친 플랜은 draft 로 저장되고 사람이 승인한다 (`POST /plans/{id}/approve`)
 - **PM2 스케줄링**: PM2를 통한 자동화된 작업 스케줄링 (시그널, 트렌드, 토론, 백로그, 헬스체크)
 - **CLI 스타일 대시보드**: https://ao.moss.land 레트로 터미널 테마 웹 인터페이스
 - **REST API**: 프로그래밍 방식 접근을 위한 FastAPI 백엔드
@@ -236,7 +236,7 @@ FastAPI 백엔드는 REST API 접근을 제공합니다:
 | 어댑터 | 수집 내용 | 추적 범위 | 인증 |
 |--------|-----------|-----------|------|
 | RSS | AI, Crypto, Finance, Security, Dev 카테고리 피드 기사 | 활성 피드 31개 (아래 목록) | — |
-| GitHub Events | 저장소 활동, 트렌딩 프로젝트, 이슈·PR 분석 | — | — |
+| GitHub Events | 트렌딩 저장소, 릴리스 | — | — |
 | 온체인 | 웨일 트랜잭션 알림, DEX 거래량·스테이블코인 흐름(DefiLlama), DeFi 프로토콜 메트릭 | — | — |
 | 소셜 미디어 | Reddit 게시물, 커뮤니티 감성 분석 | 서브레딧 11개 | — |
 | News API | 실시간 뉴스 집계, 키워드 기반 필터링 | — | — |
@@ -248,8 +248,8 @@ FastAPI 백엔드는 REST API 접근을 제공합니다:
 | Threads | Meta Threads 계정 공개 프로필 스크래핑 | 계정 3개 | — |
 | SignalMap | 다른 모스랜드 서비스의 발행 피드 — 한국어 YouTube 내러티브 요약과 마켓 펄스, **canonical** 토픽·엔티티·이벤트 ID 포함 (AO는 소비만 하고 만들지 않음) | 시그널 6,747 + 펄스 5,112, 커서 페이징 | `SIGNALMAP_EXPORT_TOKEN` (선택 — 현재 발행은 열려 있음) |
 
-RSS 피드는 `config.yaml`의 최상위 `feeds:` 섹션에 정의되며, 시그널 수집과 트렌드 분석이 이
-목록 하나를 공유한다. 피드 추가·수정은 이 파일만 편집하면 되고 코드 변경은 필요 없다.
+RSS 피드는 `config.yaml`의 최상위 `feeds:` 섹션에 정의되며, 시그널 수집이 이 목록을 읽는다.
+피드 추가·수정은 이 파일만 편집하면 되고 코드 변경은 필요 없다.
 
 - **AI** (9개): OpenAI News, Google AI, arXiv AI, TechCrunch AI, Hacker News, Hugging Face, DeepMind, BAIR, Lil'Log
 - **Crypto** (7개): CoinDesk, Cointelegraph, Decrypt, The Defiant, CryptoSlate, Ethereum Blog, Solana
@@ -264,9 +264,7 @@ RSS 피드는 `config.yaml`의 최상위 `feeds:` 섹션에 정의되며, 시그
 
 | 변수 | 설명 | 필수 |
 |------|------|------|
-| `GITHUB_TOKEN` | 수동 `ao backlog` CLI 용 GitHub PAT. GitHub Events 어댑터·배포 CI 조회에는 선택 | `ao backlog` 사용 시 |
-| `GITHUB_OWNER` | 저장소 소유자 | `ao backlog` 사용 시 |
-| `GITHUB_REPO` | 저장소 이름 | `ao backlog` 사용 시 |
+| `GITHUB_TOKEN` | 배포의 CI 상태 조회와 GitHub Events 시그널 어댑터의 GitHub 레이트 리밋을 올린다. 둘 다 공개 데이터를 읽기만 하므로 쓰기 권한은 필요 없다 | 자동 배포 서버에서 (`DEPLOY_REQUIRE_CI=1`, 기본값) |
 | `ANTHROPIC_API_KEY` | Claude API 키 | 클라우드 모드용 |
 | `OPENAI_API_KEY` | OpenAI API 키 | 클라우드 모드용 |
 | `GEMINI_API_KEY` | Gemini API 키 | 클라우드 모드용 |

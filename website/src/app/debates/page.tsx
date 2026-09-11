@@ -131,36 +131,6 @@ export default function DebatesPage() {
           </p>
         </motion.div>
 
-        {/* How Debates Work */}
-        <TerminalWindow title="HOW_DEBATES_WORK" className="mb-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center mb-4">
-            {[
-              { role: 'Founder', icon: '🚀', color: 'text-[#39ff14]', desc: 'Vision & execution' },
-              { role: 'VC', icon: '💰', color: 'text-[#00ffff]', desc: 'Market & returns' },
-              { role: 'Accelerator', icon: '🎯', color: 'text-[#ff6b35]', desc: 'Strategy & growth' },
-              { role: 'Friend', icon: '🤝', color: 'text-[#bd93f9]', desc: 'Reality check' },
-            ].map((agent, idx) => (
-              <motion.div
-                key={agent.role}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.1 }}
-                className="p-4 rounded bg-black/20 border border-[#21262d]"
-              >
-                <div className="text-3xl mb-2">{agent.icon}</div>
-                <div className={`text-sm font-bold ${agent.color}`}>{agent.role}</div>
-                <div className="text-[10px] text-[#8b949e] mt-1">{agent.desc}</div>
-              </motion.div>
-            ))}
-          </div>
-          <div className="text-center text-xs text-[#8b949e] border-t border-[#21262d] pt-4">
-            Agents rotate through roles: <span className="text-[#00ffff]">Proposer</span> →
-            <span className="text-[#39ff14]"> Supporter</span> →
-            <span className="text-[#ff6b35]"> Challenger</span> →
-            <span className="text-[#bd93f9]"> Synthesizer</span>
-          </div>
-        </TerminalWindow>
-
         {/* Debate Phases */}
         <TerminalWindow title="DEBATE_PHASES" className="mb-6">
           <div className="flex flex-col md:flex-row justify-center gap-4 py-4">
