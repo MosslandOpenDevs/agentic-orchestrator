@@ -22,10 +22,10 @@ issues, and by people, who used them to give it instructions.
 | `processed:to-dev` | A project was generated from this plan |
 | `reject:plan` | A person rejected this plan and asked for a new one |
 | `rejected` | The plan was closed after that rejection |
-| `curated:keep` | Keep this issue open |
+| `curated:keep` | Kept by hand in the 2026-06 issue cleanup |
 
 ## Open issues
 
-The 12 open issues — #1, #5, #59, #62, #529, #570, #730, #731, #750, #762, #1011 and #2820 — are the
-`curated:keep` shortlist the owner chose on 2026-06-26 (checked 2026-09-11). Nothing reads or writes
-them. Closing an issue deletes nothing, and a closed issue can be reopened.
+None (checked 2026-09-11). The last 12 — #1, #5, #59, #62, #529, #570, #730, #731, #750, #762, #1011
+and #2820, the `curated:keep` shortlist the owner chose on 2026-06-26 — were closed on 2026-09-11 with a
+note, and the label stays on them. Closing an issue deletes nothing, and a closed issue can be reopened.
