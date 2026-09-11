@@ -1188,8 +1188,9 @@ Signals (30분) → Trends (2시간) → Debate (6시간) → Ideas → Auto-Sco
 `/activity`, `/ideas/{id}` 와 계보)에 나오지 않고 `/plans/{id}`·`/plans?status=placeholder` 로만
 조회되며, approve·generate-project 는 409 다.
 
-2026-09-11 기준 열린 이슈 12건은 오너가 2026-06-26 에 `curated:keep` 으로 남긴 것이고, 기존
-이슈의 라벨이 무슨 뜻이었는지는 `docs/labels.md` 에 있다. `GITHUB_TOKEN` 을 읽는 곳은 배포의
+오너가 2026-06-26 에 `curated:keep` 으로 남겼던 마지막 12건도 2026-09-11 에 닫아 열린 이슈는
+없다(같은 날 확인). 기존 이슈의 라벨이 무슨 뜻이었는지는 `docs/labels.md` 에 있다.
+`GITHUB_TOKEN` 을 읽는 곳은 배포의
 CI 상태 조회(`scripts/deploy.sh`)와 GitHub Events 시그널 어댑터 둘이고, 둘 다 공개 데이터에
 대한 GET 이라 토큰은 레이트 리밋을 올릴 뿐이다 — 쓰기 권한은 필요 없다. 단
 `scripts/deploy.sh` 는 CI 조회의 401/403 을 배포 차단으로 처리하므로 자동 배포 서버에는 넣어
