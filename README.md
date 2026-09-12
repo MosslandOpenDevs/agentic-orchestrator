@@ -1,5 +1,12 @@
 # Mossland Agentic Orchestrator
 
+<!-- opendevs-badges:start -->
+[![Lifecycle: Lab](https://img.shields.io/badge/Lifecycle-Lab-eab308?style=flat)](https://links.moss.land/ecosystem-registry.json)
+[![CI](https://github.com/MosslandOpenDevs/agentic-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/MosslandOpenDevs/agentic-orchestrator/actions/workflows/ci.yml)
+[![Website: ao.moss.land](https://img.shields.io/badge/Website-ao.moss.land-2563eb?style=flat)](https://ao.moss.land/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-64748b?style=flat)](https://github.com/MosslandOpenDevs/agentic-orchestrator/blob/main/LICENSE)
+<!-- opendevs-badges:end -->
+
 > **Status of this repository:** **`Lifecycle: Lab`** (실험, best-effort) — per [MIP-1](https://agora.moss.land/proposals/6a85129f8be190cf5d2ebcc1), ratified 2026-09-02, and the [links.moss.land registry](https://links.moss.land/ecosystem-registry.json) entry `ao`. May change or stop without notice.
 
 [한국어](README.ko.md) | **English**

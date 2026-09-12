@@ -1,5 +1,12 @@
 # Mossland Agentic Orchestrator
 
+<!-- opendevs-badges:start -->
+[![Lifecycle: Lab](https://img.shields.io/badge/Lifecycle-Lab-eab308?style=flat)](https://links.moss.land/ecosystem-registry.json)
+[![CI](https://github.com/MosslandOpenDevs/agentic-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/MosslandOpenDevs/agentic-orchestrator/actions/workflows/ci.yml)
+[![Website: ao.moss.land](https://img.shields.io/badge/Website-ao.moss.land-2563eb?style=flat)](https://ao.moss.land/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-64748b?style=flat)](https://github.com/MosslandOpenDevs/agentic-orchestrator/blob/main/LICENSE)
+<!-- opendevs-badges:end -->
+
 **한국어** | [English](README.md)
 
 모스랜드 생태계를 위한 마이크로 Web3 서비스를 발굴, 기획, 구현하는 자율 멀티 에이전트 오케스트레이션 시스템입니다.
