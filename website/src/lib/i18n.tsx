@@ -494,6 +494,9 @@ const translations: Record<Locale, Record<string, string>> = {
     'ecosystem.algora.desc': 'AI Deliberation Lab',
     'ecosystem.ao.desc': 'Agentic Orchestrator',
     'ecosystem.newTab': 'opens in new tab',
+    // AI content labelling policy v1.0 §4 service notice (footer)
+    'footer.aiNotice': 'This service includes AI-generated content. Some content may not have been reviewed by a person. For reference only.',
+    'footer.aiPolicy': 'AI-Generated Content Labelling Policy',
   },
   ko: {
     'nav.dashboard': '대시보드',
@@ -973,6 +976,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'ecosystem.algora.desc': 'AI 숙의 실험실',
     'ecosystem.ao.desc': '에이전트 오케스트레이터',
     'ecosystem.newTab': '새 탭에서 열림',
+    'footer.aiNotice': '이 서비스에는 AI가 자동 생성한 내용이 포함됩니다. 사람이 검토하지 않은 내용이 있을 수 있으며, 참고용입니다.',
+    'footer.aiPolicy': 'AI 생성 콘텐츠 표시 정책',
   },
 };
 

@@ -7,6 +7,10 @@ import { ApiClient } from '@/lib/api';
 import type { SystemHealth } from '@/lib/types';
 import { APP_VERSION, APP_CODENAME } from '@/lib/version';
 
+// Mossland AI content labelling policy v1.0 (§4 service notice).
+const AI_POLICY_URL =
+  'https://github.com/mossland/Disclosure-and-Materials/blob/main/disclosures/2026/2026-09-16_ai-content-labelling-policy.md';
+
 // Mossland ecosystem wayfinding — order and content are kept identical
 // across the sister sites (BRIDGE, Algora, MOSS.AO); only styling is local.
 const ecosystemSites = [
@@ -116,6 +120,17 @@ export function Footer() {
             <p className="text-[10px] text-[#8b949e] leading-relaxed">
               Multi-agent AI orchestration system<br />
               for the Mossland ecosystem
+            </p>
+            <p className="mt-2 text-[10px] text-[#8b949e] leading-relaxed">
+              {t('footer.aiNotice')}{' '}
+              <a
+                href={AI_POLICY_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-[#39ff14]"
+              >
+                {t('footer.aiPolicy')}
+              </a>
             </p>
             <div className="mt-3 text-[10px] text-[#8b949e]">
               <span className="text-[#bd93f9]"># </span>
