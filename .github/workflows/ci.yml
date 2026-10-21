@@ -126,5 +126,7 @@ jobs:
 
       # Production dependencies only: a dev-tool advisory should not block a
       # merge, but a vulnerable package shipped to ao.moss.land should.
+      # website/.npmrc sets include=dev for the server build, which wins over
+      # --omit=dev on its own, so ask for prod explicitly.
       - name: Audit production dependencies
-        run: npm audit --omit=dev
+        run: npm audit --omit=dev --include=prod
